@@ -135,6 +135,24 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       }
       break;
 
+    // Route-aware charging: the depot plan was written (loadManagement:read).
+    case 'fleetCharging.updated':
+      if (siteId != null) {
+        keys.push(['site-charging-plan', siteId]);
+        keys.push(['sites', siteId, 'layout']);
+      }
+      keys.push(['fleet-departures']);
+      break;
+
+    // Departures of a depot were created, edited, cancelled, imported or completed (fleets:read).
+    case 'departure.changed':
+      keys.push(['fleet-departures']);
+      if (siteId != null) {
+        keys.push(['site-charging-plan', siteId]);
+        keys.push(['sites', siteId, 'layout']);
+      }
+      break;
+
     case 'ocpp.message':
       if (stationId != null) {
         keys.push(['stations', stationId, 'ocpp-logs']);

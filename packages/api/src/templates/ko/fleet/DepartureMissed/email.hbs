@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
+<h2 style='color:#1a1a1a;margin:0 0 8px 0;font-size:20px;'>출발 목표 미달성</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{vehicleName}}{{#if licensePlate}}({{licensePlate}}){{/if}} 차량의 {{siteName}} {{departureAt}} 출발 시각이 지났습니다. {{#if noVehicle}}차량이 충전기에 연결되지 않았습니다{{else}}충전 목표에 도달하지 못했습니다: {{deliveredKwh}} kWh 충전{{#if targetKwh}}(목표 {{targetKwh}} kWh){{/if}}{{#if targetSocPercent}}, 목표 충전 상태 {{targetSocPercent}}%{{/if}}{{/if}}.</p>
+<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{readinessUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>차량 준비 상태 열기</a></td></tr></table>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>이 사이트의 차량을 관리하고 있어 이 알림을 받습니다. 출발마다 한 번 발송됩니다.</p>

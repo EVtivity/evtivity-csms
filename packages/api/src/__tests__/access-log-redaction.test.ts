@@ -134,6 +134,18 @@ describe('redactAccessLogBody', () => {
     expect(redactAccessLogBody('/v1/portal/driver/avatar/image', confirm)).toEqual(confirm);
   });
 
+  it('logs a battery or solar reading as sent: it holds no secret', () => {
+    const reading = {
+      reportedAt: '2026-11-03T12:00:00.000Z',
+      powerKw: -40,
+      availableKw: 120,
+      socPercent: 55,
+    };
+    expect(redactAccessLogBody('/v1/sites/sit_a/energy-assets/ena_a/reading', reading)).toEqual(
+      reading,
+    );
+  });
+
   it('keeps OCPP idToken identifiers and token metadata', () => {
     expect(
       redactAccessLogBody('/v1/tokens', {
@@ -265,6 +277,13 @@ describe('redactAccessLogBody', () => {
     const out = redactAccessLogBody('/v1/sims/import', { rows, updateExisting: true });
     expect(out).toEqual({ rows: 2, updateExisting: true });
     expect(JSON.stringify(out)).not.toContain('8900000000000000300');
+  });
+
+  it('logs only the size of a departure CSV import', () => {
+    const csv = 'vehicle,departureAt,route\r\nBUS-7,2030-03-04T06:00:00Z,Route 12\n\n';
+    const out = redactAccessLogBody('/v1/fleets/:id/departures/import', { csv });
+    expect(out).toEqual({ csvBytes: Buffer.byteLength(csv, 'utf8'), csvRows: 2 });
+    expect(JSON.stringify(out)).not.toContain('BUS-7');
   });
 
   it('redacts an IMSI wherever it is sent', () => {

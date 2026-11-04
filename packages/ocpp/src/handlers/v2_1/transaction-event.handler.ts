@@ -135,6 +135,11 @@ export async function handleTransactionEvent(
         ? { stationTariffId: request.transactionInfo.tariffId }
         : {}),
       ...(request.costDetails != null ? { costDetails: request.costDetails } : {}),
+      // 2.1: the EV battery preconditioning status, reported to bus depot
+      // systems (features/vdv-463.md).
+      ...(request.preconditioningStatus != null
+        ? { preconditioningStatus: request.preconditioningStatus }
+        : {}),
     },
   });
 

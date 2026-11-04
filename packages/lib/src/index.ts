@@ -293,8 +293,65 @@ export {
   effectiveCircuitVoltageV,
   SUB_PANEL_PHASE_CONNECTIONS,
   isSubPanelPhaseConnectionAllowed,
+  TRANSFORMER_KINDS,
+  TRANSFORMER_PHASES,
+  TRANSFORMER_RATED_KVA_RANGE,
+  TRANSFORMER_POWER_FACTOR_RANGE,
+  TRANSFORMER_LOADING_LIMIT_RANGE,
+  computeTransformerCapacityKw,
 } from './load-allocation.js';
-export type { LoadAllocationStrategy, SubPanelPhaseConnection } from './load-allocation.js';
+export type {
+  LoadAllocationStrategy,
+  SubPanelPhaseConnection,
+  TransformerKind,
+} from './load-allocation.js';
+export {
+  ENERGY_ASSET_TYPES,
+  ENERGY_ASSET_GRID_CHARGING,
+  ENERGY_ASSET_TELEMETRY,
+  ENERGY_ASSET_READING_SOURCES,
+  ENERGY_ASSET_READING_TTL_RANGE,
+  ENERGY_ASSET_RESERVE_RANGE,
+  ENERGY_ASSET_RATING_RANGE,
+  ENERGY_ASSET_READING_POWER_RANGE,
+  ENERGY_ASSET_FUTURE_SKEW_MS,
+  isEnergyAssetReadingFresh,
+  energyAssetReadingFreshUntilMs,
+  energyAssetSupply,
+} from './energy-supply.js';
+export type {
+  EnergyAssetType,
+  EnergyAssetGridCharging,
+  EnergyAssetTelemetry,
+  EnergyAssetReadingSource,
+  EnergyAssetSupplyInput,
+  EnergyAssetSupply,
+} from './energy-supply.js';
+export {
+  HAURWITZ,
+  STC_IRRADIANCE_W_M2,
+  PVWATTS_DEFAULT_LOSSES,
+  PVWATTS_INVERTER_EFFICIENCY,
+  SIMULATED_BATTERY_WINDOWS,
+  simulatedBatteryDispatch,
+  SIMULATED_ROUND_TRIP_EFFICIENCY,
+  SIMULATED_SOC_WINDOW,
+  SIMULATED_BATTERY_STEP_MINUTES,
+  SIMULATED_BATTERY_SPAN_HOURS,
+  localSolarHour,
+  solarElevationDeg,
+  clearSkyGhiWm2,
+  simulatedSolarKw,
+  simulatedSolarReading,
+  siteHour,
+  simulatedBatteryMode,
+  simulatedBatteryReading,
+} from './energy-asset-simulation.js';
+export type {
+  SimulatedReading,
+  SimulatedBatteryInput,
+  SimulatedBatteryDispatch,
+} from './energy-asset-simulation.js';
 export { OCPI_PULL_MODULES, OCPI_TARIFF_SETTING_KEYS } from './ocpi-modules.js';
 export type { OcpiPullModule } from './ocpi-modules.js';
 export {

@@ -21,6 +21,7 @@ import {
   isRoamingEnabled,
   isPncEnabled,
   isFleetEnabled,
+  isFleetChargingEnabled,
   isGuestChargingEnabled,
   isAutochargeOffered,
   clearCompanyPortalUrlCache,
@@ -29,6 +30,8 @@ import {
   clearRoamingCache,
   clearSupportCache,
   clearFleetCache,
+  clearFleetChargingSettingCache,
+  clearVdv463SettingCache,
   clearGuestChargingCache,
   clearGuestVelocityCache,
   parseGuestVelocityLimit,
@@ -137,6 +140,7 @@ import { requestStationMessageRepush } from '@evtivity/services/station-message.
 import {
   STORAGE_PROVIDERS,
   parseStorageAllowedPrivateHosts,
+  r2EndpointBucket,
   validateR2Endpoint,
   validateStorageEndpoint,
 } from '@evtivity/services/storage';
@@ -161,6 +165,18 @@ function affectsNotificationSettings(key: string): boolean {
 
 const logger = createLogger('settings');
 
+// The bus depot interface switch: this process reads it again, and every API
+// process clears its cached value and closes its depot connections when it is
+// off (the kill switch; each connection also rechecks it before each request).
+function announceVdv463Switch(): void {
+  clearVdv463SettingCache();
+  void getPubSub()
+    .publish(DEPOT_SYSTEM_CHANGED_CHANNEL, JSON.stringify({ all: true }))
+    .catch((err: unknown) => {
+      logger.warn({ err }, 'Depot interface switch not published, connections recheck it');
+    });
+}
+
 async function invalidateNotificationSettings(): Promise<void> {
   clearNotificationSettingsCache();
   try {
@@ -176,6 +192,7 @@ async function invalidateNotificationSettings(): Promise<void> {
   }
 }
 import { zodSchema } from '../lib/zod-schema.js';
+import { DEPOT_SYSTEM_CHANGED_CHANNEL } from '../lib/depot-system-channel.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { clearObjectStorageCache, getObjectStorage } from '../services/storage.service.js';
@@ -228,7 +245,7 @@ function isCachedSystemSetting(key: string): boolean {
  */
 function normalizeSettingValue(key: string, value: unknown): { value: unknown } | null {
   if (isServerManagedSetting(key) || isDedicatedRouteSetting(key)) return null;
-  if (STORAGE_ENDPOINT_SETTING_KEYS.has(key)) return null;
+  if (isStorageSettingKey(key)) return null;
   // Data plan values (Settings > Integrations & Features > OCPP): ranges and
   // known measurands, the checks the Helm chart applies too.
   if (isDataPlanSettingKey(key)) {
@@ -382,9 +399,8 @@ const invalidMobileAppPackagesError = {
 
 /**
  * The storage provider and the endpoint it connects to, with the private hosts
- * it may reach. They decide where the storage credentials go, so only
- * PUT /v1/settings/s3 writes them, checking the endpoint against the allowlist
- * sent with it. The generic routes still return them.
+ * it may reach, as read when no row is stored. They decide where the storage
+ * credentials go; PUT /v1/settings/s3 compares a change with them.
  */
 const STORAGE_ENDPOINT_SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   's3.provider': 's3',
@@ -392,12 +408,19 @@ const STORAGE_ENDPOINT_SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   's3.forcePathStyle': false,
   's3.allowedPrivateHosts': [],
 };
-const STORAGE_ENDPOINT_SETTING_KEYS: ReadonlySet<string> = new Set(
-  Object.keys(STORAGE_ENDPOINT_SETTING_DEFAULTS),
-);
+/**
+ * Every storage setting (`s3.*`) is read and written only through
+ * /v1/settings/s3 (its fresh proof, the API key refusal and the R2 bucket
+ * check): the generic `/v1/settings/:key` routes refuse to read, write or
+ * delete one (security review AZ50-L1, AZ50-I3). The bulk `GET /v1/settings`
+ * still lists them for the CSMS storage card.
+ */
+export function isStorageSettingKey(key: string): boolean {
+  return key.startsWith('s3.');
+}
 
-const storageEndpointSettingError = {
-  error: 'The storage provider and endpoint are written through PUT /v1/settings/s3',
+const storageSettingError = {
+  error: 'Storage settings are read and written through /v1/settings/s3',
   code: 'VALIDATION_ERROR',
 };
 
@@ -593,7 +616,7 @@ function invalidSettingError(key: string, value?: unknown): { error: string; cod
     };
   }
   if (HUBJECT_URL_SETTING_KEYS.has(key)) return PRIVATE_HUBJECT_URL_ERROR;
-  if (STORAGE_ENDPOINT_SETTING_KEYS.has(key)) return storageEndpointSettingError;
+  if (isStorageSettingKey(key)) return storageSettingError;
   const aiError = invalidAiSettingError(key);
   if (aiError != null) return aiError;
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
@@ -664,6 +687,8 @@ function clearCachesForKey(key: string): void {
   if (key === 'roaming.enabled') clearRoamingCache();
   if (key === 'support.enabled') clearSupportCache();
   if (key === 'fleet.enabled') clearFleetCache();
+  if (key === 'fleetCharging.enabled') clearFleetChargingSettingCache();
+  if (key === 'vdv463.enabled') announceVdv463Switch();
   if (key === 'guest.enabled') clearGuestChargingCache();
   if (key === GUEST_STARTS_PER_IP_PER_HOUR_KEY || key === GUEST_DECLINES_PER_IP_PER_HOUR_KEY) {
     clearGuestVelocityCache();
@@ -914,6 +939,11 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .boolean()
                   .describe('Whether Plug and Charge (ISO 15118 contract certificates) is enabled'),
                 fleetEnabled: z.boolean().describe('Whether the fleet feature is enabled'),
+                fleetChargingEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether depot charging planning is on (fleetCharging.enabled): the planner, its charging profiles and the Departure Aware strategy. Departures can be entered either way',
+                  ),
                 guestChargingEnabled: z
                   .boolean()
                   .describe(
@@ -1001,6 +1031,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const roamingEnabled = await isRoamingEnabled();
       const pncEnabled = await isPncEnabled();
       const fleetEnabled = await isFleetEnabled();
+      const fleetChargingEnabled = await isFleetChargingEnabled();
       const guestChargingEnabled = await isGuestChargingEnabled();
       const autochargeEnabled = await isAutochargeOffered();
       const chatbotAiEnabled = await isChatbotAiEnabled();
@@ -1021,6 +1052,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         roamingEnabled,
         pncEnabled,
         fleetEnabled,
+        fleetChargingEnabled,
         guestChargingEnabled,
         autochargeEnabled,
         chatbotAiEnabled,
@@ -1121,6 +1153,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const hidden =
         isServerManagedSetting(key) ||
         isDedicatedRouteSetting(key) ||
+        isStorageSettingKey(key) ||
         !(await mayReadSettingKey(request, key));
       const [row] = hidden ? [] : await db.select().from(settings).where(eq(settings.key, key));
       if (row == null) {
@@ -1315,7 +1348,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
       if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
-      if (isServerManagedSetting(key) || isDedicatedRouteSetting(key)) {
+      if (isServerManagedSetting(key) || isDedicatedRouteSetting(key) || isStorageSettingKey(key)) {
         const { error } = invalidSettingError(key);
         await reply.status(400).send({ error, code: 'VALIDATION_ERROR' });
         return;
@@ -1422,12 +1455,14 @@ export function settingsRoutes(app: FastifyInstance): void {
       .max(2048)
       .optional()
       .describe(
-        'Endpoint URL, required for s3-compatible and r2. s3-compatible: without a path, https on a public host, or a host in allowedPrivateHosts (which may use http). r2: the S3 API URL of the account, https://<account id>.r2.cloudflarestorage.com (or its eu or fedramp jurisdiction); a bucket name after it is dropped',
+        'Endpoint URL, required for s3-compatible and r2. s3-compatible: without a path, https on a public host, or a host in allowedPrivateHosts (which may use http). r2: the S3 API URL of the account, https://<account id>.r2.cloudflarestorage.com (or its eu or fedramp jurisdiction); a bucket name after it must be the bucket and is not stored',
       ),
     forcePathStyle: z
       .boolean()
       .optional()
-      .describe('Address the bucket in the path instead of the host name (s3-compatible only)'),
+      .describe(
+        'Address the bucket in the path instead of the host name (s3-compatible only; Cloudflare R2 always uses the path and stores true)',
+      ),
     allowedPrivateHosts: z
       .array(z.string().max(253))
       .optional()
@@ -1452,6 +1487,12 @@ export function settingsRoutes(app: FastifyInstance): void {
       'The endpoint must be the S3 API URL of a Cloudflare R2 account: https://<account id>.r2.cloudflarestorage.com',
     code: 'VALIDATION_ERROR',
     field: 'endpoint',
+  };
+
+  const r2BucketMismatchError = {
+    error: 'The bucket name at the end of the S3 API URL is not the bucket entered',
+    code: 'VALIDATION_ERROR',
+    field: 'bucket',
   };
 
   const invalidStorageAllowedHostsError = {
@@ -1490,13 +1531,14 @@ export function settingsRoutes(app: FastifyInstance): void {
                 .enum([
                   'allowedPrivateHosts',
                   'endpoint',
+                  'bucket',
                   'region',
                   'accessKeyId',
                   'secretAccessKey',
                 ])
                 .optional()
                 .describe(
-                  'The refused field: the private hosts list, an R2 endpoint, a missing region for AWS S3, or a missing credential',
+                  'The refused field: the private hosts list, an R2 endpoint, an R2 URL naming another bucket, a missing region for AWS S3, or a missing credential',
                 ),
             },
           ),
@@ -1539,6 +1581,12 @@ export function settingsRoutes(app: FastifyInstance): void {
           await reply.status(400).send(invalidR2EndpointError);
           return;
         }
+        // A bucket name pasted after the URL must be the bucket entered.
+        const pastedBucket = r2EndpointBucket(body.endpoint);
+        if (pastedBucket != null && pastedBucket !== body.bucket.trim()) {
+          await reply.status(400).send(r2BucketMismatchError);
+          return;
+        }
         endpoint = validEndpoint;
       } else if (provider === 's3-compatible') {
         const hosts = parseStorageAllowedPrivateHosts(body.allowedPrivateHosts ?? []);
@@ -1569,7 +1617,9 @@ export function settingsRoutes(app: FastifyInstance): void {
         { key: 's3.endpoint', value: endpoint },
         {
           key: 's3.forcePathStyle',
-          value: provider === 's3-compatible' && body.forcePathStyle === true,
+          // R2 always addresses the bucket in the path, so it stores true.
+          value:
+            provider === 'r2' || (provider === 's3-compatible' && body.forcePathStyle === true),
         },
         { key: 's3.allowedPrivateHosts', value: allowedPrivateHosts },
         { key: 's3.bucket', value: body.bucket },

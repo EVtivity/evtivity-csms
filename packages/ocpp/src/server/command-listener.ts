@@ -377,6 +377,18 @@ export class CommandListener {
           payload,
           'Station offline, command not queued',
         );
+        if (action === 'SetChargingProfile') {
+          void this.eventBus.publish({
+            eventType: 'command.SetChargingProfile',
+            aggregateType: 'ChargingStation',
+            aggregateId: stationId,
+            payload: {
+              request: payload,
+              error: 'Station offline, command not queued',
+              notSent: true,
+            },
+          });
+        }
         if (commandId != null) {
           await this.pubsub.publish(
             RESULTS_CHANNEL,
@@ -464,17 +476,17 @@ export class CommandListener {
       // A charging profile the station answered with a CALLERROR is refused like
       // a Rejected reply: load management then treats the station as a fixed
       // load. A send error (station not connected) or a timeout says nothing
-      // about the profile, so it is not published.
-      if (
-        action === 'SetChargingProfile' &&
-        err instanceof Error &&
-        err.message.startsWith('CALLERROR ')
-      ) {
+      // about the profile: it is published as not sent, which only the depot
+      // plan reads (it sends the profile again at the next slot).
+      if (action === 'SetChargingProfile') {
+        const callError = err instanceof Error && err.message.startsWith('CALLERROR ');
         void this.eventBus.publish({
           eventType: 'command.SetChargingProfile',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, error: errorMessage },
+          payload: callError
+            ? { request: payload, error: errorMessage }
+            : { request: payload, error: errorMessage, notSent: true },
         });
       }
 

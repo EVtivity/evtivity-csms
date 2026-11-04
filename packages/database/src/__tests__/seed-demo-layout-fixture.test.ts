@@ -10,7 +10,13 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { showsLoadPanels } from '@evtivity/lib/site-layout';
-import { LAYOUT_DEMO } from '../seed-demo-layout-plan.js';
+import { layoutEquipmentRowId } from '../lib/layout-equipment-id.js';
+import {
+  LAYOUT_DEMO,
+  demoLayoutPositions,
+  demoPowerEquipment,
+  demoStepDowns,
+} from '../seed-demo-layout-plan.js';
 
 const FIXTURE = fileURLToPath(
   new URL(
@@ -23,13 +29,26 @@ const FIXTURE = fileURLToPath(
 function fixture(): unknown {
   const sites = LAYOUT_DEMO.sites
     .filter((s) => showsLoadPanels(s.settings))
-    .map((s) => ({
+    .map((s) => {
+      const stepDowns = demoStepDowns(s);
+      // The transformer each panel names (`panels.transformer_id`): a
+      // switchboard its service transformer, a panelboard its step-down unit.
+      const transformerOf = (panelId: string): string | null => {
+        const service = s.settings.transformers.find((t) => t.feeds === panelId);
+        if (service != null) return layoutEquipmentRowId('tfm', s.id, service.id);
+        return stepDowns.find((t) => t.panelId === panelId)?.id ?? null;
+      };
+      return { s, stepDowns, transformerOf };
+    })
+    .map(({ s, stepDowns, transformerOf }) => ({
       id: s.id,
       name: s.name,
-      settings: s.settings,
+      settings: demoLayoutPositions(s.id, s.settings),
+      powerEquipment: demoPowerEquipment(s.id, s.settings, stepDowns),
       panels: s.panels.map((p) => ({
         id: p.id,
         parentPanelId: p.parentPanelId,
+        transformerId: transformerOf(p.id),
         name: p.name,
         breakerRatingAmps: p.breakerRatingAmps,
         maxContinuousKw: p.maxContinuousKw,

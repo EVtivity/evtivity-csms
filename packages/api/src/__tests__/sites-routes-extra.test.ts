@@ -70,7 +70,8 @@ vi.mock('../services/ai-insight-scope.service.js', () => ({
   siteAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
   stationAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
 }));
-const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
+const { mockReadLayoutStationSessions, mockIsFleetEnabled } = vi.hoisted(() => ({
+  mockIsFleetEnabled: vi.fn(async () => true),
   mockReadLayoutStationSessions: vi.fn(async () => new Map()),
 }));
 vi.mock('../lib/site-layout-sessions.js', () => ({
@@ -130,6 +131,8 @@ vi.mock('@evtivity/database', async () => {
   return {
     ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
+    ...(await import('./helpers/departure-schema-mocks.js')).departureSchemaMocks(),
+    isFleetEnabled: mockIsFleetEnabled,
     ...rawTimestamp,
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),

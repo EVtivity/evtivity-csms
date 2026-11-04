@@ -65,6 +65,9 @@ export const chargingSessions = pgTable(
     driverId: text('driver_id').references(() => drivers.id),
     tokenId: text('token_id').references(() => driverTokens.id, { onDelete: 'set null' }),
     vehicleId: text('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
+    // An operator set the vehicle by hand (PUT /v1/sessions/:id/vehicle): the
+    // driver cannot replace or clear it while the depot plan charges the session.
+    vehicleAssignedByOperator: boolean('vehicle_assigned_by_operator').notNull().default(false),
     // Unique per station only (OCPP 2.1 E01.FR.08): uq_charging_sessions_station_transaction.
     transactionId: varchar('transaction_id', { length: 36 }).notNull(),
     status: sessionStatusEnum('status').notNull().default('active'),
@@ -88,6 +91,9 @@ export const chargingSessions = pgTable(
     peakPowerW: numeric('peak_power_w'),
     lastSocPercent: numeric('last_soc_percent'),
     lastSocAt: timestamp('last_soc_at', { withTimezone: true }),
+    // OCPP 2.1 TransactionEvent preconditioningStatus of the EV battery
+    // (Unknown, Ready, NotReady, Preconditioning), reported to depot systems.
+    preconditioningStatus: varchar('preconditioning_status', { length: 20 }),
     stoppedReason: varchar('stopped_reason', { length: 50 }),
     isRoaming: boolean('is_roaming').notNull().default(false),
     remoteStartId: integer('remote_start_id'),

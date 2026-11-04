@@ -1,0 +1,4 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<h2 style='color:#1a1a1a;margin:0 0 8px 0;font-size:20px;'>公交车场系统已更改</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if created}}已创建公交车场系统 {{depotSystemName}}（{{presystemId}}）。{{else if deleted}}已删除公交车场系统 {{depotSystemName}}（{{presystemId}}）。{{else if passwordRotated}}公交车场系统 {{depotSystemName}}（{{presystemId}}）已获得新密码，其连接已关闭。{{else}}公交车场系统 {{depotSystemName}}（{{presystemId}}）已更改。{{/if}}公交车场系统可以更改其车场的充电计划。</p>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>如果您没有预料到此更改，请检查 设置 &gt; 集成 &gt; 公交车场系统 和审计日志，并立即联系您的管理员。</p>

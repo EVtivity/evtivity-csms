@@ -2,7 +2,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { parseTrustProxy, proxyEntryProblem } from '../trust-proxy.js';
+import { lastForwardedProto, parseTrustProxy, proxyEntryProblem } from '../trust-proxy.js';
+
+describe('lastForwardedProto (PLAT-L1)', () => {
+  it('reads the last entry, as Fastify does', () => {
+    expect(lastForwardedProto('https')).toBe('https');
+    expect(lastForwardedProto(' HTTPS ')).toBe('https');
+    expect(lastForwardedProto('https, http')).toBe('http');
+    expect(lastForwardedProto('http,https')).toBe('https');
+    expect(lastForwardedProto(['https', 'http'])).toBe('http');
+  });
+
+  it('is undefined without a value', () => {
+    expect(lastForwardedProto(undefined)).toBeUndefined();
+    expect(lastForwardedProto('')).toBeUndefined();
+    expect(lastForwardedProto('https,')).toBeUndefined();
+  });
+});
 
 describe('parseTrustProxy', () => {
   it('is off when unset, empty or false', () => {

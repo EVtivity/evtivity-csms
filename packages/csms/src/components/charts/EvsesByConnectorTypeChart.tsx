@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { CHART_COLORS, escapeChartText, getGridColor } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 import { ChartBody, type QueryState } from './ChartBody';
 import { connectorTypeLabel, connectorTypeShortLabel } from './ConnectorStatus';
@@ -34,21 +34,28 @@ export function EvsesByConnectorTypeChart({
 
   // The axis shows the short standard name ("CCS1"), so labels never rotate or
   // clip; the tooltip names the full type ("CCS1 (Combined Charging System 1)").
+  // An unknown vendor value is station data, and ApexCharts writes the tooltip
+  // titles (the x formatter and the axis tooltip category) as HTML, so both
+  // arrays are escaped (security review AI-L1, the case 306 rule).
   const labels = useMemo(
     () =>
       data.map((d) =>
-        d.connectorType === 'unknown'
-          ? t('stations.connectorUnknown')
-          : (connectorTypeShortLabel(d.connectorType) ?? d.connectorType),
+        escapeChartText(
+          d.connectorType === 'unknown'
+            ? t('stations.connectorUnknown')
+            : (connectorTypeShortLabel(d.connectorType) ?? d.connectorType),
+        ),
       ),
     [data, t],
   );
   const fullLabels = useMemo(
     () =>
       data.map((d) =>
-        d.connectorType === 'unknown'
-          ? t('stations.connectorUnknown')
-          : (connectorTypeLabel(d.connectorType) ?? d.connectorType),
+        escapeChartText(
+          d.connectorType === 'unknown'
+            ? t('stations.connectorUnknown')
+            : (connectorTypeLabel(d.connectorType) ?? d.connectorType),
+        ),
       ),
     [data, t],
   );

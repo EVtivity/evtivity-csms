@@ -40,6 +40,8 @@ const SHARED_FILES = ['components/create-button.tsx', 'components/add-icon-butto
 const ALLOWED: Record<string, string> = {
   'components/load-management/PanelTree.tsx|loadManagement.addCircuit':
     'a ghost icon in the panel row toolbar, sized and styled like its Edit and Delete siblings',
+  'components/load-management/PanelTree.tsx|loadManagement.addStation':
+    'a ghost icon in the circuit row toolbar, sized and styled like its Edit and Delete siblings',
   'components/ai/AiPanel.tsx|ai.newChat':
     'a ghost icon in the assistant panel header, styled like the other header icons',
   'components/account/AccountHomeCards.tsx|homeCards.add':
@@ -62,12 +64,6 @@ const ALLOWED: Record<string, string> = {
  */
 const OUTLINE: Record<string, string> = {
   'components/SchemaForm.tsx|commands.addItem': 'adds an array item inside the command form',
-  'components/layout/PowerEquipment.tsx|sites.layoutSettings.addTransformer':
-    'adds a transformer row inside the Power Equipment dialog, applied with its Apply',
-  'components/layout/EnergyAssetsSettings.tsx|sites.layoutSettings.addBattery':
-    'adds a battery row inside the Power Equipment dialog, applied with its Apply',
-  'components/layout/EnergyAssetsSettings.tsx|sites.layoutSettings.addSolar':
-    'adds a solar canopy row inside the Power Equipment dialog, applied with its Apply',
   'components/smart-charging/TimeSlotEditor.tsx|smartCharging.addTimeSlot':
     'adds a time slot row inside the charging profile form',
   'components/config-template/DetailsTab.tsx|configTemplates.addVariable':
@@ -80,6 +76,8 @@ const OUTLINE: Record<string, string> = {
     'adds a sub-panel row inside the panel tree, under the blue Add Panel of its card',
   'components/load-management/PanelTree.tsx|loadManagement.addUnmanagedLoad':
     'adds a load row inside the panel tree, under the blue Add Panel of its card',
+  'components/load-management/LoadManagement.tsx|loadManagement.addTransformer':
+    'secondary card header action next to the blue Add Panel of Electrical Infrastructure',
   'pages/PricingHolidays.tsx|pricing.bulkAdd':
     'secondary header action next to the blue Add Holiday',
   'components/StationLocalAuthList.tsx|stations.addTokens':

@@ -119,7 +119,7 @@ import {
   splitGrossByTaxRate,
   taxTotals,
   chargedCostBreakdown,
-  LOAD_ALLOCATION_STRATEGIES,
+  type LoadAllocationStrategy,
 } from '@evtivity/lib';
 import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
 import { isOcpp2x } from '@evtivity/lib/ocpp-version';
@@ -143,6 +143,9 @@ function demoCostSplit(
 }
 
 // Helper data
+// Demo sites rotate through the strategies that need no departures.
+const DEMO_LOAD_STRATEGIES: readonly LoadAllocationStrategy[] = ['equal_share', 'priority_based'];
+
 const US_CITIES = [
   { city: 'San Francisco', state: 'CA', zip: '94105' },
   { city: 'Los Angeles', state: 'CA', zip: '90001' },
@@ -548,8 +551,9 @@ async function seed(): Promise<void> {
     's3.region': '',
     's3.accessKeyIdEnc': '',
     's3.secretAccessKeyEnc': '',
-    // Storage provider (v0.1.49, migration 0480): s3 (AWS S3) or s3-compatible
-    // with its endpoint; written only through PUT /v1/settings/s3.
+    // Storage provider (v0.1.49, migration 0480): s3 (AWS S3), s3-compatible
+    // with its endpoint, or r2 (Cloudflare R2, v0.1.50) with its account S3 API
+    // URL; written only through PUT /v1/settings/s3.
     's3.provider': 's3',
     's3.endpoint': '',
     's3.forcePathStyle': false,
@@ -720,6 +724,7 @@ async function seed(): Promise<void> {
     'logs.portStatus.retentionDays': 30,
     'logs.workerJob.retentionDays': 30,
     'logs.loadAllocation.retentionDays': 90,
+    'logs.departures.retentionDays': 365,
     'logs.loginAudit.retentionDays': 90,
     'reservation.enabled': true,
     'reservation.bufferMinutes': 0,
@@ -729,6 +734,8 @@ async function seed(): Promise<void> {
     'reservation.activeSessionCheckHours': 3,
     'fleet.enabled': true,
     'fleet.creditReservationCents': 5000,
+    'fleetCharging.enabled': false,
+    'vdv463.enabled': false,
     'support.enabled': true,
     'guest.enabled': true,
     'guest.startsPerIpPerHour': 30,
@@ -1240,7 +1247,7 @@ async function seed(): Promise<void> {
       siteId: site.id,
       maxPowerKw: String(maxPowerKw),
       safetyMarginKw: String(randomInt(5, 15)),
-      strategy: LOAD_ALLOCATION_STRATEGIES[i % LOAD_ALLOCATION_STRATEGIES.length] ?? 'equal_share',
+      strategy: DEMO_LOAD_STRATEGIES[i % DEMO_LOAD_STRATEGIES.length] ?? 'equal_share',
       isEnabled: i < 5,
     };
   });
@@ -1252,7 +1259,7 @@ async function seed(): Promise<void> {
   // ------ Site Load Management (hierarchical model, mirrors sitePowerLimits) ------
   const loadMgmtRows = createdSites.slice(0, 8).map((site, i) => ({
     siteId: site.id,
-    strategy: LOAD_ALLOCATION_STRATEGIES[i % LOAD_ALLOCATION_STRATEGIES.length] ?? 'equal_share',
+    strategy: DEMO_LOAD_STRATEGIES[i % DEMO_LOAD_STRATEGIES.length] ?? 'equal_share',
     isEnabled: i < 5,
   }));
   await db.insert(siteLoadManagement).values(loadMgmtRows);
@@ -2784,7 +2791,7 @@ async function seed(): Promise<void> {
       actorUserId: featureActor?.id ?? null,
     });
     console.log(
-      `  Demo features created (${String(features.powerSites)} sites with sized power equipment, ${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleSessions)} sessions linked to their vehicle).`,
+      `  Demo features created (${String(features.powerSites)} sites with sized power equipment, ${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleSessions)} sessions linked to their vehicle, ${String(features.departureSchedules)} depot departure schedules).`,
     );
   }
 

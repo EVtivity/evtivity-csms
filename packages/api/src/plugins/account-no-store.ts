@@ -7,7 +7,8 @@ import { routePath } from './encoded-path-guard.js';
 /**
  * Route prefixes (after `/v1`) whose replies describe a signed-in account, a
  * sign-in step, or an account an admin views (operator users and drivers: contact
- * details, MFA state, API keys, sessions).
+ * details, MFA state, API keys, sessions), and the bus depot systems (a sign-in
+ * password is returned once on create and rotate).
  */
 const ACCOUNT_PREFIXES = [
   '/users/',
@@ -16,6 +17,7 @@ const ACCOUNT_PREFIXES = [
   '/portal/auth/',
   '/portal/driver',
   '/api-keys',
+  '/depot-systems',
 ];
 
 /** Whether a matched route path holds account or sign-in data. */

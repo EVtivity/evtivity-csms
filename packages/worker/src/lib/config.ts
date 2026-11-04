@@ -49,6 +49,13 @@ const schema = z.object({
     (v) => (v === '' ? undefined : v),
     z.url().optional(),
   ),
+  // Allows simulated battery and solar readings in the load management cycle
+  // (features/load-management.md, owner decision D13). Default: on when NODE_ENV
+  // is development or test, off otherwise (unset included).
+  ENERGY_ASSETS_ALLOW_SIMULATED: z
+    .enum(['true', 'false'])
+    .default(['development', 'test'].includes(process.env['NODE_ENV'] ?? '') ? 'true' : 'false')
+    .transform((v) => v === 'true'),
 });
 
 export type WorkerConfig = z.infer<typeof schema>;

@@ -133,6 +133,12 @@ describe('matchCacheRule', () => {
     expect(matchCacheRule('/v1/stations/sta_abc/simulator')?.ttlSeconds).toBe(5);
   });
 
+  it('never caches the battery and solar reading route', () => {
+    expect(matchCacheRule('/v1/sites/:siteId/energy-assets/:assetId/reading')).toBeNull();
+    expect(matchCacheRule('/v1/sites/sit_a/energy-assets/ena_a/reading')).toBeNull();
+    expect(matchCacheRule('/v1/sites/sit_a/energy-assets')?.ttlSeconds).toBe(5);
+  });
+
   it('does not match uncacheable routes', () => {
     expect(matchCacheRule('/v1/events')).toBeNull();
     expect(matchCacheRule('/v1/auth/login')).toBeNull();

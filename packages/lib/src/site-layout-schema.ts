@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // The Zod schema of a site's layout settings (sites.layout_settings): the
-// site type, the paved lot, the transformers on the grass and the energy
-// assets (batteries and solar canopies). Shared by the API route and the
+// site type, the paved lot, and the positions of the site's transformers and
+// energy assets (batteries and solar canopies) by the id of their load
+// management rows, which hold their names and ratings. Shared by the API route and the
 // tests. The limits and defaults live in @evtivity/lib/site-layout, which the
 // CSMS imports without Zod.
 
@@ -37,88 +38,70 @@ const depotExtent =
 const reach =
   L.transformerReachM + Math.max(L.spotsPerRow.max * STANDARD_DIMENSIONS.spotWidthM, depotExtent);
 
+// Every coordinate a position may hold: a transformer or battery on the grass
+// of a lot or a depot, or equipment standing freely on a custom site.
+const equipmentReach = Math.max(reach, FREE_LAYOUT.reachM);
+const equipmentCoordinate = z.number().min(-equipmentReach).max(equipmentReach);
+const equipmentId = (table: string) =>
+  z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,40}$/)
+    .describe(
+      `The ${table}.id of the equipment, a row of this site (1 to 40 letters, digits, - or _); its name and ratings live in that table`,
+    );
+
 export const layoutTransformerSchema = z
   .object({
-    id: z
-      .string()
-      .regex(/^[A-Za-z0-9_-]{1,40}$/)
-      .describe('Id of the transformer within the site (1 to 40 letters, digits, - or _)'),
-    name: z
-      .string()
-      .trim()
-      .min(1)
-      .max(L.transformerNameLength)
-      .nullable()
-      .describe(`Name shown on the layout (up to ${String(L.transformerNameLength)} characters)`),
-    ratedKva: z
-      .number()
-      .int()
-      .min(L.ratedKva.min)
-      .max(L.ratedKva.max)
-      .nullable()
-      .describe('Rated power in kVA'),
-    x: z
-      .number()
-      .min(-reach)
-      .max(reach)
-      .describe(
-        'Position in meters along the rows, from the front left corner of the lot. A point on the lot moves to the grass beside it',
-      ),
-    z: z
-      .number()
-      .min(-reach)
-      .max(reach)
-      .describe('Position in meters across the rows, from the front left corner of the lot'),
-  })
-  .strict()
-  .describe('A pad-mounted transformer on the grass next to the lot');
-
-const assetId = z
-  .string()
-  .regex(/^[A-Za-z0-9_-]{1,40}$/)
-  .describe('Id of the energy asset within the site (1 to 40 letters, digits, - or _)');
-const assetName = z
-  .string()
-  .trim()
-  .min(1)
-  .max(L.energyAssetNameLength)
-  .nullable()
-  .describe(`Name shown on the layout (up to ${String(L.energyAssetNameLength)} characters)`);
-const capacity = (unit: string) =>
-  z
-    .number()
-    .int()
-    .min(L.capacity.min)
-    .max(L.capacity.max)
-    .nullable()
-    .describe(`${unit} (${String(L.capacity.min)} to ${String(L.capacity.max)}), informational`);
-
-export const layoutBatterySchema = z
-  .object({
-    id: assetId,
-    type: z.literal('battery').describe('A battery storage cabinet on the grass'),
-    name: assetName,
-    capacityKwh: capacity('Usable capacity in kWh'),
-    x: z
-      .number()
-      .min(-reach)
-      .max(reach)
-      .describe(
-        'Position in meters along the rows, from the front left corner of the lot. A point on the lot moves to the grass beside it, like a transformer',
-      ),
-    z: z
-      .number()
-      .min(-reach)
-      .max(reach)
-      .describe('Position in meters across the rows, from the front left corner of the lot'),
+    id: equipmentId('transformers'),
+    x: equipmentCoordinate.describe(
+      'Position in meters along the rows, from the front left corner of the lot (a custom site: from the site origin). A point on the lot moves to the grass beside it',
+    ),
+    z: equipmentCoordinate.describe(
+      'Position in meters across the rows, from the front left corner of the lot',
+    ),
   })
   .strict()
   .describe(
-    'A battery storage cabinet on the grass next to the lot or the depot yard (standing freely on a custom site), shown on a parking lot, a depot and a custom site (kept, hidden, on the other site types)',
+    'Where a transformer of the site stands: a pad-mounted transformer on the grass next to the lot. Position only; the transformer is a load management row (GET /v1/sites/{siteId}/transformers)',
   );
 
 const freeCoordinate = z.number().min(-FREE_LAYOUT.reachM).max(FREE_LAYOUT.reachM);
 const rotationDeg = z.number().min(0).max(359.9);
+
+export const layoutEnergyAssetSchema = z
+  .object({
+    id: equipmentId('site_energy_assets'),
+    x: equipmentCoordinate
+      .optional()
+      .describe(
+        'Battery: position in meters along the rows, from the front left corner of the lot (a point on the lot moves to the grass beside it). Solar canopy on a custom site or a depot: the middle of the canopy. Absent: the default place of its type',
+      ),
+    z: equipmentCoordinate
+      .optional()
+      .describe('Battery or free-standing solar canopy: position in meters across the rows'),
+    row: z
+      .number()
+      .int()
+      .min(0)
+      .max(L.rows.max - 1)
+      .optional()
+      .describe(
+        "Solar canopy on a parking lot: the 0-based row it covers; a row past the lot's last row reads as the last row. Absent: the first row without a canopy",
+      ),
+    rotationDeg: rotationDeg
+      .optional()
+      .describe(
+        'Solar canopy on a custom site or a depot: the turn in degrees, clockwise from above',
+      ),
+  })
+  .strict()
+  .refine((a) => (a.x == null) === (a.z == null), {
+    message: 'x and z go together',
+    path: ['z'],
+  })
+  .describe(
+    'Where a battery or solar canopy of the site stands. Position only; its type, name and ratings are a load management row (GET /v1/sites/{siteId}/energy-assets)',
+  );
 
 /** A station's free position on a custom site (the layout GET and PUT). */
 export const freePlacementSchema = z
@@ -137,41 +120,6 @@ export const freePlacementSchema = z
   .describe(
     'Position of the station on a custom site: the charger point in meters and its turn; its car spots (one per EVSE, at most two) lie in front of it',
   );
-
-export const layoutSolarCanopySchema = z
-  .object({
-    id: assetId,
-    type: z.literal('solar').describe('A solar carport canopy over one row of the lot'),
-    name: assetName,
-    capacityKwp: capacity('Peak power in kWp'),
-    row: z
-      .number()
-      .int()
-      .min(0)
-      .max(L.rows.max - 1)
-      .describe(
-        "0-based row of the lot the canopy covers; a row past the lot's last row reads as the last row",
-      ),
-    x: freeCoordinate
-      .optional()
-      .describe(
-        'Custom site and depot: the middle of the canopy in meters along x. Absent: over its row of the parking lot grid (a depot: over staff parking behind the yard)',
-      ),
-    z: freeCoordinate
-      .optional()
-      .describe('Custom site and depot: the middle of the canopy in meters along z'),
-    rotationDeg: rotationDeg
-      .optional()
-      .describe('Custom site and depot: the turn of the canopy in degrees, clockwise from above'),
-  })
-  .strict()
-  .describe(
-    'A solar carport canopy: over a row of the lot on a parking lot, standing freely on a custom site or a depot (its length follows its peak power); kept, hidden, on the other site types',
-  );
-
-export const layoutEnergyAssetSchema = z
-  .discriminatedUnion('type', [layoutBatterySchema, layoutSolarCanopySchema])
-  .describe('An informational energy asset: a battery or a solar canopy');
 
 export const siteLayoutSettingsSchema = z
   .object({
@@ -264,7 +212,7 @@ export const siteLayoutSettingsSchema = z
         message: 'Transformer ids must be unique',
       })
       .describe(
-        `Parking lot, depot and custom site: transformers on the grass (up to ${String(L.transformers.max)}), information only`,
+        `Parking lot, depot and custom site: positions of the site's transformers by id (up to ${String(L.transformers.max)}). Every id names a transformer of the site (else 400 VALIDATION_ERROR); a transformer without a position stands at its default place`,
       ),
     energyAssets: z
       .array(layoutEnergyAssetSchema)
@@ -274,7 +222,7 @@ export const siteLayoutSettingsSchema = z
       })
       .optional()
       .describe(
-        `Parking lot, depot and custom site: batteries and solar canopies, informational (up to ${String(L.energyAssets.max)}). Absent means none`,
+        `Parking lot, depot and custom site: positions of the site's batteries and solar canopies by id (up to ${String(L.energyAssets.max)}). Every id names an energy asset of the site (else 400 VALIDATION_ERROR); an asset without a position stands at the default place of its type. Absent means none`,
       ),
   })
   .strict()

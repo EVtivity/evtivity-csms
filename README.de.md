@@ -77,6 +77,7 @@ graph TB
 | KI-Assistent                     | Fragen zu Stationen, Ladevorgängen, Umsatz und Betrieb in natürlicher Sprache. Antworten werden gestreamt, Unterhaltungen bleiben mit Suche, Umbenennen und Löschen erhalten                            |
 | Bild- und Dateianalyse           | Bilder (etwa das Foto eines Ladestationsdisplays), PDF-, CSV-, Text-, Log- und JSON-Dateien anhängen                                                                                                    |
 | Bestätigte Änderungen            | Der Assistent liest Daten über API-Tools. Eine vorgeschlagene Änderung zeigt eine Bestätigungskarte und läuft erst nach Bestätigung durch den Betreiber                                                 |
+| Automatische Analysen            | Ursachenhinweise zu Problemen mit Stationen, Ladevorgängen und Autorisierungen, für die Standorte und Stationen Ihrer Wahl                                                                              |
 | Support-Unterstützung            | Entwirft Antworten auf Supportfälle in der Sprache des Fahrers und interne Notizen in der des Betreibers, mit den gelesenen Quellen                                                                     |
 | Anbieterwahl                     | Anthropic, OpenAI, Google Gemini oder DeepSeek, pro Bereich oder pro Benutzer, mit einer Aufwandsstufe                                                                                                  |
 | Maskierung und Schutzmechanismen | Geheimnisse und personenbezogene Daten werden in Tool-Ergebnissen maskiert, bevor sie das Modell erreichen. Einstellungen, Geheimnisse, Benutzer, Zahlungen und Stationssicherheit bleiben unerreichbar |
@@ -108,40 +109,49 @@ graph TB
 | Popular Times           | Sitzungs-Heatmap nach Tag und Stunde pro Station                                                                                                                                                                                         |
 | Ferndiagnose            | Statusmeldungen auslösen, Diagnosedaten abrufen, Fehlerzustände zurücksetzen                                                                                                                                                             |
 | Standort-Wartung        | Einmalige oder sofortige Wartungsfenster planen, die Stationen offline nehmen, überlappende Reservierungen stornieren, aktive Sitzungen optional mit Fahrerbenachrichtigung stoppen und ein Wartungs-Badge in der Standortliste anzeigen |
+| Standort-Layout         | Eine 3D- und 2D-Darstellung jedes Standorts (Parkplatz, Büro oder Handel, Straßenrand, Betriebshof oder benutzerdefiniert) mit Live-Stationsstatus und einer Wiedergabe jedes Tages der letzten 90 Tage                                  |
+| Mobilfunkanbindung      | SIM-Status, Datensitzungen und SIM-Warnungen von Hologram oder 1NCE, die Signalstufe des Modems, die wahrscheinliche Ursache jeder Verbindungstrennung und ein Zurücksetzen des Mobilfunknetzes                                          |
+| SIM-Bestand             | Ein Datensatz pro SIM mit CSV-Import und -Export, Zuordnungen zu Stationen und Zuordnungsverlauf                                                                                                                                         |
+| Datentarife             | Sätze von OCPP-Einstellungen für WLAN oder Kabel und für Mobilfunk pro Station oder Standort, mit WebSocket-Komprimierung, um den mobilen Datenverbrauch niedrig zu halten                                                               |
 
 ### Lastmanagement
 
-| Funktion          | Beschreibung                                                                            |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| Lastmanagement    | Standortweites Leistungsbudget mit Gleichverteilungs- und prioritätsbasierter Zuweisung |
-| Ladeprofile       | OCPP-Ladeprofil-Auslieferung mit Unterstützung für Composite-Schedules                  |
-| Leerlauferkennung | Mehrsignal-Leerlauferkennung (chargingState, Leistungsmesser, Status) mit Karenzzeit    |
-| V2G               | Vehicle-to-Grid-Entlade-Statusverfolgung über OCPP-2.1-chargingState                    |
+| Funktion               | Beschreibung                                                                                                                                                                                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lastmanagement         | Standortweites Leistungsbudget mit Gleichverteilungs- und prioritätsbasierter Zuweisung                                                                                                                                                                                      |
+| Ladeprofile            | OCPP-Ladeprofil-Auslieferung mit Unterstützung für Composite-Schedules                                                                                                                                                                                                       |
+| Routenbasiertes Laden  | Plant jedes Flottenfahrzeug an einem Betriebshof nach seiner Abfahrtszeit und benötigten Energie, innerhalb der Grenzen von Verteilern, Stromkreisen und Phasen, die günstigsten Stunden zuerst, mit einer Ansicht Flottenbereitschaft und Benachrichtigungen bei Gefährdung |
+| Busdepot-Schnittstelle | WebSocket-Schnittstelle nach VDV 463 1.1.0 für Betriebshofmanagementsysteme und ITCS: Ladeanforderungen kommen herein, Live-Ladeinformationen und der vorhergesagte Ladezustand gehen hinaus                                                                                 |
+| Leerlauferkennung      | Mehrsignal-Leerlauferkennung (chargingState, Leistungsmesser, Status) mit Karenzzeit                                                                                                                                                                                         |
+| V2G                    | Vehicle-to-Grid-Entlade-Statusverfolgung über OCPP-2.1-chargingState                                                                                                                                                                                                         |
 
 ### Abrechnung und Zahlungen
 
-| Funktion                            | Beschreibung                                                                                      |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Tarif-Engine                        | Pauschal-, Tageszeit-, Wochentags-, Saison-, Feiertags- und Energieschwellen-Tarife               |
-| Tarif-Zuordnung                     | Tarifgruppen-Zuweisung auf Fahrer-, Flotten-, Stations- und Standortebene mit Prioritätsauflösung |
-| Split-Abrechnung                    | Kostenverfolgung pro Segment, wenn der Tarif während einer Sitzung wechselt                       |
-| Leerlauf- und Reservierungsgebühren | Minutengenaue Leerlaufgebühr mit Karenzzeit und minutengenaue Reservierungsgebühr                 |
-| Mehrwährungsfähig                   | 10 Währungen mit Intl.NumberFormat-Formatierung                                                   |
-| Zahlungsabwicklung                  | Stripe-Vorautorisierung, Capture, Teil- und Vollerstattungen                                      |
-| Gast-Laden                          | Karten-Zahlung für nicht authentifizierte Fahrer per QR-Code                                      |
-| Rechnungsstellung                   | Sitzungsbelege, Monatsabrechnungen und Umsatzreconciliation                                       |
+| Funktion                            | Beschreibung                                                                                                                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tarif-Engine                        | Pauschal-, Tageszeit-, Wochentags-, Saison-, Feiertags- und Energieschwellen-Tarife                                                                                    |
+| Tarif-Zuordnung                     | Tarifgruppen-Zuweisung auf Fahrer-, Flotten-, Stations- und Standortebene mit Prioritätsauflösung                                                                      |
+| Split-Abrechnung                    | Kostenverfolgung pro Segment, wenn der Tarif während einer Sitzung wechselt                                                                                            |
+| Leerlauf- und Reservierungsgebühren | Minutengenaue Leerlaufgebühr mit Karenzzeit und minutengenaue Reservierungsgebühr                                                                                      |
+| Mehrwährungsfähig                   | 10 Währungen mit Intl.NumberFormat-Formatierung                                                                                                                        |
+| Zahlungsabwicklung                  | Vorautorisierung, Capture, Teil- und Vollerstattungen mit Stripe und Adyen                                                                                             |
+| Gast-Laden                          | Karten-Zahlung für nicht authentifizierte Fahrer per QR-Code                                                                                                           |
+| Zahlungsterminals                   | Kartenleser an der Ladestation, gesteuert über die Cloud des Terminalanbieters. Simulierter Anbieter und ID TECH. ID TECH ist im Produktivbetrieb noch nicht verfügbar |
+| Rechnungsstellung                   | Sitzungsbelege, Monatsabrechnungen und Umsatzreconciliation                                                                                                            |
+| Zahlungsdetails auf Rechnungen      | Bankverbindung, ein Verwendungszweck und ein EPC-QR-Code auf EUR-Rechnungen                                                                                            |
 
 ### Roaming
 
-| Funktion                 | Beschreibung                                                                            |
-| ------------------------ | --------------------------------------------------------------------------------------- |
-| OCPI 2.2.1 / 2.3.0       | CPO- und eMSP-Rollen mit Unterstützung beider Versionen                                 |
-| Partner-Verwaltung       | Credential-Austausch, Endpunkt-Registrierung und Verbindungs-Statusüberwachung          |
-| Standortveröffentlichung | Pro-Standort-Veröffentlichungssteuerung mit partnerbezogenen Sichtbarkeitseinstellungen |
-| CDR-Erzeugung            | Automatische Erstellung von Charge Detail Records und Push an eMSP-Partner              |
-| Token-Autorisierung      | Echtzeit- und Offline-Autorisierung externer Fahrer-Tokens                              |
-| Remote-Befehle           | CPO-Befehlsempfänger (START_SESSION, STOP_SESSION, RESERVE_NOW, UNLOCK_CONNECTOR)       |
-| Roaming-Stationssuche    | Browsing und Suche in Partnernetzen über das Fahrer-Portal                              |
+| Funktion                   | Beschreibung                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| OCPI 2.2.1 / 2.3.0         | CPO- und eMSP-Rollen mit Unterstützung beider Versionen                                 |
+| Partner-Verwaltung         | Credential-Austausch, Endpunkt-Registrierung und Verbindungs-Statusüberwachung          |
+| Standortveröffentlichung   | Pro-Standort-Veröffentlichungssteuerung mit partnerbezogenen Sichtbarkeitseinstellungen |
+| Freigabe von Partnerrollen | Ein neuer OCPI-Partner erhält keine Rolle, bis der Betreiber eine freigibt              |
+| CDR-Erzeugung              | Automatische Erstellung von Charge Detail Records und Push an eMSP-Partner              |
+| Token-Autorisierung        | Echtzeit- und Offline-Autorisierung externer Fahrer-Tokens                              |
+| Remote-Befehle             | CPO-Befehlsempfänger (START_SESSION, STOP_SESSION, RESERVE_NOW, UNLOCK_CONNECTOR)       |
+| Roaming-Stationssuche      | Browsing und Suche in Partnernetzen über das Fahrer-Portal                              |
 
 ### Fahrer-Erlebnis
 
@@ -156,6 +166,7 @@ graph TB
 | Flottenverwaltung         | Gruppierung mit flottenspezifischer Preisgestaltung und Token-Zuweisung                |
 | Fahrzeugverwaltung        | Fahrzeugprofile zur Energie-zu-Meilen-Schätzung auf Basis realer Effizienzwerte        |
 | RFID-Self-Service         | Fahrer fügen RFID-Karten im Portal selbst hinzu und verwalten sie                      |
+| Avatare                   | Fahrer und Betreiber erstellen einen generierten Avatar oder laden ein Foto hoch       |
 | In-App-Benachrichtigungen | Echtzeit-Glockensymbol mit Verlaufs-Drawer und Kanal-Präferenzen                       |
 | Support-Tickets           | Tickets mit Sitzungs-Verknüpfung, Erstattungsaktionen und S3-Dateianhängen             |
 | Benachrichtigungen        | E-Mail und SMS für Sitzungs-, Zahlungs-, Reservierungs- und Support-Ereignisse         |
@@ -173,36 +184,41 @@ graph TB
 
 ### Sicherheit und Zugriff
 
-| Funktion                  | Beschreibung                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
-| Authentifizierung         | JWT-basierte Authentifizierung mit rollenbasierter Zugriffssteuerung für Betreiber und Fahrer  |
-| SAML-SSO                  | SAML-2.0-Single-Sign-On mit konfigurierbarem IdP, Auto-Provisionierung und Attribut-Mapping    |
-| API-Keys                  | Langlebige API-Keys für programmatischen Zugriff, die den Standortzugriff des Erstellers erben |
-| Multi-Faktor-Auth         | TOTP-Authenticator-App, E-Mail-Code und SMS-Code                                               |
-| Standortzugriffskontrolle | Pro-Betreiber-Standortzuweisung mit Default-Deny-Durchsetzung                                  |
-| E-Mail-Verifizierung      | Kontoverifizierung bei Fahrer-Selbstregistrierung vor Portal-Zugriff                           |
-| Bot-Schutz                | Google reCAPTCHA v3 auf Betreiber- und Fahrer-Login                                            |
-| Audit-Logs                | Aktionsprotokoll für Compliance und Sicherheitsprüfungen                                       |
+| Funktion                      | Beschreibung                                                                                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authentifizierung             | JWT-basierte Authentifizierung mit rollenbasierter Zugriffssteuerung für Betreiber und Fahrer                                                                    |
+| SAML-SSO                      | SAML-2.0-Single-Sign-On mit konfigurierbarem IdP, Auto-Provisionierung und Attribut-Mapping                                                                      |
+| API-Keys                      | Langlebige API-Keys für programmatischen Zugriff, die den Standortzugriff des Erstellers erben                                                                   |
+| Multi-Faktor-Auth             | TOTP-Authenticator-App, E-Mail-Code und SMS-Code als Optionen, Wiederherstellungscodes und verpflichtende MFA für alle Betreiber, ausgewählte Rollen oder Fahrer |
+| Passkeys                      | Passkeys und FIDO2-Sicherheitsschlüssel als zweiter Faktor, optional mit Anmeldung ohne Passwort                                                                 |
+| Passwortrichtlinie            | Eine Passwortrichtlinie für Betreiber und Fahrer, mit getrennten Sitzungsdauern                                                                                  |
+| Sicherheitsbenachrichtigungen | Eine E-Mail- oder SMS-Benachrichtigung, wenn sich ein Anmeldefaktor, eine Telefonnummer oder eine E-Mail-Adresse ändert oder ein API-Schlüssel erstellt wird     |
+| Standortzugriffskontrolle     | Pro-Betreiber-Standortzuweisung mit Default-Deny-Durchsetzung                                                                                                    |
+| E-Mail-Verifizierung          | Kontoverifizierung bei Fahrer-Selbstregistrierung vor Portal-Zugriff                                                                                             |
+| Bot-Schutz                    | Google reCAPTCHA v3 auf Betreiber- und Fahrer-Login                                                                                                              |
+| Audit-Logs                    | Aktionsprotokoll für Compliance und Sicherheitsprüfungen                                                                                                         |
 
 ### Berichte und Analytik
 
 | Funktion              | Beschreibung                                                                           |
 | --------------------- | -------------------------------------------------------------------------------------- |
 | Dashboards            | Echtzeit-Diagramme für Umsatz, Energie, Sitzungszahlen und Steckerstatus               |
+| Anpassbares Dashboard | Jeder Benutzer ordnet die Live-Diagramme des Dashboards an und blendet sie aus         |
 | Berichte              | 9 Berichtstypen, u. a. Energieverbrauch, Umsatz, Auslastung und Fehler                 |
 | NEVI-Compliance       | Stations-Uptime-Tracking und ausgenommene Ausfallzeiten gemäß NEVI-Anforderungen       |
 | Geplante Auslieferung | Automatisierte Berichtszustellung per E-Mail oder FTP nach konfigurierbaren Zeitplänen |
 
 ### Benachrichtigungen und Messaging
 
-| Funktion                  | Beschreibung                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------- |
-| Ereignisgesteuerte Alerts | 41 konfigurierbare OCPP-Ereignistypen mit Empfänger, Kanal und Vorlage pro Ereignis |
-| Fahrer-Benachrichtigungen | Sitzungs-, Zahlungs-, Reservierungs- und Support-Benachrichtigungen pro Fahrer      |
-| Kanäle                    | E-Mail (SMTP), SMS (Twilio), Webhook und In-App-Zustellung                          |
-| Vorlagen-Editor           | WYSIWYG-E-Mail-Editor mit Drag-and-Drop-Variableneinfügung und Live-Vorschau        |
-| E-Mail-Layout             | Konfigurierbare HTML-Wrapper-Vorlage für alle ausgehenden E-Mails                   |
-| Benachrichtigungsverlauf  | Zustellprotokoll mit E-Mail-Vorschau und Inline-Ansicht für SMS/Push                |
+| Funktion                  | Beschreibung                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Ereignisgesteuerte Alerts | 41 konfigurierbare OCPP-Ereignistypen mit Empfänger, Kanal und Vorlage pro Ereignis                                       |
+| Fahrer-Benachrichtigungen | Sitzungs-, Zahlungs-, Reservierungs- und Support-Benachrichtigungen pro Fahrer                                            |
+| Kanäle                    | E-Mail (SMTP), SMS (Twilio), Webhook und In-App-Zustellung                                                                |
+| Signierte Webhooks        | Ausgehende Webhooks tragen einen `X-EVtivity-Signature`-Header, der mit einem generierten Signaturschlüssel erstellt wird |
+| Vorlagen-Editor           | WYSIWYG-E-Mail-Editor mit Drag-and-Drop-Variableneinfügung und Live-Vorschau                                              |
+| E-Mail-Layout             | Konfigurierbare HTML-Wrapper-Vorlage für alle ausgehenden E-Mails                                                         |
+| Benachrichtigungsverlauf  | Zustellprotokoll mit E-Mail-Vorschau und Inline-Ansicht für SMS/Push                                                      |
 
 ### Deployment und Betrieb
 
@@ -213,6 +229,9 @@ graph TB
 | Auto-Scaling           | Kubernetes-HPA für API und OCPP mit WebSocket-fähiger Scale-down-Stabilisierung                                                                 |
 | Rate-Limiting          | Konfigurierbares globales und endpunktbasiertes Rate-Limiting mit separaten Auth-Limits                                                         |
 | Observability          | Prometheus-Metriken, Grafana-Dashboards, Loki-Log-Aggregation                                                                                   |
+| Dateispeicher          | Amazon S3 oder ein S3-kompatibler Anbieter wie MinIO oder Wasabi                                                                                |
+| Datenaufbewahrung      | Aufbewahrung von Logs, Messwerten, Audit-Verlauf und KI-Daten, im Dashboard eingestellt                                                         |
+| Systeminformationen    | Version und Einstellungen jedes Prozesses, mit Suche und einem Abschnittsfilter                                                                 |
 | Konformitäts-Tests     | Integrierter OCTT-Testrunner für CSMS-SUT (OCPP 2.1, 2.0.1 und 1.6) und Ladestations-SUT (OCPP 2.1 und 1.6) mit Dashboard und Modul-Ergebnissen |
 | Mehrsprachige UI       | 6 Sprachen: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch                                                |
 | Responsive Filter      | Filtersteuerung klappt auf Tablet und Mobil in ein Dropdown für alle Listenseiten ein                                                           |

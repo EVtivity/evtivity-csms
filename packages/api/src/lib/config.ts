@@ -100,6 +100,15 @@ const schema = z.object({
     (v) => (v === '' ? undefined : v),
     z.url().optional(),
   ),
+  // Allows simulated battery and solar readings (`telemetry = 'simulated'`,
+  // features/load-management.md): a supply credit no real equipment gives, which
+  // an operator with load management access must not turn on (owner decision
+  // D13). Default: on when NODE_ENV is development or test, off otherwise (unset
+  // included). Helm sets false, CDK refuses it in prod.
+  ENERGY_ASSETS_ALLOW_SIMULATED: z
+    .enum(['true', 'false'])
+    .default(['development', 'test'].includes(process.env['NODE_ENV'] ?? '') ? 'true' : 'false')
+    .transform((v) => v === 'true'),
 });
 
 export type ApiConfig = z.infer<typeof schema>;

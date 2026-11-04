@@ -18,10 +18,19 @@ import {
   type RowCarport,
 } from './site-layout-solar';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { type Palette } from './site-layout-scene-types';
 
-export function installSolar(scn: SceneCtx): void {
+type SolarCtx = SceneSlice<
+  'M' | 'box' | 'cylinder' | 'layout' | 'poseOf' | 'shadowed' | 'track',
+  | 'buildFreeSolarCanopy'
+  | 'buildSolarCanopy'
+  | 'rowCenterZ'
+  | 'solarRowCarport'
+  | 'solarTextureCache'
+>;
+
+export function installSolar(scn: SolarCtx): void {
   // A solar carport canopy (site-layout-solar.ts): a single cantilever over
   // one row or a double cantilever "T" over an island's two rows, of
   // galvanized steel. Concrete piers rise above the paving as the columns'

@@ -30,6 +30,10 @@ export const AUDIT_READ_PERMISSION: Readonly<Partial<Record<AuditEntityType, Per
   report_schedule: 'reports:read',
   // Terminal rows name the stations and the operator payments on them.
   payment_terminal: 'paymentTerminals:read',
+  // Departure rows name fleet vehicles and their routes (fleets:read on the departure routes).
+  vehicle_departure: 'fleets:read',
+  // Depot system rows name its depots, its sign-in locks and request counts.
+  depot_system: 'settings.integrations:read',
 };
 
 /**

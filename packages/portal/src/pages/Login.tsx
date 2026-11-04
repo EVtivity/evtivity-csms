@@ -27,7 +27,8 @@ import {
   webauthnAutofillSupported,
   webauthnSupported,
 } from '@/lib/webauthn';
-import { executeRecaptcha } from '@/lib/recaptcha';
+import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { MfaChallenge } from '@/components/MfaChallenge';
 
 const DEV_AUTO_LOGIN = import.meta.env.VITE_PORTAL_AUTO_LOGIN;
@@ -103,6 +104,8 @@ export function Login(): React.JSX.Element {
     queryKey: ['security-public'],
     queryFn: () => api.get<SecurityPublic>('/v1/security/public?app=portal'),
   });
+  const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
+    useRecaptchaToken();
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -245,14 +248,11 @@ export function Login(): React.JSX.Element {
     ) {
       autoLoginAttempted.current = true;
       void (async () => {
-        let recaptchaToken: string | undefined;
-        if (securityPublic.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
-          recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'login');
-        }
+        const recaptchaToken = await getRecaptchaToken('login');
         await login(DEV_AUTO_LOGIN, 'driver123', recaptchaToken);
       })();
     }
-  }, [isAuthenticated, login, securityPublic]);
+  }, [isAuthenticated, login, securityPublic, getRecaptchaToken]);
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -272,10 +272,7 @@ export function Login(): React.JSX.Element {
     setPasskeyMessage(null);
     setLoading(true);
     try {
-      let recaptchaToken: string | undefined;
-      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
-        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'login');
-      }
+      const recaptchaToken = await getRecaptchaToken('login');
       await login(email, password, recaptchaToken);
     } catch (err) {
       if (isRateLimited(err)) {
@@ -372,8 +369,15 @@ export function Login(): React.JSX.Element {
               <p className="text-sm text-destructive">{validationErrors.password}</p>
             )}
           </div>
-          <Button type="submit" className="w-full" size="lg" disabled={loading}>
-            {loading ? t('auth.signingIn') : t('auth.signIn')}
+          <Button
+            type="submit"
+            className="relative w-full"
+            size="lg"
+            disabled={recaptchaConfigPending || loading}
+          >
+            <ButtonPendingLabel pending={recaptchaConfigPending}>
+              {loading ? t('auth.signingIn') : t('auth.signIn')}
+            </ButtonPendingLabel>
           </Button>
           <div className="text-center">
             <Link to="/forgot-password" className="text-sm text-link hover:underline">

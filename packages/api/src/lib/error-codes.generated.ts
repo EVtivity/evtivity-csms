@@ -79,6 +79,13 @@ export const ERROR_CODES = {
   CSS_ACTION_REJECTED: 'CSS_ACTION_REJECTED',
   CSS_ACTION_TIMEOUT: 'CSS_ACTION_TIMEOUT',
   DATA_PLAN_SETTING_IN_TEMPLATE: 'DATA_PLAN_SETTING_IN_TEMPLATE',
+  DEPARTURE_MANAGED_BY_DEPOT_SYSTEM: 'DEPARTURE_MANAGED_BY_DEPOT_SYSTEM',
+  DEPARTURE_NOT_FOUND: 'DEPARTURE_NOT_FOUND',
+  DEPARTURE_NOT_SCHEDULED: 'DEPARTURE_NOT_SCHEDULED',
+  DEPARTURE_SCHEDULE_NOT_FOUND: 'DEPARTURE_SCHEDULE_NOT_FOUND',
+  DEPOT_SYSTEM_ID_IN_USE: 'DEPOT_SYSTEM_ID_IN_USE',
+  DEPOT_SYSTEM_NOT_FOUND: 'DEPOT_SYSTEM_NOT_FOUND',
+  DEPOT_SYSTEM_SITE_NOT_DEPOT: 'DEPOT_SYSTEM_SITE_NOT_DEPOT',
   DOWNTIME_NOT_FOUND: 'DOWNTIME_NOT_FOUND',
   DRIVER_AI_NOTICE_OUTDATED: 'DRIVER_AI_NOTICE_OUTDATED',
   DRIVER_ALREADY_IN_FLEET: 'DRIVER_ALREADY_IN_FLEET',
@@ -104,6 +111,8 @@ export const ERROR_CODES = {
   EMAIL_REQUIRED: 'EMAIL_REQUIRED',
   EMAIL_SEND_FAILED: 'EMAIL_SEND_FAILED',
   ENCRYPTION_KEY_MISSING: 'ENCRYPTION_KEY_MISSING',
+  ENERGY_ASSET_NOT_FOUND: 'ENERGY_ASSET_NOT_FOUND',
+  ENERGY_ASSET_READING_OUTDATED: 'ENERGY_ASSET_READING_OUTDATED',
   EVSE_HAS_HISTORY: 'EVSE_HAS_HISTORY',
   EVSE_IN_USE: 'EVSE_IN_USE',
   EVSE_NOT_FOUND: 'EVSE_NOT_FOUND',
@@ -113,6 +122,7 @@ export const ERROR_CODES = {
   FLEET_BILLING_CONTACT_REQUIRED: 'FLEET_BILLING_CONTACT_REQUIRED',
   FLEET_BILLING_OLD_PODS_CONNECTED: 'FLEET_BILLING_OLD_PODS_CONNECTED',
   FLEET_BILLING_VERSION_CHECK_STALE: 'FLEET_BILLING_VERSION_CHECK_STALE',
+  FLEET_CHARGING_DISABLED: 'FLEET_CHARGING_DISABLED',
   FLEET_CREDIT_LIMIT_REACHED: 'FLEET_CREDIT_LIMIT_REACHED',
   FLEET_DISABLED: 'FLEET_DISABLED',
   FLEET_HAS_OPEN_BILLING: 'FLEET_HAS_OPEN_BILLING',
@@ -317,6 +327,7 @@ export const ERROR_CODES = {
   SESSION_REBILL_PAYMENT_PENDING: 'SESSION_REBILL_PAYMENT_PENDING',
   SESSION_REQUIRED: 'SESSION_REQUIRED',
   SESSION_STOP_REJECTED: 'SESSION_STOP_REJECTED',
+  SESSION_VEHICLE_OPERATOR_ASSIGNED: 'SESSION_VEHICLE_OPERATOR_ASSIGNED',
   SETTING_NOT_FOUND: 'SETTING_NOT_FOUND',
   SIM_ACTION_UNSUPPORTED: 'SIM_ACTION_UNSUPPORTED',
   SIM_ATTACHED: 'SIM_ATTACHED',
@@ -379,6 +390,7 @@ export const ERROR_CODES = {
   TOO_MANY_WATCHES: 'TOO_MANY_WATCHES',
   TOTP_NOT_CONFIGURED: 'TOTP_NOT_CONFIGURED',
   TRANSACTION_NOT_FOUND: 'TRANSACTION_NOT_FOUND',
+  TRANSFORMER_NOT_FOUND: 'TRANSFORMER_NOT_FOUND',
   UNAUTHORIZED: 'UNAUTHORIZED',
   UNKNOWN_ACTION: 'UNKNOWN_ACTION',
   UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
@@ -389,6 +401,7 @@ export const ERROR_CODES = {
   VEHICLE_ID_IN_USE: 'VEHICLE_ID_IN_USE',
   VEHICLE_ID_REQUIRED: 'VEHICLE_ID_REQUIRED',
   VEHICLE_NOT_FOUND: 'VEHICLE_NOT_FOUND',
+  VEHICLE_NOT_IN_FLEET: 'VEHICLE_NOT_IN_FLEET',
   VENDOR_NOT_FOUND: 'VENDOR_NOT_FOUND',
   VERIFICATION_RESEND_LIMITED: 'VERIFICATION_RESEND_LIMITED',
   WEAK_PASSWORD: 'WEAK_PASSWORD',
@@ -470,6 +483,13 @@ export type ErrorCode =
   | 'CSS_ACTION_REJECTED'
   | 'CSS_ACTION_TIMEOUT'
   | 'DATA_PLAN_SETTING_IN_TEMPLATE'
+  | 'DEPARTURE_MANAGED_BY_DEPOT_SYSTEM'
+  | 'DEPARTURE_NOT_FOUND'
+  | 'DEPARTURE_NOT_SCHEDULED'
+  | 'DEPARTURE_SCHEDULE_NOT_FOUND'
+  | 'DEPOT_SYSTEM_ID_IN_USE'
+  | 'DEPOT_SYSTEM_NOT_FOUND'
+  | 'DEPOT_SYSTEM_SITE_NOT_DEPOT'
   | 'DOWNTIME_NOT_FOUND'
   | 'DRIVER_AI_NOTICE_OUTDATED'
   | 'DRIVER_ALREADY_IN_FLEET'
@@ -495,6 +515,8 @@ export type ErrorCode =
   | 'EMAIL_REQUIRED'
   | 'EMAIL_SEND_FAILED'
   | 'ENCRYPTION_KEY_MISSING'
+  | 'ENERGY_ASSET_NOT_FOUND'
+  | 'ENERGY_ASSET_READING_OUTDATED'
   | 'EVSE_HAS_HISTORY'
   | 'EVSE_IN_USE'
   | 'EVSE_NOT_FOUND'
@@ -504,6 +526,7 @@ export type ErrorCode =
   | 'FLEET_BILLING_CONTACT_REQUIRED'
   | 'FLEET_BILLING_OLD_PODS_CONNECTED'
   | 'FLEET_BILLING_VERSION_CHECK_STALE'
+  | 'FLEET_CHARGING_DISABLED'
   | 'FLEET_CREDIT_LIMIT_REACHED'
   | 'FLEET_DISABLED'
   | 'FLEET_HAS_OPEN_BILLING'
@@ -708,6 +731,7 @@ export type ErrorCode =
   | 'SESSION_REBILL_PAYMENT_PENDING'
   | 'SESSION_REQUIRED'
   | 'SESSION_STOP_REJECTED'
+  | 'SESSION_VEHICLE_OPERATOR_ASSIGNED'
   | 'SETTING_NOT_FOUND'
   | 'SIM_ACTION_UNSUPPORTED'
   | 'SIM_ATTACHED'
@@ -770,6 +794,7 @@ export type ErrorCode =
   | 'TOO_MANY_WATCHES'
   | 'TOTP_NOT_CONFIGURED'
   | 'TRANSACTION_NOT_FOUND'
+  | 'TRANSFORMER_NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'UNKNOWN_ACTION'
   | 'UNSUPPORTED_MEDIA_TYPE'
@@ -780,6 +805,7 @@ export type ErrorCode =
   | 'VEHICLE_ID_IN_USE'
   | 'VEHICLE_ID_REQUIRED'
   | 'VEHICLE_NOT_FOUND'
+  | 'VEHICLE_NOT_IN_FLEET'
   | 'VENDOR_NOT_FOUND'
   | 'VERIFICATION_RESEND_LIMITED'
   | 'WEAK_PASSWORD'
@@ -879,6 +905,14 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CSS_ACTION_TIMEOUT: 'Simulator did not respond within 5s',
   DATA_PLAN_SETTING_IN_TEMPLATE:
     'Heartbeat and meter value settings come from Settings > Integrations & Features > OCPP and the station data plan, not from a configuration template',
+  DEPARTURE_MANAGED_BY_DEPOT_SYSTEM:
+    'This departure is managed by a bus depot system; change it there, or disable the depot system',
+  DEPARTURE_NOT_FOUND: 'Departure not found',
+  DEPARTURE_NOT_SCHEDULED: 'Only a scheduled departure can change',
+  DEPARTURE_SCHEDULE_NOT_FOUND: 'Departure schedule not found',
+  DEPOT_SYSTEM_ID_IN_USE: 'Another bus depot system uses this system ID',
+  DEPOT_SYSTEM_NOT_FOUND: 'Bus depot system not found',
+  DEPOT_SYSTEM_SITE_NOT_DEPOT: 'A bus depot system serves depot sites only',
   DOWNTIME_NOT_FOUND: 'Excluded downtime record not found',
   DRIVER_AI_NOTICE_OUTDATED: 'The AI notice has changed. Read it and choose again',
   DRIVER_ALREADY_IN_FLEET: 'Driver is already in this fleet',
@@ -904,6 +938,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   EMAIL_REQUIRED: 'Email required for paid charging',
   EMAIL_SEND_FAILED: 'Failed to send email',
   ENCRYPTION_KEY_MISSING: 'SETTINGS_ENCRYPTION_KEY not configured on server',
+  ENERGY_ASSET_NOT_FOUND: 'Battery or solar array not found',
+  ENERGY_ASSET_READING_OUTDATED: 'A newer reading of this battery or solar array is already stored',
   EVSE_HAS_HISTORY:
     'The EVSE or connector has charging history and cannot be deleted. Retire it instead.',
   EVSE_IN_USE: 'Another session is already active on this connector',
@@ -918,6 +954,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'A process of an older release is still connected. Finish the upgrade, then change the fleet billing.',
   FLEET_BILLING_VERSION_CHECK_STALE:
     "The worker's version check has not run recently, so the upgrade cannot be confirmed. Check that the worker is running, then change the fleet billing.",
+  FLEET_CHARGING_DISABLED:
+    'Fleet charging is turned off. Turn it on in Settings before you use departure planning.',
   FLEET_CREDIT_LIMIT_REACHED:
     'The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.',
   FLEET_DISABLED: 'Fleet is disabled',
@@ -1146,6 +1184,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'The session has a payment the provider has not settled yet. Try again later.',
   SESSION_REQUIRED: 'This action needs a signed-in session. API keys cannot use it.',
   SESSION_STOP_REJECTED: 'The station rejected the stop request. The session is still charging.',
+  SESSION_VEHICLE_OPERATOR_ASSIGNED:
+    'An operator assigned the vehicle of this session for the depot charging plan; only an operator can change it',
   SETTING_NOT_FOUND: 'Setting not found',
   SIM_ACTION_UNSUPPORTED: 'The SIM provider does not support this action for this SIM',
   SIM_ATTACHED: 'Detach the SIM from its station before deleting it',
@@ -1221,6 +1261,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TOO_MANY_WATCHES: 'You are watching too many stations',
   TOTP_NOT_CONFIGURED: 'TOTP not set up',
   TRANSACTION_NOT_FOUND: 'Transaction not found',
+  TRANSFORMER_NOT_FOUND: 'Transformer not found',
   UNAUTHORIZED: 'Unauthorized',
   UNKNOWN_ACTION: 'Unknown OCPP action',
   UNSUPPORTED_MEDIA_TYPE: 'Unsupported content type',
@@ -1232,6 +1273,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   VEHICLE_ID_IN_USE: 'Another vehicle already uses this VIN or EVCCID for Autocharge.',
   VEHICLE_ID_REQUIRED: 'Autocharge needs a VIN or an EVCCID on the vehicle.',
   VEHICLE_NOT_FOUND: 'Vehicle not found',
+  VEHICLE_NOT_IN_FLEET: 'The vehicle does not belong to a driver of this fleet',
   VENDOR_NOT_FOUND: 'Vendor not found',
   VERIFICATION_RESEND_LIMITED: 'Too many verification emails. Wait before you request another one.',
   WEAK_PASSWORD: 'Password does not meet complexity requirements',

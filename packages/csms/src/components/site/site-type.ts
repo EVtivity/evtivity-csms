@@ -11,7 +11,7 @@ import {
   showsTransformers,
   siteTypeOf,
   type ChargerPlacement,
-  type SiteLayoutSettings,
+  type PlacedLayoutSettings,
   type SiteType,
 } from '@evtivity/lib/site-layout';
 
@@ -29,12 +29,14 @@ export const CHARGER_PLACEMENT_LABEL = {
 } as const satisfies Record<ChargerPlacement, string>;
 
 /**
- * The layout in one line, from the effective settings: "Parking Lot, 2 x 10
+ * The layout in one line, from the effective settings with the site's
+ * power equipment joined (`placePowerEquipment`, so a transformer counts
+ * whether or not it has a stored position): "Parking Lot, 2 x 10
  * spots, 2 transformers", "Office or Retail, 12 wall chargers", "Office or
  * Retail, 6 chargers on posts", "Curbside, 4 + 6 chargers", "Depot, 6 bus bays,
  * 3 truck lanes", "Custom, stations placed freely, 1 transformer".
  */
-export function layoutSummary(t: TFunction, settings: SiteLayoutSettings): string {
+export function layoutSummary(t: TFunction, settings: PlacedLayoutSettings): string {
   switch (siteTypeOf(settings)) {
     case 'office_retail':
       return chargerMountingOf(settings) === 'wall'

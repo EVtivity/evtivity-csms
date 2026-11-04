@@ -17,6 +17,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { SiteLayout } from '@/components/layout/SiteLayout';
 import { LoadManagement } from '@/components/load-management/LoadManagement';
+import { SiteFleetReadinessTab } from '@/components/site/SiteFleetReadinessTab';
+import {
+  usesDepotSpots,
+  type LayoutPowerEquipment,
+  type SiteLayoutSettings,
+} from '@evtivity/lib/site-layout';
 import { StationsTable } from '@/components/StationsTable';
 import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -75,6 +81,9 @@ interface Site {
   aiInsightsSuppressedUntil?: string | null;
   aiInsightsSuppressedByName?: string | null;
   aiInsightsSuppressedReason?: string | null;
+  layoutSettings?: SiteLayoutSettings | null;
+  /** The site's transformers and energy assets as the layout labels them. */
+  powerEquipment?: LayoutPowerEquipment;
   stationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -111,6 +120,7 @@ export function SiteDetail(): React.JSX.Element {
   const canReadAiUsage = useHasPermission('aiUsage:read');
   const canWriteSites = useHasPermission('sites:write');
   const canWriteStations = useHasPermission('stations:write');
+  const canReadLoadManagement = useHasPermission('loadManagement:read');
   const allSites = useHasAllSiteAccess();
   const {
     flags: { guestChargingEnabled, reservationEnabled, aiInsightsEnabled },
@@ -214,6 +224,9 @@ export function SiteDetail(): React.JSX.Element {
     return <p className="text-destructive">{t('sites.siteNotFound')}</p>;
   }
 
+  // Depot sites only, with the planning setting on or off (the tab says what turns planning on).
+  const showFleetReadiness = canReadLoadManagement && usesDepotSpots(site.layoutSettings ?? {});
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -253,6 +266,9 @@ export function SiteDetail(): React.JSX.Element {
           <TabsTrigger value="stations">{t('nav.stations')}</TabsTrigger>
           <TabsTrigger value="layout">{t('sites.layout')}</TabsTrigger>
           <TabsTrigger value="load-management">{t('sites.loadManagement')}</TabsTrigger>
+          {showFleetReadiness && (
+            <TabsTrigger value="fleet-readiness">{t('sites.fleetReadiness.title')}</TabsTrigger>
+          )}
           <TabsTrigger value="qr-codes">{t('stations.qrCodes')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('sites.pricing')}</TabsTrigger>
           <TabsTrigger value="electricity-rates">{t('sites.electricityRates')}</TabsTrigger>
@@ -424,6 +440,12 @@ export function SiteDetail(): React.JSX.Element {
         <TabsContent value="load-management">
           <LoadManagement siteId={id ?? ''} />
         </TabsContent>
+
+        {showFleetReadiness && (
+          <TabsContent value="fleet-readiness">
+            <SiteFleetReadinessTab siteId={id ?? ''} timezone={site.timezone} />
+          </TabsContent>
+        )}
 
         <SiteQrCodesTab
           stations={stations}

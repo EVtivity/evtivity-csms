@@ -245,12 +245,16 @@ describe('TokenDetailsTab expiry and deactivation', () => {
 });
 
 describe('TokenDetailsTab label', () => {
-  it('shows the label, or that there is none', () => {
-    renderTab(null, { label: 'Pool card fleet 3' });
-    expect(screen.getByText('Pool card fleet 3')).toBeTruthy();
-    cleanup();
-    renderTab(null);
-    expect(screen.getByText('tokens.noLabel')).toBeTruthy();
+  it('leaves the label to the page header and edits it in the form', () => {
+    renderTab(null, { label: 'Pool RFID card, fleet 3' });
+    expect(screen.queryByText('Pool RFID card, fleet 3')).toBeNull();
+    expect(screen.queryByText('tokens.label')).toBeNull();
+
+    fireEvent.click(screen.getByText('common.edit'));
+    expect(screen.getByLabelText('tokens.label')).toHaveProperty(
+      'value',
+      'Pool RFID card, fleet 3',
+    );
   });
 
   it('saves a trimmed label', async () => {

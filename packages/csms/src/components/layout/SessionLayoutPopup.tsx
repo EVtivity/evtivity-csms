@@ -14,8 +14,11 @@ import { X } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { cn } from '@/lib/utils';
-import { formatCents, formatDuration, formatEnergy } from '@/lib/formatting';
+import { formatCents, formatDuration, formatEnergy, formatNumber } from '@/lib/formatting';
 import type { LayoutSession } from './StationCard';
+import type { DepartureReadinessReason } from '../fleet/departure-types';
+import { departureLabel } from './layout-departure';
+import { formatDepotDateTime, formatDepotTime } from '@/lib/depot-time';
 
 /** "First Last" split for the initials of an avatar without a picture. */
 export function splitDriverName(name: string | null): {
@@ -78,6 +81,10 @@ export const SessionLayoutPopup = forwardRef<HTMLDivElement, SessionLayoutPopupP
 
     const driver = session.driver;
     const names = splitDriverName(driver?.name ?? null);
+    const departure = session.departure ?? null;
+    // Predicted Ready and Reason show only while the depot plan runs.
+    const planned = departure?.readiness != null;
+    const label = departure != null ? departureLabel(departure, t) : null;
     const title = driver?.name ?? t('sites.layoutView.sessionTitle');
     return (
       <div
@@ -135,6 +142,52 @@ export const SessionLayoutPopup = forwardRef<HTMLDivElement, SessionLayoutPopupP
               {stationLabel}
             </Link>
           </dd>
+          {departure != null && (
+            <>
+              <dt className="text-muted-foreground">{t('fleets.departures.departure')}</dt>
+              <dd className="text-right" data-testid="session-popup-departure">
+                {departure.departureAt == null
+                  ? t('fleets.departures.asSoonAsPossible')
+                  : formatDepotDateTime(departure.departureAt, departure.timezone)}
+              </dd>
+              <dt className="text-muted-foreground">{t('fleets.departures.target')}</dt>
+              <dd className="text-right tabular-nums">
+                {departure.targetKwh != null
+                  ? `${formatNumber(departure.targetKwh, 1)} kWh`
+                  : `${formatNumber(departure.targetSocPercent ?? 0, 0)}%`}
+              </dd>
+              <dt className="text-muted-foreground">{t('fleets.departures.delivered')}</dt>
+              <dd className="text-right tabular-nums">
+                {`${formatNumber(departure.deliveredKwh ?? 0, 1)} kWh`}
+              </dd>
+              {planned && (
+                <>
+                  <dt className="text-muted-foreground">{t('fleets.departures.predictedReady')}</dt>
+                  <dd className="text-right" data-testid="session-popup-predicted-ready">
+                    {departure.predictedReadyAt != null
+                      ? formatDepotTime(departure.predictedReadyAt, departure.timezone)
+                      : '-'}
+                  </dd>
+                  <dt className="text-muted-foreground">{t('fleets.departures.state')}</dt>
+                  <dd
+                    className="text-right"
+                    style={label?.color != null ? { color: label.color } : undefined}
+                    data-testid="session-popup-state"
+                  >
+                    {label?.state ?? '-'}
+                  </dd>
+                  <dt className="text-muted-foreground">{t('fleets.departures.reason')}</dt>
+                  <dd className="text-right" data-testid="session-popup-reason">
+                    {departure.reason != null
+                      ? t(
+                          `fleets.departures.reasons.${departure.reason as DepartureReadinessReason}`,
+                        )
+                      : '-'}
+                  </dd>
+                </>
+              )}
+            </>
+          )}
         </dl>
         <div className="grid gap-2">
           <Link

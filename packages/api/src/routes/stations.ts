@@ -44,6 +44,7 @@ import {
   readStationDataPlans,
   placeStationOnLayout,
   moveStationLayout,
+  markSitePlanStale,
 } from '@evtivity/database';
 import type { StationInsightSuppressionSource } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -55,8 +56,11 @@ import {
 import { auditStationChange } from '../lib/station-audit.js';
 import {
   assertNotLoadManaged,
+  assertNotPlanProfileId,
   assertProfileIdAllowed,
   maxExternalConstraintsIds,
+  plannedClearConflict,
+  plannedClearMessage,
 } from '../lib/charging-profile-id.js';
 import { clearProfileSlotBeforePush } from '../lib/charging-profile-push.js';
 import { requestSessionEnd } from '../lib/session-end.js';
@@ -2116,6 +2120,14 @@ export function stationRoutes(app: FastifyInstance): void {
       // The site sets the station's display language and can change its tariff.
       if (beforeStation != null && beforeStation.siteId !== station.siteId) {
         await requestStationMessageRepush(request.log, { stationId: station.id });
+        // Both depot plans lose or gain the station's power.
+        for (const siteId of [beforeStation.siteId, station.siteId]) {
+          if (siteId != null) {
+            await markSitePlanStale(siteId, 'station_moved', request.log, {
+              departureAwareOnly: true,
+            });
+          }
+        }
       }
 
       // The station data plan service writes the choice and its audit row;
@@ -5897,10 +5909,14 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(clearProfileBody),
         response: {
           200: itemResponse(clearChargingProfileResponse),
-          400: errorWith('Station offline, or a purpose OCPP 2.0.1 does not define', [
-            ERROR_CODES.STATION_OFFLINE,
-            ERROR_CODES.OCPP_VERSION_MISMATCH,
-          ]),
+          400: errorWith(
+            'Station offline, a purpose OCPP 2.0.1 does not define, or a clear of the TxProfile of a session the depot plan charges',
+            [
+              ERROR_CODES.STATION_OFFLINE,
+              ERROR_CODES.OCPP_VERSION_MISMATCH,
+              ERROR_CODES.CHARGING_PROFILE_LOAD_MANAGED,
+            ],
+          ),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           502: errorWith('Ocpp command failed', [ERROR_CODES.OCPP_COMMAND_FAILED]),
         },
@@ -5963,6 +5979,18 @@ export function stationRoutes(app: FastifyInstance): void {
               chargingProfileCriteria: { chargingProfilePurpose: purpose },
             }))
           : [ocppPayload];
+
+      // A clear that could remove the plan TxProfile of a planned session.
+      for (const payload of payloads) {
+        const plannedClear = await plannedClearConflict(station.stationId, payload);
+        if (plannedClear != null) {
+          await reply.status(400).send({
+            error: plannedClearMessage(plannedClear),
+            code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          });
+          return;
+        }
+      }
 
       let accepted = false;
       let lastResponse: Record<string, unknown> | undefined;
@@ -6147,6 +6175,8 @@ export function stationRoutes(app: FastifyInstance): void {
         },
         maxExternalId,
       );
+      // A profile with a planned session's TxProfile id would replace the plan.
+      await assertNotPlanProfileId(station.stationId, template.profileId);
 
       // Best-effort clear existing profile with same purpose/stackLevel/evseId.
       // OCPP 2.1 wants the criteria nested under `chargingProfileCriteria`.

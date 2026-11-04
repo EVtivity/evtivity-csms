@@ -19,6 +19,7 @@ import {
   type LargeVehiclePose,
 } from './site-layout-large-vehicle-pose';
 import { markerY } from './site-layout-marker';
+import { vehicleInletOf } from './site-layout-vehicle-inlet';
 import {
   mcsArmCable,
   mcsArmChargingYaw,
@@ -50,6 +51,7 @@ import {
 import {
   PANTOGRAPH_DROP,
   PANTOGRAPH_HOUSING_BOTTOM_Y,
+  PANTOGRAPH_LINKAGE,
   PANTOGRAPH_POLE,
   PANTOGRAPH_POLE_LOGO,
   PANTOGRAPH_POLE_SCREEN,
@@ -57,10 +59,10 @@ import {
   createPantographPoleKit,
   pantographDropFor,
 } from './site-layout-model-pantograph-pole';
-import { createRoofPantographKit } from './site-layout-model-roof-pantograph';
+import { ROOF_PANTOGRAPH, createRoofPantographKit } from './site-layout-model-roof-pantograph';
 import type { DepotMaterials } from './site-layout-model-scissor';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { slotKind } from './site-layout-scene-station-slots';
 import {
   AVATAR_ABOVE_ROOF_M,
@@ -71,7 +73,24 @@ import {
   type Templates,
 } from './site-layout-scene-types';
 
-export function installLargeChargers(scn: SceneCtx): void {
+type LargeChargersCtx = SceneSlice<
+  | 'M'
+  | 'addScreenMessage'
+  | 'cabinetGlow'
+  | 'cable'
+  | 'carKit'
+  | 'chargeContactGlow'
+  | 'chargeFlowPath'
+  | 'chargingCable'
+  | 'connectorHandle'
+  | 'holsteredConnector'
+  | 'logoPanel'
+  | 'modelKit'
+  | 'modelOf',
+  'buildLargeCharger' | 'placeLargeSpotProp'
+>;
+
+export function installLargeChargers(scn: LargeChargersCtx): void {
   function vehiclePose(rect: FreeSpotRect, bodyType: VehicleBodyType): LargeVehiclePose {
     return largeVehiclePose(rect, scn.carKit(bodyType), vehicleSize(bodyType).width);
   }
@@ -251,6 +270,18 @@ export function installLargeChargers(scn: SceneCtx): void {
           );
           link.position.set(pt.x, PANTOGRAPH_HOUSING_BOTTOM_Y, pt.z);
           g.add(link);
+          if (charging && (s.cableFlow ?? true)) {
+            // Energy runs down the linkage into the head on the roof rails, which glow.
+            const headY = PANTOGRAPH_HOUSING_BOTTOM_Y - drop;
+            g.add(
+              scn.chargeFlowPath([
+                [pt.x, PANTOGRAPH_HOUSING_BOTTOM_Y, pt.z],
+                [pt.x, (PANTOGRAPH_HOUSING_BOTTOM_Y + headY) / 2, pt.z],
+                [pt.x, headY, pt.z],
+              ]),
+              scn.chargeContactGlow([pt.x, headY, pt.z], PANTOGRAPH_LINKAGE.head.widthM / 2),
+            );
+          }
         } else {
           // The hood, its contact rails' underside at HOOD_Y, hung from the crossbar.
           const hanger = boomY - P.boom.heightM / 2 - (HOOD_Y + PANTOGRAPH_HOOD.topM);
@@ -339,7 +370,21 @@ export function installLargeChargers(scn: SceneCtx): void {
       return null;
     }
     if (s.prop !== 'car') return null;
-    const look = s.car ?? sceneCar(null);
+    // The vehicle's inlet takes the plug of a dispenser or a standard charger;
+    // a pantograph bus charges on its roof with its inlet door closed.
+    const plugKind =
+      model === 'truck_mcs'
+        ? (s.connectorKinds?.[0]?.[0] ?? 'mcs')
+        : model === 'bus_dispenser'
+          ? slotKind(s, s.propSpot ?? 0, 0)
+          : model === 'standard'
+            ? slotKind(s, 0, 0)
+            : null;
+    const own = s.car ?? sceneCar(null);
+    const look =
+      plugKind == null
+        ? { ...own, plug: null }
+        : { ...own, inlet: vehicleInletOf(plugKind), plug: plugKind };
     const pose = vehiclePose(rect, look.bodyType);
     const vehicle = t.vehicle(look);
     vehicle.position.set(pose.x, 0, pose.z);
@@ -411,6 +456,18 @@ export function installLargeChargers(scn: SceneCtx): void {
       roofPan.position.copy(pose.roof).applyMatrix4(vehicle.matrix.clone().invert());
       roofPan.position.y = BUS_ROOF_Y;
       vehicle.add(roofPan);
+      if (s.cableFlow ?? true) {
+        // Energy runs from the hood rails, which glow where the shoes meet them, down the arm.
+        const r = pose.roof;
+        g.add(
+          scn.chargeFlowPath([
+            [r.x, HOOD_Y, r.z],
+            [r.x, (HOOD_Y + BUS_ROOF_Y) / 2, r.z],
+            [r.x, BUS_ROOF_Y, r.z],
+          ]),
+          scn.chargeContactGlow([r.x, HOOD_Y, r.z], ROOF_PANTOGRAPH.head.widthM / 2),
+        );
+      }
     } else if (model === 'standard') {
       // A standard charger at the head of the spot: down to the ground and along to the inlet.
       const start: [number, number, number] =

@@ -103,6 +103,32 @@ describe('audit labels', () => {
     }
   });
 
+  it('labels the bus depot system entity and its actions in 6 locales', () => {
+    expect(AUDIT_ENTITY_TYPES).toContain('depot_system');
+    const actions = [
+      'created',
+      'updated',
+      'deleted',
+      'password_rotated',
+      'requests_applied',
+      'auth_locked',
+    ];
+    expect(enums.get('depot_system_audit_action')).toEqual(actions);
+    const locales = { en, de, es, ko, zh, 'zh-TW': zhTW } as Record<string, unknown>;
+    for (const [lang, locale] of Object.entries(locales)) {
+      const audit = (
+        locale as {
+          audit: { actions: Record<string, unknown>; entities: Record<string, unknown> };
+        }
+      ).audit;
+      expect(audit.entities['depot_system'], lang).toBeTruthy();
+      expect(
+        actions.filter((a) => typeof audit.actions[a] !== 'string'),
+        lang,
+      ).toEqual([]);
+    }
+  });
+
   it('has an en label for every actor', () => {
     expect([...AUDIT_ACTORS]).toEqual(enums.get('audit_actor'));
     expect(AUDIT_ACTORS.filter((a) => typeof enAudit.actors[a] !== 'string')).toEqual([]);

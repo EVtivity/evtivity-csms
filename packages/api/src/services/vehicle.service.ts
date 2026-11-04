@@ -29,6 +29,8 @@ import {
   vehicleAuditLog,
   sessionAuditLog,
   writeAudit,
+  markSitePlanStale,
+  isFleetChargingEnabled,
   pgErrorCode,
   pgConstraintName,
   PG_UNIQUE_VIOLATION,
@@ -41,6 +43,7 @@ import {
   vehicleIdColumn,
 } from '@evtivity/lib/vehicle-id';
 import type { VehicleBodyType, VehicleColor } from '@evtivity/lib/vehicle-appearance';
+import { ValidationError } from '@evtivity/lib';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { tokenVehicleIdKeySql } from '../lib/token-vehicle-id-sql.js';
 
@@ -94,6 +97,18 @@ export class SessionNotFoundError extends Error {
     super('Session not found');
   }
 }
+export class SessionNotActiveError extends Error {
+  constructor() {
+    super('The session is not active');
+  }
+}
+export class SessionVehicleOperatorAssignedError extends Error {
+  constructor() {
+    super(
+      'An operator assigned the vehicle of this session for the depot charging plan; only an operator can change it',
+    );
+  }
+}
 export class SessionNoVehicleIdError extends Error {
   constructor() {
     super('The charger sent no vehicle id for this session');
@@ -110,11 +125,62 @@ export interface VehicleFields {
   bodyType?: VehicleBodyType | null | undefined;
   evccid?: string | null | undefined;
   autochargeEnabled?: boolean | undefined;
+  /** Usable battery size in kWh (1 to 2000); needed for state of charge departure targets. */
+  batteryCapacityKwh?: number | null | undefined;
+  /** The power the vehicle accepts in kW (1 to 3750); null means the charger maximum. */
+  maxChargePowerKw?: number | null | undefined;
+  /** Power the vehicle draws while it preconditions in kW (0.5 to 500); null reserves nothing. */
+  preconditioningPowerKw?: number | null | undefined;
+  /** Length of a preconditioning window that names no start, in minutes (5 to 240). */
+  preconditioningMinutes?: number | undefined;
+}
+
+export const VEHICLE_BATTERY_CAPACITY_KWH = { min: 1, max: 2000 } as const;
+export const VEHICLE_MAX_CHARGE_POWER_KW = { min: 1, max: 3750 } as const;
+export const VEHICLE_PRECONDITIONING_POWER_KW = { min: 0.5, max: 500 } as const;
+export const VEHICLE_PRECONDITIONING_MINUTES = { min: 5, max: 240 } as const;
+
+/** The preconditioning window length: undefined leaves it, a whole number in range is stored. */
+export function preconditioningMinutesValue(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const { min, max } = VEHICLE_PRECONDITIONING_MINUTES;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new ValidationError(`preconditioningMinutes is ${String(min)} to ${String(max)}`, {
+      field: 'preconditioningMinutes',
+    });
+  }
+  return value;
+}
+
+/**
+ * The numeric column value of a battery field: undefined leaves it, null clears
+ * it, a number is checked against its range and stored with two decimals.
+ */
+export function batteryColumn(
+  value: number | null | undefined,
+  range: { min: number; max: number },
+  field: string,
+): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (!Number.isFinite(value) || value < range.min || value > range.max) {
+    throw new ValidationError(`${field} is ${String(range.min)} to ${String(range.max)}`, {
+      field,
+    });
+  }
+  return value.toFixed(2);
 }
 
 /** The normalized form of the id fields; throws VehicleIdInvalidError on a bad value. */
 function normalizeFields(fields: VehicleFields): VehicleFields {
   const out: VehicleFields = { ...fields };
+  batteryColumn(fields.batteryCapacityKwh, VEHICLE_BATTERY_CAPACITY_KWH, 'batteryCapacityKwh');
+  batteryColumn(fields.maxChargePowerKw, VEHICLE_MAX_CHARGE_POWER_KW, 'maxChargePowerKw');
+  batteryColumn(
+    fields.preconditioningPowerKw,
+    VEHICLE_PRECONDITIONING_POWER_KW,
+    'preconditioningPowerKw',
+  );
+  preconditioningMinutesValue(fields.preconditioningMinutes);
   if (fields.vin != null) {
     const trimmed = fields.vin.trim();
     if (trimmed === '') {
@@ -307,6 +373,24 @@ export async function createVehicle(
         bodyType: values.bodyType ?? null,
         evccid: values.evccid ?? null,
         autochargeEnabled: values.autochargeEnabled ?? false,
+        batteryCapacityKwh:
+          batteryColumn(
+            values.batteryCapacityKwh,
+            VEHICLE_BATTERY_CAPACITY_KWH,
+            'batteryCapacityKwh',
+          ) ?? null,
+        maxChargePowerKw:
+          batteryColumn(values.maxChargePowerKw, VEHICLE_MAX_CHARGE_POWER_KW, 'maxChargePowerKw') ??
+          null,
+        preconditioningPowerKw:
+          batteryColumn(
+            values.preconditioningPowerKw,
+            VEHICLE_PRECONDITIONING_POWER_KW,
+            'preconditioningPowerKw',
+          ) ?? null,
+        ...(values.preconditioningMinutes !== undefined
+          ? { preconditioningMinutes: values.preconditioningMinutes }
+          : {}),
       })
       .returning();
   } catch (err) {
@@ -357,6 +441,27 @@ export async function updateVehicle(
       if (values.bodyType !== undefined) set.bodyType = values.bodyType;
       if (values.evccid !== undefined) set.evccid = values.evccid;
       if (values.autochargeEnabled !== undefined) set.autochargeEnabled = values.autochargeEnabled;
+      const capacity = batteryColumn(
+        values.batteryCapacityKwh,
+        VEHICLE_BATTERY_CAPACITY_KWH,
+        'batteryCapacityKwh',
+      );
+      if (capacity !== undefined) set.batteryCapacityKwh = capacity;
+      const maxPower = batteryColumn(
+        values.maxChargePowerKw,
+        VEHICLE_MAX_CHARGE_POWER_KW,
+        'maxChargePowerKw',
+      );
+      if (maxPower !== undefined) set.maxChargePowerKw = maxPower;
+      const preconditioningPower = batteryColumn(
+        values.preconditioningPowerKw,
+        VEHICLE_PRECONDITIONING_POWER_KW,
+        'preconditioningPowerKw',
+      );
+      if (preconditioningPower !== undefined) set.preconditioningPowerKw = preconditioningPower;
+      if (values.preconditioningMinutes !== undefined) {
+        set.preconditioningMinutes = values.preconditioningMinutes;
+      }
       const vin = set.vin !== undefined ? set.vin : before.vin;
       const evccid = set.evccid !== undefined ? set.evccid : before.evccid;
       const enabled = set.autochargeEnabled ?? before.autochargeEnabled;
@@ -589,4 +694,224 @@ export async function claimSessionVehicleId(
     created: result.before == null,
     previousSessionVehicleId: result.previousSessionVehicleId,
   };
+}
+
+/**
+ * The vehicles an operator may assign to a session: a session with a driver
+ * takes the driver's own vehicle or a vehicle of a driver in a fleet the
+ * session's driver belongs to; only a session without a driver takes a vehicle
+ * of a driver in any fleet that holds the session's station.
+ */
+export function assignableSessionVehicle(
+  vehicleId: string,
+  session: { driverId: string | null; stationId: string },
+): SQL | undefined {
+  return and(
+    eq(vehicles.id, vehicleId),
+    session.driverId != null
+      ? or(
+          eq(vehicles.driverId, session.driverId),
+          sql`EXISTS (
+            SELECT 1 FROM fleet_drivers owner_fd
+            JOIN fleet_drivers session_fd ON session_fd.fleet_id = owner_fd.fleet_id
+            WHERE owner_fd.driver_id = ${vehicles.driverId}
+              AND session_fd.driver_id = ${session.driverId}
+          )`,
+        )
+      : sql`EXISTS (
+          SELECT 1 FROM fleet_drivers fd
+          JOIN fleet_stations fs ON fs.fleet_id = fd.fleet_id
+          WHERE fd.driver_id = ${vehicles.driverId} AND fs.station_id = ${session.stationId}
+        )`,
+  );
+}
+
+/**
+ * Sets the vehicle of an active session by hand (route-aware charging: a bus
+ * that plugged in without a card of its own). The vehicle belongs to the
+ * session's driver or to a driver of a fleet the session's driver belongs to;
+ * a session without a driver takes a vehicle of a driver of a fleet that holds
+ * the session's station. Any other vehicle answers like a missing one. Only the vehicle
+ * changes: the session keeps its driver, token and billing. A session outside
+ * the caller's sites answers like a missing one. Audited on the session and
+ * the vehicle; the site's depot plan is marked stale.
+ */
+export async function assignSessionVehicle(
+  args: { sessionId: string; vehicleId: string; siteScope: string[] | null },
+  actor: AuditActorInfo,
+  log: AuditLog,
+): Promise<{
+  sessionId: string;
+  vehicleId: string;
+  previousVehicleId: string | null;
+  changed: boolean;
+}> {
+  const result = await db.transaction(async (tx) => {
+    const [session] = await tx
+      .select({
+        driverId: chargingSessions.driverId,
+        stationId: chargingSessions.stationId,
+        siteId: chargingSessions.siteId,
+        status: chargingSessions.status,
+        vehicleId: chargingSessions.vehicleId,
+      })
+      .from(chargingSessions)
+      .where(eq(chargingSessions.id, args.sessionId))
+      .for('update');
+    if (
+      session == null ||
+      (args.siteScope != null &&
+        (session.siteId == null || !args.siteScope.includes(session.siteId)))
+    ) {
+      throw new SessionNotFoundError();
+    }
+    if (session.status !== 'active') throw new SessionNotActiveError();
+    const [allowed] = await tx
+      .select({ id: vehicles.id })
+      .from(vehicles)
+      .where(assignableSessionVehicle(args.vehicleId, session));
+    if (allowed == null) throw new VehicleNotFoundError();
+    if (session.vehicleId === args.vehicleId) {
+      return { siteId: session.siteId, previousVehicleId: session.vehicleId, changed: false };
+    }
+    await tx
+      .update(chargingSessions)
+      .set({ vehicleId: args.vehicleId, vehicleAssignedByOperator: true, updatedAt: new Date() })
+      .where(eq(chargingSessions.id, args.sessionId));
+    return { siteId: session.siteId, previousVehicleId: session.vehicleId, changed: true };
+  });
+
+  if (result.changed) {
+    await writeAudit(
+      { table: sessionAuditLog, idColumn: 'session_id' },
+      {
+        entityId: args.sessionId,
+        entityIdSnapshot: args.sessionId,
+        action: 'vehicle_changed',
+        ...actor,
+        before: { vehicleId: result.previousVehicleId },
+        after: { vehicleId: args.vehicleId },
+        notes: 'Vehicle assigned by an operator',
+      },
+      db,
+      log,
+    );
+    await writeAudit(
+      { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+      {
+        entityId: args.vehicleId,
+        entityIdSnapshot: args.vehicleId,
+        action: 'updated',
+        ...actor,
+        before: null,
+        after: null,
+        notes: 'Assigned to a charging session by an operator',
+      },
+      db,
+      log,
+    );
+    if (result.siteId != null) {
+      // The writer logs a failed mark with its own logger (fail-open).
+      await markSitePlanStale(result.siteId, 'session_vehicle_assigned', undefined, {
+        departureAwareOnly: true,
+      });
+    }
+  }
+  return {
+    sessionId: args.sessionId,
+    vehicleId: args.vehicleId,
+    previousVehicleId: result.previousVehicleId,
+    changed: result.changed,
+  };
+}
+
+/**
+ * True while the depot plan charges the session: an active session at a site
+ * with load management on, the Departure Aware strategy and Fleet Charging on.
+ */
+async function departurePlanCharges(
+  tx: Pick<typeof db, 'execute'>,
+  siteId: string | null,
+): Promise<boolean> {
+  if (siteId == null || !(await isFleetChargingEnabled())) return false;
+  const rows = (await tx.execute(sql`SELECT 1 AS planned FROM site_load_management
+    WHERE site_id = ${siteId} AND is_enabled AND strategy = 'departure_aware'`)) as unknown as unknown[];
+  return rows.length > 0;
+}
+
+/**
+ * Sets or clears the vehicle of the driver's own session (the portal). The
+ * vehicle is the driver's own; another driver's session or vehicle answers
+ * like a missing one. While the depot plan charges an active session, a
+ * vehicle an operator assigned stays: replacing or clearing it answers
+ * SessionVehicleOperatorAssignedError (security case 314). Audited on the
+ * session; any change marks the site's depot plan stale.
+ */
+export async function setDriverSessionVehicle(
+  args: { sessionId: string; driverId: string; vehicleId: string | null },
+  actor: AuditActorInfo,
+  log: AuditLog,
+): Promise<{ vehicleId: string | null; changed: boolean }> {
+  const result = await db.transaction(async (tx) => {
+    const [session] = await tx
+      .select({
+        siteId: chargingSessions.siteId,
+        status: chargingSessions.status,
+        vehicleId: chargingSessions.vehicleId,
+        assignedByOperator: chargingSessions.vehicleAssignedByOperator,
+      })
+      .from(chargingSessions)
+      .where(
+        and(eq(chargingSessions.id, args.sessionId), eq(chargingSessions.driverId, args.driverId)),
+      )
+      .for('update');
+    if (session == null) throw new SessionNotFoundError();
+    if (args.vehicleId != null) {
+      const [vehicle] = await tx
+        .select({ driverId: vehicles.driverId })
+        .from(vehicles)
+        .where(eq(vehicles.id, args.vehicleId));
+      if (vehicle?.driverId !== args.driverId) throw new VehicleNotFoundError();
+    }
+    const previousVehicleId = session.vehicleId ?? null;
+    if (previousVehicleId === args.vehicleId) {
+      return { siteId: session.siteId, previousVehicleId, changed: false };
+    }
+    if (
+      session.assignedByOperator &&
+      previousVehicleId != null &&
+      session.status === 'active' &&
+      (await departurePlanCharges(tx, session.siteId))
+    ) {
+      throw new SessionVehicleOperatorAssignedError();
+    }
+    await tx
+      .update(chargingSessions)
+      .set({ vehicleId: args.vehicleId, vehicleAssignedByOperator: false, updatedAt: new Date() })
+      .where(eq(chargingSessions.id, args.sessionId));
+    return { siteId: session.siteId, previousVehicleId, changed: true };
+  });
+
+  if (result.changed) {
+    await writeAudit(
+      { table: sessionAuditLog, idColumn: 'session_id' },
+      {
+        entityId: args.sessionId,
+        entityIdSnapshot: args.sessionId,
+        action: 'vehicle_changed',
+        ...actor,
+        before: { vehicleId: result.previousVehicleId },
+        after: { vehicleId: args.vehicleId },
+      },
+      db,
+      log,
+    );
+    if (result.siteId != null) {
+      // The writer logs a failed mark with its own logger (fail-open).
+      await markSitePlanStale(result.siteId, 'session_vehicle_changed', undefined, {
+        departureAwareOnly: true,
+      });
+    }
+  }
+  return { vehicleId: args.vehicleId, changed: result.changed };
 }

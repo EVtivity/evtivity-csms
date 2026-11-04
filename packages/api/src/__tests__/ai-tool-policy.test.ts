@@ -13,8 +13,17 @@ import {
   MONEY_FIELDS_REVIEWED,
   policyCoverageProblems,
 } from '../services/ai/tools/catalog-checks.js';
-import { AI_TOOL_POLICY, surfaceOffers, toolPolicy } from '../services/ai/tools/policy.js';
+import {
+  AI_TOOL_POLICY,
+  CIRCUIT_RATING_FIELDS,
+  PANEL_RATING_FIELDS,
+  UNMANAGED_LOAD_HEADROOM_FIELDS,
+  mcpOffers,
+  surfaceOffers,
+  toolPolicy,
+} from '../services/ai/tools/policy.js';
 import { chatbotToolset, supportToolset } from '../services/ai/surfaces/toolsets.js';
+import { prepareToolCall } from '../services/ai/tools/execute.js';
 import { isSecretShapedKey } from '@evtivity/ai/redact';
 
 const ALL_CATEGORIES = [...new Set(AI_TOOL_CATALOG.map((t) => t.category))];
@@ -237,6 +246,44 @@ describe('AI tool policy and catalog', () => {
     ]);
   });
 
+  it('panel and circuit tools never carry a rating or the transformer link (cases 332, 356)', () => {
+    // A panel or circuit needs a breaker rating, so the assistant creates none.
+    for (const id of [
+      'createPanel',
+      'createCircuit',
+      'createUnmanagedLoad',
+      'deleteUnmanagedLoad',
+      'deletePanel',
+      'deleteCircuit',
+    ] as const) {
+      expect(toolPolicy(id).exposure, id).toBe('never');
+      expect(
+        AI_TOOL_CATALOG.find((t) => t.operationId === id),
+        id,
+      ).toBeUndefined();
+    }
+    const omitted = {
+      updatePanel: [...PANEL_RATING_FIELDS, 'transformerId'],
+      updateCircuit: [...CIRCUIT_RATING_FIELDS],
+      updateUnmanagedLoad: [...UNMANAGED_LOAD_HEADROOM_FIELDS],
+    } as const;
+    for (const [id, fields] of Object.entries(omitted)) {
+      expect(toolPolicy(id).exposure, id).toBe('write');
+      const tool = AI_TOOL_CATALOG.find((t) => t.operationId === id);
+      expect(tool, id).toBeDefined();
+      const toolset = chatbotToolset([tool?.category ?? ''], AI_TOOL_CATALOG);
+      for (const field of fields) {
+        expect(toolPolicy(id).omit, `${id} ${field}`).toContain(field);
+        expect(JSON.stringify(tool?.parameters), `${id} ${field}`).not.toContain(`"${field}"`);
+        expect(tool?.bodyParams ?? [], `${id} ${field}`).not.toContain(field);
+        const call = prepareToolCall(toolset, tool?.name ?? '', { [field]: 4000 });
+        expect(call.ok, `${id} ${field}`).toBe(false);
+      }
+      // The name stays writable.
+      expect(tool?.bodyParams ?? [], id).toContain('name');
+    }
+  });
+
   it('no assistant write can set a prepaid balance or another money field (review 2, AI M1)', () => {
     expect(toolPolicy('createToken').omit).toContain('prepaidBalanceCents');
     expect(toolPolicy('updateToken').omit).toEqual(
@@ -303,6 +350,59 @@ describe('AI tool policy and catalog', () => {
       "update_site: destination argument 'archive' (omit it or make the tool 'never')",
       "update_site: destination argument 'owner' (omit it or make the tool 'never')",
     ]);
+  });
+
+  it('route-aware charging: reads, confirmed writes, no bulk or session vehicle tools', () => {
+    const expected: Record<string, 'read' | 'write' | 'never'> = {
+      listFleetDepartureSchedules: 'read',
+      listFleetDepartures: 'read',
+      getSiteChargingPlan: 'read',
+      createFleetDeparture: 'write',
+      updateDeparture: 'write',
+      cancelDeparture: 'write',
+      createFleetDepartureSchedule: 'write',
+      updateDepartureSchedule: 'write',
+      recalculateSiteChargingPlan: 'write',
+      deleteDepartureSchedule: 'never',
+      importFleetDepartures: 'never',
+      assignSessionVehicle: 'never',
+    };
+    for (const [op, exposure] of Object.entries(expected)) {
+      expect(
+        AI_OPERATIONS.some((o) => o.operationId === op),
+        op,
+      ).toBe(true);
+      expect(toolPolicy(op).exposure, op).toBe(exposure);
+      // Remote agents read only; every write stays behind a confirm in chat.
+      expect(mcpOffers(op), op).toBe(exposure === 'read');
+    }
+  });
+
+  it('power equipment: the assistant and MCP read transformers, batteries and solar, never write them (D12)', () => {
+    const expected: Record<string, 'read' | 'never'> = {
+      listTransformers: 'read',
+      listEnergyAssets: 'read',
+      createTransformer: 'never',
+      updateTransformer: 'never',
+      deleteTransformer: 'never',
+      createEnergyAsset: 'never',
+      updateEnergyAsset: 'never',
+      deleteEnergyAsset: 'never',
+      reportEnergyAssetReading: 'never',
+    };
+    for (const [op, exposure] of Object.entries(expected)) {
+      expect(
+        AI_OPERATIONS.some((o) => o.operationId === op),
+        op,
+      ).toBe(true);
+      expect(toolPolicy(op).exposure, op).toBe(exposure);
+      expect(mcpOffers(op), op).toBe(exposure === 'read');
+    }
+    const catalogIds = new Set(AI_TOOL_CATALOG.map((t) => t.operationId));
+    expect(catalogIds.has('listTransformers')).toBe(true);
+    expect(catalogIds.has('listEnergyAssets')).toBe(true);
+    expect(catalogIds.has('reportEnergyAssetReading')).toBe(false);
+    expect(catalogIds.has('updateTransformer')).toBe(false);
   });
 
   it('the assistant writes no notification template', () => {

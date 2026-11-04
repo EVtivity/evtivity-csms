@@ -4,7 +4,13 @@
 import type { Sql } from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
 import { publishOcppCommand } from '@evtivity/lib';
-import { getDefaultMaxPowerW, operatorStationSql } from '@evtivity/database';
+import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
+import {
+  getDefaultMaxPowerW,
+  isFleetChargingEnabled,
+  markSitePlanStale,
+  operatorStationSql,
+} from '@evtivity/database';
 import type { ChargingNeedsProfilePayload, StoredChargingNeedsProfile } from './charging-needs.js';
 
 interface ChargingNeedsInput {
@@ -84,25 +90,6 @@ export function requestedEnergyWh(needs: Record<string, unknown>): number | null
 }
 
 /**
- * A stable charging profile id for the TxProfile of one transaction. A
- * renegotiation (K16, K17) sends the profile again with the same id, so the
- * station replaces it (K01.FR.05) instead of refusing a second profile with
- * the same stackLevel and transactionId (K01.FR.39). The id stays in the upper
- * half of the int32 range, away from the small ids of templates and load
- * management.
- */
-export function chargingNeedsProfileId(stationOcppId: string, transactionId: string): number {
-  // FNV-1a, 32 bit.
-  let hash = 0x811c9dc5;
-  for (const ch of `${stationOcppId}:${transactionId}`) {
-    hash ^= ch.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  const half = 0x40000000;
-  return half + (hash % (0x7fffffff - half));
-}
-
-/**
  * The schedule limit in W: the lower of what the EV accepts, the connector and
  * the site headroom, and, when the EV gave a departure time and an energy
  * amount, the rate that delivers that energy by the departure time.
@@ -131,6 +118,45 @@ export function scheduleLimitW(input: {
   return Math.max(0, Math.round(limit));
 }
 
+/**
+ * The site of the session when the depot plan charges it: fleet charging is
+ * on, the site runs enabled load management with the Departure Aware
+ * strategy, and the session holds a plan entry or a scheduled departure is
+ * bound to it. Null otherwise: an unplanned session keeps its ISO 15118
+ * profile.
+ */
+export async function departurePlanSiteId(
+  sql: Sql,
+  stationUuid: string,
+  transactionId: string,
+): Promise<string | null> {
+  if (!(await isFleetChargingEnabled())) return null;
+  const rows = await sql`
+    SELECT st.site_id FROM charging_sessions s
+    JOIN charging_stations st ON st.id = s.station_id
+    JOIN site_load_management slm ON slm.site_id = st.site_id
+    WHERE s.station_id = ${stationUuid}
+      AND s.transaction_id = ${transactionId}
+      AND s.status = 'active'
+      AND slm.is_enabled = true
+      AND slm.strategy = 'departure_aware'
+      AND (
+        EXISTS (
+          SELECT 1 FROM vehicle_departures d
+          WHERE d.session_id = s.id AND d.status = 'scheduled'
+        )
+        OR EXISTS (
+          SELECT 1 FROM site_charging_plans p, jsonb_array_elements(p.plan) e
+          WHERE p.site_id = st.site_id
+            AND jsonb_typeof(p.plan) = 'array'
+            AND e->>'sessionId' = s.id
+            AND NOT COALESCE((e->>'left')::boolean, false)
+        )
+      )
+  `;
+  return (rows[0]?.site_id as string | undefined) ?? null;
+}
+
 export async function computeAndSendChargingProfile(
   sql: Sql,
   pubsub: PubSubClient,
@@ -139,6 +165,16 @@ export async function computeAndSendChargingProfile(
 ): Promise<void> {
   const { stationUuid, stationOcppId, evseId, transactionId, chargingNeeds, maxScheduleTuples } =
     input;
+
+  // The depot plan sends this session's TxProfile; the EV's needs only make
+  // the next load management cycle plan again with them.
+  const plannedSiteId = await departurePlanSiteId(sql, stationUuid, transactionId);
+  if (plannedSiteId != null) {
+    await markSitePlanStale(plannedSiteId, 'charging_needs', undefined, {
+      departureAwareOnly: true,
+    });
+    return;
+  }
 
   const evMaxW = evMaxPowerW(chargingNeeds, await getDefaultMaxPowerW());
 

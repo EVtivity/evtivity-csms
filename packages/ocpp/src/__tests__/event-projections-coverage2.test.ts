@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
+import { planProfileHash } from '@evtivity/services/charging-plan-profile-hash';
 
 // SQL mock: records every tagged-template call (strings + interpolated values)
 // and returns configurable results per call index. `count` is derived so
@@ -224,9 +225,15 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
   writeAudit: (...args: unknown[]) => mockWriteAudit(...args) as unknown,
 }));
 
+const mockRecordPlanReply = vi.hoisted(() => vi.fn());
+const mockMarkSitePlanStale = vi.hoisted(() => vi.fn());
+
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
+  // The depot plan writes (tested in database charging-plan-state.test.ts).
+  recordChargingPlanProfileReply: mockRecordPlanReply,
+  markSitePlanStale: mockMarkSitePlanStale,
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -681,6 +688,8 @@ describe('Event projections - coverage round 2', () => {
       ['ocpp.NotifyEvent', { eventData: [] }],
       ['ocpp.NotifyMonitoringReport', { requestId: 1 }],
       ['ocpp.ReportChargingProfiles', {}],
+      ['ocpp.NotifyChargingLimit', { chargingLimit: { chargingLimitSource: 'EMS' } }],
+      ['ocpp.ClearedChargingLimit', { chargingLimitSource: 'EMS' }],
       ['ocpp.NotifyReport', { reportData: [] }],
       ['ocpp.NotifyCustomerInformation', { requestId: 1 }],
       ['ocpp.LogStatusNotification', { status: 'Idle' }],
@@ -1059,6 +1068,64 @@ describe('Event projections - coverage round 2', () => {
     });
   });
 
+  // ---- ocpp.NotifyChargingLimit / ocpp.ClearedChargingLimit (K27) ----
+
+  describe('ocpp.NotifyChargingLimit', () => {
+    it('stores a local generation limit as a LocalGeneration entry, replacing the older one', async () => {
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: 'sit_1' }]);
+      const schedule = {
+        id: 1,
+        chargingRateUnit: 'W',
+        chargingSchedulePeriod: [{ startPeriod: 0, limit: 2000 }],
+      };
+      await emit('ocpp.NotifyChargingLimit', 'CS-1', {
+        evseId: 1,
+        chargingLimit: { chargingLimitSource: 'EMS', isLocalGeneration: true },
+        chargingSchedule: [schedule],
+      });
+      const del = findSql(/DELETE FROM charging_profiles.*notifiedChargingLimit/s);
+      expect(del?.values).toContain('EMS');
+      expect(del?.values).toContain(1);
+      const ins = findSql(/INSERT INTO charging_profiles .* 'station_reported'/s);
+      expect(ins?.values).toContain('EMS');
+      const stored = JSON.stringify(ins?.values);
+      expect(stored).toContain('"chargingProfilePurpose":"LocalGeneration"');
+      expect(stored).toContain('"isLocalGeneration":true');
+      expect(stored).toContain('"limit":2000');
+    });
+
+    it('stores a limit without isLocalGeneration as an external constraint', async () => {
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: 'sit_1' }]);
+      await emit('ocpp.NotifyChargingLimit', 'CS-1', {
+        chargingLimit: { chargingLimitSource: 'SO', isGridCritical: true },
+      });
+      const stored = JSON.stringify(findSql(/INSERT INTO charging_profiles/)?.values);
+      expect(stored).toContain('"chargingProfilePurpose":"ChargingStationExternalConstraints"');
+      expect(stored).toContain('"isLocalGeneration":false');
+      expect(stored).toContain('"isGridCritical":true');
+    });
+
+    it('stores nothing without a limit source', async () => {
+      await setup();
+      setupSqlResults(STA);
+      await emit('ocpp.NotifyChargingLimit', 'CS-1', { chargingLimit: {} });
+      expect(findSql(/INSERT INTO charging_profiles/)).toBeUndefined();
+    });
+  });
+
+  describe('ocpp.ClearedChargingLimit', () => {
+    it('removes the notified limits of the source', async () => {
+      await setup();
+      setupSqlResults(STA, [], [{ site_id: 'sit_1' }]);
+      await emit('ocpp.ClearedChargingLimit', 'CS-1', { chargingLimitSource: 'EMS', evseId: 2 });
+      const del = findSql(/DELETE FROM charging_profiles.*notifiedChargingLimit/s);
+      expect(del?.values).toContain('EMS');
+      expect(del?.values).toContain(2);
+    });
+  });
+
   // ---- command.ClearChargingProfile ----
 
   describe('command.ClearChargingProfile', () => {
@@ -1293,6 +1360,95 @@ describe('Event projections - coverage round 2', () => {
   // ---- command.SetChargingProfile ----
 
   describe('command.SetChargingProfile', () => {
+    const planRequest = {
+      evseId: 1,
+      chargingProfile: {
+        id: 1_500_000_000,
+        stackLevel: 1,
+        chargingProfilePurpose: 'TxProfile',
+        chargingProfileKind: 'Absolute',
+        transactionId: 'tx-1',
+      },
+    };
+
+    it('records a refused depot plan profile and replans the depot', async () => {
+      mockRecordPlanReply.mockResolvedValue({ siteId: 'sit_1', changed: true });
+      mockMarkSitePlanStale.mockResolvedValue(true);
+      await setup();
+      setupSqlResults(STA);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: planRequest,
+      });
+      expect(mockRecordPlanReply).toHaveBeenCalledWith(
+        'sta_0001',
+        1_500_000_000,
+        'rejected',
+        expect.any(Date),
+        { hash: planProfileHash(planRequest as never), rejectedUnit: null },
+      );
+      expect(mockMarkSitePlanStale).toHaveBeenCalledWith(
+        'sit_1',
+        'profile_rejected',
+        expect.anything(),
+        { departureAwareOnly: true },
+      );
+    });
+
+    it('records an accepted depot plan profile without a replan', async () => {
+      mockRecordPlanReply.mockResolvedValue({ siteId: 'sit_1', changed: true });
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: null }]);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Accepted' },
+        request: planRequest,
+      });
+      expect(mockRecordPlanReply).toHaveBeenCalledWith(
+        'sta_0001',
+        1_500_000_000,
+        'accepted',
+        expect.any(Date),
+        expect.objectContaining({ hash: expect.any(String) }),
+      );
+      expect(mockMarkSitePlanStale).not.toHaveBeenCalled();
+    });
+
+    it('records a profile the station never answered as not sent, without a replan', async () => {
+      mockRecordPlanReply.mockResolvedValue({ siteId: 'sit_1', changed: true, stale: false });
+      await setup();
+      setupSqlResults(STA);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        error: 'No response',
+        notSent: true,
+        request: {
+          ...planRequest,
+          chargingProfile: {
+            ...planRequest.chargingProfile,
+            chargingSchedule: [{ id: 1, chargingRateUnit: 'W', chargingSchedulePeriod: [] }],
+          },
+        },
+      });
+      expect(mockRecordPlanReply).toHaveBeenCalledWith(
+        'sta_0001',
+        1_500_000_000,
+        'not_sent',
+        expect.any(Date),
+        expect.objectContaining({ rejectedUnit: 'W' }),
+      );
+      expect(mockMarkSitePlanStale).not.toHaveBeenCalled();
+    });
+
+    it('ignores a reply to an older profile', async () => {
+      mockRecordPlanReply.mockResolvedValue({ siteId: 'sit_1', changed: false, stale: true });
+      await setup();
+      setupSqlResults(STA);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: planRequest,
+      });
+      expect(mockMarkSitePlanStale).not.toHaveBeenCalled();
+    });
+
     it('does nothing when station did not Accept', async () => {
       await setup();
       setupSqlResults(STA);

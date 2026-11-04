@@ -21,10 +21,20 @@ import {
 } from './site-layout-connectors';
 import { cableOutOfGland } from './site-layout-model-cable-gland';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { type Point3Tuple } from './site-layout-scene-types';
 
-export function installConnectors(scn: SceneCtx): void {
+type ConnectorsCtx = SceneSlice<
+  'M' | 'cable',
+  | 'connectorHandle'
+  | 'connectorKits'
+  | 'connectorMaterialSet'
+  | 'handleTemplates'
+  | 'holsteredConnector'
+  | 'sideHolsterCable'
+>;
+
+export function installConnectors(scn: ConnectorsCtx): void {
   // The connector handle and holster geometries of each type
   // (site-layout-connector-geometry.ts), built on first use and shared for
   // the scene's life; the materials are per rebuild.

@@ -76,6 +76,8 @@ vi.mock('@evtivity/database', () => ({
   clearRoamingCache: vi.fn(),
   clearSupportCache: vi.fn(),
   clearFleetCache: vi.fn(),
+  clearFleetChargingSettingCache: vi.fn(),
+  clearVdv463SettingCache: vi.fn(),
   WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
   PREPAID_LOW_CREDIT_THRESHOLD_KEY: 'prepaid.lowCreditThresholdCents',
   MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS: 100_000_000,
@@ -1331,7 +1333,7 @@ describe('Settings routes - full coverage', () => {
     describe('Cloudflare R2', () => {
       const R2_ENDPOINT = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
 
-      it('saves the S3 API URL with region auto, no private hosts and no path-style setting', async () => {
+      it('saves the S3 API URL with region auto, no private hosts and path-style requests', async () => {
         const res = await putS3({
           proof: PROOF,
           provider: 'r2',
@@ -1345,7 +1347,7 @@ describe('Settings routes - full coverage', () => {
           's3.provider': 'r2',
           's3.endpoint': R2_ENDPOINT,
           's3.region': 'auto',
-          's3.forcePathStyle': false,
+          's3.forcePathStyle': true,
           's3.allowedPrivateHosts': [],
           's3.bucket': 'my-bucket',
         });
@@ -1372,6 +1374,40 @@ describe('Settings routes - full coverage', () => {
         expect(db.insert).not.toHaveBeenCalled();
       });
 
+      it('stores path-style true for R2 even when it is sent false', async () => {
+        const res = await putS3({
+          proof: PROOF,
+          provider: 'r2',
+          endpoint: R2_ENDPOINT,
+          forcePathStyle: false,
+        });
+        expect(res.statusCode).toBe(200);
+        expect(upserted()['s3.forcePathStyle']).toBe(true);
+      });
+
+      it('refuses an S3 API URL that names another bucket with a bucket field error', async () => {
+        const res = await putS3({
+          proof: PROOF,
+          provider: 'r2',
+          bucket: 'my-bucket',
+          endpoint: `${R2_ENDPOINT}/other-bucket`,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', field: 'bucket' });
+        expect(db.insert).not.toHaveBeenCalled();
+      });
+
+      it('accepts an S3 API URL that names the bucket entered', async () => {
+        const res = await putS3({
+          proof: PROOF,
+          provider: 'r2',
+          bucket: 'my-bucket',
+          endpoint: `${R2_ENDPOINT}/my-bucket/`,
+        });
+        expect(res.statusCode).toBe(200);
+        expect(upserted()['s3.endpoint']).toBe(R2_ENDPOINT);
+      });
+
       it('asks a session for the proof when it switches to R2', async () => {
         proofState.calls = 0;
         const res = await putS3({ provider: 'r2', endpoint: R2_ENDPOINT });
@@ -1383,13 +1419,15 @@ describe('Settings routes - full coverage', () => {
     });
   });
 
-  describe('storage endpoint settings through the generic routes', () => {
+  describe('storage settings through the generic routes', () => {
     it.each([
       ['PATCH', 's3.endpoint', 'http://10.0.0.5:9000'],
       ['PUT', 's3.endpoint', 'https://storage.example.com'],
       ['PUT', 's3.allowedPrivateHosts', ['10.0.0.5']],
       ['PUT', 's3.provider', 's3-compatible'],
       ['PATCH', 's3.forcePathStyle', true],
+      ['PUT', 's3.bucket', 'other-bucket'],
+      ['PATCH', 's3.accessKeyIdEnc', 'AKIA'],
     ] as const)('%s %s is refused', async (method, key, value) => {
       setupDbResults([{ key, value: '' }], [{ key, value }]);
       const res = await app.inject({
@@ -1400,12 +1438,26 @@ describe('Settings routes - full coverage', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json()).toEqual({
-        error: 'The storage provider and endpoint are written through PUT /v1/settings/s3',
+        error: 'Storage settings are read and written through /v1/settings/s3',
         code: 'VALIDATION_ERROR',
       });
       expect(db.insert).not.toHaveBeenCalled();
       expect(db.update).not.toHaveBeenCalled();
     });
+
+    it.each(['s3.provider', 's3.endpoint', 's3.bucket'])(
+      'refuses a generic DELETE of %s',
+      async (key) => {
+        const res = await app.inject({
+          method: 'DELETE',
+          url: `/settings/${key}`,
+          headers: { authorization: `Bearer ${operatorToken}` },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+        expect(db.delete).not.toHaveBeenCalled();
+      },
+    );
   });
 
   // ----------------------------------------------------------------

@@ -221,3 +221,34 @@ export function computeCompositeSchedule(input: CompositeInput): CompositePeriod
   }
   return periods;
 }
+
+/**
+ * The composite limit in W at `now` (the period active now), or null when no
+ * profile limits it. The meter loop calls this every tick, so each schedule
+ * period applies from its start time.
+ */
+export function limitNowW(input: {
+  profiles: StoredProfile[];
+  evseId: number;
+  now: Date;
+  voltage: number;
+  phases: number;
+  transactionId: string | null;
+  transactionStart: Date | null;
+}): number | null {
+  const [current] = computeCompositeSchedule({
+    profiles: input.profiles,
+    evseId: input.evseId,
+    now: input.now,
+    durationS: 1,
+    localLimit: Number.POSITIVE_INFINITY,
+    unit: 'W',
+    voltage: input.voltage,
+    numberPhases: input.phases,
+    transactionId: input.transactionId,
+    transactionStart: input.transactionStart,
+  });
+  if (current == null || !Number.isFinite(current.limit)) return null;
+  // A negative limit asks for discharging, which the simulator does not model: it draws nothing.
+  return Math.max(0, current.limit);
+}

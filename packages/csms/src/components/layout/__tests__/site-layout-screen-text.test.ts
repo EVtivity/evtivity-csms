@@ -58,8 +58,8 @@ describe('wrapScreenText', () => {
   });
 
   it('breaks a word or a CJK run wider than the screen between characters', () => {
-    expect(wrapScreenText('欢迎使用充电站服务', 40, 10, measure)).toEqual([
-      '欢迎使用充电站服',
+    expect(wrapScreenText('欢迎使用充电桩服务', 40, 10, measure)).toEqual([
+      '欢迎使用充电桩服',
       '务',
     ]);
   });

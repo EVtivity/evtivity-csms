@@ -251,22 +251,19 @@ describe('SiteLayout view toggle', () => {
     expect(screen.getByRole('button', { name: /sites\.layoutView\.doneEditing/ })).toBeDefined();
   });
 
-  it('opens the power equipment read-only without sites:write, and in Edit Layout with it', async () => {
+  it('has no Power Equipment button, for viewers and in Edit Layout (owner decision 2026-11-04)', async () => {
     wrap();
     await screen.findByTestId('site-layout-3d');
-    // A viewer: the button and summary above the view, a read-only list in the dialog.
-    fireEvent.click(screen.getByRole('button', { name: /sites\.layoutSettings\.powerEquipment/ }));
-    expect(screen.getByText('sites.layoutSettings.powerEquipmentReadOnly')).toBeDefined();
-    expect(screen.queryByRole('button', { name: /addTransformer/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /powerEquipment/i })).toBeNull();
     cleanup();
 
     permissions.add('sites:write');
     wrap();
     await screen.findByTestId('site-layout-3d');
-    // A writer: no read-only field outside Edit Layout; the Site Settings carry the button.
-    expect(screen.queryByTestId('power-equipment')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /sites\.layoutView\.editLayout/ }));
-    expect(screen.getByTestId('power-equipment')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /powerEquipment/i })).toBeNull();
+    // Equipment is placed by drag and edited on the Load Management tab.
+    expect(screen.getByTestId('layout-power-equipment-note')).toBeDefined();
   });
 
   it('lists the states a station can reach and those shown, each with its icon, once', async () => {

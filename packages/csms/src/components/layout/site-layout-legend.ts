@@ -10,11 +10,10 @@
 
 import {
   depotLayout,
-  energyAssetsOf,
   showsBatteries,
   showsSolar,
   siteTypeOf,
-  type SiteLayoutSettings,
+  type PlacedLayoutSettings,
 } from '@evtivity/lib/site-layout';
 import {
   STATION_DISPLAY_STATES,
@@ -70,7 +69,8 @@ export interface LayoutLegend {
 
 export function layoutLegend(input: {
   stations: readonly LayoutStation[];
-  settings: SiteLayoutSettings;
+  /** The effective settings with the power equipment joined (`placePowerEquipment`). */
+  settings: PlacedLayoutSettings;
   show3d: boolean;
   /** Whether the site takes reservations (absent: unknown, listed only when shown). */
   reservationsEnabled?: boolean | undefined;
@@ -78,7 +78,7 @@ export function layoutLegend(input: {
   const { stations, settings, show3d } = input;
   const type = siteTypeOf(settings);
   const kinds = stations.map((s) => stationLayoutKindOf(s).charging);
-  const assets = energyAssetsOf(settings);
+  const assets = settings.energyAssets;
   const depot = type === 'depot' ? depotLayout(settings) : null;
   const shown = new Set(stations.map((s) => stationDisplayState(s)));
   const states = STATION_DISPLAY_STATES.filter(

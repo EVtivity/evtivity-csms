@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
@@ -95,7 +95,7 @@ afterEach(() => {
 });
 
 describe('LoadManagement on narrow screens', () => {
-  it('keeps the panel tree and the station table inside horizontal scroll containers', async () => {
+  it('keeps the panel tree and its one-line station rows inside the tree scroll container', async () => {
     apiMock.get.mockResolvedValue({
       config: { strategy: 'equal_share', isEnabled: true },
       hierarchy: [panel],
@@ -110,8 +110,14 @@ describe('LoadManagement on narrow screens', () => {
     // The tree keeps a minimum width, so it scrolls instead of squeezing at 375 px.
     expect(treeScroll.firstElementChild?.className).toMatch(/min-w-\[/);
 
+    // No separate allocations table: the station rows live under their circuit.
+    expect(screen.queryByRole('table')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'loadManagement.expand' }));
     const table = screen.getByRole('table');
-    expect(table.closest('.overflow-x-auto')).not.toBeNull();
+    expect(treeScroll.contains(table)).toBe(true);
+    for (const cell of screen.getAllByRole('cell')) {
+      expect(cell.className).toContain('whitespace-nowrap');
+    }
   });
 
   it('renders no tree scroll container without panels', async () => {

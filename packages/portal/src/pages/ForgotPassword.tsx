@@ -4,19 +4,14 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CardContent, CardHeader } from '@/components/ui/card';
 import { AuthLayout } from '@/components/AuthLayout';
 import { api } from '@/lib/api';
 import { rateLimitedMessage } from '@/lib/error-message';
-import { executeRecaptcha } from '@/lib/recaptcha';
-
-interface SecurityPublic {
-  recaptchaEnabled: boolean;
-  recaptchaSiteKey: string;
-}
+import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 
 export function ForgotPassword(): React.JSX.Element {
   const { t } = useTranslation();
@@ -26,10 +21,8 @@ export function ForgotPassword(): React.JSX.Element {
   const [sent, setSent] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  const { data: securityPublic } = useQuery({
-    queryKey: ['security-public'],
-    queryFn: () => api.get<SecurityPublic>('/v1/security/public?app=portal'),
-  });
+  const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
+    useRecaptchaToken();
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -51,10 +44,7 @@ export function ForgotPassword(): React.JSX.Element {
     setError(null);
     setLoading(true);
     try {
-      let recaptchaToken: string | undefined;
-      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
-        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'login');
-      }
+      const recaptchaToken = await getRecaptchaToken('login');
       await api.post('/v1/portal/auth/forgot-password', { email, recaptchaToken });
       setSent(true);
     } catch (err) {
@@ -99,8 +89,15 @@ export function ForgotPassword(): React.JSX.Element {
               <p className="text-sm text-destructive">{validationErrors.email}</p>
             )}
           </div>
-          <Button type="submit" className="w-full" size="lg" disabled={loading || sent}>
-            {loading ? t('auth.sendingResetLink') : t('auth.sendResetLink')}
+          <Button
+            type="submit"
+            className="relative w-full"
+            size="lg"
+            disabled={recaptchaConfigPending || loading || sent}
+          >
+            <ButtonPendingLabel pending={recaptchaConfigPending}>
+              {loading ? t('auth.sendingResetLink') : t('auth.sendResetLink')}
+            </ButtonPendingLabel>
           </Button>
           <Link
             to="/login"

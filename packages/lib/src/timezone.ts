@@ -112,18 +112,32 @@ export function isValidTimezone(tz: string): boolean {
   }
 }
 
-/** Wall-clock offset of a timezone at an instant, in milliseconds (local minus UTC). */
-function zoneOffsetMs(at: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(at);
+const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function offsetFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = offsetFormatters.get(timeZone);
+  if (formatter == null) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    offsetFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+/**
+ * Wall-clock offset of a timezone at an instant, in milliseconds (local minus UTC).
+ * The parts have whole seconds, so the instant's milliseconds are taken off too.
+ */
+export function zoneOffsetMs(at: Date, timeZone: string): number {
+  const parts = offsetFormatter(timeZone).formatToParts(at);
   const value = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
   const local = Date.UTC(
     value('year'),

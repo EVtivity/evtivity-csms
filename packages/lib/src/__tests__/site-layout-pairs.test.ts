@@ -31,7 +31,7 @@ const lot = (placement: 'islands' | 'lot_edge', rows = 4): SiteLayoutSettings =>
     rows,
     facingDeg: 0,
     chargerPlacement: placement,
-    transformers: [{ id: 'tx', name: null, ratedKva: null, x: 30, z: 2.5 }],
+    transformers: [{ id: 'tx', x: 30, z: 2.5 }],
   });
 
 const bayOf = (p: { x: number; y: number }): LayoutBay => positionToBay(p);
@@ -136,7 +136,7 @@ describe('dual-port AC pedestals share two spots', () => {
       spotsPerRow: 7,
       rows: 2,
       facingDeg: 0,
-      transformers: [{ id: 'tx', name: null, ratedKva: null, x: -5, z: 2.5 }],
+      transformers: [{ id: 'tx', x: -5, z: 2.5 }],
     });
     expect(spotPairPartner({ col: 6, row: 0 }, s)).toBeNull();
     const fit = fitGroupedPositions(

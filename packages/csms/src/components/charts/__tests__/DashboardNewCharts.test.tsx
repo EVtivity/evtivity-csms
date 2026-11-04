@@ -37,6 +37,8 @@ import { LocationsByCityChart } from '../LocationsByCityChart';
 import { EvsesByConnectorTypeChart } from '../EvsesByConnectorTypeChart';
 import { PlugAndChargeChart } from '../PlugAndChargeChart';
 import { FreeVendChart } from '../FreeVendChart';
+import { UtilizationChart } from '../UtilizationChart';
+import { escapeChartText } from '@/lib/chart-theme';
 
 afterEach(() => {
   cleanup();
@@ -99,6 +101,52 @@ describe('new dashboard charts', () => {
     const xaxis = captured.options?.xaxis as { categories: string[] };
     expect(xaxis.categories).toEqual(['Austin', 'dashboard.unknownCity', 'dashboard.otherCities']);
     expect(captured.series).toEqual([{ name: 'dashboard.chartStations', data: [5, 1, 4] }]);
+  });
+
+  it('escapes a station-reported connector type in the axis and tooltip labels (AI-L1)', () => {
+    const type = '<img src=x onerror=alert(1)>';
+    render(
+      <EvsesByConnectorTypeChart
+        data={[{ connectorType: type, evseCount: 2, connectorCount: 2 }]}
+      />,
+    );
+    const xaxis = captured.options?.xaxis as { categories: string[] };
+    expect(xaxis.categories).toEqual(['&lt;img src=x onerror=alert(1)&gt;']);
+    const title = (
+      captured.options?.tooltip?.x as {
+        formatter: (v: number, o: { dataPointIndex: number }) => string;
+      }
+    ).formatter(0, { dataPointIndex: 0 });
+    const host = document.createElement('div');
+    host.innerHTML = title;
+    expect(host.querySelector('img')).toBeNull();
+    expect(host.textContent).toBe(type);
+  });
+
+  it('escapes city and site names in the tooltip title, which ApexCharts writes as HTML', () => {
+    const name = '<img src=x onerror=alert(1)>';
+    render(
+      <LocationsByCityChart
+        data={{
+          cities: [{ city: name, siteCount: 1, stationCount: 1 }],
+          other: { siteCount: 0, stationCount: 0 },
+        }}
+      />,
+    );
+    const cityTitle = (
+      captured.options?.tooltip?.x as { formatter: (v: string) => string }
+    ).formatter(name);
+    expect(cityTitle).toBe('&lt;img src=x onerror=alert(1)&gt;');
+    cleanup();
+    render(<UtilizationChart data={[{ site: name, utilization: 0.5 }]} />);
+    const siteTitle = (
+      captured.options?.tooltip?.x as { formatter: (v: string) => string }
+    ).formatter(name);
+    const host = document.createElement('div');
+    host.innerHTML = siteTitle;
+    expect(host.querySelector('img')).toBeNull();
+    expect(host.textContent).toBe(name);
+    expect(escapeChartText(`a & "b" 'c'`)).toBe('a &amp; &quot;b&quot; &#39;c&#39;');
   });
 
   it('labels connector types and keeps an unlisted one as sent', () => {

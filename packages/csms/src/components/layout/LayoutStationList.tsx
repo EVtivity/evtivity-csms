@@ -19,6 +19,7 @@ import {
   type StationDisplayState,
 } from '@/lib/station-display-state';
 import { cn } from '@/lib/utils';
+import { LAYOUT_CHIP_FRAME_CLASS, LAYOUT_CHIP_ITEM_CLASS } from './layout-chip';
 import type { LayoutStation } from './StationCard';
 
 /** The states the summary counts, in this order. */
@@ -86,7 +87,7 @@ export function LayoutSummaryChip({
       role="group"
       aria-label={t('sites.layoutView.summaryLabel')}
       data-testid="site-layout-summary"
-      className="pointer-events-auto inline-flex max-w-full flex-wrap items-center gap-x-1 rounded-md border bg-card px-1 py-0.5 text-xs font-semibold shadow-xs"
+      className={cn(LAYOUT_CHIP_FRAME_CLASS, 'flex-wrap gap-x-1')}
     >
       {summary.map(({ state, count }, i) => (
         <span key={state} className="flex items-center">
@@ -98,7 +99,10 @@ export function LayoutSummaryChip({
           <button
             type="button"
             data-testid={`site-layout-summary-${state}`}
-            className="rounded px-1 py-0.5 tabular-nums hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              LAYOUT_CHIP_ITEM_CLASS,
+              'tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            )}
             style={{ color: stationStateTextColor(state) }}
             aria-label={t('sites.layoutView.summaryFocus', {
               n: count,

@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<h2 style='color:#1a1a1a;margin:0 0 8px 0;font-size:20px;'>出发目标未达成</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{vehicleName}}{{#if licensePlate}}（{{licensePlate}}）{{/if}}于 {{departureAt}} 从 {{siteName}} 出发的时间已过，{{#if noVehicle}}车辆未连接到充电桩{{else}}未达到充电目标：已充电 {{deliveredKwh}} kWh{{#if targetKwh}}，目标 {{targetKwh}} kWh{{/if}}{{#if targetSocPercent}}，目标电量状态 {{targetSocPercent}}%{{/if}}{{/if}}。</p>
+<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{readinessUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>打开车队就绪</a></td></tr></table>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>您收到此通知是因为您管理此充电站的车队。每次出发只发送一次。</p>

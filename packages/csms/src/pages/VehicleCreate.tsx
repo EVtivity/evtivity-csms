@@ -19,6 +19,20 @@ import {
   VehicleAppearanceFields,
   type VehicleAppearance,
 } from '@/components/VehicleAppearanceFields';
+import {
+  VehicleBatteryFields,
+  batteryBodyValue,
+  vehicleBatteryErrors,
+  type VehicleBattery,
+} from '@/components/VehicleBatteryFields';
+import {
+  VehiclePreconditioningFields,
+  preconditioningInputValues,
+  preconditioningMinutesBody,
+  preconditioningPowerBody,
+  vehiclePreconditioningErrors,
+  type VehiclePreconditioning,
+} from '@/components/VehiclePreconditioningFields';
 
 interface VehicleLookup {
   makes: string[];
@@ -55,6 +69,13 @@ export function VehicleCreate(): React.JSX.Element {
     color: null,
     bodyType: null,
   });
+  const [battery, setBattery] = useState<VehicleBattery>({
+    batteryCapacityKwh: '',
+    maxChargePowerKw: '',
+  });
+  const [preconditioning, setPreconditioning] = useState<VehiclePreconditioning>(
+    preconditioningInputValues(),
+  );
   const [evccid, setEvccid] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
@@ -81,6 +102,10 @@ export function VehicleCreate(): React.JSX.Element {
       evccid?: string;
       color?: string;
       bodyType?: string;
+      batteryCapacityKwh?: number;
+      maxChargePowerKw?: number;
+      preconditioningPowerKw?: number;
+      preconditioningMinutes?: number;
     }) => api.post<Vehicle>(`/v1/drivers/${id ?? ''}/vehicles`, body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', id ?? '', 'vehicles'] });
@@ -101,6 +126,8 @@ export function VehicleCreate(): React.JSX.Element {
     if (evccid.trim() !== '' && normalizeEvccid(evccid) == null) {
       errors.evccid = t('vehicles.evccidFormat');
     }
+    Object.assign(errors, vehicleBatteryErrors(battery, t));
+    Object.assign(errors, vehiclePreconditioningErrors(preconditioning, t));
     return errors;
   }
 
@@ -119,6 +146,10 @@ export function VehicleCreate(): React.JSX.Element {
       evccid?: string;
       color?: string;
       bodyType?: string;
+      batteryCapacityKwh?: number;
+      maxChargePowerKw?: number;
+      preconditioningPowerKw?: number;
+      preconditioningMinutes?: number;
     } = { make, model };
     if (year.trim() !== '') body.year = year;
     if (vin.trim() !== '') body.vin = vin;
@@ -126,6 +157,13 @@ export function VehicleCreate(): React.JSX.Element {
     if (evccid.trim() !== '') body.evccid = evccid.trim();
     if (appearance.color != null) body.color = appearance.color;
     if (appearance.bodyType != null) body.bodyType = appearance.bodyType;
+    const capacity = batteryBodyValue(battery.batteryCapacityKwh);
+    if (capacity != null) body.batteryCapacityKwh = capacity;
+    const maxPower = batteryBodyValue(battery.maxChargePowerKw);
+    if (maxPower != null) body.maxChargePowerKw = maxPower;
+    const preconditioningPower = preconditioningPowerBody(preconditioning);
+    if (preconditioningPower != null) body.preconditioningPowerKw = preconditioningPower;
+    body.preconditioningMinutes = preconditioningMinutesBody(preconditioning);
     createMutation.mutate(body);
   }
 
@@ -222,6 +260,18 @@ export function VehicleCreate(): React.JSX.Element {
                 idPrefix="vehicle"
                 value={appearance}
                 onChange={setAppearance}
+              />
+              <VehicleBatteryFields
+                idPrefix="vehicle"
+                value={battery}
+                onChange={setBattery}
+                errors={hasSubmitted ? vehicleBatteryErrors(battery, t) : undefined}
+              />
+              <VehiclePreconditioningFields
+                idPrefix="vehicle"
+                value={preconditioning}
+                onChange={setPreconditioning}
+                errors={hasSubmitted ? vehiclePreconditioningErrors(preconditioning, t) : undefined}
               />
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="vehicle-evccid" className="leading-6">

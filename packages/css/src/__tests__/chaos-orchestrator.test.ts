@@ -5,7 +5,12 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import type postgres from 'postgres';
 import { OCTT_TEST_DRIVER_EMAIL, type PubSubClient } from '@evtivity/lib';
 import { ChaosOrchestrator } from '../chaos-orchestrator.js';
-import { JOURNEY_RETRY_MS, JOURNEY_WAIT_MS, type ChaosJourneys } from '../chaos-journey.js';
+import {
+  JOURNEY_RETRY_MS,
+  JOURNEY_WAIT_MS,
+  type ChaosJourneys,
+  type DepotJourneys,
+} from '../chaos-journey.js';
 
 interface StationRow {
   station_id: string;
@@ -18,6 +23,18 @@ interface StateRow {
   has_tx: boolean;
 }
 
+interface FleetTokenRow {
+  station_id: string;
+  id_token: string;
+  token_type: string;
+  depot: boolean;
+  vehicle_id?: string | null;
+  body_type?: string | null;
+  battery_capacity_kwh?: string | null;
+  timezone?: string | null;
+  next_departure_at?: Date | null;
+}
+
 interface Db {
   stations: StationRow[];
   tokens: Array<{ id_token: string; token_type: string }>;
@@ -25,7 +42,8 @@ interface Db {
    * Tokens of the fleets each station is assigned to (fleet_stations). `depot`
    * marks a station on a site of type Depot.
    */
-  fleetTokens?: Array<{ station_id: string; id_token: string; token_type: string; depot: boolean }>;
+  fleetTokens?: Array<FleetTokenRow>;
+  fleetError?: Error;
   // Per-station state row; undefined means the row was deleted or disabled.
   state: Record<string, StateRow | undefined>;
   stateError?: Error;
@@ -53,12 +71,13 @@ function makeSql(db: Db): postgres.Sql {
       return Promise.resolve(db.stations);
     }
     if (q.includes('FROM fleet_stations')) {
+      if (db.fleetError != null) return Promise.reject(db.fleetError);
       // The query keeps depot stations only; an unfiltered query would return every row.
       const depotOnly = q.includes("layout_settings->>'siteType' = 'depot'");
       return Promise.resolve(
         (db.fleetTokens ?? [])
           .filter((r) => !depotOnly || r.depot)
-          .map(({ station_id, id_token, token_type }) => ({ station_id, id_token, token_type })),
+          .map(({ depot: _depot, ...row }) => row),
       );
     }
     if (q.includes('FROM driver_tokens')) {
@@ -119,6 +138,7 @@ function logged(fragment: string): boolean {
 type Internals = {
   dispatchRandomAction(): Promise<void>;
   journeys: ChaosJourneys;
+  depotJourneys: DepotJourneys;
   chargingStations: Set<string>;
   chargingTokenByStation: Map<string, string>;
   offlineStations: Set<string>;
@@ -456,13 +476,26 @@ describe('ChaosOrchestrator session journeys', () => {
     expect(internals(o).chargingStations.has('CS-2')).toBe(false);
   });
 
-  it('starts a depot station (a fleet station on a Depot site) with a token of its fleet, leaving large-vehicle drivers out of the public pool', async () => {
+  it('runs an overnight journey on a depot station (a fleet station on a Depot site) with a vehicle of its fleet, leaving large-vehicle drivers out of the public pool', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(1_000_000);
+    // 15:00 in New York: the buses are out on their routes.
+    vi.setSystemTime(Date.parse('2026-11-02T20:00:00Z'));
+    const departure = new Date('2026-11-03T10:30:00Z');
     const db = makeDb({
       tokens: [{ id_token: 'TOK-A', token_type: 'ISO14443' }],
-      fleetTokens: [{ station_id: 'CS-1', id_token: 'BUS-1', token_type: 'ISO14443', depot: true }],
-      state: { 'CS-1': { status: 'available', evse_status: 'Preparing', has_tx: false } },
+      fleetTokens: [
+        {
+          station_id: 'CS-1',
+          id_token: 'BUS-1',
+          token_type: 'ISO14443',
+          depot: true,
+          vehicle_id: 'veh_bus1',
+          body_type: 'bus',
+          battery_capacity_kwh: '450.00',
+          timezone: 'America/New_York',
+          next_departure_at: departure,
+        },
+      ],
     });
     const queries: string[] = [];
     const base = makeSql(db);
@@ -477,21 +510,178 @@ describe('ChaosOrchestrator session journeys', () => {
     const o = new ChaosOrchestrator(sql, pubsub, { actionIntervalMs: 1000 });
     await o.start();
     o.stop();
-    internals(o).journeys.record('CS-1', 'plugIn', 0);
-    vi.setSystemTime(JOURNEY_WAIT_MS.plugged[1] + 1);
 
-    randomQueue.push(0.1, 0.0);
+    // Nothing arrives during the day.
+    randomQueue.push(0.1);
     await internals(o).dispatchRandomAction();
+    expect(published(pubsub).map((p) => p.action)).not.toContain('plugIn');
 
-    expect(published(pubsub)).toEqual([
+    // After 01:00 every bus is back: the plug-in brings the bus and its battery.
+    vi.setSystemTime(Date.parse('2026-11-03T06:00:00Z'));
+    randomQueue.push(0.1, 0.0, 0.5, 0.5); // journey tick, the bus, normal SoC at 45 %
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub).at(-1)).toEqual(
       expect.objectContaining({
         stationId: 'CS-1',
+        action: 'plugIn',
+        params: { evseId: 1, ev: { socPercent: 45, bodyType: 'bus', batteryKwh: 450 } },
+      }),
+    );
+
+    db.state['CS-1'] = { status: 'available', evse_status: 'Preparing', has_tx: false };
+    vi.setSystemTime(Date.parse('2026-11-03T06:00:00Z') + JOURNEY_WAIT_MS.plugged[1]);
+    randomQueue.push(0.1);
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub).at(-1)).toEqual(
+      expect.objectContaining({
         action: 'startCharging',
         params: { evseId: 1, idToken: 'BUS-1', tokenType: 'ISO14443' },
       }),
-    ]);
+    );
+    expect(internals(o).chargingTokenByStation.get('CS-1')).toBe('BUS-1');
+
+    // It charges until its departure, then stops and unplugs.
+    db.state['CS-1'] = { status: 'charging', evse_status: 'Occupied', has_tx: true };
+    vi.setSystemTime(departure.getTime() - 1);
+    randomQueue.push(0.1, 0.9, 0.9, 0.0); // journey tick (none due), station, no outage, action
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub).at(-1)?.action).not.toBe('stopCharging');
+
+    vi.setSystemTime(departure.getTime());
+    randomQueue.push(0.1);
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub).at(-1)).toEqual(
+      expect.objectContaining({ action: 'stopCharging', params: { evseId: 1, reason: 'Local' } }),
+    );
+
+    db.state['CS-1'] = { status: 'available', evse_status: 'Finishing', has_tx: false };
+    vi.setSystemTime(departure.getTime() + JOURNEY_WAIT_MS.finishing[1]);
+    randomQueue.push(0.1);
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub).at(-1)?.action).toBe('unplug');
+    expect(internals(o).chargingTokenByStation.has('CS-1')).toBe(false);
+    expect(internals(o).depotJourneys.heldTokens().size).toBe(0);
+
+    const fleet = queries.find((q) => q.includes('FROM fleet_stations'));
+    expect(fleet).toContain('vehicle_departures');
+    expect(fleet).toContain("layout_settings->>'siteType' = 'depot'");
     const pool = queries.find((q) => q.includes('FROM driver_tokens'));
     expect(pool).toContain("NOT IN ('box_truck', 'bus', 'semi_truck')");
+  });
+
+  it('never picks a session step at random on a depot station', async () => {
+    const db = makeDb({
+      fleetTokens: [{ station_id: 'CS-1', id_token: 'BUS-1', token_type: 'ISO14443', depot: true }],
+      state: { 'CS-1': { status: 'available', evse_status: 'Preparing', has_tx: false } },
+    });
+    const names = await reachableActions(db);
+    for (const step of ['plugIn', 'authorize', 'startCharging', 'stopCharging', 'unplug']) {
+      expect(names.has(step)).toBe(false);
+    }
+    expect(names.has('injectFault')).toBe(true);
+  });
+
+  it('waits when every vehicle of the depot is already plugged in elsewhere', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-11-03T12:00:00Z'));
+    const db = makeDb({
+      stations: [
+        { station_id: 'CS-1', ocpp_protocol: 'ocpp2.1' },
+        { station_id: 'CS-2', ocpp_protocol: 'ocpp2.1' },
+      ],
+      fleetTokens: [
+        { station_id: 'CS-1', id_token: 'BUS-1', token_type: 'ISO14443', depot: true },
+        { station_id: 'CS-2', id_token: 'BUS-1', token_type: 'ISO14443', depot: true },
+      ],
+      state: {
+        'CS-1': { status: 'available', evse_status: 'Available', has_tx: false },
+        'CS-2': { status: 'available', evse_status: 'Available', has_tx: false },
+      },
+    });
+    const pubsub = makePubsub();
+    const o = await loaded(db, pubsub);
+    // 23:30 UTC (the sites have no timezone): both vehicles are due back.
+    vi.setSystemTime(Date.parse('2026-11-03T23:30:00Z'));
+    randomQueue.push(0.1, 0.0, 0.5, 0.5);
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub)).toEqual([expect.objectContaining({ action: 'plugIn' })]);
+    randomQueue.push(0.1);
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub)).toHaveLength(1);
+    expect(internals(o).depotJourneys.heldTokens()).toEqual(new Set(['BUS-1']));
+  });
+
+  it('never plugs one vehicle in at two stations through two of its cards', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-11-03T12:00:00Z'));
+    const card = { token_type: 'ISO14443', depot: true, vehicle_id: 'veh_bus1' };
+    const db = makeDb({
+      stations: [
+        { station_id: 'CS-1', ocpp_protocol: 'ocpp2.1' },
+        { station_id: 'CS-2', ocpp_protocol: 'ocpp2.1' },
+      ],
+      fleetTokens: [
+        { ...card, station_id: 'CS-1', id_token: 'BUS-1-A' },
+        { ...card, station_id: 'CS-2', id_token: 'BUS-1-B' },
+      ],
+      state: {
+        'CS-1': { status: 'available', evse_status: 'Available', has_tx: false },
+        'CS-2': { status: 'available', evse_status: 'Available', has_tx: false },
+      },
+    });
+    const pubsub = makePubsub();
+    const o = await loaded(db, pubsub);
+    vi.setSystemTime(Date.parse('2026-11-03T23:30:00Z'));
+    randomQueue.push(0.1, 0.0, 0.5, 0.5);
+    await internals(o).dispatchRandomAction();
+    randomQueue.push(0.1);
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub).filter((p) => p.action === 'plugIn')).toHaveLength(1);
+  });
+
+  it('keeps the card of a vehicle at a depot out of the public pool', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-11-03T12:00:00Z'));
+    const db = makeDb({
+      stations: [
+        { station_id: 'CS-1', ocpp_protocol: 'ocpp2.1' },
+        { station_id: 'CS-D', ocpp_protocol: 'ocpp2.1' },
+      ],
+      tokens: [{ id_token: 'TOK-A', token_type: 'ISO14443' }],
+      fleetTokens: [{ station_id: 'CS-D', id_token: 'TOK-A', token_type: 'ISO14443', depot: true }],
+      state: {
+        'CS-1': { status: 'available', evse_status: 'Preparing', has_tx: false },
+        'CS-D': { status: 'available', evse_status: 'Available', has_tx: false },
+      },
+    });
+    const pubsub = makePubsub();
+    const o = await loaded(db, pubsub);
+    internals(o).depotJourneys.arrive(
+      'CS-D',
+      {
+        idToken: 'TOK-A',
+        tokenType: 'ISO14443',
+        vehicleId: null,
+        bodyType: null,
+        batteryKwh: null,
+        nextDepartureMs: null,
+      },
+      Date.now(),
+    );
+    internals(o).journeys.record('CS-1', 'plugIn', 0);
+    randomQueue.push(0.1);
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub).filter((p) => p.action === 'startCharging')).toHaveLength(0);
+  });
+
+  it('runs chaos without depot journeys when the depot read fails', async () => {
+    const db = makeDb({
+      fleetTokens: [{ station_id: 'CS-1', id_token: 'BUS-1', token_type: 'ISO14443', depot: true }],
+      fleetError: new Error('relation "vehicle_departures" does not exist'),
+    });
+    const o = await loaded(db);
+    expect(internals(o).stationIds).toEqual(['CS-1']);
+    expect(internals(o).depotJourneys.size).toBe(0);
   });
 
   it('starts an ordinary fleet station (not on a Depot site) with a token of the public pool', async () => {

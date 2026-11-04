@@ -12,6 +12,7 @@ import {
   OCPP_2X_EVENTS,
   OCPP_COMMON_EVENTS,
   OCPP_EVENT_TYPES,
+  FLEET_DEPARTURE_EVENTS,
   OPERATOR_AI_EVENTS,
   OPERATOR_EVENT_TYPES,
   OPERATOR_PAYMENT_TERMINAL_EVENTS,
@@ -26,6 +27,55 @@ import zh from '../../i18n/locales/zh.json';
 import zhTW from '../../i18n/locales/zh-TW.json';
 
 const LOCALES = { en, de, es, ko, zh, 'zh-TW': zhTW };
+
+describe('fleet departure alert events', () => {
+  it('lists the at-risk and missed departure events as operator events with their variables', () => {
+    expect(FLEET_DEPARTURE_EVENTS).toEqual([
+      'fleet.DepartureAtRisk',
+      'fleet.DepartureMissed',
+      'fleet.DepotRequestsRefused',
+    ]);
+    for (const event of ['fleet.DepartureAtRisk', 'fleet.DepartureMissed'] as const) {
+      expect(OPERATOR_EVENT_TYPES).toContain(event);
+      const names = (TEMPLATE_VARIABLES[event] ?? []).map((v) => v.name);
+      expect(names).toEqual(
+        expect.arrayContaining(['vehicleName', 'siteName', 'departureAt', 'readinessUrl']),
+      );
+    }
+    const atRisk = (TEMPLATE_VARIABLES['fleet.DepartureAtRisk'] ?? []).map((v) => v.name);
+    expect(atRisk).toEqual(
+      expect.arrayContaining([
+        'cannotMeet',
+        'shortfallKwh',
+        'reasonSiteCapacity',
+        'reasonUnknownSoc',
+      ]),
+    );
+  });
+
+  it('names both events and the alert group in every locale', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const notifications = locale.notifications as Record<string, unknown>;
+      const eventNames = notifications['eventNames'] as Record<string, string>;
+      expect(eventNames['fleet.DepartureAtRisk'], lang).toBeTruthy();
+      expect(eventNames['fleet.DepartureMissed'], lang).toBeTruthy();
+      expect(notifications['fleetDepartureAlertEvents'], lang).toBeTruthy();
+    }
+  });
+
+  it('lists and names the bus depot notices in every locale', () => {
+    expect(OPERATOR_EVENT_TYPES).toContain('fleet.DepotRequestsRefused');
+    expect(OPERATOR_EVENT_TYPES).toContain('security.DepotSystemChanged');
+    const refused = (TEMPLATE_VARIABLES['fleet.DepotRequestsRefused'] ?? []).map((v) => v.name);
+    expect(refused).toEqual(expect.arrayContaining(['depotSystemName', 'refusedCount']));
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const notifications = locale.notifications as Record<string, unknown>;
+      const eventNames = notifications['eventNames'] as Record<string, string>;
+      expect(eventNames['fleet.DepotRequestsRefused'], lang).toBeTruthy();
+      expect(eventNames['security.DepotSystemChanged'], lang).toBeTruthy();
+    }
+  });
+});
 
 describe('operator session alert events', () => {
   it('lists session.EndRequestFailed as an operator event with its variables', () => {

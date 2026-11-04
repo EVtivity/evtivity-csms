@@ -1,0 +1,152 @@
+{
+  "description": "Two vehicles on a 50 kW circuit under a 500 kW panel: their sum stays at or under 50 kW.",
+  "input": {
+    "nowMs": 1793577600000,
+    "bufferMinutes": 0,
+    "slots": [
+      {
+        "startMs": 1793577600000,
+        "endMs": 1793578500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793578500000,
+        "endMs": 1793579400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793579400000,
+        "endMs": 1793580300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793580300000,
+        "endMs": 1793581200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793581200000,
+        "endMs": 1793582100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793582100000,
+        "endMs": 1793583000000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583000000,
+        "endMs": 1793583900000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583900000,
+        "endMs": 1793584800000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793584800000,
+        "endMs": 1793585700000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793585700000,
+        "endMs": 1793586600000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793586600000,
+        "endMs": 1793587500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793587500000,
+        "endMs": 1793588400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793588400000,
+        "endMs": 1793589300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793589300000,
+        "endMs": 1793590200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793590200000,
+        "endMs": 1793591100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793591100000,
+        "endMs": 1793592000000,
+        "hours": 0.25
+      }
+    ],
+    "pricePerKwh": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+    "nodeCapacityKw": {
+      "panel": [500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500],
+      "c1": [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50]
+    },
+    "rootNodeId": "panel",
+    "vehicles": [
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "panel",
+            "weight": 1
+          },
+          {
+            "nodeId": "c1",
+            "weight": 1
+          }
+        ],
+        "departureId": "a",
+        "departureMs": 1793592000000,
+        "neededKwh": 150,
+        "maxKw": 100,
+        "availableFromMs": 1793577600000
+      },
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "panel",
+            "weight": 1
+          },
+          {
+            "nodeId": "c1",
+            "weight": 1
+          }
+        ],
+        "departureId": "b",
+        "departureMs": 1793592000000,
+        "neededKwh": 150,
+        "maxKw": 100,
+        "availableFromMs": 1793577600000
+      }
+    ]
+  },
+  "expected": {
+    "a": {
+      "plannedKwh": 150,
+      "shortfallKwh": 0,
+      "state": "on_track"
+    },
+    "b": {
+      "plannedKwh": 50,
+      "shortfallKwh": 100,
+      "state": "at_risk"
+    }
+  },
+  "checks": {
+    "maxNodeLoad": {
+      "c1": 50
+    }
+  }
+}

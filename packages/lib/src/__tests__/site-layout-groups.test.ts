@@ -119,7 +119,7 @@ describe('charger groups on a lot', () => {
       spotsPerRow: 8,
       rows: 2,
       facingDeg: 0,
-      transformers: [{ id: 'tx', name: null, ratedKva: null, x: -5, z: 2.5 }],
+      transformers: [{ id: 'tx', x: -5, z: 2.5 }],
     });
     // Placed one by one, as stations come online.
     const placed: Array<{ x: number; y: number; charging: 'dc' }> = [];

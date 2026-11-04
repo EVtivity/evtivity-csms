@@ -21,6 +21,7 @@ import { itemResponse, paginatedResponse, errorWith } from '../lib/response-sche
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { VEHICLE_BODY_TYPES } from '@evtivity/lib/vehicle-appearance';
 import {
   bootReasonEnum,
   certificateActionEnum,
@@ -407,6 +408,26 @@ const plugInBody = z.object({
         .max(10)
         .optional()
         .describe('OCPP 1.6 idTag prefix (default VID: for a MAC address, none for a VIN)'),
+      batteryKwh: z
+        .number()
+        .min(0.1)
+        .max(2000)
+        .optional()
+        .describe(
+          'Usable battery size of the EV in kWh; the state of charge rises by the delivered energy over it (default from the body type, else 60)',
+        ),
+      socPercent: z
+        .number()
+        .min(0)
+        .max(100)
+        .optional()
+        .describe('State of charge of the EV at the plug-in, in percent (default a random 15-30)'),
+      bodyType: z
+        .enum(VEHICLE_BODY_TYPES)
+        .optional()
+        .describe(
+          'Vehicle body type; picks the battery size when batteryKwh is not given (bus 400 kWh, semi truck 500, box truck 200, otherwise 60)',
+        ),
     })
     .optional()
     .describe('The EV plugged in (simulated vehicle ids)'),

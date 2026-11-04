@@ -175,6 +175,22 @@ describe('injectFault modes', () => {
     expect(lastStatus(h)).toMatchObject({ status: 'Charging' });
   });
 
+  it.each([
+    ['ocpp2.1', 'connectorStatus', 'Occupied'],
+    ['ocpp1.6', 'status', 'Finishing'],
+  ] as const)(
+    '%s end: clearFault with the cable still in reports %s %s, unplug Available',
+    async (protocol, field, status) => {
+      const h = await charging(protocol);
+      await h.sim.injectFault(1, 'GroundFailure');
+      expect(statusOf(h)).toBe('Faulted');
+      await h.sim.clearFault(1);
+      expect(lastStatus(h)).toMatchObject({ [field]: status });
+      await h.sim.unplug(1);
+      expect(lastStatus(h)).toMatchObject({ [field]: 'Available' });
+    },
+  );
+
   it('clearFault without a transaction returns Available', async () => {
     const h = await liveHarness('ocpp2.1');
     await h.sim.injectFault(1, 'HighTemperature', 'suspend');

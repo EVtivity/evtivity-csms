@@ -20,6 +20,7 @@ import {
 } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
+import { tokenLabelSchema } from '../../lib/token-label.js';
 
 // Driver-facing subset of the OCPP IdToken types (PORTAL_ID_TOKEN_TYPES):
 // no CSMS-issued, system or payment terminal type, and no vehicle id type.
@@ -46,10 +47,7 @@ const tokenItem = z
   })
   .loose();
 
-const labelSchema = z
-  .string()
-  .max(100)
-  .describe('Free-text label of the card, e.g. "Company card". Trimmed; empty means no label');
+const labelSchema = tokenLabelSchema('Free-text label of the card, e.g. "Company RFID card"');
 
 const createTokenBody = z.object({
   idToken: z
@@ -294,7 +292,13 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       if (Object.keys(changes).length === 0) return toPortalToken(own);
 
       try {
-        await tokenService.updateToken(id, changes, { type: 'driver', driverId });
+        // Null: the card moved to another driver or the driver was erased or
+        // deactivated after the read above (decided on the locked row).
+        const updated = await tokenService.updateToken(id, changes, { type: 'driver', driverId });
+        if (updated == null) {
+          await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
+          return;
+        }
       } catch (err) {
         if (err instanceof tokenService.PncContractTokenError) {
           await reply.status(403).send({

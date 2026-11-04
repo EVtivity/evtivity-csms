@@ -199,6 +199,7 @@ describe('Token routes - handler logic', () => {
           label: null,
           deactivatedBy: null,
           prepaidBalanceCents: null,
+          vehicleId: null,
           createdAt: '2024-01-01T00:00:00.000Z',
           updatedAt: '2024-01-01T00:00:00.000Z',
           driverFirstName: 'John',
@@ -547,6 +548,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
         driverFirstName: 'John',
@@ -600,6 +602,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -630,6 +633,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -692,6 +696,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -722,6 +727,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: 2500,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -785,6 +791,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -818,6 +825,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -854,6 +862,7 @@ describe('Token routes - handler logic', () => {
         label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
+        vehicleId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };

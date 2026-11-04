@@ -180,11 +180,24 @@ describe('createLoadManagementWorker', () => {
       { siteId: 'site-42' },
       'Processing load management for site',
     );
-    expect(mockRunLoadManagementCycle).toHaveBeenCalledWith(mockLog, 'site-42');
+    expect(mockRunLoadManagementCycle).toHaveBeenCalledWith(mockLog, 'site-42', {
+      allowSimulatedEnergyAssets: false,
+    });
     expect(mockLogJobCompleted).toHaveBeenCalledTimes(1);
     expect(mockLogJobCompleted.mock.calls[0]?.[0]).toBe(55);
     expect(typeof mockLogJobCompleted.mock.calls[0]?.[1]).toBe('number');
     expect(mockLogJobFailed).not.toHaveBeenCalled();
+  });
+
+  it('passes the simulated energy asset gate of the worker to the cycle', async () => {
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
+    createLoadManagementWorker({}, { add: vi.fn() } as never, { allowSimulatedEnergyAssets: true });
+
+    await capturedProcessor?.(makeJob('load-management', { siteId: 'site-43' }));
+
+    expect(mockRunLoadManagementCycle).toHaveBeenCalledWith(mockLog, 'site-43', {
+      allowSimulatedEnergyAssets: true,
+    });
   });
 
   it('per-site job logs failure and rethrows when the cycle throws', async () => {

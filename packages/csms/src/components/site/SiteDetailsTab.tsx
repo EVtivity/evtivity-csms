@@ -23,11 +23,14 @@ import { SiteAiInsightsRow } from '@/components/site/SiteAiInsightsRow';
 import { SiteDataPlanCard } from '@/components/site/SiteDataPlanCard';
 import type { DataPlan } from '@evtivity/lib/station-data-plan';
 import {
+  NO_POWER_EQUIPMENT,
   chargerPlacementOf,
   effectiveLayoutSettings,
+  placePowerEquipment,
   positionToBay,
   siteTypeOf,
   type ChargerPlacement,
+  type LayoutPowerEquipment,
   type SiteLayoutSettings,
   type SiteType,
 } from '@evtivity/lib/site-layout';
@@ -73,6 +76,8 @@ interface Site extends SiteAiInsightsState {
   stationCount: number;
   /** Stored layout settings, null when never saved (the default parking lot shows). */
   layoutSettings?: SiteLayoutSettings | null;
+  /** The site's transformers and energy assets (GET /v1/sites/{id}). */
+  powerEquipment?: LayoutPowerEquipment;
   createdAt: string;
   updatedAt: string;
 }
@@ -140,12 +145,15 @@ export function SiteDetailsTab({
   });
   const layout = useMemo(
     () =>
-      effectiveLayoutSettings(
-        storedLayout,
-        (layoutStations ?? []).map((s) => positionToBay({ x: s.positionX, y: s.positionY })),
-        layoutStations != null ? layoutStationCountsOf(layoutStations) : site.stationCount,
+      placePowerEquipment(
+        effectiveLayoutSettings(
+          storedLayout,
+          (layoutStations ?? []).map((s) => positionToBay({ x: s.positionX, y: s.positionY })),
+          layoutStations != null ? layoutStationCountsOf(layoutStations) : site.stationCount,
+        ),
+        site.powerEquipment ?? NO_POWER_EQUIPMENT,
       ),
-    [storedLayout, layoutStations, site.stationCount],
+    [storedLayout, layoutStations, site.stationCount, site.powerEquipment],
   );
 
   const { data: carbonFactors } = useQuery({

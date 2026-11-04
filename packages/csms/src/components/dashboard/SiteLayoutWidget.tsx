@@ -209,6 +209,7 @@ export function SiteLayoutWidget({
           settings={view.settings}
           terminals={view.terminals}
           hierarchy={view.hierarchy}
+          equipment={view.equipment}
           loadManaged={view.loadManaged}
           logoUrl={view.logoUrl}
           california={view.california}

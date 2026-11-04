@@ -281,6 +281,10 @@ function makeVehicle(overrides: Record<string, unknown> = {}) {
     evccid: null,
     autochargeEnabled: false,
     autochargeBlockedAt: null,
+    batteryCapacityKwh: null,
+    maxChargePowerKw: null,
+    preconditioningPowerKw: null,
+    preconditioningMinutes: 30,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -990,15 +994,17 @@ describe('Driver routes (operator)', () => {
       expect(res.json().label).toBe('Spare card');
     });
 
-    it('returns 400 for a label longer than 100 characters', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: `/drivers/${VALID_DRIVER_ID}/tokens`,
-        headers: { authorization: `Bearer ${token}` },
-        payload: { idToken: 'RFID-XYZ', tokenType: 'ISO14443', label: 'x'.repeat(101) },
-      });
+    it('returns 400 for a label over the request limit or with a control character', async () => {
+      for (const label of ['x'.repeat(1001), 'Pool\ncard', 'Pool\u202Ecard']) {
+        const res = await app.inject({
+          method: 'POST',
+          url: `/drivers/${VALID_DRIVER_ID}/tokens`,
+          headers: { authorization: `Bearer ${token}` },
+          payload: { idToken: 'RFID-XYZ', tokenType: 'ISO14443', label },
+        });
 
-      expect(res.statusCode).toBe(400);
+        expect(res.statusCode).toBe(400);
+      }
     });
   });
 
@@ -1270,6 +1276,89 @@ describe('Driver routes (operator)', () => {
         expect.anything(),
         expect.anything(),
       );
+    });
+
+    it('passes the battery capacity and max charge power and returns them as numbers', async () => {
+      vehicleServiceMock.updateVehicle.mockResolvedValueOnce(
+        makeVehicle({ batteryCapacityKwh: '75.50', maxChargePowerKw: '150.00' }),
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { batteryCapacityKwh: 75.5, maxChargePowerKw: 150 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ batteryCapacityKwh: 75.5, maxChargePowerKw: 150 });
+      expect(vehicleServiceMock.updateVehicle).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        VALID_VEHICLE_ID,
+        { batteryCapacityKwh: 75.5, maxChargePowerKw: 150 },
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('passes the preconditioning power and minutes and returns them as numbers', async () => {
+      vehicleServiceMock.updateVehicle.mockResolvedValueOnce(
+        makeVehicle({ preconditioningPowerKw: '12.50', preconditioningMinutes: 45 }),
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { preconditioningPowerKw: 12.5, preconditioningMinutes: 45 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        preconditioningPowerKw: 12.5,
+        preconditioningMinutes: 45,
+      });
+      expect(vehicleServiceMock.updateVehicle).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        VALID_VEHICLE_ID,
+        { preconditioningPowerKw: 12.5, preconditioningMinutes: 45 },
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('refuses preconditioning values out of range', async () => {
+      for (const payload of [
+        { preconditioningPowerKw: 0.4 },
+        { preconditioningPowerKw: 501 },
+        { preconditioningMinutes: 4 },
+        { preconditioningMinutes: 241 },
+        { preconditioningMinutes: 30.5 },
+        { preconditioningMinutes: null },
+      ]) {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}`,
+          headers: { authorization: `Bearer ${token}` },
+          payload,
+        });
+        expect(res.statusCode).toBe(400);
+      }
+      expect(vehicleServiceMock.updateVehicle).not.toHaveBeenCalled();
+    });
+
+    it('refuses a battery capacity or max charge power out of range', async () => {
+      for (const payload of [
+        { batteryCapacityKwh: 0 },
+        { batteryCapacityKwh: 2001 },
+        { maxChargePowerKw: 0.5 },
+        { maxChargePowerKw: 3751 },
+      ]) {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}`,
+          headers: { authorization: `Bearer ${token}` },
+          payload,
+        });
+        expect(res.statusCode).toBe(400);
+      }
+      expect(vehicleServiceMock.updateVehicle).not.toHaveBeenCalled();
     });
 
     it('refuses a color or body type off the list', async () => {

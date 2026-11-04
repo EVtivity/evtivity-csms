@@ -34,7 +34,7 @@ const lot = (rows = 2): SiteLayoutSettings =>
     rows,
     facingDeg: 0,
     chargerPlacement: 'islands',
-    transformers: [{ id: 'tx', name: null, ratedKva: null, x: -2.5, z: 2.5 }],
+    transformers: [{ id: 'tx', x: -2.5, z: 2.5 }],
   });
 
 describe('DC split systems hold one spot per dispenser', () => {

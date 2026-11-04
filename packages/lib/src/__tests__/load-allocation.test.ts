@@ -5,6 +5,14 @@ import { describe, it, expect } from 'vitest';
 import {
   circuitConductorPhases,
   computeMaxContinuousKw,
+  computeTransformerCapacityKw,
+  PAD_MOUNT_TRANSFORMER_KVA,
+  STEP_DOWN_TRANSFORMER_KVA,
+  TRANSFORMER_KINDS,
+  TRANSFORMER_LOADING_LIMIT_RANGE,
+  TRANSFORMER_PHASES,
+  TRANSFORMER_POWER_FACTOR_RANGE,
+  TRANSFORMER_RATED_KVA_RANGE,
   effectiveCircuitVoltageV,
   isCircuitVoltageAllowed,
   isPanelVoltageAllowed,
@@ -92,5 +100,37 @@ describe('sub-panel phase connections', () => {
     expect(isSubPanelPhaseConnectionAllowed(3, 3)).toBe(false);
     expect(isSubPanelPhaseConnectionAllowed(1, 1)).toBe(false);
     expect(isSubPanelPhaseConnectionAllowed(1, null)).toBe(false);
+  });
+});
+
+describe('standard transformer ratings', () => {
+  it('lists the pad-mount ratings 45 to 3750 kVA (secondaries of 700 V or less) and the dry-type step-down ratings 75 to 500 kVA, ascending', () => {
+    for (const list of [PAD_MOUNT_TRANSFORMER_KVA, STEP_DOWN_TRANSFORMER_KVA]) {
+      expect([...list].sort((a, b) => a - b)).toEqual([...list]);
+      for (const kva of list) {
+        expect(kva).toBeGreaterThanOrEqual(TRANSFORMER_RATED_KVA_RANGE.min);
+        expect(kva).toBeLessThanOrEqual(TRANSFORMER_RATED_KVA_RANGE.max);
+      }
+    }
+    expect(PAD_MOUNT_TRANSFORMER_KVA[0]).toBe(45);
+    expect(PAD_MOUNT_TRANSFORMER_KVA.at(-1)).toBe(3750);
+    expect([...STEP_DOWN_TRANSFORMER_KVA]).toEqual([75, 112.5, 150, 225, 300, 500]);
+  });
+});
+
+describe('computeTransformerCapacityKw', () => {
+  it('rates a transformer at kVA x power factor x loading limit, no 80 percent', () => {
+    expect(computeTransformerCapacityKw(1000, 0.95, 100)).toBe(950);
+    expect(computeTransformerCapacityKw(75, 1, 80)).toBe(60);
+    expect(computeTransformerCapacityKw(112.5, 0.95, 100)).toBeCloseTo(106.875, 3);
+    expect(computeTransformerCapacityKw(null, 0.95, 100)).toBeNull();
+  });
+
+  it('keeps the operator ranges in one place', () => {
+    expect(TRANSFORMER_POWER_FACTOR_RANGE).toEqual({ min: 0.8, max: 1, default: 0.95 });
+    expect(TRANSFORMER_LOADING_LIMIT_RANGE).toEqual({ min: 50, max: 100, default: 100 });
+    expect(TRANSFORMER_RATED_KVA_RANGE).toEqual({ min: 1, max: 100_000 });
+    expect(TRANSFORMER_KINDS).toEqual(['service', 'step_down']);
+    expect(TRANSFORMER_PHASES).toEqual([1, 3]);
   });
 });

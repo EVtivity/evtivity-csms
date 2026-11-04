@@ -12,10 +12,15 @@ import {
 import * as THREE from 'three';
 import { type AlignmentGuide } from './site-layout-grid';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { type Palette, type SceneStation } from './site-layout-scene-types';
 
-export function installFreeSpots(scn: SceneCtx): void {
+type FreeSpotsCtx = SceneSlice<
+  'M' | 'box' | 'guideGroup' | 'layout' | 'pipeBollard' | 'theme' | 'track',
+  'addFreeSpots' | 'arrowGeometry' | 'freeHandle' | 'guideDash' | 'guideMaterial' | 'showGuides'
+>;
+
+export function installFreeSpots(scn: FreeSpotsCtx): void {
   // The spots of a station on a custom site, in its own frame (`freeSpotRects`):
   // a paved apron under the charger and its spots with a curb around it, and
   // the markings. Car spots and bus bays: a painted line on each side of each

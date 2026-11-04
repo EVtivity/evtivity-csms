@@ -28,8 +28,12 @@
  *   sets in the UI so a prompt injection cannot add a recipient of company
  *   data, and the email and phone of a driver, site or NEVI operator,
  *   where receipts, notices and reports go, money
- *   and stored value (a token's prepaid balance), and a site's AI budget and
- *   insight switch. A
+ *   and stored value (a token's prepaid balance), a site's AI budget and
+ *   insight switch, a panel's transformer link (it decides which
+ *   transformer limit holds), and panel and circuit ratings (breaker amps,
+ *   voltage, phases, phase connections, oversubscription, safety margin:
+ *   they set the limits,
+ *   so a panel or circuit create is `never`). A
  *   write whose destination is nested, or that also carries an email body
  *   (`updateOcppEventSettings`), is `never`. The catalog checks refuse a
  *   destination-shaped (by name or an email or URI format), contact-shaped or
@@ -88,6 +92,26 @@ function supportRead(
 function write(options: { omit: readonly string[] }): ToolPolicy {
   return { ...W, omit: options.omit };
 }
+
+/**
+ * The fields of a panel update that change its computed capacity or the phase
+ * topology, which the assistant never sends (security case 356).
+ */
+export const PANEL_RATING_FIELDS = [
+  'breakerRatingAmps',
+  'voltageV',
+  'phases',
+  'phaseConnections',
+  'safetyMarginKw',
+  'oversubscriptionRatio',
+] as const;
+/**
+ * The fields of an unmanaged load update that change the headroom of the
+ * stations: its draw and the panel or circuit it counts on (security case 360).
+ */
+export const UNMANAGED_LOAD_HEADROOM_FIELDS = ['estimatedDrawKw', 'panelId', 'circuitId'] as const;
+/** The same fields of a circuit update (security case 356). */
+export const CIRCUIT_RATING_FIELDS = ['breakerRatingAmps', 'voltageV', 'phaseConnections'] as const;
 
 /** Keyed by OpenAPI operationId, grouped by tag. */
 export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
@@ -303,6 +327,17 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   updateFirmwareCampaign: N,
   // Fleets
   addFleetDriver: W,
+  // Departures (route-aware charging): a wrong confirmed change costs a charging
+  // plan, not money or access. Bulk import and schedule delete never.
+  cancelDeparture: W,
+  createFleetDeparture: W,
+  createFleetDepartureSchedule: W,
+  deleteDepartureSchedule: N,
+  importFleetDepartures: N,
+  listFleetDepartureSchedules: R,
+  listFleetDepartures: R,
+  updateDeparture: W,
+  updateDepartureSchedule: W,
   addFleetPricingGroup: N,
   addFleetStation: W,
   cancelFleetReservation: W,
@@ -356,23 +391,53 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   voidInvoice: N,
   // Load Management
   assignStationCircuit: W,
-  createCircuit: W,
-  createPanel: W,
-  createUnmanagedLoad: W,
-  deleteCircuit: W,
-  deletePanel: W,
-  deleteUnmanagedLoad: W,
+  // Panel and circuit ratings and phase topology (breaker amps, voltage,
+  // phases, phase connections, oversubscription, safety margin) set the limits
+  // load management holds the stations to: a rating above the real equipment,
+  // or a load counted on the wrong phase, overloads it until a breaker trips,
+  // as a transformer rating does (D12). The assistant never sets one (security
+  // case 356): a panel or circuit needs a breaker rating, so it never creates
+  // one, and its updates carry the name and the order only. A panel's transformer link decides which transformer limit holds
+  // over it, so the assistant never sets that either (security case 332). An
+  // operator sets ratings and links in the UI.
+  createCircuit: N,
+  createPanel: N,
+  // An unmanaged load's draw and the node it counts on take headroom away from
+  // the stations: a lower draw, a move or a removal gives the stations power
+  // the site does not have. A load needs its draw, so the assistant never
+  // creates or deletes one, and its update carries the name only (case 360).
+  createUnmanagedLoad: N,
+  // Deleting a panel or circuit unassigns its stations, which then run
+  // without the load management limit and can overload the real breaker
+  // (case 360): the assistant never deletes one.
+  deleteCircuit: N,
+  deletePanel: N,
+  deleteUnmanagedLoad: N,
   getPanel: R,
+  // Depot charging plan: read, and a confirmed recalculation (it only replans).
+  getSiteChargingPlan: R,
   getSiteLoadManagement: R,
   getSiteLoadManagementHistory: R,
+  recalculateSiteChargingPlan: W,
   listCircuits: R,
   listPanels: R,
   listUnmanagedLoads: R,
-  updateCircuit: W,
-  updatePanel: W,
+  // Transformers, batteries and solar (D12): reads only. A wrong rating or an
+  // inflated reading overloads real equipment, and the assistant gains nothing.
+  listTransformers: R,
+  createTransformer: N,
+  updateTransformer: N,
+  deleteTransformer: N,
+  listEnergyAssets: R,
+  createEnergyAsset: N,
+  updateEnergyAsset: N,
+  deleteEnergyAsset: N,
+  reportEnergyAssetReading: N,
+  updateCircuit: write({ omit: CIRCUIT_RATING_FIELDS }),
+  updatePanel: write({ omit: [...PANEL_RATING_FIELDS, 'transformerId'] }),
   updateStationLoadMinPower: W,
   updateStationLoadPriority: W,
-  updateUnmanagedLoad: W,
+  updateUnmanagedLoad: write({ omit: UNMANAGED_LOAD_HEADROOM_FIELDS }),
   upsertSiteLoadManagement: W,
   // Local Auth List
   addLocalAuthTokens: W,
@@ -588,6 +653,16 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   updatePaymentTerminalSettings: N,
   voidPaymentTerminalTransaction: N,
   handlePaymentTerminalWebhook: N,
+  // Bus depot systems (VDV 463, features/vdv-463.md): a depot system can change
+  // the charging plan of its depots and holds a credential, so none of its
+  // routes is a tool, reads included (they name the sign-in identity).
+  createDepotSystem: N,
+  deleteDepotSystem: N,
+  getDepotSystem: N,
+  getDepotSystemIdentifiers: N,
+  listDepotSystems: N,
+  rotateDepotSystemPassword: N,
+  updateDepotSystem: N,
   submitDriverPaymentMethodSetup: N,
   testAdyenConnection: N,
   testStripeConnection: N,
@@ -796,6 +871,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   reassignReservation: W,
   updateReservation: W,
   // Sessions
+  // Moves which vehicle a session charges for: never through the assistant.
+  assignSessionVehicle: N,
   // Turns Autocharge on for a vehicle (station security): operator only.
   claimSessionVehicleId: N,
   // Ends an offline station's session with its normal billing, as the
@@ -1277,6 +1354,14 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   updateConfigTemplate: false,
   // Fleets
   addFleetDriver: false,
+  // Departures: reads for remote agents, writes in chat only.
+  cancelDeparture: false,
+  createFleetDeparture: false,
+  createFleetDepartureSchedule: false,
+  listFleetDepartureSchedules: true,
+  listFleetDepartures: true,
+  updateDeparture: false,
+  updateDepartureSchedule: false,
   addFleetStation: false,
   cancelFleetReservation: false,
   createFleet: false,
@@ -1304,18 +1389,16 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   listInvoices: false,
   // Load Management
   assignStationCircuit: false,
-  createCircuit: false,
-  createPanel: false,
-  createUnmanagedLoad: false,
-  deleteCircuit: false,
-  deletePanel: false,
-  deleteUnmanagedLoad: false,
   getPanel: true,
+  getSiteChargingPlan: true,
   getSiteLoadManagement: true,
   getSiteLoadManagementHistory: true,
+  recalculateSiteChargingPlan: false,
   listCircuits: true,
   listPanels: true,
   listUnmanagedLoads: true,
+  listTransformers: true,
+  listEnergyAssets: true,
   updateCircuit: false,
   updatePanel: false,
   updateStationLoadMinPower: false,

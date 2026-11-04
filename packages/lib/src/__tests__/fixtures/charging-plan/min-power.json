@@ -1,0 +1,79 @@
+{
+  "description": "A vehicle with a 10 kW minimum and a small need: no slot between 0 and 10 kW.",
+  "input": {
+    "nowMs": 1793577600000,
+    "bufferMinutes": 0,
+    "slots": [
+      {
+        "startMs": 1793577600000,
+        "endMs": 1793578500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793578500000,
+        "endMs": 1793579400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793579400000,
+        "endMs": 1793580300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793580300000,
+        "endMs": 1793581200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793581200000,
+        "endMs": 1793582100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793582100000,
+        "endMs": 1793583000000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583000000,
+        "endMs": 1793583900000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583900000,
+        "endMs": 1793584800000,
+        "hours": 0.25
+      }
+    ],
+    "pricePerKwh": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+    "nodeCapacityKw": {
+      "root": [100, 100, 100, 100, 100, 100, 100, 100]
+    },
+    "rootNodeId": "root",
+    "vehicles": [
+      {
+        "priority": 5,
+        "minKw": 10,
+        "path": [
+          {
+            "nodeId": "root",
+            "weight": 1
+          }
+        ],
+        "departureId": "v",
+        "departureMs": 1793584800000,
+        "neededKwh": 5,
+        "maxKw": 50,
+        "availableFromMs": 1793577600000
+      }
+    ]
+  },
+  "expected": {
+    "v": {
+      "plannedKwh": 5,
+      "shortfallKwh": 0,
+      "state": "on_track"
+    }
+  },
+  "checks": {}
+}

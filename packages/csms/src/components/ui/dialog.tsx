@@ -109,11 +109,22 @@ function OpenDialog({
   );
 }
 
+interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {
+  /**
+   * A tall dialog: at most 90 percent of the viewport high, its header and
+   * footer stay in view and only the `DialogBody` between them scrolls. Put
+   * the fields in a `DialogBody` (inside a `DialogForm` when the footer is
+   * part of a form).
+   */
+  scrollable?: boolean;
+}
+
 function DialogContent({
   className,
   children,
+  scrollable = false,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+}: DialogContentProps): React.JSX.Element {
   const { t } = useTranslation();
   const { onClose, titleId, descriptionId } = React.useContext(DialogContext);
 
@@ -125,6 +136,7 @@ function DialogContent({
       aria-describedby={descriptionId}
       className={cn(
         'relative z-50 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg grid gap-4',
+        scrollable && 'flex max-h-[90dvh] flex-col',
         className,
       )}
       onClick={(e) => {
@@ -182,6 +194,29 @@ function DialogDescription({
   );
 }
 
+/** The part of a `scrollable` dialog that scrolls, between its header and footer. */
+function DialogBody({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+  return (
+    <div
+      data-dialog-body=""
+      // The negative margins give focus rings room inside the scroll box.
+      className={cn('-mx-6 -my-1 min-h-0 flex-1 overflow-y-auto px-6 py-1', className)}
+      {...props}
+    />
+  );
+}
+
+/** A form that fills a `scrollable` dialog: a `DialogBody`, then its `DialogFooter`. */
+function DialogForm({
+  className,
+  ...props
+}: React.FormHTMLAttributes<HTMLFormElement>): React.JSX.Element {
+  return <form className={cn('flex min-h-0 flex-1 flex-col gap-6', className)} {...props} />;
+}
+
 function DialogFooter({
   className,
   ...props
@@ -198,4 +233,13 @@ function DialogFooter({
   );
 }
 
-export { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter };
+export {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogForm,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+};

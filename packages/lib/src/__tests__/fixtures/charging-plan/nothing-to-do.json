@@ -1,0 +1,81 @@
+{
+  "description": "No energy needed: ready, no power.",
+  "input": {
+    "nowMs": 1793577600000,
+    "bufferMinutes": 30,
+    "slots": [
+      {
+        "startMs": 1793577600000,
+        "endMs": 1793578500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793578500000,
+        "endMs": 1793579400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793579400000,
+        "endMs": 1793580300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793580300000,
+        "endMs": 1793581200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793581200000,
+        "endMs": 1793582100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793582100000,
+        "endMs": 1793583000000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583000000,
+        "endMs": 1793583900000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583900000,
+        "endMs": 1793584800000,
+        "hours": 0.25
+      }
+    ],
+    "pricePerKwh": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+    "nodeCapacityKw": {
+      "root": [500, 500, 500, 500, 500, 500, 500, 500]
+    },
+    "rootNodeId": "root",
+    "vehicles": [
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "root",
+            "weight": 1
+          }
+        ],
+        "departureId": "v",
+        "departureMs": 1793584800000,
+        "neededKwh": 0,
+        "maxKw": 150,
+        "availableFromMs": 1793577600000
+      }
+    ]
+  },
+  "expected": {
+    "v": {
+      "plannedKwh": 0,
+      "shortfallKwh": 0,
+      "state": "ready",
+      "readiness": "ready",
+      "powerKw": [0, 0, 0, 0, 0, 0, 0, 0]
+    }
+  },
+  "checks": {}
+}

@@ -200,6 +200,25 @@ describe('getQueryKeysForEvent', () => {
     expect(getQueryKeysForEvent(makeEvent('load.updated'))).toEqual([]);
   });
 
+  it('fleetCharging.updated refreshes the depot plan, its layout and the departure lists', () => {
+    expect(getQueryKeysForEvent(makeEvent('fleetCharging.updated', { siteId: 'S-1' }))).toEqual([
+      ['site-charging-plan', 'S-1'],
+      ['sites', 'S-1', 'layout'],
+      ['fleet-departures'],
+    ]);
+    expect(getQueryKeysForEvent(makeEvent('fleetCharging.updated'))).toEqual([
+      ['fleet-departures'],
+    ]);
+  });
+
+  it('departure.changed refreshes the departure lists and the depot plan of its site', () => {
+    expect(getQueryKeysForEvent(makeEvent('departure.changed', { siteId: 'S-1' }))).toEqual([
+      ['fleet-departures'],
+      ['site-charging-plan', 'S-1'],
+      ['sites', 'S-1', 'layout'],
+    ]);
+  });
+
   it('ocpp.message needs a station', () => {
     expect(getQueryKeysForEvent(makeEvent('ocpp.message', { stationId: 'CS-1' }))).toEqual([
       ['stations', 'CS-1', 'ocpp-logs'],

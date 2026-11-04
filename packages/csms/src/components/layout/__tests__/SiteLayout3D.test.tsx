@@ -90,7 +90,11 @@ vi.mock('../site-layout-scene', () => ({
   createSiteScene: createScene,
 }));
 
-import { effectiveLayoutSettings, type SiteLayoutSettings } from '@evtivity/lib/site-layout';
+import {
+  effectiveLayoutSettings,
+  placePowerEquipment,
+  type PlacedLayoutSettings,
+} from '@evtivity/lib/site-layout';
 import SiteLayout3D, { linkLabelText, stationBays } from '../SiteLayout3D';
 import {
   resolveCssColor,
@@ -148,7 +152,19 @@ function station(overrides: Partial<LayoutStation> = {}): LayoutStation {
   };
 }
 
-const SETTINGS = effectiveLayoutSettings(null);
+// The default lot with one service transformer of the site at its default place.
+const SETTINGS: PlacedLayoutSettings = placePowerEquipment(effectiveLayoutSettings(null), {
+  transformers: [
+    {
+      id: 'tx-1',
+      kind: 'service',
+      name: 'Utility Transformer',
+      ratedKva: null,
+      maxContinuousKw: null,
+    },
+  ],
+  energyAssets: [],
+});
 
 function renderView(
   stations: LayoutStation[],
@@ -159,7 +175,7 @@ function renderView(
     onFreeMove: (...args: unknown[]) => void;
     onSolarMove: (...args: unknown[]) => void;
     onUnavailable: () => void;
-    settings: SiteLayoutSettings;
+    settings: PlacedLayoutSettings;
     terminals: Map<string, LayoutTerminal[]>;
     hierarchy: LinkPanel[] | null;
     loadManaged: boolean;
@@ -666,7 +682,17 @@ describe('SiteLayout3D', () => {
     renderView([station()], {
       settings: {
         ...SETTINGS,
-        transformers: [{ id: 'tx-9', name: 'Main Feed', ratedKva: 2500, x: 40, z: 3 }],
+        transformers: [
+          {
+            id: 'tx-9',
+            name: 'Main Feed',
+            ratedKva: 2500,
+            kind: 'service' as const,
+            maxContinuousKw: null,
+            x: 40,
+            z: 3,
+          },
+        ],
       },
     });
     expect(screen.getByTestId('site-layout-3d-transformer-tx-9').textContent).toContain(
@@ -700,7 +726,17 @@ describe('SiteLayout3D', () => {
       hierarchy,
       settings: {
         ...SETTINGS,
-        transformers: [{ id: 'tx-9', name: 'Main Feed', ratedKva: 2500, x: 40, z: 3 }],
+        transformers: [
+          {
+            id: 'tx-9',
+            name: 'Main Feed',
+            ratedKva: 2500,
+            kind: 'service' as const,
+            maxContinuousKw: null,
+            x: 40,
+            z: 3,
+          },
+        ],
       },
     });
     const panel = screen.getByTestId('site-layout-3d-link-panel:p1');
@@ -850,7 +886,17 @@ describe('SiteLayout3D', () => {
           siteType: 'office_retail',
           chargers: 2,
           mounting: 'wall',
-          transformers: [{ id: 'tx-9', name: 'Kept', ratedKva: 500, x: 40, z: 3 }],
+          transformers: [
+            {
+              id: 'tx-9',
+              name: 'Kept',
+              ratedKva: 500,
+              kind: 'service' as const,
+              maxContinuousKw: null,
+              x: 40,
+              z: 3,
+            },
+          ],
         },
       },
     );
@@ -894,7 +940,7 @@ describe('SiteLayout3D', () => {
           chargersLeft: 4,
           chargersRight: 4,
           energyAssets: [
-            { id: 'bat-1', type: 'battery', name: null, capacityKwh: 100, x: 4, z: -6 },
+            { id: 'bat-1', type: 'battery', name: 'Battery', capacityKwh: 100, x: 4, z: -6 },
           ],
         },
       },
@@ -1317,6 +1363,69 @@ describe('SiteLayout3D', () => {
     height.mockRestore();
   });
 
+  describe('depot departure labels', () => {
+    const DEPOT_SITE: PlacedLayoutSettings = {
+      ...SETTINGS,
+      siteType: 'depot',
+      busBays: 2,
+      truckLanes: 1,
+    };
+    const departure = (
+      planned: boolean,
+    ): NonNullable<NonNullable<LayoutStation['session']>['departure']> => ({
+      id: 'vdp_1',
+      departureAt: '2026-11-03T13:30:00.000Z',
+      timezone: 'America/Los_Angeles',
+      readiness: planned ? 'at_risk' : null,
+      reason: planned ? 'site_capacity' : null,
+      targetKwh: 120,
+      targetSocPercent: null,
+      deliveredKwh: 45,
+      shortfallKwh: planned ? 32 : null,
+      predictedReadyAt: planned ? '2026-11-03T13:40:00.000Z' : null,
+    });
+    const withDeparture = (planned: boolean) =>
+      chargingStation({
+        id: 'ses_1',
+        startedAt: new Date().toISOString(),
+        energyDeliveredWh: 100,
+        currentCostCents: null,
+        currency: 'USD',
+        driver: null,
+        departure: departure(planned),
+      });
+
+    it('shows only the departure time while the depot plan does not run', () => {
+      renderView([withDeparture(false)], { settings: DEPOT_SITE });
+      const label = screen.getByTestId('site-layout-3d-departure-sta_1');
+      expect(label.textContent).toBe('sites.layoutView.departs');
+      const button = screen.getByTestId('site-layout-3d-avatar-sta_1').querySelector('button');
+      if (button != null) fireEvent.click(button);
+      expect(screen.getByTestId('session-popup-departure').textContent).toMatch(/5:30/);
+      expect(screen.queryByTestId('session-popup-predicted-ready')).toBeNull();
+      expect(screen.queryByTestId('session-popup-reason')).toBeNull();
+    });
+
+    it('adds the readiness in its state color while the plan runs', () => {
+      renderView([withDeparture(true)], { settings: DEPOT_SITE });
+      const state = screen.getByTestId('site-layout-3d-departure-state-sta_1');
+      expect(state.textContent).toBe('sites.layoutView.atRiskShort');
+      // The contrast-checked station state text color of maintenance (warning).
+      expect(state.getAttribute('style')).toContain(stationStateTextColor('maintenance'));
+      const button = screen.getByTestId('site-layout-3d-avatar-sta_1').querySelector('button');
+      if (button != null) fireEvent.click(button);
+      expect(screen.getByTestId('session-popup-predicted-ready').textContent).toMatch(/5:40/);
+      expect(screen.getByTestId('session-popup-reason').textContent).toBe(
+        'fleets.departures.reasons.site_capacity',
+      );
+    });
+
+    it('shows no departure label on a site that is not a depot', () => {
+      renderView([withDeparture(true)]);
+      expect(screen.queryByTestId('site-layout-3d-departure-sta_1')).toBeNull();
+    });
+  });
+
   it('shows the state marker of every station on a large site, far ones too', () => {
     const many = Array.from({ length: 45 }, (_, i) =>
       station({
@@ -1348,7 +1457,7 @@ describe('SiteLayout3D', () => {
           x: 4,
           z: -6,
         },
-        { id: 'pv-1', type: 'solar' as const, name: null, capacityKwp: 180, row: 1 },
+        { id: 'pv-1', type: 'solar' as const, name: 'Canopy', capacityKwp: 180, row: 1 },
       ],
     };
     const { unmount } = renderView([station()], { settings: energy });
@@ -1357,9 +1466,7 @@ describe('SiteLayout3D', () => {
     expect(screen.getByTestId('site-layout-3d-energy-bat-1').textContent).toBe(
       'Main Battery· 1,000 kWh',
     );
-    expect(screen.getByTestId('site-layout-3d-energy-pv-1').textContent).toBe(
-      'sites.layoutView.solarCanopy· 180 kWp',
-    );
+    expect(screen.getByTestId('site-layout-3d-energy-pv-1').textContent).toBe('Canopy· 180 kWp');
     unmount();
     renderView([station()], { settings: { ...energy, siteType: 'office_retail' } });
     expect(scene.batteries).toEqual([]);
@@ -1439,14 +1546,14 @@ describe('SiteLayout3D', () => {
   });
 
   describe('custom site', () => {
-    const CUSTOM: SiteLayoutSettings = {
+    const CUSTOM: PlacedLayoutSettings = {
       ...SETTINGS,
       siteType: 'custom',
       energyAssets: [
         {
           id: 'pv-1',
           type: 'solar',
-          name: null,
+          name: 'Canopy',
           capacityKwp: 50,
           row: 0,
           x: -20,
@@ -1667,7 +1774,7 @@ describe('SiteLayout3D', () => {
   });
 
   describe('depot site', () => {
-    const DEPOT: SiteLayoutSettings = {
+    const DEPOT: PlacedLayoutSettings = {
       ...SETTINGS,
       siteType: 'depot',
       busBays: 2,

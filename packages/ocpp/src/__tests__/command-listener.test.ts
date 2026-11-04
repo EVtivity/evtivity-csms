@@ -1226,7 +1226,7 @@ describe('CommandListener', () => {
     );
   });
 
-  it('does not report a charging profile refused when it could not be sent', async () => {
+  it('reports a charging profile that could not be sent as not sent, not refused', async () => {
     dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
       new Error('Station CS-001 is not connected'),
     );
@@ -1242,8 +1242,36 @@ describe('CommandListener', () => {
     );
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(eventBus.publish).not.toHaveBeenCalledWith(
-      expect.objectContaining({ eventType: 'command.SetChargingProfile' }),
+    // Published as not sent: load management reads it as no answer, not a refusal.
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.SetChargingProfile',
+        payload: expect.objectContaining({ notSent: true }),
+      }),
+    );
+  });
+
+  it('reports a charging profile the station did not answer as not sent', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new CommandTimeoutError('SetChargingProfile', 'm-cp'),
+    );
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-cp-timeout',
+        stationId: 'CS-001',
+        action: 'SetChargingProfile',
+        payload: { evseId: 1, chargingProfile: { id: 7, chargingProfilePurpose: 'TxProfile' } },
+        noQueue: true,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.SetChargingProfile',
+        payload: expect.objectContaining({ notSent: true }),
+      }),
     );
   });
 

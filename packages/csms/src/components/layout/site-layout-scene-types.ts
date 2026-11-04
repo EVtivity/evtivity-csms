@@ -140,7 +140,11 @@ export interface ScenePanel {
   id: string;
   x: number;
   z: number;
-  model: 'switchboard' | 'panelboard' | 'wall' | 'cabinet';
+  model: 'switchboard' | 'panelboard' | 'wall' | 'cabinet' | 'dry_transformer';
+  /** A step-down transformer: its kVA rating (sizes the dry-type model). */
+  kva?: number | null | undefined;
+  /** A switchboard in the row at a service transformer: dragging it drags that transformer. */
+  atTransformerId?: string | undefined;
   /** The turn about the vertical axis, in radians (0: the front faces +z; a row end rack faces the lot edge). */
   turn: number;
 }
@@ -417,6 +421,8 @@ export interface Templates {
       mouth?: Point3;
       /** An AC pedestal's gland x under the head (`acGlandX`). */
       glandX?: number;
+      /** A dual-port pedestal's stall: the x range its cable keeps to (`plugRoute` bounds). */
+      bounds?: { minX: number; maxX: number };
     },
   ) => THREE.Group;
   /** A precast concrete wheel stop (WHEEL_STOP), centered on the origin, across x. */
@@ -431,6 +437,8 @@ export interface Templates {
   powerCabinet: () => THREE.Group;
   panelboard: () => THREE.Group;
   wallPanelboard: () => THREE.Group;
+  /** A step-down dry-type transformer on its pad, sized by its kVA class, its front toward +z. */
+  dryTransformer: (kva: number | null) => THREE.Group;
   terminal: (hasDisplay: boolean, online: boolean | null) => THREE.Group;
 }
 export interface StationMaterials {

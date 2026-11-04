@@ -64,14 +64,40 @@ const OCPP_16_VALID_UNITS = new Set([
   'Percent',
 ]);
 
+/** Battery size of a car, and of any vehicle whose size and body type are unknown. */
+export const DEFAULT_BATTERY_KWH = 60;
+
+// Typical usable battery sizes of the large vehicles a depot charges.
+const BATTERY_KWH_BY_BODY_TYPE: Readonly<Record<string, number>> = {
+  bus: 400,
+  semi_truck: 500,
+  box_truck: 200,
+};
+
+/** The battery size the simulator gives a vehicle of this body type. */
+export function batteryKwhFor(bodyType: string | null | undefined): number {
+  return (bodyType != null ? BATTERY_KWH_BY_BODY_TYPE[bodyType] : undefined) ?? DEFAULT_BATTERY_KWH;
+}
+
+/** The EV battery of one session: its usable size and its SoC at the start. */
+export interface SessionBattery {
+  capacityKwh?: number | undefined;
+  startSocPercent?: number | undefined;
+}
+
+// Largest battery the simulator accepts (the vehicle battery limit of the CSMS).
+const MAX_BATTERY_KWH = 2000;
+
 export class MeterValueGenerator {
   private meterWh = 0;
+  private fractionWh = 0;
   private powerW = 0;
   private voltage: number;
   private currentA = 0;
   private frequency = 50;
   private temperature = 25;
   private soc = 20;
+  private capacityKwh = DEFAULT_BATTERY_KWH;
   private tickCount = 0;
 
   constructor(private readonly profile: ChargingProfile = DEFAULT_PROFILE) {
@@ -115,12 +141,22 @@ export class MeterValueGenerator {
       power = Math.min(power, powerLimitW);
     }
 
-    this.powerW = power;
-    this.meterWh += Math.floor((this.powerW * 10) / 3600);
+    this.powerW = this.soc >= 100 ? 0 : power;
+    this.addEnergy();
     this.voltage = this.profile.voltage - 2 + Math.random() * 4;
     this.currentA = this.powerW / this.voltage / this.profile.phases;
-    // SoC ramps ~0.3% per tick (roughly 1% per 30s at 7kW on a 60kWh battery)
-    this.soc = Math.min(100, this.soc + (this.powerW > 0 ? 0.3 : 0));
+  }
+
+  // One 10 s tick of energy at the current power; the SoC rises by that energy
+  // over the battery size (1 % is capacityKwh x 10 Wh).
+  private addEnergy(): void {
+    // The register counts whole Wh: the fraction carries to the next tick, so low power still counts.
+    const exactWh = (this.powerW * 10) / 3600;
+    const total = this.fractionWh + exactWh;
+    const deltaWh = Math.floor(total);
+    this.fractionWh = total - deltaWh;
+    this.meterWh += deltaWh;
+    this.soc = Math.min(100, this.soc + exactWh / (this.capacityKwh * 10));
   }
 
   private tickDc(powerLimitW: number | null): void {
@@ -151,23 +187,41 @@ export class MeterValueGenerator {
       power = Math.min(power, powerLimitW);
     }
 
-    this.powerW = power;
-    this.meterWh += Math.floor((this.powerW * 10) / 3600);
+    this.powerW = this.soc >= 100 ? 0 : power;
+    this.addEnergy();
     this.currentA = this.powerW / this.voltage; // DC is single phase
-
-    // SoC ramps proportional to power (faster at higher power)
-    // At max power (~95%), ramp ~0.8% per tick. Scale down with power.
-    const powerRatio = this.powerW / this.profile.maxPowerW;
-    this.soc = Math.min(100, this.soc + powerRatio * 0.8);
   }
 
-  /** Reset session-scoped state (SoC, temperature, tick count). Energy stays cumulative. */
-  resetSession(): void {
+  /**
+   * Reset session-scoped state (battery, SoC, temperature, tick count). Energy
+   * stays cumulative. Without a valid battery size the EV has 60 kWh, without a
+   * valid start SoC it starts at a random 15-30 %.
+   */
+  resetSession(battery: SessionBattery = {}): void {
     this.tickCount = 0;
     this.temperature = 25;
-    this.soc = 15 + Math.random() * 15; // random 15-30% start SoC
+    const capacity = battery.capacityKwh;
+    this.capacityKwh =
+      capacity != null && Number.isFinite(capacity) && capacity > 0 && capacity <= MAX_BATTERY_KWH
+        ? capacity
+        : DEFAULT_BATTERY_KWH;
+    const start = battery.startSocPercent;
+    this.soc =
+      start != null && Number.isFinite(start) && start >= 0 && start <= 100
+        ? start
+        : 15 + Math.random() * 15;
     this.powerW = 0;
     this.currentA = 0;
+  }
+
+  /** Usable battery size of the session's EV, in kWh. */
+  get batteryKwh(): number {
+    return this.capacityKwh;
+  }
+
+  /** State of charge of the session's EV, in percent (unrounded). */
+  get socPercent(): number {
+    return this.soc;
   }
 
   /** Get current energy in Wh */

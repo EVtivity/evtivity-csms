@@ -27,14 +27,84 @@ import {
   type Point,
 } from './site-layout-grid';
 import { lotRaisedRects } from './site-layout-ground';
+import { linkPolyline } from './site-layout-link-curve';
+import { dryTransformerPad, dryTransformerSize } from './site-layout-model-dry-transformer';
 import { equipmentBollards, equipmentPadBox, type EquipmentGround } from './site-layout-links';
 import { carportFrame, carportTopY } from './site-layout-solar';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { mergesStations } from './site-layout-scene-merge';
 import { LINK_Y, PANELBOARD, PANEL_LABEL_Y } from './site-layout-scene-types';
 
-export function installRebuild(scn: SceneCtx): void {
+/** The charge flow along a battery or solar run sits around its 0.05 m feeder tube. */
+const SUPPLY_FLOW_RADIUS_M = 0.05;
+
+type RebuildCtx = SceneSlice<
+  | 'M'
+  | 'addAccessibleSpace'
+  | 'batteryObjects'
+  | 'box'
+  | 'buildBuilding'
+  | 'buildDepotYard'
+  | 'buildFreeSolarCanopy'
+  | 'buildLink'
+  | 'buildModel'
+  | 'buildParkingRows'
+  | 'buildSolarCanopy'
+  | 'chargeFlowPath'
+  | 'buildStreet'
+  | 'chargeFlowTextures'
+  | 'editGrid'
+  | 'editing'
+  | 'energyLabels'
+  | 'flowTextures'
+  | 'fog'
+  | 'grassTexture'
+  | 'ground'
+  | 'guideGroup'
+  | 'guideMaterial'
+  | 'handleTemplates'
+  | 'layout'
+  | 'linkLabels'
+  | 'linkMeshes'
+  | 'lotPoint'
+  | 'mergeStations'
+  | 'objects'
+  | 'pipeBollard'
+  | 'poseOf'
+  | 'rowCenterZ'
+  | 'scene'
+  | 'screenScrolls'
+  | 'selected'
+  | 'selectedSolar'
+  | 'showGuides'
+  | 'signPosts'
+  | 'site'
+  | 'solarObjects'
+  | 'solarRowCarport'
+  | 'spotTexture'
+  | 'sun'
+  | 'templates'
+  | 'theme'
+  | 'track'
+  | 'transformerObjects'
+  | 'virtualSprites',
+  | 'applySelection'
+  | 'bollardMaterials'
+  | 'built'
+  | 'chargerShared'
+  | 'connectorMaterialSet'
+  | 'frameBox'
+  | 'haloTexture'
+  | 'lotBox'
+  | 'pan'
+  | 'rebuild'
+  | 'siteBox'
+  | 'siteRaisedRects'
+  | 'solarTextureCache'
+>;
+
+export function installRebuild(scn: RebuildCtx): void {
   function rebuild(): void {
     for (const item of scn.built) item.dispose();
     scn.built = [];
@@ -282,7 +352,15 @@ export function installRebuild(scn: SceneCtx): void {
                       SPLIT_SYSTEM.cabinet.depthM + 0.6,
                     ),
                   ]
-                : [pad(p.x, p.z, 2.3, 1.5)],
+                : p.model === 'dry_transformer'
+                  ? (() => {
+                      const { w, d } = dryTransformerPad(dryTransformerSize(p.kva ?? null));
+                      // A quarter turn swaps the pad's sides.
+                      return Math.abs(Math.sin(p.turn)) > 0.5
+                        ? [pad(p.x, p.z, d, w)]
+                        : [pad(p.x, p.z, w, d)];
+                    })()
+                  : [pad(p.x, p.z, 2.3, 1.5)],
         ),
       ];
       for (const padBox of equipmentPads) {
@@ -348,11 +426,14 @@ export function installRebuild(scn: SceneCtx): void {
             ? t.panelboard()
             : p.model === 'cabinet'
               ? t.powerCabinet()
-              : t.switchboard();
+              : p.model === 'dry_transformer'
+                ? t.dryTransformer(p.kva ?? null)
+                : t.switchboard();
       g.position.set(p.x, 0, p.z);
       g.rotation.y = p.turn;
       g.traverse((o) => {
         o.userData['panelId'] = p.id;
+        if (p.atTransformerId != null) o.userData['dragTransformerId'] = p.atTransformerId;
       });
       scn.site.add(g);
     }
@@ -363,6 +444,12 @@ export function installRebuild(scn: SceneCtx): void {
     for (const seg of scn.layout.links.segments) {
       const points = seg.points.map((p: Point) => scn.lotPoint(p, LINK_Y));
       scn.site.add(scn.buildLink(points, seg.kind, seg.id, seg.flowId));
+      // A battery or solar run that gives supply now: the green charge flow
+      // along it, from the asset toward the equipment it feeds.
+      if (seg.kind === 'supply' && seg.flowing === true) {
+        const line = linkPolyline(points).map((v): [number, number, number] => [v.x, v.y, v.z]);
+        scn.site.add(scn.chargeFlowPath(line, SUPPLY_FLOW_RADIUS_M));
+      }
     }
     for (const label of scn.layout.links.labels) {
       const y =

@@ -204,6 +204,10 @@ export const driverTokens = pgTable(
     // Prepaid credit in cents of the company currency (OCPP 2.1 C17). Null
     // means the token is not prepaid. Zero or less is answered NoCredit.
     prepaidBalanceCents: integer('prepaid_balance_cents'),
+    // The vehicle this card belongs to (a card per bus is common). Must be a
+    // vehicle of the token's driver; the session started with the card charges
+    // that vehicle (route-aware charging).
+    vehicleId: text('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -211,6 +215,7 @@ export const driverTokens = pgTable(
     index('idx_driver_tokens_id_token').on(table.idToken),
     index('idx_driver_tokens_driver_id').on(table.driverId),
     index('idx_driver_tokens_expires_at').on(table.expiresAt),
+    index('idx_driver_tokens_vehicle_id').on(table.vehicleId),
   ],
 );
 
@@ -309,6 +314,17 @@ export const vehicles = pgTable(
     // Set by an operator block: the vehicle's ids are refused like a blocked
     // token and the driver cannot turn Autocharge back on.
     autochargeBlockedAt: timestamp('autocharge_blocked_at', { withTimezone: true }),
+    // Usable battery size, needed for state of charge departure targets
+    // (route-aware charging).
+    batteryCapacityKwh: numeric('battery_capacity_kwh', { precision: 7, scale: 2 }),
+    // What the vehicle accepts. Null: the charger maximum.
+    maxChargePowerKw: numeric('max_charge_power_kw', { precision: 7, scale: 2 }),
+    // Power the vehicle draws while it preconditions (heating, cooling, battery
+    // conditioning); the charging plan reserves it in a preconditioning window.
+    // Null reserves nothing (features/vdv-463.md).
+    preconditioningPowerKw: numeric('preconditioning_power_kw', { precision: 6, scale: 2 }),
+    // Length of an automatic preconditioning window that names no start time.
+    preconditioningMinutes: smallint('preconditioning_minutes').notNull().default(30),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -334,6 +350,22 @@ export const vehicles = pgTable(
     check(
       'vehicles_body_type_check',
       sql`${table.bodyType} IS NULL OR ${table.bodyType} IN ('sedan', 'hatchback', 'suv', 'pickup_truck', 'van', 'box_truck', 'bus', 'semi_truck')`,
+    ),
+    check(
+      'vehicles_battery_capacity_check',
+      sql`${table.batteryCapacityKwh} IS NULL OR ${table.batteryCapacityKwh} BETWEEN 1 AND 2000`,
+    ),
+    check(
+      'vehicles_max_charge_power_check',
+      sql`${table.maxChargePowerKw} IS NULL OR ${table.maxChargePowerKw} BETWEEN 1 AND 3750`,
+    ),
+    check(
+      'vehicles_preconditioning_power_check',
+      sql`${table.preconditioningPowerKw} IS NULL OR ${table.preconditioningPowerKw} BETWEEN 0.5 AND 500`,
+    ),
+    check(
+      'vehicles_preconditioning_minutes_check',
+      sql`${table.preconditioningMinutes} BETWEEN 5 AND 240`,
     ),
   ],
 );

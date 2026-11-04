@@ -11,6 +11,7 @@ import { holsterSlots, type ConnectorKind } from './site-layout-connectors';
 import { DC_BOLLARD, DC_CAR_FRONT_M, DC_CAR_TAIL_M } from './site-layout-dc-bollards';
 import { carNoseAtStop, carTailAtStop, type WheelStopMount } from './site-layout-grid';
 import { acGlandX } from './site-layout-model-ac-pedestal';
+import { vehicleInletOf } from './site-layout-vehicle-inlet';
 
 import { type SceneStation } from './site-layout-scene-types';
 
@@ -91,6 +92,32 @@ export function satelliteHolsterMount(dx: number, side: number, backM: number): 
 export function carFrontWithoutStop(s: SceneStation, look: SceneCar): number | undefined {
   if (s.kind !== 'dc' || isLargeBodyType(look.bodyType)) return undefined;
   return parksBackedIn(carLookPort(look)) ? DC_CAR_TAIL_M : DC_CAR_FRONT_M;
+}
+
+/** The inlet and plug of a car look, for template cache keys. */
+export function inletKey(look: SceneCar): string {
+  return `${look.inlet ?? ''}:${look.plug === null ? 'closed' : (look.plug ?? '')}`;
+}
+
+/**
+ * A car look with the inlet for the plug it takes (`vehicleInletOf`, the
+ * station's connector kinds decide a CHAdeMO car's AC inlet). A CHAdeMO car
+ * charges at its nose, where its two inlets sit under one lid (Nissan Leaf):
+ * its port is the nose port. Large vehicles keep their own port.
+ */
+export function withVehicleInlet(
+  look: SceneCar,
+  plug: ConnectorKind,
+  stationKinds: readonly ConnectorKind[] = [],
+): SceneCar {
+  const inlet = vehicleInletOf(plug, stationKinds);
+  const chademo = inlet === 'chademo_type1' || inlet === 'chademo_type2';
+  return {
+    ...look,
+    inlet,
+    plug,
+    ...(chademo && !isLargeBodyType(look.bodyType) ? { port: 'front_center' as const } : {}),
+  };
 }
 
 /** The charge port a car look draws with (front left when none is known). */

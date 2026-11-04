@@ -1,0 +1,131 @@
+{
+  "description": "A single-phase vehicle on L1 of a three-phase panel: the L1 node limits it, not the panel total.",
+  "input": {
+    "nowMs": 1793577600000,
+    "bufferMinutes": 0,
+    "slots": [
+      {
+        "startMs": 1793577600000,
+        "endMs": 1793578500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793578500000,
+        "endMs": 1793579400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793579400000,
+        "endMs": 1793580300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793580300000,
+        "endMs": 1793581200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793581200000,
+        "endMs": 1793582100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793582100000,
+        "endMs": 1793583000000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583000000,
+        "endMs": 1793583900000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583900000,
+        "endMs": 1793584800000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793584800000,
+        "endMs": 1793585700000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793585700000,
+        "endMs": 1793586600000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793586600000,
+        "endMs": 1793587500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793587500000,
+        "endMs": 1793588400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793588400000,
+        "endMs": 1793589300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793589300000,
+        "endMs": 1793590200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793590200000,
+        "endMs": 1793591100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793591100000,
+        "endMs": 1793592000000,
+        "hours": 0.25
+      }
+    ],
+    "pricePerKwh": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+    "nodeCapacityKw": {
+      "p": [300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300],
+      "p:L1": [30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+      "p:L2": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+      "p:L3": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]
+    },
+    "rootNodeId": "p",
+    "vehicles": [
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "p",
+            "weight": 1
+          },
+          {
+            "nodeId": "p:L1",
+            "weight": 1
+          }
+        ],
+        "departureId": "v",
+        "departureMs": 1793592000000,
+        "neededKwh": 200,
+        "maxKw": 50,
+        "availableFromMs": 1793577600000
+      }
+    ]
+  },
+  "expected": {
+    "v": {
+      "plannedKwh": 120,
+      "shortfallKwh": 80,
+      "state": "cannot_meet",
+      "readinessReason": "site_capacity"
+    }
+  },
+  "checks": {
+    "maxNodeLoad": {
+      "p:L1": 30
+    }
+  }
+}

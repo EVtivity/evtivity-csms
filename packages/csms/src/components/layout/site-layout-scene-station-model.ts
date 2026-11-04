@@ -12,7 +12,6 @@ import { curbPortOf } from './site-layout-curb-cable';
 import {
   CURB_POST_BACK_M,
   FACADE_SIGN_STANDOFF_M,
-  chargerAtCurb,
   dispenserHolsters,
   isSpot,
   readerMount,
@@ -27,7 +26,7 @@ import { acGlandX } from './site-layout-model-ac-pedestal';
 import { READER_SCENE_SCALE } from './site-layout-model-reader-parts';
 import { stallSignPostXs, stationSignMount } from './site-layout-signs';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import {
   carFrontAtStop,
   carFrontWithoutStop,
@@ -36,6 +35,7 @@ import {
   satelliteHolsterMount,
   slotKind,
   withAcGland,
+  withVehicleInlet,
 } from './site-layout-scene-station-slots';
 import {
   AVATAR_ABOVE_ROOF_M,
@@ -46,7 +46,24 @@ import {
   type Templates,
 } from './site-layout-scene-types';
 
-export function installStationModel(scn: SceneCtx): void {
+type StationModelCtx = SceneSlice<
+  | 'M'
+  | 'addFreeSpots'
+  | 'box'
+  | 'chargerBody'
+  | 'freeHandle'
+  | 'layout'
+  | 'logoPanel'
+  | 'lotPoint'
+  | 'placeLargeSpotProp'
+  | 'poseOf'
+  | 'theme'
+  | 'track'
+  | 'virtualSignSprite',
+  'buildModel' | 'cableGround' | 'signPosts' | 'siteRaisedRects'
+>;
+
+export function installStationModel(scn: StationModelCtx): void {
   // Sign posts placed so far in this build, in lot meters: two dual-port
   // pedestals side by side share the post on the line between their pairs
   // (its sign stands adjacent to both stalls).
@@ -163,7 +180,6 @@ export function installStationModel(scn: SceneCtx): void {
       wall,
       onSpot: isSpot(s.bay, scn.layout.lot),
       largeSpot,
-      curb: chargerAtCurb(s.bay, scn.layout.lot, s.kind, wall),
     });
     // The EV charging signs of the stall (site-layout-signs.ts).
     const signMount = stationSignMount({
@@ -224,9 +240,16 @@ export function installStationModel(scn: SceneCtx): void {
       }
     } else if (s.stallCars != null && s.stalls != null && !curbside && !wall) {
       // A dual-port pedestal: a vehicle in each stall with a session, each on its own cable.
-      s.stallCars.forEach((look, i) => {
+      const stationKinds = s.connectorKinds?.flat() ?? [];
+      s.stallCars.forEach((stallLook, i) => {
         const stall = s.stalls?.[i];
-        if (look == null || stall == null) return;
+        if (stallLook == null || stall == null) return;
+        // The car's inlet for the plug of its EVSE (`withVehicleInlet`).
+        const look = withVehicleInlet(
+          stallLook,
+          slotKind(s, i, s.stallPlugged?.[i] ?? 0),
+          stationKinds,
+        );
         const noseZ =
           stopMount != null && !isLargeBodyType(look.bodyType)
             ? carFrontAtStop(stopMount, look)
@@ -252,6 +275,8 @@ export function installStationModel(scn: SceneCtx): void {
             connector: slotKind(s, i, connector),
             side: i === 0 ? -1 : 1,
             glandX: acGlandX(2, i === 0 ? -1 : 1),
+            // Each stall's cable keeps to its own stall, clear of the other stall and its car.
+            bounds: { minX: stall.x - stall.width / 2, maxX: stall.x + stall.width / 2 },
             ...(mouth != null ? { mouth } : {}),
           }),
         );
@@ -268,7 +293,12 @@ export function installStationModel(scn: SceneCtx): void {
       // The car's own port decides: a car with a rear port backs in (at a wall
       // box its tail to the building). A curb car parks parallel, never backed in,
       // its port mirrored to the curb side (`curbPortOf`).
-      const own = s.car ?? sceneCar(null);
+      const plugged = withAcGland(s, pluggedHolster(s));
+      const own = withVehicleInlet(
+        s.car ?? sceneCar(null),
+        plugged.connector,
+        s.connectorKinds?.flat() ?? [],
+      );
       const look = curbside ? { ...own, port: curbPortOf(carLookPort(own)) } : own;
       // Against the wheel stop where the spot has one (AC spots), else nose (or tail) to the charger.
       const noseZ =
@@ -288,7 +318,7 @@ export function installStationModel(scn: SceneCtx): void {
           offsetX,
           noseZ,
           s.cableFlow ?? true,
-          withAcGland(s, pluggedHolster(s)),
+          plugged,
         ),
       );
       car.updateMatrixWorld(true);

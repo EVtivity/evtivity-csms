@@ -46,6 +46,8 @@ import { aiProposalDigestHandler } from './handlers/ai-proposal-digest.js';
 import { aiInsightScanHandler } from './handlers/ai-insight-scan.js';
 import { paymentTerminalReconcileHandler } from './handlers/payment-terminal-reconcile.js';
 import { paymentTerminalStatusHandler } from './handlers/payment-terminal-status.js';
+import { departureScheduleExpandHandler } from './handlers/departure-schedule-expand.js';
+import { departureCloseHandler } from './handlers/departure-close.js';
 
 const log = createLogger('cron-worker');
 
@@ -93,6 +95,9 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   // Payment terminals (features/payment-terminals.md).
   ['payment-terminal-reconcile', paymentTerminalReconcileHandler],
   ['payment-terminal-status', paymentTerminalStatusHandler],
+  // Route-aware charging: departures from weekly schedules, and passed departures completed.
+  ['departure-schedule-expand', departureScheduleExpandHandler],
+  ['departure-close', departureCloseHandler],
 ]);
 
 /** Redis key of the lock a cron job holds while it runs (ACL prefix `wkl:`). */

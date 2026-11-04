@@ -36,4 +36,7 @@ export const ID_PARAMS = {
   reportId: prefixedId('rpt'),
   panelId: prefixedId('pnl'),
   circuitId: prefixedId('cir'),
+  departureScheduleId: prefixedId('vds'),
+  departureId: prefixedId('vdp'),
+  depotSystemId: prefixedId('dms'),
 } as const;

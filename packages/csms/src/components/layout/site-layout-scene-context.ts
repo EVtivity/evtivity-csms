@@ -13,6 +13,7 @@ import type { CarKit } from './site-layout-car-geometry';
 import { type ConnectorKit, type ConnectorMaterials } from './site-layout-connector-geometry';
 import { type CableEntry, type ConnectorKind } from './site-layout-connectors';
 import type { FreeChargerModel } from './site-layout-free';
+import type { VehicleInletKind } from './site-layout-vehicle-inlet';
 import {
   SCREEN_MESSAGE,
   type AlignmentGuide,
@@ -62,7 +63,12 @@ export interface SceneCtx {
   fog: THREE.Fog;
   sun: THREE.DirectionalLight;
   carKits: Map<string, CarKit>;
-  carKit: (bodyType: VehicleBodyType, port?: CarPort) => CarKit;
+  carKit: (
+    bodyType: VehicleBodyType,
+    port?: CarPort,
+    inlet?: VehicleInletKind,
+    plug?: ConnectorKind | null,
+  ) => CarKit;
   built: Disposable[];
   track: <T extends Disposable>(item: T) => T;
   M: (color: string, extra?: THREE.MeshStandardMaterialParameters) => THREE.MeshStandardMaterial;
@@ -103,6 +109,10 @@ export interface SceneCtx {
     radius?: number,
     flowing?: boolean,
   ) => THREE.Group;
+  /** The charge flow alone (light tube and halo) along a path that carries energy but no cable. */
+  chargeFlowPath: (points: Array<[number, number, number]>, radius?: number) => THREE.Group;
+  /** A soft green glow where a pantograph head meets its contact rails, `radiusM` across. */
+  chargeContactGlow: (at: readonly [number, number, number], radiusM: number) => THREE.Mesh;
   connectorKits: Map<string, ConnectorKit>;
   modelKits: Map<string, ModelKit<string>>;
   modelKit: <S extends string>(key: string, make: () => ModelKit<S>) => ModelKit<S>;
@@ -279,3 +289,14 @@ export interface SceneCtx {
   onPointerMove: (e: PointerEvent) => void;
   onPointerUp: (e: PointerEvent) => void;
 }
+
+/**
+ * The part of the scene context one scene module receives: `R` the members it
+ * only reads (read-only here), `W` the members it installs or writes. A module
+ * sees no other member, so it cannot come to depend on one unnoticed
+ * (`site-layout-scene-slices.test.ts` checks each list matches the module).
+ */
+export type SceneSlice<
+  R extends Exclude<keyof SceneCtx, W>,
+  W extends keyof SceneCtx = never,
+> = Readonly<Pick<SceneCtx, R>> & Pick<SceneCtx, W>;

@@ -5,8 +5,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 import * as logRetentionPruneModule from '../../handlers/log-retention-prune.js';
 
-const { mockPruneOldRows } = vi.hoisted(() => ({
+const { mockPruneOldRows, mockPruneEndedDepartures } = vi.hoisted(() => ({
   mockPruneOldRows: vi.fn(),
+  mockPruneEndedDepartures: vi.fn(),
 }));
 
 // `db.select(...).from(...).where(...)` resolves to whatever settingRows is set to.
@@ -25,6 +26,7 @@ vi.mock('@evtivity/database', () => ({
     select: vi.fn(() => makeSelectChain()),
   },
   settings: { key: 'settings.key', value: 'settings.value' },
+  pruneEndedDepartures: mockPruneEndedDepartures,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -139,6 +141,8 @@ beforeEach(() => {
   settingRows = [];
   mockPruneOldRows.mockReset();
   mockPruneOldRows.mockResolvedValue(0);
+  mockPruneEndedDepartures.mockReset();
+  mockPruneEndedDepartures.mockResolvedValue(0);
 });
 
 describe('logRetentionPruneHandler', () => {
@@ -320,5 +324,39 @@ describe('logRetentionPruneHandler', () => {
       'log-retention-prune: pruned rows',
     );
     expect(log.info).toHaveBeenCalledWith({ totalDeleted: 150 }, 'log-retention-prune complete');
+  });
+
+  it('prunes ended departures through the writer with their 365 day default', async () => {
+    mockPruneEndedDepartures.mockResolvedValueOnce(7);
+    const log = makeLog();
+    await logRetentionPruneModule.logRetentionPruneHandler(log);
+    expect(mockPruneEndedDepartures).toHaveBeenCalledWith(365);
+    expect(log.info).toHaveBeenCalledWith(
+      { table: 'vehicle_departures', days: 365, deleted: 7 },
+      'log-retention-prune: pruned rows',
+    );
+    expect(log.info).toHaveBeenCalledWith({ totalDeleted: 7 }, 'log-retention-prune complete');
+  });
+
+  it('uses the departure retention setting and keeps every departure at 0', async () => {
+    settingRows = [{ key: 'logs.departures.retentionDays', value: 60 }];
+    await logRetentionPruneModule.logRetentionPruneHandler(makeLog());
+    expect(mockPruneEndedDepartures).toHaveBeenCalledWith(60);
+
+    mockPruneEndedDepartures.mockClear();
+    settingRows = [{ key: 'logs.departures.retentionDays', value: 0 }];
+    await logRetentionPruneModule.logRetentionPruneHandler(makeLog());
+    expect(mockPruneEndedDepartures).not.toHaveBeenCalled();
+  });
+
+  it('warns and finishes the run when the departure prune fails', async () => {
+    mockPruneEndedDepartures.mockRejectedValueOnce(new Error('lock timeout'));
+    const log = makeLog();
+    await expect(logRetentionPruneModule.logRetentionPruneHandler(log)).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ table: 'vehicle_departures', days: 365 }),
+      'log-retention-prune: departures not pruned, retried next run',
+    );
+    expect(log.info).toHaveBeenCalledWith({ totalDeleted: 0 }, 'log-retention-prune complete');
   });
 });

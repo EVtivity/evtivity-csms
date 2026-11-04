@@ -539,6 +539,12 @@ const sessionParams = z.object({
   id: ID_PARAMS.sessionId.describe('Session ID'),
 });
 
+const assignSessionVehicleBody = z.object({
+  vehicleId: ID_PARAMS.vehicleId.describe(
+    "Vehicle of the session's driver, or of a driver of a fleet that holds the session's station",
+  ),
+});
+
 const billingRecipientBody = z.object({
   recipient: z
     .enum(['fleet', 'member'])
@@ -969,6 +975,67 @@ export function sessionRoutes(app: FastifyInstance): void {
               }
             : null,
       };
+    },
+  );
+
+  // Assign the vehicle of an active session by hand (route-aware charging):
+  // a depot bus that plugged in without its own card.
+  app.put(
+    '/sessions/:id/vehicle',
+    {
+      onRequest: [authorize('sessions:write')],
+      schema: {
+        tags: ['Sessions'],
+        summary: 'Assign the vehicle of an active session',
+        description:
+          "Sets the vehicle of an active session: a vehicle of the session's driver, or of a driver of a fleet that holds the session's station. Only the vehicle changes: the session keeps its driver, token and billing. The depot plan of the site is marked stale. Returns 404 SESSION_NOT_FOUND for an unknown session or one outside the caller's sites, 404 VEHICLE_NOT_FOUND for any other vehicle, and 409 SESSION_NOT_ACTIVE for a session that is not active.",
+        operationId: 'assignSessionVehicle',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(sessionParams),
+        body: zodSchema(assignSessionVehicleBody),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                sessionId: z.string().describe('The session'),
+                vehicleId: z.string().describe('The vehicle now linked to the session'),
+                previousVehicleId: z
+                  .string()
+                  .nullable()
+                  .describe('The vehicle linked before, null when none'),
+                changed: z.boolean().describe('False when the vehicle was already linked'),
+              })
+              .loose(),
+          ),
+          404: errorWith('Session or vehicle not found', [
+            ERROR_CODES.SESSION_NOT_FOUND,
+            ERROR_CODES.VEHICLE_NOT_FOUND,
+          ]),
+          409: errorWith('Session not active', [ERROR_CODES.SESSION_NOT_ACTIVE]),
+        },
+      },
+      config: { invalidatesCacheTags: ['sessions'] },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof sessionParams>;
+      const { vehicleId } = request.body as z.infer<typeof assignSessionVehicleBody>;
+      const { userId } = request.user as JwtPayload;
+      try {
+        return await vehicleService.assignSessionVehicle(
+          { sessionId: id, vehicleId, siteScope: await getUserSiteIds(userId) },
+          getAuditActor(request),
+          request.log,
+        );
+      } catch (err) {
+        if (err instanceof vehicleService.SessionNotActiveError) {
+          await reply
+            .status(409)
+            .send({ error: 'The session is not active', code: 'SESSION_NOT_ACTIVE' });
+          return;
+        }
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
+      }
     },
   );
 

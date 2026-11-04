@@ -47,7 +47,11 @@ import {
   markLoadManagementStale,
   recordLoadManagementProfileReply,
   getSimGeneralSettings,
+  markSitePlanStale,
+  recordChargingPlanProfileReply,
 } from '@evtivity/database';
+import type { PlanProfileReplyOutcome } from '@evtivity/database';
+import { planProfileHash } from '@evtivity/services/charging-plan-profile-hash';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import { paymentContext } from '../lib/payments.js';
 import { reportedCharacteristics, upsertStationConfiguration } from './station-configurations.js';
@@ -104,6 +108,7 @@ import {
 import {
   LOAD_MANAGEMENT_PROFILE_ID,
   LOAD_MANAGEMENT_STACK_LEVEL,
+  LOAD_MANAGEMENT_CREDIT_STACK_LEVEL,
   isLoadManagementProfile,
   profileRateUnit,
 } from '@evtivity/services/load-management.service';
@@ -507,6 +512,10 @@ export function registerProjections(
       }
       // Back online: the station may be free again with no connector change.
       await checkStationWatches(stationUuid);
+      // A departure-aware site plans with the station again (never throws).
+      if (siteId != null) {
+        await markSitePlanStale(siteId, 'station_online', logger, { departureAwareOnly: true });
+      }
     },
     { retryOnConnectionError: true },
   );
@@ -704,6 +713,10 @@ export function registerProjections(
       // a server shutdown: the station did not fail and reconnects within
       // seconds, so every deploy would cancel holds.
       if (serverShutdown) return;
+      // A departure-aware site plans without the station's power (never throws).
+      if (siteId != null) {
+        await markSitePlanStale(siteId, 'station_offline', logger, { departureAwareOnly: true });
+      }
       await projectStationOutageHolds(deps, {
         stationUuid,
         stationOcppId: event.aggregateId,
@@ -2589,6 +2602,83 @@ export function registerProjections(
     await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
   });
 
+  // A charging limit a station reports from an external system (K11, K27):
+  // stored as a station_reported row of one entry, marked
+  // `notifiedChargingLimit`, one per station, EVSE and limit source (the
+  // newest replaces the older). `isLocalGeneration = true` (2.1) is local
+  // generation the station may draw on top of its load management limit
+  // (K27.FR.05), so the entry's purpose is LocalGeneration; load management
+  // reserves it as a fixed load (owner decision D11). Else the entry is a
+  // ChargingStationExternalConstraints limit. A GetChargingProfiles report of
+  // the same EVSE replaces it (the report holds the LocalGeneration profile
+  // too, K27.FR.02), ClearedChargingLimit removes it.
+  safeSubscribe('ocpp.NotifyChargingLimit', async (event: DomainEvent) => {
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+
+    const payload = event.payload;
+    const chargingLimit = payload.chargingLimit as Record<string, unknown> | undefined;
+    const chargingLimitSource =
+      typeof chargingLimit?.chargingLimitSource === 'string'
+        ? chargingLimit.chargingLimitSource
+        : null;
+    if (chargingLimit == null || chargingLimitSource == null) return;
+    const evseId = (payload.evseId as number | undefined) ?? null;
+    const isLocalGeneration = chargingLimit.isLocalGeneration === true;
+    const entry = {
+      chargingProfilePurpose: isLocalGeneration
+        ? 'LocalGeneration'
+        : 'ChargingStationExternalConstraints',
+      notifiedChargingLimit: true,
+      notifiedAt: (event.occurredAt ?? new Date()).toISOString(),
+      chargingLimit: {
+        chargingLimitSource,
+        isLocalGeneration,
+        ...(typeof chargingLimit.isGridCritical === 'boolean'
+          ? { isGridCritical: chargingLimit.isGridCritical }
+          : {}),
+      },
+      chargingSchedule: Array.isArray(payload.chargingSchedule) ? payload.chargingSchedule : [],
+    };
+
+    await sql`
+      DELETE FROM charging_profiles
+      WHERE station_id = ${stationUuid} AND source = 'station_reported'
+        AND COALESCE(evse_id, -1) = COALESCE(${evseId}::int, -1)
+        AND charging_limit_source = ${chargingLimitSource}
+        AND profile_data @> '[{"notifiedChargingLimit": true}]'::jsonb
+    `;
+    await sql`
+      INSERT INTO charging_profiles (station_id, source, evse_id, charging_limit_source, tbc, profile_data, reported_at)
+      VALUES (${stationUuid}, 'station_reported', ${evseId}, ${chargingLimitSource}, false, ${sql.json(asJson([entry]))}, now())
+    `;
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
+  });
+
+  // The external limit of a source ended (K12): its stored notified limits go,
+  // for the EVSE named, or for the whole station without one.
+  safeSubscribe('ocpp.ClearedChargingLimit', async (event: DomainEvent) => {
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+
+    const payload = event.payload;
+    const chargingLimitSource =
+      typeof payload.chargingLimitSource === 'string' ? payload.chargingLimitSource : null;
+    if (chargingLimitSource == null) return;
+    const evseId = (payload.evseId as number | undefined) ?? null;
+
+    await sql`
+      DELETE FROM charging_profiles
+      WHERE station_id = ${stationUuid} AND source = 'station_reported'
+        AND charging_limit_source = ${chargingLimitSource}
+        AND profile_data @> '[{"notifiedChargingLimit": true}]'::jsonb
+        AND (${evseId}::int IS NULL OR COALESCE(evse_id, -1) = ${evseId}::int)
+    `;
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
+  });
+
   safeSubscribe('ocpp.NotifyReport', async (event: DomainEvent) => {
     const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
     if (stationUuid == null) return;
@@ -2816,6 +2906,56 @@ export function registerProjections(
     }
   }
 
+  // The station's answer to a depot plan TxProfile. A refusal leaves the
+  // station on its limit (the sum of its planned sessions): the plan marks the
+  // departure at risk and retries the profile after an hour. Fail-open.
+  async function recordPlanProfileReply(
+    event: DomainEvent,
+    stationUuid: string,
+    outcome: PlanProfileReplyOutcome,
+  ): Promise<void> {
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const raw = request.chargingProfile ?? request.csChargingProfiles;
+    if (raw == null || typeof raw !== 'object') return;
+    const profile = raw as Record<string, unknown>;
+    const purpose = profile['chargingProfilePurpose'];
+    const id = profile['id'] ?? profile['chargingProfileId'];
+    if (purpose !== 'TxProfile' || typeof id !== 'number') return;
+    const schedule = Array.isArray(profile['chargingSchedule'])
+      ? (profile['chargingSchedule'] as unknown[])[0]
+      : undefined;
+    const unit =
+      schedule != null && typeof schedule === 'object'
+        ? (schedule as Record<string, unknown>)['chargingRateUnit']
+        : undefined;
+    try {
+      const result = await recordChargingPlanProfileReply(stationUuid, id, outcome, new Date(), {
+        hash: request.chargingProfile != null ? planProfileHash(request as never) : null,
+        rejectedUnit: unit === 'A' || unit === 'W' ? unit : null,
+      });
+      if (result?.stale === true) {
+        logger.info(
+          { stationId: event.aggregateId, profileId: id },
+          'Reply to an older depot plan profile ignored',
+        );
+      }
+      if (result != null && result.changed && outcome === 'rejected') {
+        logger.warn(
+          { stationId: event.aggregateId, profileId: id, response: event.payload.response },
+          'Station refused its depot plan profile, its station limit holds it',
+        );
+        await markSitePlanStale(result.siteId, 'profile_rejected', logger, {
+          departureAwareOnly: true,
+        });
+      }
+    } catch (err) {
+      logger.warn(
+        { err, stationId: event.aggregateId },
+        'Recording the reply to the depot plan profile failed',
+      );
+    }
+  }
+
   safeSubscribe('command.SetChargingProfile', async (event: DomainEvent) => {
     const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
     if (stationUuid == null) return;
@@ -2825,10 +2965,16 @@ export function registerProjections(
     // otherwise the on-station state is unchanged and we'd be lying about it.
     const response = event.payload.response as { status?: string } | undefined;
     const accepted = response?.status === 'Accepted';
+    // No answer, or a send failure: the station never decided on the profile.
+    if (event.payload.notSent === true) {
+      await recordPlanProfileReply(event, stationUuid, 'not_sent');
+      return;
+    }
     if (!accepted) {
       // A rejected load management limit (or an error reply, published with
       // `error`) makes the station a fixed load until it accepts one.
       await recordLoadManagementReply(event, stationUuid, false);
+      await recordPlanProfileReply(event, stationUuid, 'rejected');
       return;
     }
 
@@ -2866,6 +3012,7 @@ export function registerProjections(
     const siteId = await lookups.resolveSiteId(stationUuid);
     await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
     await recordLoadManagementReply(event, stationUuid, true);
+    await recordPlanProfileReply(event, stationUuid, 'accepted');
   });
 
   // The only writer that removes stored profiles after a clear: an Accepted
@@ -2899,7 +3046,9 @@ export function registerProjections(
       (criteria.chargingProfilePurpose == null ||
         criteria.chargingProfilePurpose === 'ChargingStationMaxProfile' ||
         criteria.chargingProfilePurpose === 'ChargePointMaxProfile') &&
-      (criteria.stackLevel == null || criteria.stackLevel === LOAD_MANAGEMENT_STACK_LEVEL) &&
+      (criteria.stackLevel == null ||
+        criteria.stackLevel === LOAD_MANAGEMENT_STACK_LEVEL ||
+        criteria.stackLevel === LOAD_MANAGEMENT_CREDIT_STACK_LEVEL) &&
       (criteria.evseId == null || criteria.evseId === 0);
     if (mayRemoveLoadManagement) {
       try {

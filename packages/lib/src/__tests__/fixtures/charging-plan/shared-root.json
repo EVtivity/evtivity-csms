@@ -1,0 +1,187 @@
+{
+  "description": "Two buses on one 200 kW panel, same departure: both met, equal power each slot.",
+  "input": {
+    "nowMs": 1793577600000,
+    "bufferMinutes": 30,
+    "slots": [
+      {
+        "startMs": 1793577600000,
+        "endMs": 1793578500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793578500000,
+        "endMs": 1793579400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793579400000,
+        "endMs": 1793580300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793580300000,
+        "endMs": 1793581200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793581200000,
+        "endMs": 1793582100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793582100000,
+        "endMs": 1793583000000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583000000,
+        "endMs": 1793583900000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793583900000,
+        "endMs": 1793584800000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793584800000,
+        "endMs": 1793585700000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793585700000,
+        "endMs": 1793586600000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793586600000,
+        "endMs": 1793587500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793587500000,
+        "endMs": 1793588400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793588400000,
+        "endMs": 1793589300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793589300000,
+        "endMs": 1793590200000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793590200000,
+        "endMs": 1793591100000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793591100000,
+        "endMs": 1793592000000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793592000000,
+        "endMs": 1793592900000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793592900000,
+        "endMs": 1793593800000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793593800000,
+        "endMs": 1793594700000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793594700000,
+        "endMs": 1793595600000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793595600000,
+        "endMs": 1793596500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793596500000,
+        "endMs": 1793597400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793597400000,
+        "endMs": 1793598300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793598300000,
+        "endMs": 1793599200000,
+        "hours": 0.25
+      }
+    ],
+    "pricePerKwh": [
+      0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2,
+      0.2, 0.2, 0.2, 0.2, 0.2
+    ],
+    "nodeCapacityKw": {
+      "root": [
+        200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200,
+        200, 200, 200, 200, 200, 200
+      ]
+    },
+    "rootNodeId": "root",
+    "vehicles": [
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "root",
+            "weight": 1
+          }
+        ],
+        "departureId": "a",
+        "departureMs": 1793599200000,
+        "neededKwh": 300,
+        "maxKw": 150,
+        "availableFromMs": 1793577600000
+      },
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "root",
+            "weight": 1
+          }
+        ],
+        "departureId": "b",
+        "departureMs": 1793599200000,
+        "neededKwh": 300,
+        "maxKw": 150,
+        "availableFromMs": 1793577600000
+      }
+    ]
+  },
+  "expected": {
+    "a": {
+      "plannedKwh": 300,
+      "shortfallKwh": 0,
+      "state": "on_track"
+    },
+    "b": {
+      "plannedKwh": 300,
+      "shortfallKwh": 0,
+      "state": "on_track"
+    }
+  },
+  "checks": {
+    "equalPower": ["a", "b"]
+  }
+}

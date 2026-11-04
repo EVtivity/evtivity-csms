@@ -308,10 +308,14 @@ export type { LoadManagementRateUnit } from './lib/load-management-state.js';
 export {
   createCircuit,
   createPanel,
+  createTransformer,
   deleteCircuit,
   deletePanel,
+  deleteTransformer,
+  LoadTreeValidationError,
   updateCircuit,
   updatePanel,
+  updateTransformer,
 } from './lib/load-management-tree.js';
 export type {
   CircuitChanges,
@@ -321,8 +325,34 @@ export type {
   PanelChanges,
   PanelRow,
   PanelValues,
+  TransformerChanges,
+  TransformerRow,
+  TransformerValues,
 } from './lib/load-management-tree.js';
+export {
+  createEnergyAsset,
+  deleteEnergyAsset,
+  recordEnergyAssetReading,
+  updateEnergyAsset,
+} from './lib/site-energy-assets.js';
+export type {
+  EnergyAssetChanges,
+  EnergyAssetReadingInput,
+  EnergyAssetReadingRow,
+  EnergyAssetRow,
+  EnergyAssetValues,
+  EnergyAssetWriteOptions,
+} from './lib/site-energy-assets.js';
 export { isFleetEnabled, clearFleetCache } from './lib/fleet-setting.js';
+export {
+  isFleetChargingEnabled,
+  clearFleetChargingSettingCache,
+} from './lib/fleet-charging-setting.js';
+export {
+  isVdv463Enabled,
+  clearVdv463SettingCache,
+  VDV463_ENABLED_KEY,
+} from './lib/vdv463-setting.js';
 export {
   guardVersion,
   isOlderRelease,
@@ -626,6 +656,95 @@ export type {
   UnpairTerminalResult,
   UpdateTerminalResult,
 } from './lib/payment-terminals.js';
+export {
+  bindDepartureSessions,
+  cancelScheduledDepartures,
+  claimDepartureNotice,
+  completePassedDepartures,
+  deleteDepartureSchedule,
+  deleteUnusedScheduleOccurrences,
+  futureScheduleOccurrences,
+  getDeparture,
+  getDepartureSchedule,
+  getDepartureSite,
+  getDepartureVehicle,
+  getSitePlan,
+  getSitePlanSettings,
+  getSitePlanStaleAt,
+  getVehicleBatteryCapacity,
+  insertDeparture,
+  insertDepartureSchedule,
+  insertScheduleOccurrences,
+  listExpandableScheduleIds,
+  listPlanDepartures,
+  listPlanSessions,
+  markSitePlanStale,
+  mergeLockedPlanEntries,
+  patchSitePlanEntries,
+  pruneEndedDepartures,
+  readinessUpdateSql,
+  recordChargingPlanProfileReply,
+  updateDepartureSchedule,
+  updateScheduledDeparture,
+  vehicleDayDepartureCounts,
+  writeSitePlan,
+  setDeparturePreconditioning,
+  getDeparturePreconditioning,
+  lockDepotSystemDepartures,
+  lockDepotSystemVehicleHolds,
+  otherSystemVehicleIds,
+  supersedableDepartures,
+  releaseDepotSystemDepartures,
+} from './lib/vehicle-departures.js';
+export {
+  listDepotSystems,
+  getDepotSystem,
+  getDepotSystemByPresystemId,
+  insertDepotSystem,
+  updateDepotSystem,
+  deleteDepotSystem,
+  depotSystemSiteIds,
+  depotSystemSiteIdMap,
+  setDepotSystemSites,
+  depotSiteCandidates,
+  recordDepotSystemAuthFailure,
+  recordDepotSystemConnected,
+  recordDepotSystemBoot,
+  recordDepotSystemMessage,
+  listDepotSystemRefusals,
+  lastDepotSystemRefusalNoticeAt,
+  replaceDepotSystemRefusals,
+} from './lib/depot-systems.js';
+export type {
+  DepotSystem,
+  NewDepotSystem,
+  DepotSystemChanges,
+  DepotSystemDb,
+  DepotSystemRefusal,
+} from './lib/depot-systems.js';
+export type {
+  DeparturePreconditioning,
+  DeparturePreconditioningValues,
+  PlanPreconditioning,
+  CompletedDeparture,
+  DepartureChanges,
+  DepartureDb,
+  DepartureReadinessWrite,
+  DepartureVehicle,
+  NewVehicleDeparture,
+  NewVehicleDepartureSchedule,
+  PlanDepartureRow,
+  PlanProfileReplyOptions,
+  PlanProfileReplyOutcome,
+  PlanSessionRow,
+  ScheduleChanges,
+  SitePlanSettings,
+  SitePlanWrite,
+  SitePlanWriteResult,
+  StoredSitePlan,
+  VehicleDeparture,
+  VehicleDepartureSchedule,
+} from './lib/vehicle-departures.js';
 export { getAttestationConfig, clearAttestationConfigCache } from './lib/attestation-settings.js';
 export type { AttestationConfig } from './lib/attestation-settings.js';
 export { getMobileAppConfig, clearMobileAppConfigCache } from './lib/mobile-app-settings.js';
@@ -690,6 +809,7 @@ export {
   LayoutSpotsOverlapError,
   moveStationLayout,
   placeStationOnLayout,
+  readLayoutPowerEquipment,
   readSiteLayoutPositions,
   readSiteLayoutSettings,
   readSiteStationCounts,

@@ -68,7 +68,8 @@ vi.mock('../services/ai-insight-scope.service.js', () => ({
   siteAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
   stationAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
 }));
-const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
+const { mockReadLayoutStationSessions, mockIsFleetEnabled } = vi.hoisted(() => ({
+  mockIsFleetEnabled: vi.fn(async () => true),
   mockReadLayoutStationSessions: vi.fn(async () => new Map()),
 }));
 vi.mock('../lib/site-layout-sessions.js', () => ({
@@ -121,6 +122,8 @@ const {
   mockSaveSiteLayout,
   MockLayoutGridTooSmallError,
   MockLayoutSpotsOverlapError,
+  MockLoadTreeValidationError,
+  mockReadLayoutPowerEquipment,
   mockReadSiteLayoutSettings,
   mockReadStationLayoutKinds,
 } = vi.hoisted(() => {
@@ -134,6 +137,14 @@ const {
       super('overlap');
     }
   }
+  class MockLoadTreeValidationError extends Error {
+    constructor(
+      message: string,
+      readonly field: string,
+    ) {
+      super(message);
+    }
+  }
   const unchanged = { settingsBefore: {}, settingsAfter: {}, settingsChanged: false, moved: [] };
   return {
     mockSaveSiteLayout: vi.fn(
@@ -141,6 +152,11 @@ const {
     ),
     MockLayoutGridTooSmallError,
     MockLayoutSpotsOverlapError,
+    MockLoadTreeValidationError,
+    mockReadLayoutPowerEquipment: vi.fn(
+      (..._args: unknown[]): Promise<unknown> =>
+        Promise.resolve({ transformers: [], energyAssets: [] }),
+    ),
     mockReadSiteLayoutSettings: vi.fn(
       async (..._args: unknown[]): Promise<unknown> =>
         (await import('@evtivity/lib/site-layout')).effectiveLayoutSettings(null),
@@ -171,6 +187,8 @@ const mockReadStationDataPlans = vi.hoisted(() =>
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
+  ...(await import('./helpers/departure-schema-mocks.js')).departureSchemaMocks(),
+  isFleetEnabled: mockIsFleetEnabled,
   readStationDataPlans: mockReadStationDataPlans,
   boardOf: (r: { boardX?: number | null; boardY?: number | null }) =>
     r.boardX != null && r.boardY != null ? { x: r.boardX, y: r.boardY } : null,
@@ -181,6 +199,8 @@ vi.mock('@evtivity/database', async () => ({
   readStationLayoutKinds: mockReadStationLayoutKinds,
   LayoutGridTooSmallError: MockLayoutGridTooSmallError,
   LayoutSpotsOverlapError: MockLayoutSpotsOverlapError,
+  LoadTreeValidationError: MockLoadTreeValidationError,
+  readLayoutPowerEquipment: mockReadLayoutPowerEquipment,
   ChargerPlacementSiteTypeError: class extends Error {},
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
@@ -284,6 +304,8 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     STATION_MESSAGE_LANGUAGES: actual.STATION_MESSAGE_LANGUAGES,
     isKnownCountry: actual.isKnownCountry,
     DATA_PLANS: actual.DATA_PLANS,
+    ENERGY_ASSET_TYPES: actual.ENERGY_ASSET_TYPES,
+    TRANSFORMER_KINDS: actual.TRANSFORMER_KINDS,
   };
 });
 
@@ -505,7 +527,15 @@ describe('Site routes - handler logic', () => {
   // --- GET /v1/sites/:id ---
 
   describe('GET /v1/sites/:id', () => {
-    it('returns site when found', async () => {
+    const layoutWithEquipment = {
+      spotsPerRow: 10,
+      rows: 2,
+      facingDeg: 0,
+      transformers: [{ id: 'tfm_a', x: 30, z: 2 }],
+      energyAssets: [{ id: 'ena_b', x: 5, z: -2.5 }],
+    };
+
+    it('returns site when found, with its power equipment rows', async () => {
       const site = {
         id: VALID_SITE_ID,
         name: 'My Site',
@@ -544,7 +574,22 @@ describe('Site routes - handler logic', () => {
         maxPowerKw: null,
         totalDrawKw: 0,
       };
-      setupDbResults([site]);
+      setupDbResults([{ ...site, layoutSettings: { ...layoutWithEquipment } }]);
+      const equipment = {
+        transformers: [
+          {
+            id: 'tfm_a',
+            kind: 'service',
+            name: 'Utility Transformer',
+            ratedKva: 1500,
+            maxContinuousKw: 1425,
+          },
+        ],
+        energyAssets: [
+          { id: 'ena_b', type: 'battery', name: 'Storage', capacityKwh: 500, peakKwp: null },
+        ],
+      };
+      mockReadLayoutPowerEquipment.mockResolvedValueOnce(equipment);
 
       const response = await app.inject({
         method: 'GET',
@@ -554,6 +599,26 @@ describe('Site routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().name).toBe('My Site');
+      // Positions by id in the layout settings, the names and ratings joined from the tables.
+      expect(response.json().layoutSettings.transformers).toEqual([{ id: 'tfm_a', x: 30, z: 2 }]);
+      expect(response.json().powerEquipment).toEqual(equipment);
+      expect(mockReadLayoutPowerEquipment).toHaveBeenCalledWith(VALID_SITE_ID);
+
+      // Without loadManagement:read the equipment is left out and not read (AZ50-I1).
+      vi.mocked(requestHasPermission).mockImplementation(
+        async (_r, permission) => permission !== 'loadManagement:read',
+      );
+      mockReadLayoutPowerEquipment.mockClear();
+      setupDbResults([{ ...site, layoutSettings: { ...layoutWithEquipment } }]);
+      const hidden = await app.inject({
+        method: 'GET',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(hidden.statusCode).toBe(200);
+      expect(hidden.json()).not.toHaveProperty('powerEquipment');
+      expect(mockReadLayoutPowerEquipment).not.toHaveBeenCalled();
+      vi.mocked(requestHasPermission).mockResolvedValue(true);
     });
 
     it('returns 404 when site not found', async () => {
@@ -1897,7 +1962,7 @@ describe('Site routes - handler logic', () => {
 
       // sessions:read without drivers:read: the reader is told to leave the driver out.
       vi.mocked(requestHasPermission).mockImplementation(
-        async (_r, permission) => permission !== 'drivers:read',
+        async (_r, permission) => permission !== 'drivers:read' && permission !== 'fleets:read',
       );
       mockReadLayoutStationSessions.mockResolvedValueOnce(new Map([[station.id, session]]));
       setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
@@ -1905,11 +1970,87 @@ describe('Site routes - handler logic', () => {
       expect(shown.json()[0].session).toEqual(session);
       expect(mockReadLayoutStationSessions).toHaveBeenLastCalledWith([station.id], false);
 
-      // Both: the driver is read.
-      vi.mocked(requestHasPermission).mockResolvedValue(true);
+      // Both, without fleets:read: the driver is read, no departure.
+      vi.mocked(requestHasPermission).mockImplementation(
+        async (_r, permission) => permission !== 'fleets:read',
+      );
       setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
       await get();
       expect(mockReadLayoutStationSessions).toHaveBeenLastCalledWith([station.id], true);
+    });
+
+    it('asks for the departures of the site only with fleets:read while the Fleet feature is on', async () => {
+      const station = {
+        id: 'sta_000000000003',
+        stationId: 'STATION-001',
+        model: null,
+        status: 'charging',
+        statusReason: null,
+        isOnline: true,
+        securityProfile: 0,
+        positionX: '20',
+        positionY: '20',
+        inMaintenance: false,
+        isSimulator: false,
+      };
+      const departure = {
+        id: 'vdp_1',
+        departureAt: '2026-11-03T13:30:00.000Z',
+        timezone: 'America/Los_Angeles',
+        readiness: 'on_track',
+        reason: null,
+        targetKwh: 120,
+        targetSocPercent: null,
+        deliveredKwh: 45,
+        shortfallKwh: 0,
+        predictedReadyAt: '2026-11-03T12:10:00.000Z',
+      };
+      const session = {
+        id: 'ses_1',
+        startedAt: '2026-10-31T10:00:00.000Z',
+        energyDeliveredWh: 1200,
+        currentCostCents: 150,
+        currency: 'USD',
+        driver: null,
+        vehicle: null,
+        departure,
+      };
+      const get = () =>
+        app.inject({
+          method: 'GET',
+          url: `/sites/${VALID_SITE_ID}/layout`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+
+      vi.mocked(requestHasPermission).mockResolvedValue(true);
+      mockIsFleetEnabled.mockResolvedValue(true);
+      mockReadLayoutStationSessions.mockResolvedValueOnce(new Map([[station.id, session]]));
+      setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
+      const shown = await get();
+      expect(mockReadLayoutStationSessions).toHaveBeenLastCalledWith(
+        [station.id],
+        true,
+        VALID_SITE_ID,
+      );
+      expect(shown.json()[0].session.departure).toEqual(departure);
+      // No driver id in the departure.
+      expect(JSON.stringify(shown.json()[0].session.departure)).not.toContain('drv_');
+
+      // Without fleets:read: the reader is not asked for departures.
+      vi.mocked(requestHasPermission).mockImplementation(
+        async (_r, permission) => permission !== 'fleets:read',
+      );
+      setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
+      await get();
+      expect(mockReadLayoutStationSessions).toHaveBeenLastCalledWith([station.id], true);
+
+      // The Fleet feature off: no departures either.
+      vi.mocked(requestHasPermission).mockResolvedValue(true);
+      mockIsFleetEnabled.mockResolvedValue(false);
+      setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
+      await get();
+      expect(mockReadLayoutStationSessions).toHaveBeenLastCalledWith([station.id], true);
+      mockIsFleetEnabled.mockResolvedValue(true);
     });
 
     it('returns 404 when site not found', async () => {
@@ -2004,7 +2145,7 @@ describe('Site routes - handler logic', () => {
       spotsPerRow: 6,
       rows: 2,
       facingDeg: 90,
-      transformers: [{ id: 'tx-1', name: 'Main Feed', ratedKva: 2500, x: 26, z: 3 }],
+      transformers: [{ id: 'tx-1', x: 26, z: 3 }],
     };
 
     it('saves the layout settings and audits them with the stations they moved', async () => {
@@ -2119,11 +2260,19 @@ describe('Site routes - handler logic', () => {
       ['a facing that is no quarter turn', { facingDeg: 45 }],
       ['an unknown site type', { siteType: 'garage' }],
       [
+        'a transformer name or rating (they live in the transformers table)',
+        { transformers: [{ id: 'tfm_a', name: 'Main Feed', ratedKva: 2500, x: 26, z: 3 }] },
+      ],
+      [
+        'an energy asset type or capacity (they live in the energy assets table)',
+        { energyAssets: [{ id: 'ena_a', type: 'battery', capacityKwh: 500, x: 1, z: 1 }] },
+      ],
+      [
         'duplicate transformer ids',
         {
           transformers: [
-            { id: 'a', name: null, ratedKva: null, x: 40, z: 0 },
-            { id: 'a', name: null, ratedKva: null, x: 50, z: 0 },
+            { id: 'a', x: 40, z: 0 },
+            { id: 'a', x: 50, z: 0 },
           ],
         },
       ],
@@ -2139,6 +2288,32 @@ describe('Site routes - handler logic', () => {
       // Ajv (FST_ERR_VALIDATION here, VALIDATION_ERROR in the app) or the Zod check.
       expect(['VALIDATION_ERROR', 'FST_ERR_VALIDATION']).toContain(response.json().code);
       expect(mockSaveSiteLayout).not.toHaveBeenCalled();
+    });
+
+    it('answers 400 VALIDATION_ERROR with the field when a position names equipment of no site row', async () => {
+      vi.mocked(databaseModule.writeAudit).mockClear();
+      mockSaveSiteLayout.mockRejectedValueOnce(
+        new MockLoadTreeValidationError(
+          'Transformer not found on this site: tfm_other',
+          'settings.transformers',
+        ),
+      );
+      setupDbResults([{ id: VALID_SITE_ID }], []);
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {
+          positions: [],
+          settings: { ...settings, transformers: [{ id: 'tfm_other', x: 26, z: 3 }] },
+        },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        field: 'settings.transformers',
+      });
+      expect(databaseModule.writeAudit).not.toHaveBeenCalled();
     });
 
     it('passes a free position to the writer and audits it before and after', async () => {

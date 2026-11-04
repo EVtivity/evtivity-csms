@@ -157,6 +157,12 @@ describe('seedSettingRows', () => {
       { key: 'logs.securityEvents.retentionDays', value: 30 },
     ]);
     expect(() => seedSettingRows({ 'audit.retentionDays': '1095' }, KEY)).toThrow(/whole number/);
+    expect(seedSettingRows({ 'logs.departures.retentionDays': 365 }, KEY)).toEqual([
+      { key: 'logs.departures.retentionDays', value: 365 },
+    ]);
+    expect(() => seedSettingRows({ 'logs.departures.retentionDays': 3651 }, KEY)).toThrow(
+      /0 to 3650/,
+    );
   });
 
   it('writes every mapped seed config secret only under its Enc key', () => {

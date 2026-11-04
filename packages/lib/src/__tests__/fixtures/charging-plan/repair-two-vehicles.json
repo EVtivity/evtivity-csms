@@ -1,0 +1,76 @@
+{
+  "description": "Cheapest-first leaves B short by its own power cap; the repair moves A so both are met.",
+  "input": {
+    "nowMs": 1793577600000,
+    "bufferMinutes": 0,
+    "slots": [
+      {
+        "startMs": 1793577600000,
+        "endMs": 1793581200000,
+        "hours": 1
+      },
+      {
+        "startMs": 1793581200000,
+        "endMs": 1793584800000,
+        "hours": 1
+      },
+      {
+        "startMs": 1793584800000,
+        "endMs": 1793588400000,
+        "hours": 1
+      }
+    ],
+    "pricePerKwh": [5, 1, 5],
+    "nodeCapacityKw": {
+      "root": [60, 60, 60]
+    },
+    "rootNodeId": "root",
+    "vehicles": [
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "root",
+            "weight": 1
+          }
+        ],
+        "departureId": "A",
+        "departureMs": 1793584800000,
+        "neededKwh": 60,
+        "maxKw": 60,
+        "availableFromMs": 1793577600000
+      },
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "root",
+            "weight": 1
+          }
+        ],
+        "departureId": "B",
+        "departureMs": 1793588400000,
+        "neededKwh": 90,
+        "maxKw": 30,
+        "availableFromMs": 1793577600000
+      }
+    ]
+  },
+  "expected": {
+    "A": {
+      "plannedKwh": 60,
+      "shortfallKwh": 0,
+      "state": "on_track",
+      "powerKw": [30, 30, 0]
+    },
+    "B": {
+      "plannedKwh": 90,
+      "shortfallKwh": 0,
+      "state": "on_track",
+      "powerKw": [30, 30, 30]
+    }
+  },
+  "checks": {}
+}

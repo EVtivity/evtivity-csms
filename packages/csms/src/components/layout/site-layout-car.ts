@@ -6,6 +6,8 @@
 // the scene builds it (site-layout-car-geometry.ts) from these profiles.
 
 import type { CarPort } from './site-layout-cable';
+import type { ConnectorKind } from './site-layout-connectors';
+import type { VehicleInletKind } from './site-layout-vehicle-inlet';
 import {
   DEFAULT_VEHICLE_BODY_TYPE,
   VEHICLE_BODY_TYPES,
@@ -34,6 +36,10 @@ export interface SceneCar {
   color: string;
   /** Where its charge port is (`carPortOf`, cars only); absent: front left. A rear port backs the car in. */
   port?: CarPort | undefined;
+  /** Its charge inlet (`vehicleInletOf` the plug); absent: the body type's default. */
+  inlet?: VehicleInletKind | undefined;
+  /** The connector plugged into the inlet; absent: the inlet's own DC plug; null: none (door closed). */
+  plug?: ConnectorKind | null | undefined;
 }
 
 /**
@@ -69,7 +75,12 @@ export type ProfilePoint = readonly [u: number, v: number];
  * - `bed`: a pickup's open load bed (from, to along the car).
  * - `head`, `tail`: the middle of the headlights and tail lights.
  * - `portY`: the charge port height on the front left fender, where the cable
- *   connects.
+ *   connects: the center of the plug in the inlet. Derived so the door opening
+ *   of every side inlet (CCS1, CCS2, NACS: `inletDoorBounds`) stays at least
+ *   45 mm under the fender top at the front port (clear of the body's 0.1 m
+ *   edge rounding) and above the front wheel arch (the sedan's 0.705 m; the
+ *   hatchback's fender leaves 0.76 m, 7 mm into the arch corner and the
+ *   rounding, filled by the inlet housing).
  */
 export interface CarProfile {
   length: number;
@@ -122,7 +133,7 @@ export const CAR_PROFILES: Record<CarBodyType, CarProfile> = {
     ],
     head: [0.07, 0.68],
     tail: [4.67, 0.84],
-    portY: 0.74,
+    portY: 0.705,
   },
   hatchback: {
     length: 4.2,

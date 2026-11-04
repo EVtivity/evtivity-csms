@@ -10,6 +10,7 @@ import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { changedFields } from '../lib/audit-diff.js';
 import { writeSiteLoadManagementAudit } from '../lib/load-management-audit.js';
@@ -119,6 +120,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
     '/sites/:siteId/unmanaged-loads',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('unmanaged_load_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Create an unmanaged load',
@@ -284,6 +286,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
     '/sites/:siteId/unmanaged-loads/:id',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('unmanaged_load_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Update an unmanaged load',
@@ -393,6 +396,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
     '/sites/:siteId/unmanaged-loads/:id',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('unmanaged_load_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Delete an unmanaged load',

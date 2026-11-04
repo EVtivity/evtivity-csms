@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
 import {
@@ -41,6 +41,7 @@ import {
   readStationDataPlans,
   saveSiteLayout,
   boardOf,
+  readLayoutPowerEquipment,
   readSiteLayoutSettings,
   readStationLayoutKinds,
   readSiteLayoutPositions,
@@ -48,6 +49,10 @@ import {
   ChargerPlacementSiteTypeError,
   LayoutGridTooSmallError,
   LayoutSpotsOverlapError,
+  LoadTreeValidationError,
+  isFleetEnabled,
+  DEPARTURE_READINESS_STATES,
+  DEPARTURE_READINESS_REASONS,
 } from '@evtivity/database';
 import type { SiteTypeChange } from '@evtivity/database';
 import type { SiteInsightSuppressionSource } from '@evtivity/database';
@@ -98,6 +103,8 @@ import {
   STATION_MESSAGE_LANGUAGES,
   isKnownCountry,
   DATA_PLANS,
+  ENERGY_ASSET_TYPES,
+  TRANSFORMER_KINDS,
 } from '@evtivity/lib';
 import {
   changeSiteDataPlan,
@@ -120,6 +127,12 @@ import {
 import { VEHICLE_BODY_TYPES, VEHICLE_COLORS } from '@evtivity/lib/vehicle-appearance';
 import { avatarItem } from '../lib/avatar-item.js';
 import { readLayoutStationSessions } from '../lib/site-layout-sessions.js';
+import {
+  connectorPluggedIn,
+  downConnectorKey,
+  isDownConnectorStatus,
+  readStatusesBeforeDown,
+} from '../lib/site-layout-plugged.js';
 import type { LayoutStationSession } from '../lib/site-layout-sessions.js';
 import {
   resolveLayoutScreenMessages,
@@ -181,8 +194,10 @@ import {
   REVENUE_HISTORY_MONEY_FIELDS,
 } from '../lib/money-visibility.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
+import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
+import { forgetRememberedEnergyAssets } from '@evtivity/services/load-management.service';
 import { setSiteFreeVend } from '../services/free-vend.service.js';
 import { siteInScope } from '../lib/site-scope.js';
 import {
@@ -606,7 +621,7 @@ const siteItem = z
     layoutSettings: siteLayoutSettingsSchema
       .nullable()
       .describe(
-        'Layout settings of the site (the site type and the fields of every type), null when never saved: the layout then shows a parking lot of 2 rows of 10 standard spots, facing 0, grown to hold the stations, and one transformer. A missing siteType reads as parking_lot. Changed through PUT /v1/sites/{id}/layout, the site type also through the siteType field of POST /v1/sites and PATCH /v1/sites/{id}',
+        "Layout settings of the site (the site type, the fields of every type, and the positions of the site's transformers and energy assets by id), null when never saved: the layout then shows a parking lot of 2 rows of 10 standard spots, facing 0, grown to hold the stations, with the site's equipment at its default places. A missing siteType reads as parking_lot. The equipment names and ratings are on GET /v1/sites/{id} (powerEquipment). Changed through PUT /v1/sites/{id}/layout, the site type also through the siteType field of POST /v1/sites and PATCH /v1/sites/{id}",
       ),
     aiMonthlyTokenBudget: z
       .number()
@@ -651,6 +666,110 @@ const siteItem = z
       .optional()
       .describe(
         'Whether AI insights run for the site and why (Settings > AI > Automatic Insights). Site detail only',
+      ),
+  })
+  .loose();
+
+// The power equipment rows the layout labels (GET /v1/sites/{id} only): the
+// layout settings hold positions by id, the names and ratings live here.
+const layoutPowerEquipmentSchema = z
+  .object({
+    transformers: z
+      .array(
+        z
+          .object({
+            id: z
+              .string()
+              .describe('Transformer id (transformers.id), as in layoutSettings.transformers'),
+            kind: z
+              .enum(TRANSFORMER_KINDS)
+              .describe(
+                'service (the utility transformer of a service, drawn on the layout) or step_down (fed from a panel)',
+              ),
+            name: z.string().describe('Name shown on the layout'),
+            ratedKva: z.number().nullable().describe('Rated power in kVA, null when unrated'),
+            maxContinuousKw: z
+              .number()
+              .nullable()
+              .describe(
+                'Continuous capacity in kW (kVA, power factor and loading limit), null when unrated',
+              ),
+            stationIds: z
+              .array(z.string())
+              .optional()
+              .describe(
+                'Stations the transformer feeds through the load management tree (its panels, sub-panels, circuits and step-down transformers); a transformer without a layout position stands next to them. Absent when it feeds none',
+              ),
+          })
+          .loose(),
+      )
+      .describe('Transformers of the site, in their sort order'),
+    energyAssets: z
+      .array(
+        z
+          .object({
+            id: z
+              .string()
+              .describe(
+                'Energy asset id (site_energy_assets.id), as in layoutSettings.energyAssets',
+              ),
+            type: z.enum(ENERGY_ASSET_TYPES).describe('battery or solar'),
+            name: z.string().describe('Name shown on the layout'),
+            capacityKwh: z.number().nullable().describe('Battery: usable capacity in kWh'),
+            peakKwp: z.number().nullable().describe('Solar: DC peak power in kWp'),
+          })
+          .loose(),
+      )
+      .describe('Batteries and solar of the site, in creation order'),
+  })
+  .loose()
+  .describe(
+    "The site's transformers and energy assets as the layout labels them (names, kinds, ratings and capacities). The layout settings place them by id; one without a stored position stands at the default place of its kind, and a stored position whose equipment is gone is ignored. Changed through the Load Management routes (GET /v1/sites/{siteId}/transformers, GET /v1/sites/{siteId}/energy-assets)",
+  );
+
+// The keys a layout equipment position takes; names, kinds and ratings live
+// in the load management tables.
+const LAYOUT_EQUIPMENT_KEYS = {
+  transformers: { keys: new Set(['id', 'x', 'z']), route: 'transformers' },
+  energyAssets: {
+    keys: new Set(['id', 'x', 'z', 'row', 'rotationDeg']),
+    route: 'energy-assets',
+  },
+} as const;
+
+/**
+ * Refuses a layout Save whose equipment positions carry more than a position
+ * (a name, a rating, a type): 400 VALIDATION_ERROR naming the key and the
+ * route that changes it.
+ */
+function refuseLayoutEquipmentDetails(request: FastifyRequest): Promise<void> {
+  const settings = (request.body as { settings?: unknown } | null)?.settings;
+  if (settings == null || typeof settings !== 'object') return Promise.resolve();
+  for (const [list, rule] of Object.entries(LAYOUT_EQUIPMENT_KEYS)) {
+    const entries = (settings as Record<string, unknown>)[list];
+    if (!Array.isArray(entries)) continue;
+    for (const [i, entry] of (entries as unknown[]).entries()) {
+      if (entry == null || typeof entry !== 'object') continue;
+      const key = Object.keys(entry).find((k) => !rule.keys.has(k));
+      if (key == null) continue;
+      const path = ['settings', list, i, key];
+      return Promise.reject(
+        new ValidationError(
+          `Unknown field settings.${list}[${String(i)}].${key}: the layout stores positions only; names and ratings are changed with /v1/sites/{siteId}/${rule.route}`,
+          [{ path, message: 'Unknown field' }],
+        ),
+      );
+    }
+  }
+  return Promise.resolve();
+}
+
+const siteDetailItem = siteItem
+  .extend({
+    powerEquipment: layoutPowerEquipmentSchema
+      .optional()
+      .describe(
+        "The site's transformers, batteries and solar arrays with their names and ratings. Present only with loadManagement:read",
       ),
   })
   .loose();
@@ -951,7 +1070,9 @@ const layoutConnector = z
     status: z.string().describe('Current connector status'),
     isPluggedIn: z
       .boolean()
-      .describe('Whether a vehicle is currently plugged in (active session present)'),
+      .describe(
+        'Whether a vehicle is plugged in: an active session, a status that reports a cable, or a fault or outage after one',
+      ),
     energyDeliveredWh: z
       .number()
       .nullable()
@@ -1013,6 +1134,49 @@ const layoutSession = z
       .nullable()
       .describe(
         "The car the layout draws: the session's vehicle, else the driver's only vehicle, else the driver's most recently used vehicle; null when none (the layout draws a grey sedan). Color and body type only, shown without drivers:read",
+      ),
+    departure: z
+      .object({
+        id: z.string().describe('Departure id (vdp_)'),
+        departureAt: z
+          .string()
+          .nullable()
+          .describe(
+            'When the vehicle must be ready (ISO 8601); null for an ad hoc request of a bus depot system, which charges from arrival',
+          ),
+        timezone: z.string().describe('IANA time zone of the depot, for showing the time'),
+        readiness: z
+          .enum(DEPARTURE_READINESS_STATES)
+          .nullable()
+          .describe('What the depot plan predicts; null while the plan does not run'),
+        reason: z
+          .enum(DEPARTURE_READINESS_REASONS)
+          .nullable()
+          .describe('Why the plan expects it short or late; null while the plan does not run'),
+        targetKwh: z
+          .number()
+          .nullable()
+          .describe('Energy target in kWh, null for a state of charge target'),
+        targetSocPercent: z
+          .number()
+          .int()
+          .nullable()
+          .describe('State of charge target in percent, null for an energy target'),
+        deliveredKwh: z.number().nullable().describe('Energy delivered for it so far, kWh'),
+        shortfallKwh: z
+          .number()
+          .nullable()
+          .describe('Energy the plan expects to miss, kWh; null while the plan does not run'),
+        predictedReadyAt: z
+          .string()
+          .nullable()
+          .describe('When the plan expects it ready (ISO 8601); null while the plan does not run'),
+      })
+      .loose()
+      .nullable()
+      .optional()
+      .describe(
+        'The scheduled departure of this site the session charges for (route-aware charging): present only with fleets:read while the Fleet feature is on, null when the session charges for none. No vehicle or driver id',
       ),
   })
   .loose();
@@ -1564,7 +1728,7 @@ export function siteRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
         response: {
-          200: itemResponse(siteItem),
+          200: itemResponse(siteDetailItem),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
         },
       },
@@ -1589,7 +1753,14 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      return { ...row, aiInsightsScope: await siteAiInsightsScopeStatus(row.id) };
+      // The equipment names and ratings need the equipment routes' permission
+      // (security review AZ50-I1): without loadManagement:read they are left out.
+      const canReadEquipment = await requestHasPermission(request, 'loadManagement:read');
+      return {
+        ...row,
+        aiInsightsScope: await siteAiInsightsScopeStatus(row.id),
+        ...(canReadEquipment ? { powerEquipment: await readLayoutPowerEquipment(row.id) } : {}),
+      };
     },
   );
 
@@ -2170,6 +2341,9 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       const { site, paymentConfig, ocpiLocation } = outcome;
+      // The battery and solar rows this process remembers for a failed read
+      // go with the site (other processes drop theirs once they stop reading it).
+      forgetRememberedEnergyAssets(id);
       if (ocpiLocation != null) await publishOcpiDeletedSiteLocation(ocpiLocation, request.log);
       const actor = getAuditActor(request);
       await writeAudit(
@@ -3019,8 +3193,15 @@ export function siteRoutes(app: FastifyInstance): void {
       const canReadSessions = await requestHasPermission(request, 'sessions:read');
       const canReadDrivers =
         canReadSessions && (await requestHasPermission(request, 'drivers:read'));
+      // The departure a session charges for needs fleets:read too, while the Fleet feature is on.
+      const canReadDepartures =
+        canReadSessions &&
+        (await requestHasPermission(request, 'fleets:read')) &&
+        (await isFleetEnabled());
       const layoutSessions = canReadSessions
-        ? await readLayoutStationSessions(stationUuids, canReadDrivers)
+        ? canReadDepartures
+          ? await readLayoutStationSessions(stationUuids, canReadDrivers, id)
+          : await readLayoutStationSessions(stationUuids, canReadDrivers)
         : new Map<string, LayoutStationSession>();
       const isCellular = (stationId: string): boolean => {
         const plan = dataPlans.get(stationId);
@@ -3127,6 +3308,19 @@ export function siteRoutes(app: FastifyInstance): void {
           });
         }
       }
+
+      // A fault ends the session but not the cable: a down connector keeps its car while
+      // the status before the fault reported a cable (site-layout-plugged.ts).
+      const evseById = new Map(evseRows.map((e) => [e.id, e]));
+      const downConnectors = connectorRows.flatMap((conn) => {
+        const evse = evseById.get(conn.evseId);
+        if (evse == null || !isDownConnectorStatus(conn.status)) return [];
+        if (activeSessionsByConnector.has(conn.id)) return [];
+        return [
+          { stationUuid: evse.stationId, evseId: evse.evseId, connectorId: conn.connectorId },
+        ];
+      });
+      const statusesBeforeDown = await readStatusesBeforeDown(downConnectors);
 
       // A custom site: every station stands at a free position; one without a
       // saved position gets one right of the others, in order (spots from its EVSEs).
@@ -3250,7 +3444,18 @@ export function siteRoutes(app: FastifyInstance): void {
                   connectorType: conn.connectorType,
                   maxPowerKw: conn.maxPowerKw,
                   status: conn.status,
-                  isPluggedIn: session != null,
+                  isPluggedIn: connectorPluggedIn({
+                    hasActiveSession: session != null,
+                    status: conn.status,
+                    statusBeforeDown:
+                      statusesBeforeDown.get(
+                        downConnectorKey({
+                          stationUuid: station.id,
+                          evseId: evse.evseId,
+                          connectorId: conn.connectorId,
+                        }),
+                      ) ?? null,
+                  }),
                   energyDeliveredWh:
                     session != null ? Number(session.energyDeliveredWh ?? '0') : null,
                 };
@@ -3369,7 +3574,7 @@ export function siteRoutes(app: FastifyInstance): void {
       .nullable()
       .optional()
       .describe(
-        'New layout settings of the site (the site type and the fields of every type); null resets them to the default, omitted keeps them. A station outside the layout moves to the nearest free spot, a transformer or battery on the lot moves to the grass beside it; when the layout has no free spot left for a station, the save answers 400 VALIDATION_ERROR naming those stations (details.stations) and changes nothing',
+        'New layout settings of the site (the site type and the fields of every type); null resets them to the default, omitted keeps them. Transformers and energy assets are placed by id: an id that is no transformer or energy asset of the site answers 400 VALIDATION_ERROR (field settings.transformers or settings.energyAssets), and stored positions of deleted equipment are dropped. A station outside the layout moves to the nearest free spot, a transformer or battery on the lot moves to the grass beside it; when the layout has no free spot left for a station, the save answers 400 VALIDATION_ERROR naming those stations (details.stations) and changes nothing',
       ),
   });
 
@@ -3377,6 +3582,10 @@ export function siteRoutes(app: FastifyInstance): void {
     '/sites/:id/layout',
     {
       onRequest: [authorize('sites:write')],
+      // Ajv drops unknown keys, so a transformer name or rating sent the way
+      // the layout stored them before v0.1.50 would answer 200 and change
+      // nothing: refuse them, naming the route that changes them.
+      preValidation: [refuseLayoutEquipmentDetails],
       schema: {
         tags: ['Sites'],
         summary: 'Update station layout positions for a site',
@@ -3407,7 +3616,7 @@ export function siteRoutes(app: FastifyInstance): void {
               .loose(),
           ),
           400: errorWith(
-            'Invalid settings, the lot has no free spot for every station, or the parking spots of stations on a custom site overlap',
+            'Invalid settings, an equipment position naming no transformer or energy asset of the site, the lot has no free spot for every station, or the parking spots of stations on a custom site overlap',
             [ERROR_CODES.VALIDATION_ERROR],
           ),
           404: errorWith('Site or station not found', [
@@ -3496,6 +3705,13 @@ export function siteRoutes(app: FastifyInstance): void {
             code: 'VALIDATION_ERROR',
             details: { stations: err.stations },
           });
+          return;
+        }
+        if (err instanceof LoadTreeValidationError) {
+          // An equipment position names no transformer or energy asset of the site.
+          await reply
+            .status(400)
+            .send({ error: err.message, code: 'VALIDATION_ERROR', field: err.field });
           return;
         }
         if (err instanceof LayoutSpotsOverlapError) {
@@ -4074,6 +4290,7 @@ export function siteRoutes(app: FastifyInstance): void {
     '/sites/:id/electricity-rates',
     {
       onRequest: [authorize('sites:write')],
+      onResponse: [replanSiteAfterWrite('electricity_rate_changed', 'id')],
       schema: {
         tags: ['Sites'],
         summary: 'Create an electricity rate period for a site',
@@ -4157,6 +4374,7 @@ export function siteRoutes(app: FastifyInstance): void {
     '/sites/:id/electricity-rates/:periodId',
     {
       onRequest: [authorize('sites:write')],
+      onResponse: [replanSiteAfterWrite('electricity_rate_changed', 'id')],
       schema: {
         tags: ['Sites'],
         summary: 'Update an electricity rate period',
@@ -4256,6 +4474,7 @@ export function siteRoutes(app: FastifyInstance): void {
     '/sites/:id/electricity-rates/:periodId',
     {
       onRequest: [authorize('sites:write')],
+      onResponse: [replanSiteAfterWrite('electricity_rate_changed', 'id')],
       schema: {
         tags: ['Sites'],
         summary: 'Delete an electricity rate period',

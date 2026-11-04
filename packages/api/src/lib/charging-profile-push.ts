@@ -12,6 +12,8 @@ import {
   maxExternalConstraintsIds,
   mayOverrideLoadManagement,
   overridesLoadManagement,
+  plannedProfileIdConflict,
+  plannedProfileIdMessage,
   reservedProfileIdMessage,
   type ProfileIdentity,
 } from './charging-profile-id.js';
@@ -121,6 +123,29 @@ export async function processChargingProfilePush(
                 .set({
                   status: 'failed',
                   errorInfo: loadManagedMessage(identity),
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(chargingProfilePushStations.pushId, pushId),
+                    eq(chargingProfilePushStations.stationId, station.id),
+                    eq(chargingProfilePushStations.status, 'pending'),
+                  ),
+                );
+              return;
+            }
+            // A profile with a planned session's TxProfile id would replace
+            // the depot plan profile (security review OCPP-L1).
+            const planTransaction = await plannedProfileIdConflict(
+              station.stationId,
+              template.profileId,
+            );
+            if (planTransaction != null) {
+              await db
+                .update(chargingProfilePushStations)
+                .set({
+                  status: 'failed',
+                  errorInfo: plannedProfileIdMessage(template.profileId, planTransaction),
                   updatedAt: new Date(),
                 })
                 .where(

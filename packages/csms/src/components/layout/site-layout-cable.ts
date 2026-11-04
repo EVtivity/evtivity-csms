@@ -8,6 +8,7 @@
 // state color, so the flow matches the station marker and the legend.
 
 import { STATUS_COLORS } from '@/lib/chart-theme';
+import { INLET, inletDoorBounds } from './site-layout-vehicle-inlet';
 
 /** Connector statuses where energy flows through the cable. */
 const FLOWING_STATUSES: ReadonlySet<string> = new Set(['charging', 'discharging']);
@@ -42,6 +43,14 @@ export function chargeFlowCoreRadius(cableRadiusM: number): number {
 }
 
 /**
+ * The halo tube's radius: `haloM`, and on a cable thick enough to fill it (the 80 mm MCS
+ * cable) 20 mm outside the core, so the halo always shows around the light tube.
+ */
+export function chargeFlowHaloRadius(cableRadiusM: number): number {
+  return Math.max(CHARGE_FLOW.haloM, chargeFlowCoreRadius(cableRadiusM) + 0.02);
+}
+
+/**
  * The pulse along one pitch of the flow texture, as [position, alpha] stops:
  * dim (0.03) to 0.35, rising to full by 0.55, full to 0.85, dim again by the
  * end, so each pulse is about a third of the 0.9 m pitch.
@@ -54,7 +63,12 @@ export const CHARGE_FLOW_STOPS: ReadonlyArray<readonly [number, number]> = [
   [1, 0.03],
 ];
 
-/** Whether energy flows through a connector of this status. */
+/**
+ * Whether energy flows through a connector of this status: only while it reports Charging
+ * or Discharging (owner decision 2026-11-04). Every other status shows no flow, an open
+ * session included: Available means no vehicle is connected, and a station that sends no
+ * charging state shows none.
+ */
 export function connectorFlows(status: string | null | undefined): boolean {
   return status != null && FLOWING_STATUSES.has(status);
 }
@@ -146,18 +160,62 @@ export interface CarPortProfile {
   width: number;
   portY: number;
   head: readonly [number, number];
+  /** The side profile of the lower body (`CarProfile.body`), from the front bumper bottom: places the nose port. */
+  body?: ReadonlyArray<readonly [number, number]>;
+}
+
+/**
+ * The nose port, derived from the profile: its inlet door (the widest nose
+ * inlet, a CHAdeMO car's pair, `inletDoorBounds`) 10 mm over the grille,
+ * whose top is 0.18 m above the front bumper bottom (`body[0]`, the car kit's
+ * grille), and the plug face `INLET.seatM` behind the most forward point of
+ * the nose front over the door's height, so the door is never inside the
+ * body (where the nose leans back, the inlet housing fills the gap). Without
+ * a body profile: just above the headlights at the nose.
+ */
+function nosePort(profile: CarPortProfile): { y: number; z: number } {
+  const body = profile.body ?? [];
+  const bottom = body[0];
+  if (bottom == null) return { y: profile.head[1] + 0.08, z: INLET.seatM };
+  const door = inletDoorBounds('chademo_type2');
+  const y = bottom[1] + 0.18 + 0.01 + INLET.shutLineM - door.minY;
+  // The nose front: the body points from the bumper bottom up to the hood.
+  const front: Array<readonly [number, number]> = [];
+  for (const point of body) {
+    front.push(point);
+    if (point[1] >= y + door.maxY + 0.05) break;
+  }
+  const frontU = (v: number): number => {
+    for (let i = 1; i < front.length; i += 1) {
+      const a = front[i - 1];
+      const b = front[i];
+      if (a == null || b == null) continue;
+      if ((v - a[1]) * (v - b[1]) <= 0 && a[1] !== b[1]) {
+        return a[0] + ((b[0] - a[0]) * (v - a[1])) / (b[1] - a[1]);
+      }
+    }
+    return Math.min(...front.map((p) => p[0]));
+  };
+  let u = Infinity;
+  for (let k = 0; k <= 8; k += 1) {
+    u = Math.min(u, frontU(y + door.minY + ((door.maxY - door.minY) * k) / 8));
+  }
+  return { y, z: u + INLET.seatM };
 }
 
 /**
  * The port in the car's own frame (nose at z = 0, the body along +z, its left
  * side at -x): a side port `CAR_PORT_INSET_M` from the nose or the tail at the
- * profile's port height, or the nose port just above the headlight line.
+ * profile's port height, or the nose port over the grille (`nosePort`; a
+ * CHAdeMO car's two inlets under one lid in the nose, Nissan Leaf).
  */
 export function carPortLocal(profile: CarPortProfile, port: CarPort): Point3 {
-  if (port === 'front_center') return { x: 0, y: profile.head[1] + 0.08, z: -0.005 };
+  // The plug face `INLET.seatM` under the body surface, its nose in the inlet
+  // (site-layout-vehicle-inlet.ts).
+  if (port === 'front_center') return { x: 0, ...nosePort(profile) };
   const side = port.endsWith('left') ? -1 : 1;
   return {
-    x: side * (profile.width / 2 + 0.005),
+    x: side * (profile.width / 2 - INLET.seatM),
     y: profile.portY,
     z: port.startsWith('front') ? CAR_PORT_INSET_M : profile.length - CAR_PORT_INSET_M,
   };

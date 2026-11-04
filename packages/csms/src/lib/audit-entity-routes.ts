@@ -67,6 +67,12 @@ export const AUDIT_ENTITY_ROUTES: Record<AuditEntityType, AuditEntityRoute | nul
   report_schedule: null,
   sim: { path: byId('/sims'), permission: 'sims:read' },
   payment_terminal: { path: byId('/payment-terminals'), permission: 'paymentTerminals:read' },
+  vehicle_departure: null,
+  depot_system: {
+    path: (id) =>
+      `/settings?tab=integrations&sub=depot-systems&depotSystem=${encodeURIComponent(id)}`,
+    permission: 'settings.integrations:read',
+  },
 };
 
 export function auditEntityRoute(entityType: string): AuditEntityRoute | null {

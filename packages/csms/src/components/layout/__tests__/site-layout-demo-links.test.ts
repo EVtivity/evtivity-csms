@@ -12,11 +12,13 @@ import {
   STANDARD_DIMENSIONS,
   TRANSFORMER_CLEARANCE_M,
   effectiveLayoutSettings,
-  energyAssetsOf,
+  placePowerEquipment,
   freeSpotCount,
   freeStationsBox,
   freeToSite,
   type FreePlacement,
+  type LayoutPowerEquipment,
+  type PlacedLayoutSettings,
   type SiteLayoutSettings,
 } from '@evtivity/lib/site-layout';
 import demoSites from './fixtures/demo-layout-sites.json';
@@ -40,6 +42,8 @@ import {
   loadLinks,
   placeFacadePanels,
   placePanels,
+  linkHierarchy,
+  type HierarchyLinkNode,
   type LinkPanel,
   type LinkStationPoint,
   type LoadLinks,
@@ -50,9 +54,12 @@ interface DemoSite {
   id: string;
   name: string;
   settings: SiteLayoutSettings;
+  powerEquipment: LayoutPowerEquipment;
   panels: Array<{
     id: string;
     parentPanelId: string | null;
+    /** The transformer it names (`panels.transformer_id`): a service or a step-down unit. */
+    transformerId: string | null;
     name: string;
     breakerRatingAmps: number;
     maxContinuousKw: number;
@@ -76,27 +83,93 @@ interface DemoSite {
 
 const SITES = (demoSites as unknown as { sites: DemoSite[] }).sites;
 
+/** A demo site's effective settings with its power equipment rows at their positions, as the layout draws them. */
+function placedOf(site: DemoSite): PlacedLayoutSettings {
+  return placePowerEquipment(
+    effectiveLayoutSettings(site.settings, [], site.stations.length),
+    site.powerEquipment,
+  );
+}
+
+/**
+ * The demo site's load management hierarchy as `GET /v1/sites/:id/load-management`
+ * answers it (each service transformer a root above the switchboard that
+ * names it, each step-down unit between its switchboard and its panelboard),
+ * turned into the 3D view's panels by `linkHierarchy`, as the view does.
+ */
 function hierarchyOf(site: DemoSite): LinkPanel[] {
-  const build = (parentId: string | null): LinkPanel[] =>
-    site.panels
+  const info = new Map(site.powerEquipment.transformers.map((t) => [t.id, t]));
+  const transformerNode = (id: string, children: HierarchyLinkNode[]): HierarchyLinkNode => ({
+    type: 'transformer',
+    transformerKind: info.get(id)!.kind,
+    id,
+    name: info.get(id)!.name,
+    breakerRatingAmps: 0,
+    maxContinuousKw: info.get(id)!.maxContinuousKw ?? 0,
+    circuits: [],
+    childPanels: children,
+  });
+  const build = (parentId: string | null): HierarchyLinkNode[] => {
+    const nodes = site.panels
       .filter((p) => p.parentPanelId === parentId)
       .map((p) => ({
-        id: p.id,
-        name: p.name,
-        breakerRatingAmps: p.breakerRatingAmps,
-        maxContinuousKw: p.maxContinuousKw,
-        circuits: p.circuits.map((c) => ({
-          id: c.id,
-          name: c.name,
-          breakerRatingAmps: c.breakerRatingAmps,
-          maxContinuousKw: c.maxContinuousKw,
-          stations: site.stations
-            .filter((s) => s.circuitId === c.id)
-            .map((s) => ({ id: s.id, allocatedLimitKw: null })),
-        })),
-        childPanels: build(p.id),
+        transformerId: p.transformerId,
+        node: {
+          type: 'panel' as const,
+          id: p.id,
+          name: p.name,
+          breakerRatingAmps: p.breakerRatingAmps,
+          maxContinuousKw: p.maxContinuousKw,
+          circuits: p.circuits.map((c) => ({
+            id: c.id,
+            name: c.name,
+            breakerRatingAmps: c.breakerRatingAmps,
+            maxContinuousKw: c.maxContinuousKw,
+            stations: site.stations
+              .filter((s) => s.circuitId === c.id)
+              .map((s) => ({ id: s.id, allocatedLimitKw: null })),
+          })),
+          childPanels: build(p.id),
+        },
       }));
-  return build(null);
+    const out: HierarchyLinkNode[] = [];
+    const byTransformer = new Map<string, HierarchyLinkNode>();
+    for (const { transformerId, node } of nodes) {
+      if (transformerId == null || !info.has(transformerId)) {
+        out.push(node);
+        continue;
+      }
+      const tx = byTransformer.get(transformerId);
+      if (tx != null) tx.childPanels.push(node);
+      else {
+        const created = transformerNode(transformerId, [node]);
+        byTransformer.set(transformerId, created);
+        out.push(created);
+      }
+    }
+    return out;
+  };
+  return linkHierarchy(build(null), {
+    stepDowns: site.settings.siteType !== 'office_retail',
+    kvaOf: (id) => info.get(id)?.ratedKva ?? null,
+  });
+}
+
+/** The station ids a panel (or a step-down unit, by its transformer id) feeds. */
+function subtree(site: DemoSite, id: string): string[] {
+  const panel = site.panels.find((p) => p.id === id);
+  if (panel == null) {
+    return site.panels
+      .filter((p) => p.transformerId === id && p.parentPanelId != null)
+      .flatMap((p) => subtree(site, p.id));
+  }
+  const own = panel.circuits.flatMap((c) =>
+    site.stations.filter((st) => st.circuitId === c.id).map((st) => st.id),
+  );
+  return [
+    ...own,
+    ...site.panels.filter((p) => p.parentPanelId === id).flatMap((p) => subtree(site, p.id)),
+  ];
 }
 
 /** The cable runs of a demo site as the 3D view routes them. */
@@ -111,7 +184,7 @@ function demoTree(site: DemoSite): {
   points: Map<string, LinkStationPoint>;
   ground: Box;
 } {
-  const settings = effectiveLayoutSettings(site.settings, [], site.stations.length);
+  const settings = placedOf(site);
   const lot = lotOf(settings);
   const points = new Map<string, LinkStationPoint>();
   let ground: Box;
@@ -176,10 +249,10 @@ function demoTree(site: DemoSite): {
 
 /** The transformer and battery pads of a demo site. */
 function equipmentPadsOf(site: DemoSite): Box[] {
-  const settings = effectiveLayoutSettings(site.settings, [], site.stations.length);
+  const settings = placedOf(site);
   return [
     ...settings.transformers.map((t) => equipmentPadBox(t, 'transformer')),
-    ...energyAssetsOf(settings).flatMap((a) =>
+    ...settings.energyAssets.flatMap((a) =>
       a.type === 'battery' ? [equipmentPadBox(a, 'battery')] : [],
     ),
   ];
@@ -234,7 +307,7 @@ describe('demo electrical trees on the 3D layout', () => {
 
   it('stands the equipment pad at the lot edge next to the DC group it feeds', () => {
     for (const site of drawn.filter((s) => s.settings.siteType === 'parking_lot')) {
-      const settings = effectiveLayoutSettings(site.settings, [], site.stations.length);
+      const settings = placedOf(site);
       const lot = lotOf(settings);
       const t = settings.transformers[0]!;
       // The pad (2.9 m along the lot edge's normal) from the lot edge: at
@@ -261,7 +334,7 @@ describe('demo electrical trees on the 3D layout', () => {
   it('stands each AC panelboard on the island or curb strip at the row end nearest the pad', () => {
     for (const site of drawn.filter((s) => s.settings.siteType === 'parking_lot')) {
       const { panels, points, ground, links } = demoTree(site);
-      const settings = effectiveLayoutSettings(site.settings, [], site.stations.length);
+      const settings = placedOf(site);
       const lot = lotOf(settings);
       const t = settings.transformers[0]!;
       const islands = parkingRowGaps(lot).filter((g) => g.kind === 'island');
@@ -277,11 +350,23 @@ describe('demo electrical trees on the 3D layout', () => {
           Math.min(...backs.map((b) => Math.abs(b.z - panel.point.z))),
           label,
         ).toBeLessThanOrEqual(1.2);
-        // Inside the lot at the row end on the transformer's side, never past the edge on the grass.
+        // Inside the lot at the row end on the transformer's side, never past
+        // the edge on the grass: the rack row's first item at the end (its
+        // step-down transformer, when one feeds it), the panelboard next to it.
         const nearEdge = t.x < (ground.minX + ground.maxX) / 2 ? ground.minX : ground.maxX;
         expect(panel.point.x, label).toBeGreaterThan(ground.minX);
         expect(panel.point.x, label).toBeLessThan(ground.maxX);
-        expect(Math.abs(panel.point.x - nearEdge), label).toBeLessThanOrEqual(1.5);
+        const stepDownId = site.panels.find((p) => p.id === panel.id)!.transformerId;
+        const stepDown = panels.find((p) => p.model === 'dry_transformer' && p.id === stepDownId);
+        const lead = stepDown ?? panel;
+        expect(Math.abs(lead.point.x - nearEdge), label).toBeLessThanOrEqual(1.5);
+        if (stepDown != null) {
+          expect(stepDown.point.z, label).toBeCloseTo(panel.point.z, 6);
+          expect(
+            Math.hypot(stepDown.point.x - panel.point.x, stepDown.point.z - panel.point.z),
+            label,
+          ).toBeLessThanOrEqual(3);
+        }
         // On an island (between its curbs) or on the curb strip behind a lot edge row.
         const onIsland = islands.some(
           (g) => panel.point.z > g.minZ + 0.6 && panel.point.z < g.maxZ - 0.6,
@@ -319,7 +404,7 @@ describe('demo electrical trees on the 3D layout', () => {
   it('stands each depot transformer behind the yard next to the group it feeds', () => {
     for (const site of drawn.filter((s) => s.settings.siteType === 'depot')) {
       const { points } = demoTree(site);
-      const settings = effectiveLayoutSettings(site.settings, [], site.stations.length);
+      const settings = placedOf(site);
       const depot = lotOf(settings).depot!;
       for (const t of settings.transformers) {
         // Behind the yard edge of its area (not beside the yard across a road), the
@@ -328,11 +413,36 @@ describe('demo electrical trees on the 3D layout', () => {
         const back = inBusArea
           ? Math.min(...depot.outline.map((p) => p.z).filter((z) => z >= depot.busHead!.minZ - 1))
           : depot.yard.minZ;
-        expect(back - t.z, t.name ?? t.id).toBeGreaterThanOrEqual(TRANSFORMER_CLEARANCE_M - 1e-9);
+        expect(back - t.z, t.name).toBeGreaterThanOrEqual(TRANSFORMER_CLEARANCE_M - 1e-9);
         const nearest = Math.min(
           ...[...points.values()].map((p) => Math.hypot(p.charger.x - t.x, p.charger.z - t.z)),
         );
-        expect(nearest, t.name ?? t.id).toBeLessThanOrEqual(10);
+        expect(nearest, t.name).toBeLessThanOrEqual(10);
+      }
+    }
+  });
+
+  it('stands each switchboard at the transformer it names (panels.transformer_id)', () => {
+    // Sites with more than one transformer: link every top-level panel to the
+    // transformer the index rule would not give it (the order reversed); the
+    // service cable must start at the named transformer.
+    const multi = drawn.filter((s) => placedOf(s).transformers.length > 1);
+    expect(multi.length).toBeGreaterThan(0);
+    for (const site of multi) {
+      const settings = placedOf(site);
+      const { points, ground } = demoTree(site);
+      const tx = [...settings.transformers].reverse();
+      const roots = hierarchyOf(site).map((root, j) => ({
+        ...root,
+        transformerId: tx[Math.min(j, tx.length - 1)]?.id ?? null,
+      }));
+      const ac = new Set(site.stations.filter((s) => s.kind === 'ac').map((s) => s.id));
+      const panels = placePanels(roots, ground, settings.transformers, points, ac);
+      const links = loadLinks(roots, panels, points, ground, settings.transformers, ac);
+      for (const root of roots) {
+        const named = settings.transformers.find((t) => t.id === root.transformerId)!;
+        const feed = links.segments.find((s) => s.id === `feed:${root.id}`);
+        expect(feed?.points[0], `${site.name} ${root.name}`).toEqual({ x: named.x, z: named.z });
       }
     }
   });
@@ -370,21 +480,13 @@ describe('demo electrical trees on the 3D layout', () => {
       panelboard: 9,
       wall: 8,
       cabinet: 14,
+      // A step-down transformer stands beside the panelboard it feeds.
+      dry_transformer: 9,
     } as const;
-    const subtree = (site: DemoSite, id: string): string[] => {
-      const panel = site.panels.find((p) => p.id === id)!;
-      const own = panel.circuits.flatMap((c) =>
-        site.stations.filter((st) => st.circuitId === c.id).map((st) => st.id),
-      );
-      return [
-        ...own,
-        ...site.panels.filter((p) => p.parentPanelId === id).flatMap((p) => subtree(site, p.id)),
-      ];
-    };
     const report: string[] = [];
     for (const site of drawn) {
       const { panels, points } = demoTree(site);
-      const settings = effectiveLayoutSettings(site.settings, [], site.stations.length);
+      const settings = placedOf(site);
       const items: Array<{ name: string; kind: keyof typeof BOUND; at: Point; feeds: string[] }> =
         panels.map((p) => ({
           name: p.name,
@@ -392,15 +494,14 @@ describe('demo electrical trees on the 3D layout', () => {
           at: p.point,
           feeds: subtree(site, p.id),
         }));
-      // The j-th top-level panel's tree stands at the j-th transformer (the last takes the rest).
+      // Each transformer stands at the tree of the switchboard that names it.
       const roots = site.panels.filter((p) => p.parentPanelId == null);
       if (settings.siteType !== 'office_retail' && settings.siteType !== 'curbside') {
-        settings.transformers.forEach((t, j) => {
-          const mine = roots.filter((_, k) => Math.min(k, settings.transformers.length - 1) === j);
+        for (const t of settings.transformers) {
+          const mine = roots.filter((r) => r.transformerId === t.id);
           const feeds = mine.flatMap((r) => subtree(site, r.id));
-          if (feeds.length > 0)
-            items.push({ name: t.name ?? t.id, kind: 'transformer', at: t, feeds });
-        });
+          if (feeds.length > 0) items.push({ name: t.name, kind: 'transformer', at: t, feeds });
+        }
       }
       for (const item of items) {
         const dist = (id: string): number => {

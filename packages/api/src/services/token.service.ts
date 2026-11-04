@@ -22,7 +22,14 @@ import {
   writeAudit,
   currentAuditViaAi,
 } from '@evtivity/database';
-import { dispatchDriverNotification, createLogger, csvEscape, isNewOcpiToken } from '@evtivity/lib';
+import {
+  dispatchDriverNotification,
+  createLogger,
+  csvEscape,
+  escapeLikePattern,
+  isNewOcpiToken,
+  ValidationError,
+} from '@evtivity/lib';
 import { isOcppIdTokenType } from '@evtivity/lib/id-token-types';
 import { isVehicleShapedTokenValue, tokenVehicleIdCandidates } from '@evtivity/lib/vehicle-id';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -30,6 +37,11 @@ import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { publishOcpiTokenPush, type OcpiTokenTombstoneRef } from '../lib/ocpi-token-push.js';
+import {
+  TOKEN_LABEL_MAX_LENGTH,
+  tokenLabelProblem,
+  type TokenLabelProblem,
+} from '../lib/token-label.js';
 
 const logger = createLogger('token-service');
 
@@ -71,6 +83,7 @@ const tokenSelect = {
   revokedReason: driverTokens.revokedReason,
   deactivatedBy: driverTokens.deactivatedBy,
   prepaidBalanceCents: driverTokens.prepaidBalanceCents,
+  vehicleId: driverTokens.vehicleId,
   createdAt: driverTokens.createdAt,
   updatedAt: driverTokens.updatedAt,
   driverFirstName: drivers.firstName,
@@ -89,7 +102,8 @@ function tokenWhere(filters: TokenFilters) {
   const { search, tokenType, status } = filters;
   const conditions = [];
   if (search) {
-    const pattern = `%${search}%`;
+    // `%` and `_` match only as typed (security review PP-I1, case 49 rule).
+    const pattern = `%${escapeLikePattern(search)}%`;
     conditions.push(
       or(
         ilike(driverTokens.idToken, pattern),
@@ -347,6 +361,33 @@ interface TokenSnapshot {
   driverId: string | null;
   label?: string | null;
   prepaidBalanceCents?: number | null;
+  vehicleId?: string | null;
+}
+
+/**
+ * A card that belongs to one vehicle (route-aware charging: a card per bus)
+ * names a vehicle of the card's own driver, so a card can never be bound to
+ * another driver's vehicle. Refused with 400 VALIDATION_ERROR otherwise.
+ */
+async function assertTokenVehicle(
+  vehicleId: string,
+  driverId: string | null,
+  conn: TokenDb = db,
+): Promise<void> {
+  if (driverId == null) {
+    throw new ValidationError('A card without a driver cannot belong to a vehicle', {
+      field: 'vehicleId',
+    });
+  }
+  const [vehicle] = await conn
+    .select({ id: vehicles.id })
+    .from(vehicles)
+    .where(and(eq(vehicles.id, vehicleId), eq(vehicles.driverId, driverId)));
+  if (vehicle == null) {
+    throw new ValidationError("The vehicle is not one of the card driver's vehicles", {
+      field: 'vehicleId',
+    });
+  }
 }
 
 /** Trims a label; an empty one is no label. `undefined` (not sent) stays `undefined`. */
@@ -354,6 +395,38 @@ export function normalizeTokenLabel(label: string | null | undefined): string | 
   if (label === undefined) return undefined;
   const trimmed = label?.trim() ?? '';
   return trimmed === '' ? null : trimmed;
+}
+
+const TOKEN_LABEL_PROBLEM_MESSAGES: Record<TokenLabelProblem, string> = {
+  control_characters: 'The label must not contain control or invisible format characters',
+  too_long: `The label is longer than ${String(TOKEN_LABEL_MAX_LENGTH)} characters`,
+};
+
+/** 400 VALIDATION_ERROR (field `label`) for a label that cannot be stored. */
+function assertTokenLabel(label: string | null | undefined): void {
+  if (label == null) return;
+  const problem = tokenLabelProblem(label);
+  if (problem != null) {
+    throw new ValidationError(TOKEN_LABEL_PROBLEM_MESSAGES[problem], { field: 'label', problem });
+  }
+}
+
+/**
+ * Clears the labels of every token of a driver, inside the driver erasure
+ * transaction: a label is free text the driver or an operator typed, so it
+ * may hold personal data. No token audit row is written (its snapshot would
+ * keep the label); the erasure audit row counts the cleared labels.
+ */
+export async function clearDriverTokenLabels(
+  tx: Pick<typeof db, 'update'>,
+  driverId: string,
+): Promise<number> {
+  const cleared = await tx
+    .update(driverTokens)
+    .set({ label: null, updatedAt: new Date() })
+    .where(and(eq(driverTokens.driverId, driverId), sql`${driverTokens.label} IS NOT NULL`))
+    .returning({ id: driverTokens.id });
+  return cleared.length;
 }
 
 async function writeTokenAudit(args: {
@@ -556,9 +629,11 @@ export async function createToken(
     label?: string | null | undefined;
     expiresAt?: Date | null | undefined;
     prepaidBalanceCents?: number | null | undefined;
+    vehicleId?: string | null | undefined;
   },
   actor: TokenActor = { type: 'system' },
 ) {
+  assertTokenLabel(data.label);
   const label = normalizeTokenLabel(data.label);
   // Before any lookup, so the answer says nothing about existing cards.
   if (actor.type === 'driver' && isVehicleShapedTokenValue(data.idToken)) {
@@ -594,6 +669,8 @@ export async function createToken(
           ...(data.prepaidBalanceCents !== undefined
             ? { prepaidBalanceCents: data.prepaidBalanceCents, expectedPrepaidBalanceCents: null }
             : {}),
+          // updateToken checks the vehicle against the card's driver.
+          ...(data.vehicleId !== undefined ? { vehicleId: data.vehicleId } : {}),
         },
         actor,
       );
@@ -604,6 +681,7 @@ export async function createToken(
 
   if (data.driverId != null) await assertDriverActive(data.driverId);
   await assertNotOtherDriversVehicleId(data.idToken, data.driverId ?? null);
+  if (data.vehicleId != null) await assertTokenVehicle(data.vehicleId, data.driverId ?? null);
 
   let token: typeof driverTokens.$inferSelect | undefined;
   try {
@@ -616,6 +694,7 @@ export async function createToken(
         driverId: data.driverId ?? null,
         expiresAt: data.expiresAt ?? null,
         prepaidBalanceCents: data.prepaidBalanceCents ?? null,
+        vehicleId: data.vehicleId ?? null,
       })
       .returning();
     token = inserted[0];
@@ -637,6 +716,7 @@ export async function createToken(
       driverId: token.driverId,
       label: token.label,
       prepaidBalanceCents: token.prepaidBalanceCents,
+      vehicleId: token.vehicleId,
     },
   });
   await notifyDriver(token.driverId, 'token.Added', {
@@ -660,6 +740,8 @@ export async function updateToken(
     expiresAt?: Date | null | undefined;
     revokedReason?: string | null | undefined;
     prepaidBalanceCents?: number | null | undefined;
+    /** The vehicle the card belongs to (a vehicle of the card's driver), null for none. */
+    vehicleId?: string | null | undefined;
     /**
      * The balance the caller read before changing `prepaidBalanceCents`: the
      * change applies only while the locked row still holds it, else
@@ -674,6 +756,7 @@ export async function updateToken(
   if (data.prepaidBalanceCents !== undefined && data.expectedPrepaidBalanceCents === undefined) {
     throw new PrepaidBalanceExpectedError();
   }
+  assertTokenLabel(data.label);
   // The row is locked for the read and the write, so two concurrent toggles
   // cannot both see the old state and both audit and notify a transition.
   let changed: {
@@ -684,7 +767,9 @@ export async function updateToken(
       label: string | null;
       isActive: boolean;
       expiresAt: Date | null;
+      revokedReason: string | null;
       prepaidBalanceCents: number | null;
+      vehicleId: string | null;
     };
     token: typeof driverTokens.$inferSelect;
   } | null;
@@ -698,13 +783,28 @@ export async function updateToken(
           label: driverTokens.label,
           isActive: driverTokens.isActive,
           expiresAt: driverTokens.expiresAt,
+          revokedReason: driverTokens.revokedReason,
           deactivatedBy: driverTokens.deactivatedBy,
           prepaidBalanceCents: driverTokens.prepaidBalanceCents,
+          vehicleId: driverTokens.vehicleId,
         })
         .from(driverTokens)
         .where(eq(driverTokens.id, id))
         .for('update');
       if (current == null) return null;
+      // A driver's update is decided on the locked row: the token must still
+      // be the driver's, and the driver active and not erased, read FOR SHARE
+      // so an erasure or a move to another driver cannot commit in between.
+      // Otherwise it is not found, like a foreign card (security review PP-L1).
+      if (actor.type === 'driver') {
+        if (current.driverId !== actor.driverId) return null;
+        const [owner] = await tx
+          .select({ isActive: drivers.isActive, erasedAt: drivers.erasedAt })
+          .from(drivers)
+          .where(eq(drivers.id, actor.driverId))
+          .for('share');
+        if (owner == null || !owner.isActive || owner.erasedAt != null) return null;
+      }
       if (
         data.prepaidBalanceCents !== undefined &&
         current.prepaidBalanceCents !== data.expectedPrepaidBalanceCents
@@ -762,10 +862,38 @@ export async function updateToken(
         await assertNotOtherDriversVehicleId(nextValue, nextDriverId, tx);
       }
 
+      // The card's vehicle stays a vehicle of its driver: a sent vehicle is
+      // checked against the next driver, and a move to another driver drops a
+      // vehicle of the previous one.
+      const nextVehicleId = data.vehicleId !== undefined ? data.vehicleId : current.vehicleId;
+      let vehicleChange: string | null | undefined = data.vehicleId;
+      if (nextVehicleId != null && (data.vehicleId != null || reassigned)) {
+        if (data.vehicleId != null) {
+          await assertTokenVehicle(nextVehicleId, nextDriverId, tx);
+        } else {
+          const [kept] =
+            nextDriverId == null
+              ? []
+              : await tx
+                  .select({ id: vehicles.id })
+                  .from(vehicles)
+                  .where(and(eq(vehicles.id, nextVehicleId), eq(vehicles.driverId, nextDriverId)));
+          if (kept == null) vehicleChange = null;
+        }
+      }
+
       const setValues: Record<string, unknown> = { ...data, updatedAt: new Date() };
+      if (vehicleChange !== undefined) setValues['vehicleId'] = vehicleChange;
       // The expected balance is a condition, not a column.
       delete setValues['expectedPrepaidBalanceCents'];
-      if (data.label !== undefined) setValues['label'] = normalizeTokenLabel(data.label);
+      const sentLabel = normalizeTokenLabel(data.label);
+      if (sentLabel !== undefined) setValues['label'] = sentLabel;
+      // A token moved to another driver loses its label (owner decision): the
+      // next driver sees the label, which the previous driver or an operator
+      // typed for the previous driver. A label the request changes stays.
+      if (reassigned && (sentLabel === undefined || sentLabel === current.label)) {
+        setValues['label'] = null;
+      }
       // Stamp revokedAt and who deactivated when the token turns inactive;
       // clear all three on reactivate.
       if (data.isActive === false && current.isActive) {
@@ -791,7 +919,8 @@ export async function updateToken(
       err instanceof PrepaidBalanceConflictError ||
       err instanceof TokenReactivationBlockedError ||
       err instanceof TokenDriverInactiveError ||
-      err instanceof TokenDriverNotFoundError
+      err instanceof TokenDriverNotFoundError ||
+      err instanceof ValidationError
     ) {
       throw err;
     }
@@ -810,6 +939,7 @@ export async function updateToken(
     driverId: current.driverId,
     label: current.label,
     prepaidBalanceCents: current.prepaidBalanceCents,
+    vehicleId: current.vehicleId,
   };
   const afterSnapshot: TokenSnapshot = {
     idToken: token.idToken,
@@ -817,7 +947,11 @@ export async function updateToken(
     driverId: token.driverId,
     label: token.label,
     prepaidBalanceCents: token.prepaidBalanceCents,
+    vehicleId: token.vehicleId,
   };
+
+  const labelClearedOnMove =
+    current.driverId !== token.driverId && current.label != null && token.label == null;
 
   // A station's local auth list carries the value, the type, the status and
   // the expiry: a change to any of them needs a re-push.
@@ -874,6 +1008,7 @@ export async function updateToken(
       actor,
       before: beforeSnapshot,
       after: afterSnapshot,
+      notes: labelClearedOnMove ? 'Label cleared: the token moved to another driver' : null,
     });
     if (listFieldsChanged) await bumpStationsHoldingTokens([token.id]);
   }
@@ -886,8 +1021,40 @@ export async function updateToken(
     if (await tombstoneTokenValue(old)) tombstones.push(old);
   }
   await publishTokenChanged(token.id);
-  await publishOcpiTokenPush({ tokenIds: [token.id], tombstones });
+  // An OCPI Token carries no label: a change of the label alone sends
+  // partners nothing.
+  if (!labelOnlyChange(current, token)) {
+    await publishOcpiTokenPush({ tokenIds: [token.id], tombstones });
+  }
   return token;
+}
+
+/** True when an update changed the label and no other column an OCPI Token or the card holds. */
+function labelOnlyChange(
+  current: {
+    idToken: string;
+    tokenType: string;
+    driverId: string | null;
+    label: string | null;
+    isActive: boolean;
+    expiresAt: Date | null;
+    revokedReason: string | null;
+    prepaidBalanceCents: number | null;
+    vehicleId: string | null;
+  },
+  token: typeof driverTokens.$inferSelect,
+): boolean {
+  return (
+    current.label !== token.label &&
+    current.idToken === token.idToken &&
+    current.tokenType === token.tokenType &&
+    current.driverId === token.driverId &&
+    current.isActive === token.isActive &&
+    (current.expiresAt?.getTime() ?? null) === (token.expiresAt?.getTime() ?? null) &&
+    current.revokedReason === token.revokedReason &&
+    current.prepaidBalanceCents === token.prepaidBalanceCents &&
+    current.vehicleId === token.vehicleId
+  );
 }
 
 export async function deleteToken(id: string, actor: TokenActor = { type: 'system' }) {
@@ -1077,7 +1244,6 @@ export interface TokenImportRow {
 }
 
 const MAX_ID_TOKEN_LENGTH = 255;
-const MAX_TOKEN_LABEL_LENGTH = 100;
 const WHITESPACE = /\s/;
 
 /**
@@ -1159,11 +1325,16 @@ export async function importTokensCsv(
       }
       expiresAt = d;
     }
-    const label = normalizeTokenLabel(row.label) ?? null;
-    if (label != null && label.length > MAX_TOKEN_LABEL_LENGTH) {
-      errors.push(`${rowLabel}: label is longer than ${String(MAX_TOKEN_LABEL_LENGTH)} characters`);
+    const labelProblem = row.label == null ? null : tokenLabelProblem(row.label);
+    if (labelProblem === 'too_long') {
+      errors.push(`${rowLabel}: label is longer than ${String(TOKEN_LABEL_MAX_LENGTH)} characters`);
       continue;
     }
+    if (labelProblem === 'control_characters') {
+      errors.push(`${rowLabel}: label contains control or invisible format characters`);
+      continue;
+    }
+    const label = normalizeTokenLabel(row.label) ?? null;
     seenInBatch.add(key);
     parsed.push({
       idToken,

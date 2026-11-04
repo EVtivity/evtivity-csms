@@ -10,6 +10,18 @@
     "./ad-hoc-payment.service": {
       "import": "./src/ad-hoc-payment.service.ts"
     },
+    "./charging-plan-profile-hash": {
+      "import": "./src/charging-plan-profile-hash.ts"
+    },
+    "./departure.service": {
+      "import": "./src/departure.service.ts"
+    },
+    "./departure-notice.service": {
+      "import": "./src/departure-notice.service.ts"
+    },
+    "./departure-import": {
+      "import": "./src/departure-import.ts"
+    },
     "./payment-terminal.service": {
       "import": "./src/payment-terminal.service.ts"
     },

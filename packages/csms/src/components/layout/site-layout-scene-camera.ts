@@ -18,10 +18,42 @@ import {
   type Box,
 } from './site-layout-grid';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { VIRTUAL_SIGN_WIDTH_M, type ScreenPoint } from './site-layout-scene-types';
 
-export function installCamera(scn: SceneCtx): void {
+type CameraCtx = SceneSlice<
+  | 'camera'
+  | 'container'
+  | 'controls'
+  | 'energyLabels'
+  | 'fog'
+  | 'frameBox'
+  | 'layout'
+  | 'linkLabels'
+  | 'lotBox'
+  | 'objects'
+  | 'options'
+  | 'poseOf'
+  | 'renderer'
+  | 'site'
+  | 'siteBox'
+  | 'transformerObjects'
+  | 'virtualSprites',
+  | 'applyZoomLimit'
+  | 'avatarPoint'
+  | 'energyLabelPoint'
+  | 'fit'
+  | 'focusStation'
+  | 'labelPoint'
+  | 'lastFitDense'
+  | 'linkLabelPoint'
+  | 'resize'
+  | 'transformerLabelPoint'
+  | 'updateFog'
+  | 'virtualSignPoint'
+>;
+
+export function installCamera(scn: CameraCtx): void {
   // `toggle`: an explicit Fit to View; on a narrow stage it alternates the
   // densest part and the whole site. Otherwise a narrow stage frames the
   // densest part of a wide site (denseFrameBox) and a wide stage the whole.

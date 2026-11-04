@@ -120,3 +120,19 @@ export function parseProxyEntry(entry: string): ProxyEntry {
     prefix: slash === -1 ? undefined : Number(entry.slice(slash + 1)),
   };
 }
+
+/**
+ * The protocol a trusted proxy reports in X-Forwarded-Proto, read the way
+ * Fastify reads `request.protocol` (`getLastEntryInMultiHeaderValue`): the
+ * LAST comma-separated entry, trimmed and lowercased. A proxy that appends to
+ * a client-sent header (`https, http`) then reports `http`, so a forged
+ * leftmost entry never counts. Repeated headers are joined in order first.
+ * Returns undefined without the header.
+ */
+export function lastForwardedProto(header: string | string[] | undefined): string | undefined {
+  if (header == null) return undefined;
+  const joined = Array.isArray(header) ? header.join(',') : header;
+  const lastComma = joined.lastIndexOf(',');
+  const last = (lastComma === -1 ? joined : joined.slice(lastComma + 1)).trim().toLowerCase();
+  return last === '' ? undefined : last;
+}

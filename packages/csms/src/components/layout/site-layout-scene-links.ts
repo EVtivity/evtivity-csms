@@ -8,10 +8,15 @@ import { SCENE_COLORS } from './site-layout-colors';
 import { linkPolyline, linkTubeGeometry, polylineLength } from './site-layout-link-curve';
 import type { LinkKind } from './site-layout-links';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { type LinkMeshes } from './site-layout-scene-types';
 
-export function installLinks(scn: SceneCtx): void {
+type LinksCtx = SceneSlice<
+  'flowTexture' | 'flowTextures' | 'linkFlow' | 'linkMeshes' | 'track',
+  'buildLink' | 'styleLink'
+>;
+
+export function installLinks(scn: LinksCtx): void {
   // A glowing cable run on the ground along an orthogonal path of lot
   // points: a thin bright core with a moving pulse and a wide faint halo.
   // Links never take clicks or drags.

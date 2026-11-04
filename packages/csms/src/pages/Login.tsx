@@ -30,7 +30,8 @@ import {
 } from '@/lib/webauthn';
 import { api, ApiError } from '@/lib/api';
 import { isRateLimited } from '@/lib/error-message';
-import { executeRecaptcha } from '@/lib/recaptcha';
+import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { MfaChallenge } from '@/components/MfaChallenge';
 import { readSsoMfaFragment } from '@/lib/sso-mfa';
 import { hasSsoMfaFragment, ssoFragmentFromThisTab, ssoLoginUrl } from '@/lib/sso-signin';
@@ -177,6 +178,8 @@ export function Login(): React.JSX.Element {
     queryKey: SECURITY_PUBLIC_QUERY_KEY,
     queryFn: () => api.get<SecurityPublic>('/v1/security/public'),
   });
+  const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
+    useRecaptchaToken();
 
   // A protected deep link sent the user here with ?returnTo=; keep it across
   // MFA and the SSO round trip (lib/return-to.ts).
@@ -317,14 +320,11 @@ export function Login(): React.JSX.Element {
     ) {
       autoLoginAttempted.current = true;
       void (async () => {
-        let recaptchaToken: string | undefined;
-        if (securityPublic.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
-          recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'login');
-        }
+        const recaptchaToken = await getRecaptchaToken('login');
         await login(DEV_AUTO_LOGIN, 'admin123', recaptchaToken);
       })();
     }
-  }, [isAuthenticated, login, securityPublic]);
+  }, [isAuthenticated, login, securityPublic, getRecaptchaToken]);
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -344,10 +344,7 @@ export function Login(): React.JSX.Element {
     setPasskeyMessage(null);
     setLoading(true);
     try {
-      let recaptchaToken: string | undefined;
-      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
-        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'login');
-      }
+      const recaptchaToken = await getRecaptchaToken('login');
       await login(email, password, recaptchaToken);
     } catch (err) {
       if (err instanceof MustResetPasswordError) {
@@ -462,8 +459,14 @@ export function Login(): React.JSX.Element {
               <p className="text-sm text-destructive">{validationErrors.password}</p>
             )}
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? t('auth.signingIn') : t('auth.signIn')}
+          <Button
+            type="submit"
+            className="relative w-full"
+            disabled={recaptchaConfigPending || loading}
+          >
+            <ButtonPendingLabel pending={recaptchaConfigPending}>
+              {loading ? t('auth.signingIn') : t('auth.signIn')}
+            </ButtonPendingLabel>
           </Button>
           <div className="text-center">
             <Link to="/forgot-password" className="text-sm font-medium text-link hover:underline">

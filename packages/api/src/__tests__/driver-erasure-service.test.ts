@@ -56,6 +56,7 @@ const {
   deleteCredentialsMock,
   clearAvatarMock,
   purgeAvatarMock,
+  clearLabelsMock,
 } = vi.hoisted(() => ({
   eraseMethodsMock: vi.fn(),
   deactivateMock: vi.fn(),
@@ -63,7 +64,9 @@ const {
   deleteCredentialsMock: vi.fn(),
   clearAvatarMock: vi.fn(),
   purgeAvatarMock: vi.fn(),
+  clearLabelsMock: vi.fn(),
 }));
+vi.mock('../services/token.service.js', () => ({ clearDriverTokenLabels: clearLabelsMock }));
 vi.mock('../services/driver-avatar.service.js', () => ({
   clearAvatarInErasure: clearAvatarMock,
   purgeDriverAvatarStorage: purgeAvatarMock,
@@ -107,6 +110,7 @@ describe('eraseDriver', () => {
     deactivateMock.mockResolvedValue({ tokensDeactivated: 3 });
     clearAvatarMock.mockReset().mockResolvedValue({ removed: false, object: null });
     purgeAvatarMock.mockReset().mockResolvedValue(undefined);
+    clearLabelsMock.mockReset().mockResolvedValue(2);
   });
 
   it('anonymizes the row, removes personal data, then methods and tokens, and audits counts only', async () => {
@@ -127,6 +131,7 @@ describe('eraseDriver', () => {
       paymentMethodsRemoved: 2,
       vehiclesRemoved: 1,
       tokensDeactivated: 3,
+      tokenLabelsCleared: 2,
       avatarRemoved: false,
     });
     expect(setFor('drivers')).toMatchObject({
@@ -161,12 +166,37 @@ describe('eraseDriver', () => {
           paymentMethodsRemoved: 2,
           vehiclesRemoved: 1,
           tokensDeactivated: 3,
+          tokenLabelsCleared: 2,
           avatarRemoved: false,
         },
       }),
       expect.anything(),
       log,
     );
+  });
+
+  it('clears the token labels inside the erasure transaction, before the token deactivation', async () => {
+    dbResults = [[{ id: DRIVER_ID, erasedAt: null }], [], [{ id: DRIVER_ID }]];
+    const order: string[] = [];
+    clearLabelsMock.mockImplementation((tx: unknown, driverId: string) => {
+      order.push(`labels ${driverId} ${tx != null ? 'in tx' : 'no tx'}`);
+      return Promise.resolve(4);
+    });
+    deactivateMock.mockImplementation(() => {
+      order.push('deactivate');
+      return Promise.resolve({ tokensDeactivated: 1 });
+    });
+    const result = await eraseDriver(DRIVER_ID, { actor, log });
+    expect(result.tokenLabelsCleared).toBe(4);
+    expect(order).toEqual([`labels ${DRIVER_ID} in tx`, 'deactivate']);
+  });
+
+  it('clears no label when a concurrent erasure won', async () => {
+    dbResults = [[{ id: DRIVER_ID, erasedAt: null }], [], []];
+    await expect(eraseDriver(DRIVER_ID, { actor, log })).rejects.toMatchObject({
+      code: 'DRIVER_ERASED',
+    });
+    expect(clearLabelsMock).not.toHaveBeenCalled();
   });
 
   it('runs the methods and token steps after the row is anonymized', async () => {

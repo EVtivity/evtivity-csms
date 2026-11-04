@@ -50,7 +50,7 @@ import {
   wallBoxIdleCable,
 } from './site-layout-wall-box-cable';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneCtx, SceneSlice } from './site-layout-scene-context';
 import {
   AC_HOLSTER_X,
   AC_HOLSTER_Y,
@@ -72,7 +72,27 @@ import { installLargeChargers } from './site-layout-scene-large-chargers';
 import type { StationMaterials } from './site-layout-scene-types';
 import { ENGLISH_SIGN_TEXTS } from './site-layout-signs';
 
-export function installChargerModel(scn: SceneCtx): void {
+type ChargerModelCtx = SceneSlice<
+  | 'M'
+  | 'addGlow'
+  | 'addScreenMessage'
+  | 'buildLargeCharger'
+  | 'cable'
+  | 'cableGround'
+  | 'cableHanger'
+  | 'chargerKit'
+  | 'chargerMaterials'
+  | 'holsteredConnector'
+  | 'layout'
+  | 'marker'
+  | 'modelKit'
+  | 'modelOf'
+  | 'pipeBollard'
+  | 'socketRing',
+  'chargerBody'
+>;
+
+export function installChargerModel(scn: ChargerModelCtx): void {
   function chargerBody(
     g: THREE.Group,
     s: SceneStation,

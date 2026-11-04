@@ -92,8 +92,10 @@ const R2_BUCKET_PATH = /^\/[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\/?$/;
  * A Cloudflare R2 endpoint as it may be stored: the origin of
  * `https://<account id>.r2.cloudflarestorage.com` (or its `eu` or `fedramp`
  * jurisdiction), as Cloudflare shows it as the bucket's S3 API URL. A bucket
- * name after the host is dropped. Any other host is refused, so R2 needs no
- * private hosts list. Null when the value is refused.
+ * name after the host is dropped, and so is a trailing dot of the host, so the
+ * stored origin matches the host the client signs for and the origin listed in
+ * STORAGE_IMG_SRC. Any other host is refused, so R2 needs no private hosts
+ * list. Null when the value is refused.
  */
 export function validateR2Endpoint(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -103,8 +105,9 @@ export function validateR2Endpoint(value: unknown): string | null {
   if (url.username !== '' || url.password !== '') return null;
   if (url.search !== '' || url.hash !== '') return null;
   if (url.pathname !== '/' && !R2_BUCKET_PATH.test(url.pathname)) return null;
-  if (!R2_HOST.test(hostOf(url))) return null;
-  return url.origin;
+  const host = hostOf(url);
+  if (!R2_HOST.test(host)) return null;
+  return `https://${host}`;
 }
 
 /**
@@ -159,4 +162,17 @@ export function createStorageRequestHandler(
     httpAgent: new HttpAgent({ keepAlive: true, lookup }),
     httpsAgent: new HttpsAgent({ keepAlive: true, lookup }),
   });
+}
+
+/**
+ * The bucket name pasted after the host of a Cloudflare R2 S3 API URL, or null
+ * when the URL names none or is not a valid R2 endpoint. The settings route
+ * compares it with the bucket it stores, so a URL copied from another bucket
+ * is refused instead of dropped unseen.
+ */
+export function r2EndpointBucket(value: unknown): string | null {
+  if (validateR2Endpoint(value) == null || typeof value !== 'string') return null;
+  const path = URL.parse(value.trim())?.pathname ?? '/';
+  const bucket = path.replace(/^\//, '').replace(/\/$/, '');
+  return bucket === '' ? null : bucket;
 }

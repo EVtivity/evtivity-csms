@@ -92,3 +92,33 @@ describe('Autocharge plug-in', () => {
     await expect(h.sim.plugInEv(1, { autocharge: 'VIN' })).rejects.toThrow(/needs the EV's vin/);
   });
 });
+
+describe('Plugged-in EV battery', () => {
+  type Gen = { batteryKwh: number; socPercent: number };
+  const gen = (h: Awaited<ReturnType<typeof liveHarness>>): Gen =>
+    (h.p['meterGens'] as Map<number, Gen>).get(1) as Gen;
+
+  it('charges the battery size and SoC the plug-in gave', async () => {
+    const h = await liveHarness('ocpp2.1');
+    await h.sim.plugInEv(1, { batteryKwh: 320, socPercent: 12 });
+    await h.sim.startCharging(1, 'CARD-1');
+    expect(gen(h).batteryKwh).toBe(320);
+    // The first meter tick may already have charged a little.
+    expect(gen(h).socPercent).toBeGreaterThanOrEqual(12);
+    expect(gen(h).socPercent).toBeLessThan(12.5);
+  });
+
+  it('takes the battery size of the body type without a size', async () => {
+    const h = await liveHarness('ocpp1.6');
+    await h.sim.plugInEv(1, { bodyType: 'semi_truck' });
+    await h.sim.startCharging(1, 'CARD-1');
+    expect(gen(h).batteryKwh).toBe(500);
+  });
+
+  it('gives a car battery to an EV plugged in without data', async () => {
+    const h = await liveHarness('ocpp2.1');
+    await h.sim.plugIn(1);
+    await h.sim.startCharging(1, 'CARD-1');
+    expect(gen(h).batteryKwh).toBe(60);
+  });
+});

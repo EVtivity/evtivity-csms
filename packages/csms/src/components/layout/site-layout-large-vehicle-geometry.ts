@@ -28,6 +28,10 @@ import {
   type CarKit,
   type CarMaterials,
 } from './site-layout-car-geometry';
+import { plugYaw, type ConnectorKind } from './site-layout-connectors';
+import type { ModelKit } from './site-layout-model-kit';
+import { createVehicleInletKit } from './site-layout-model-vehicle-inlet';
+import { INLET, defaultPlugOf, type VehicleInletKind } from './site-layout-vehicle-inlet';
 import { createBusDestinationSignKit } from './site-layout-model-bus-destination-sign';
 import { createBusDoorKit } from './site-layout-model-bus-door';
 import { createBusBatteryPodKit, createBusHvacKit } from './site-layout-model-bus-roof-pods';
@@ -212,17 +216,39 @@ function put(
   return mesh;
 }
 
-/** The charge inlet on the left side: a socket housing and its status light. */
-function addInlet(g: THREE.Group, p: Parts, m: CarMaterials, port: THREE.Vector3): void {
-  const housing = p.add(new THREE.BoxGeometry(0.05, 0.26, 0.3));
-  const light = p.add(new THREE.BoxGeometry(0.03, 0.04, 0.2));
-  put(g, housing, m.trim, port.x + 0.02, port.y, port.z);
-  put(g, light, m.chargePort, port.x - 0.006, port.y + 0.16, port.z);
+/**
+ * The charge inlet on the left side (site-layout-model-vehicle-inlet.ts): the
+ * plug face `INLET.seatM` inside the body surface at `surfaceX`, the inlet
+ * frame turned so its +z points into the vehicle (+x), the door hinged toward
+ * the nose. `port` is where the plugged handle's face sits.
+ */
+interface LargeInlet {
+  port: THREE.Vector3;
+  kit: ModelKit<keyof CarMaterials>;
+}
+
+function largeInlet(
+  p: Parts,
+  surfaceX: number,
+  spec: LargeVehicleSpec,
+  inlet: VehicleInletKind,
+  plug: ConnectorKind | null,
+): LargeInlet {
+  const kit = createVehicleInletKit({ kind: inlet, plug, side: 1, nose: false });
+  p.list.push(...kit.geometries);
+  return { port: new THREE.Vector3(surfaceX + INLET.seatM, spec.port.y, spec.port.z), kit };
+}
+
+function addInlet(g: THREE.Group, inlet: LargeInlet, m: CarMaterials): void {
+  const group = inlet.kit.build(m);
+  group.position.copy(inlet.port);
+  group.rotation.y = plugYaw(inlet.port, 0, false);
+  g.add(group);
 }
 
 // ---------------------------------------------------------------- city bus
 
-function buildBus(): CarKit {
+function buildBus(inlet: VehicleInletKind, plug: ConnectorKind | null): CarKit {
   const spec = LARGE_VEHICLE_SPECS.bus;
   const L = spec.length;
   const W = spec.width;
@@ -285,7 +311,8 @@ function buildBus(): CarKit {
   const bh = BUS_MIRROR.head;
   const mirror = p.add(roundedBox(bh.widthM, bh.heightM, bh.depthM, 0.04));
   const wheels = wheelParts(p, r);
-  const port = new THREE.Vector3(-W / 2 - 0.01, spec.port.y, spec.port.z);
+  const busInlet = largeInlet(p, -W / 2, spec, inlet, plug);
+  const port = busInlet.port;
   const roofContact = new THREE.Vector3(
     0,
     spec.roofContact?.y ?? roofY + 0.26,
@@ -329,7 +356,7 @@ function buildBus(): CarKit {
       g.add(unit);
     }
     addWheels(g, spec, wheels, m, W - 0.02);
-    addInlet(g, p, m, port);
+    addInlet(g, busInlet, m);
     return g;
   }
   // Pantograph contact rails above the front axle: four rails along the bus
@@ -384,7 +411,7 @@ function cabOutline(
   ];
 }
 
-function buildBoxTruck(): CarKit {
+function buildBoxTruck(inlet: VehicleInletKind, plug: ConnectorKind | null): CarKit {
   const spec = LARGE_VEHICLE_SPECS.box_truck;
   const L = spec.length;
   const W = spec.width;
@@ -458,7 +485,9 @@ function buildBoxTruck(): CarKit {
     mm.tubes.map((t) => p.add(mirrorTubeGeometry(t.from, t.to, TRUCK_MIRROR_TUBE_RADIUS_M))),
   );
   const wheels = wheelParts(p, r);
-  const port = new THREE.Vector3(-1.21, spec.port.y, spec.port.z);
+  // The inlet face on the battery pack's outer face under the deck.
+  const boxInlet = largeInlet(p, -1.185, spec, inlet, plug);
+  const port = boxInlet.port;
   const windshieldAt = new THREE.Vector3(0, (1.65 + roof) / 2 + 0.01, hoodLength + 0.27);
   const windshieldTilt = Math.atan2(0.55, roof - 1.65);
 
@@ -486,7 +515,7 @@ function buildBoxTruck(): CarKit {
     g.add(batteries.build(m), cabDoor.build(m), rearDoor.build(m));
     put(g, underride, m.trim, 0, 0.5, L - 0.1);
     addWheels(g, spec, wheels, m, 2.36);
-    addInlet(g, p, m, port);
+    addInlet(g, boxInlet, m);
     return g;
   }
   const { build, geometries } = mergeAssembly(assemble, p.list);
@@ -511,7 +540,7 @@ export const SEMI_PORT_BOX = {
   lengthM: 0.55,
 } as const;
 
-function buildSemiTruck(): CarKit {
+function buildSemiTruck(inlet: VehicleInletKind, plug: ConnectorKind | null): CarKit {
   const spec = LARGE_VEHICLE_SPECS.semi_truck;
   const L = spec.length;
   const W = spec.width;
@@ -576,7 +605,6 @@ function buildSemiTruck(): CarKit {
   const portBoxShell = p.add(
     roundedBox(portBox.outerX - portBox.innerX, portBox.heightM, portBox.lengthM, 0.04),
   );
-  const portBezel = p.add(roundedBox(0.02, 0.36, 0.42, 0.015));
   const portDrip = p.add(new THREE.BoxGeometry(0.06, 0.02, portBox.lengthM - 0.04));
   const fifthWheel = p.add(new THREE.CylinderGeometry(0.45, 0.45, 0.12, 18));
   const mudflap = p.add(new THREE.BoxGeometry(0.4, 0.6, 0.02));
@@ -622,7 +650,8 @@ function buildSemiTruck(): CarKit {
   const underride = p.add(new THREE.BoxGeometry(W - 0.3, 0.12, 0.12));
   const tailLamp = p.add(roundedBox(0.22, 0.12, 0.04, 0.03));
   const wheels = wheelParts(p, r);
-  const port = new THREE.Vector3(-cabW / 2 - 0.08, spec.port.y, spec.port.z);
+  const semiInlet = largeInlet(p, -portBox.outerX, spec, inlet, plug);
+  const port = semiInlet.port;
   const windshieldTilt = Math.atan2(0.45, 2.85 - 1.85);
 
   function assemble(m: CarMaterials): THREE.Group {
@@ -635,7 +664,6 @@ function buildSemiTruck(): CarKit {
     put(g, fifthWheel, m.trim, 0, 1.22, fifthWheelZ);
     const boxX = -(portBox.innerX + portBox.outerX) / 2;
     put(g, portBoxShell, m.paint, boxX, portBox.centerY, portBox.centerZ);
-    put(g, portBezel, m.trim, -portBox.outerX - 0.005, port.y, port.z);
     put(
       g,
       portDrip,
@@ -684,7 +712,7 @@ function buildSemiTruck(): CarKit {
     g.add(batteries.build(m), cabDoor.build(m), rearDoors.build(m));
     put(g, underride, m.trim, 0, 0.55, L - 0.3);
     addWheels(g, spec, wheels, m, 2.5);
-    addInlet(g, p, m, port);
+    addInlet(g, semiInlet, m);
     return g;
   }
   const { build, geometries } = mergeAssembly(assemble, p.list);
@@ -692,8 +720,18 @@ function buildSemiTruck(): CarKit {
 }
 
 /** The kit of one large body type. */
-export function createLargeVehicleKit(bodyType: LargeBodyType): CarKit {
-  if (bodyType === 'bus') return buildBus();
-  if (bodyType === 'box_truck') return buildBoxTruck();
-  return buildSemiTruck();
+/**
+ * A large vehicle kit with its inlet: CCS1 on the bus and the box truck (the
+ * North American plug-in transit bus and medium duty truck inlet, SAE J1772
+ * combo), MCS on the semi (SAE J3271). Plugged with the inlet's own DC plug
+ * unless `plug` says otherwise; null closes the door.
+ */
+export function createLargeVehicleKit(
+  bodyType: LargeBodyType,
+  inlet: VehicleInletKind = bodyType === 'semi_truck' ? 'mcs' : 'ccs1',
+  plug: ConnectorKind | null = defaultPlugOf(inlet),
+): CarKit {
+  if (bodyType === 'bus') return buildBus(inlet, plug);
+  if (bodyType === 'box_truck') return buildBoxTruck(inlet, plug);
+  return buildSemiTruck(inlet, plug);
 }

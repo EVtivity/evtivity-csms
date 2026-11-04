@@ -61,6 +61,10 @@ export interface SiteFixture {
   panel: string;
   circuit: string;
   load: string;
+  /** A rated service transformer of the site (linked to no panel). */
+  transformer: string;
+  /** A battery of the site with api telemetry. */
+  energyAsset: string;
   csr: number;
   csr2: number;
   cdr: string;
@@ -98,6 +102,10 @@ export interface SiteFixture {
   insight: string;
   /** A reservation insight of the site's reservation. */
   reservationInsight: string;
+  /** A weekly departure schedule of the fleet vehicle at the site. */
+  departureSchedule: string;
+  /** A scheduled one-off departure of the fleet vehicle at the site. */
+  departure: string;
 }
 
 /** Company-wide fixtures shared by both sites. */
@@ -131,6 +139,8 @@ export interface MatrixWorld {
   snapshotDay: string;
   /** A SIM with no attachment: company-wide, all-site users only. */
   simUnattached: string;
+  /** A vehicle of `driver`, a member of `fleet`: the vehicle of the departure fixtures. */
+  vehicle: string;
 }
 
 type UrlFn = (f: SiteFixture, w: MatrixWorld) => string;
@@ -295,6 +305,9 @@ const OFFLINE = 'no station is connected in the test database';
 const NO_PROVIDER = 'no payment provider is configured in the test database';
 const NO_PROVIDER_PAYMENT = 'the seeded payments have no provider payment';
 const NO_S3 = 'no S3 storage is configured in the test database';
+const NO_DEPOT_SYSTEM = 'the matrix fixtures hold no bus depot system';
+const NO_DEPOT_SITE = 'the matrix sites are not Depot sites';
+const DEPOT_PROOF = { kind: 'password', password: 'TestPassword1' } as const;
 
 const st = (f: SiteFixture): string => `/stations/${f.station}`;
 const sit = (f: SiteFixture): string => `/sites/${f.site}`;
@@ -1369,6 +1382,95 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     counts: [{ path: '@sum:energyWh', all: 3000, a: 1000 }],
   }),
 
+  // fleet departures and departure schedules (route-aware charging): scoped by
+  // the departure's site; a create names the site in the body.
+  l(
+    '/fleets/:id/departure-schedules',
+    'fleets:read',
+    (_f, w) => `/fleets/${w.fleet}/departure-schedules`,
+  ),
+  l('/fleets/:id/departures', 'fleets:read', (_f, w) => `/fleets/${w.fleet}/departures`),
+  s(
+    'POST',
+    '/fleets/:id/departure-schedules',
+    'fleets:write',
+    (_f, w) => `/fleets/${w.fleet}/departure-schedules`,
+    'SITE_NOT_FOUND',
+    {
+      body: (f, w) => ({
+        vehicleId: w.vehicle,
+        siteId: f.site,
+        daysOfWeek: [1, 3, 5],
+        departureTime: '05:30',
+        targetKind: 'energy',
+        targetEnergyKwh: 40,
+      }),
+    },
+  ),
+  s(
+    'POST',
+    '/fleets/:id/departures',
+    'fleets:write',
+    (_f, w) => `/fleets/${w.fleet}/departures`,
+    'SITE_NOT_FOUND',
+    {
+      body: (f, w) => ({
+        vehicleId: w.vehicle,
+        siteId: f.site,
+        departureAt: iso(50),
+        targetKind: 'energy',
+        targetEnergyKwh: 40,
+      }),
+    },
+  ),
+  // A 200 with per-row errors: the refused row names its line and column only.
+  s(
+    'POST',
+    '/fleets/:id/departures/import',
+    'fleets:write',
+    (_f, w) => `/fleets/${w.fleet}/departures/import`,
+    '',
+    {
+      status: 200,
+      body: (f, w) => ({
+        csv: `vehicle,site,departure,energy_kwh\n${w.vehicle},${f.site},${iso(52)},40\n`,
+      }),
+      expectText: () => 'not_found',
+      noSitesText: () => 'not_found',
+    },
+  ),
+  s(
+    'PATCH',
+    '/departure-schedules/:id',
+    'fleets:write',
+    (f) => `/departure-schedules/${f.departureSchedule}`,
+    'DEPARTURE_SCHEDULE_NOT_FOUND',
+    { body: () => ({ priority: 9 }) },
+  ),
+  s(
+    'DELETE',
+    '/departure-schedules/:id',
+    'fleets:write',
+    (f) => `/departure-schedules/${f.departureSchedule}`,
+    'DEPARTURE_SCHEDULE_NOT_FOUND',
+  ),
+  s(
+    'PATCH',
+    '/departures/:id',
+    'fleets:write',
+    (f) => `/departures/${f.departure}`,
+    'DEPARTURE_NOT_FOUND',
+    { body: () => ({ priority: 9 }) },
+  ),
+  s(
+    'POST',
+    '/departures/:id/cancel',
+    'fleets:write',
+    (f) => `/departures/${f.departure}/cancel`,
+    'DEPARTURE_NOT_FOUND',
+    { control: { order: 1 } },
+  ),
+
   // holidays (company-wide writes)
   c('POST', '/pricing-holidays', 'pricing:write', () => '/pricing-holidays', 'HOLIDAY_NOT_FOUND', {
     body: () => ({ name: 'Holiday', date: '2026-12-25' }),
@@ -1518,6 +1620,24 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `${sit(f)}/load-management`,
     'SITE_NOT_FOUND',
     { body: () => ({ strategy: 'equal_share', isEnabled: true }) },
+  ),
+  s(
+    'GET',
+    '/sites/:id/charging-plan',
+    'loadManagement:read',
+    (f) => `${sit(f)}/charging-plan`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'POST',
+    '/sites/:id/charging-plan/recalculate',
+    'loadManagement:write',
+    (f) => `${sit(f)}/charging-plan/recalculate`,
+    'SITE_NOT_FOUND',
+    {
+      body: () => ({}),
+      control: ctl(400, 'FLEET_CHARGING_DISABLED', 'fleet charging is off in the test database'),
+    },
   ),
   s(
     'PATCH',
@@ -2077,6 +2197,121 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'PANEL_NOT_FOUND',
   ),
 
+  // transformers
+  s(
+    'GET',
+    '/sites/:siteId/transformers',
+    'loadManagement:read',
+    (f) => `${sit(f)}/transformers`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'POST',
+    '/sites/:siteId/transformers',
+    'loadManagement:write',
+    (f) => `${sit(f)}/transformers`,
+    'SITE_NOT_FOUND',
+    { body: () => ({ kind: 'service', name: 'Transformer X', ratedKva: 300 }) },
+  ),
+  s(
+    'PATCH',
+    '/sites/:siteId/transformers/:transformerId',
+    'loadManagement:write',
+    (f) => `${sit(f)}/transformers/${f.transformer}`,
+    'TRANSFORMER_NOT_FOUND',
+    {
+      body: () => ({ name: 'Renamed' }),
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/transformers/${f.transformer}`,
+          body: () => ({ name: 'Renamed' }),
+          code: 'TRANSFORMER_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
+    'DELETE',
+    '/sites/:siteId/transformers/:transformerId',
+    'loadManagement:write',
+    (f) => `${sit(f)}/transformers/${f.transformer}`,
+    'TRANSFORMER_NOT_FOUND',
+    {
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/transformers/${f.transformer}`,
+          code: 'TRANSFORMER_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+
+  // batteries and solar
+  s(
+    'GET',
+    '/sites/:siteId/energy-assets',
+    'loadManagement:read',
+    (f) => `${sit(f)}/energy-assets`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'POST',
+    '/sites/:siteId/energy-assets',
+    'loadManagement:write',
+    (f) => `${sit(f)}/energy-assets`,
+    'SITE_NOT_FOUND',
+    { body: () => ({ type: 'battery', name: 'Battery X', capacityKwh: 100 }) },
+  ),
+  s(
+    'PATCH',
+    '/sites/:siteId/energy-assets/:assetId',
+    'loadManagement:write',
+    (f) => `${sit(f)}/energy-assets/${f.energyAsset}`,
+    'ENERGY_ASSET_NOT_FOUND',
+    {
+      body: () => ({ name: 'Renamed' }),
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/energy-assets/${f.energyAsset}`,
+          body: () => ({ name: 'Renamed' }),
+          code: 'ENERGY_ASSET_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
+    'DELETE',
+    '/sites/:siteId/energy-assets/:assetId',
+    'loadManagement:write',
+    (f) => `${sit(f)}/energy-assets/${f.energyAsset}`,
+    'ENERGY_ASSET_NOT_FOUND',
+    {
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/energy-assets/${f.energyAsset}`,
+          code: 'ENERGY_ASSET_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
+    'PUT',
+    '/sites/:siteId/energy-assets/:assetId/reading',
+    'loadManagement:write',
+    (f) => `${sit(f)}/energy-assets/${f.energyAsset}/reading`,
+    'ENERGY_ASSET_NOT_FOUND',
+    {
+      body: () => ({ reportedAt: new Date().toISOString(), powerKw: 50 }),
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/energy-assets/${f.energyAsset}/reading`,
+          body: () => ({ reportedAt: new Date().toISOString(), powerKw: 50 }),
+          code: 'ENERGY_ASSET_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+
   // payments
   s(
     'GET',
@@ -2491,6 +2726,18 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `/sessions/${f.session}/meter-values`,
     'SESSION_NOT_FOUND',
     { unsited: true },
+  ),
+  s(
+    'PUT',
+    '/sessions/:id/vehicle',
+    'sessions:write',
+    (f) => `/sessions/${f.session}/vehicle`,
+    'SESSION_NOT_FOUND',
+    {
+      unsited: true,
+      body: (_f, w) => ({ vehicleId: w.vehicle }),
+      control: ctl(409, 'SESSION_NOT_ACTIVE', 'the seeded session is not active'),
+    },
   ),
   s(
     'POST',
@@ -3409,6 +3656,82 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     () => '/settings/payment-terminals/simulated/test',
     'SETTING_NOT_FOUND',
     { body: () => ({}) },
+  ),
+  // Bus depot systems (VDV 463) can serve several depots: all-site users only.
+  // The matrix fixtures hold no depot system and no Depot site, so the all-site
+  // admin's call answers the not-found or not-a-depot refusal after the guard.
+  c(
+    'GET',
+    '/depot-systems',
+    'settings.integrations:read',
+    () => '/depot-systems',
+    'DEPOT_SYSTEM_NOT_FOUND',
+  ),
+  c(
+    'GET',
+    '/depot-systems/:id',
+    'settings.integrations:read',
+    () => '/depot-systems/dms_matrix000001',
+    'DEPOT_SYSTEM_NOT_FOUND',
+    { adminStatus: 404 },
+  ),
+  c(
+    'GET',
+    '/depot-systems/:id/identifiers',
+    'settings.integrations:read',
+    () => '/depot-systems/dms_matrix000001/identifiers',
+    'DEPOT_SYSTEM_NOT_FOUND',
+    { adminStatus: 404 },
+  ),
+  c(
+    'POST',
+    '/depot-systems',
+    'settings.integrations:write',
+    () => '/depot-systems',
+    'DEPOT_SYSTEM_NOT_FOUND',
+    {
+      body: (f) => ({
+        presystemId: 'MATRIX-DMS',
+        name: 'Matrix depot system',
+        systemType: 'BMS',
+        siteIds: [f.site],
+        proof: DEPOT_PROOF,
+      }),
+      control: ctl(400, 'DEPOT_SYSTEM_SITE_NOT_DEPOT', NO_DEPOT_SITE),
+    },
+  ),
+  c(
+    'PATCH',
+    '/depot-systems/:id',
+    'settings.integrations:write',
+    () => '/depot-systems/dms_matrix000001',
+    'DEPOT_SYSTEM_NOT_FOUND',
+    {
+      body: () => ({ name: 'Renamed' }),
+      control: ctl(404, 'DEPOT_SYSTEM_NOT_FOUND', NO_DEPOT_SYSTEM),
+    },
+  ),
+  c(
+    'POST',
+    '/depot-systems/:id/password',
+    'settings.integrations:write',
+    () => '/depot-systems/dms_matrix000001/password',
+    'DEPOT_SYSTEM_NOT_FOUND',
+    {
+      body: () => ({ proof: DEPOT_PROOF }),
+      control: ctl(404, 'DEPOT_SYSTEM_NOT_FOUND', NO_DEPOT_SYSTEM),
+    },
+  ),
+  c(
+    'DELETE',
+    '/depot-systems/:id',
+    'settings.integrations:write',
+    () => '/depot-systems/dms_matrix000001',
+    'DEPOT_SYSTEM_NOT_FOUND',
+    {
+      body: () => ({ proof: DEPOT_PROOF }),
+      control: ctl(404, 'DEPOT_SYSTEM_NOT_FOUND', NO_DEPOT_SYSTEM),
+    },
   ),
 
   // stations

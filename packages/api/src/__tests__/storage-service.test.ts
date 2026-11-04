@@ -74,13 +74,39 @@ describe('storage.service', () => {
     const { readFileSync, readdirSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const dir = fileURLToPath(new URL('../../../services/src/storage/', import.meta.url));
+    // Every getSignedUrl call, with its arguments up to the matching
+    // parenthesis, so a call through another client or an inline command
+    // counts too, and the signed headers are checked inside the one PUT call.
+    const signedUrlCalls = (source: string): string[] => {
+      const calls: string[] = [];
+      for (const match of source.matchAll(/getSignedUrl\(/g)) {
+        const start = match.index + match[0].length;
+        let depth = 1;
+        let end = start;
+        while (end < source.length && depth > 0) {
+          const char = source[end];
+          if (char === '(') depth++;
+          else if (char === ')') depth--;
+          end++;
+        }
+        calls.push(source.slice(start, end - 1));
+      }
+      return calls;
+    };
     let presignedGet = 0;
     let presignedPut = 0;
     for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
       const source = readFileSync(`${dir}${file}`, 'utf8');
-      for (const call of source.matchAll(/getSignedUrl\(\s*this\.client,\s*(\w+)/g)) {
-        const variable = call[1] ?? '';
+      for (const args of signedUrlCalls(source)) {
+        const shape = /^\s*this\.client,\s*(\w+),\s*(\{[\s\S]*\})\s*,?\s*$/.exec(args);
+        expect(
+          shape,
+          `${file}: getSignedUrl(${args}) is neither a GET nor the R2 upload`,
+        ).not.toBeNull();
+        const variable = shape?.[1] ?? '';
+        const options = shape?.[2] ?? '';
         if (new RegExp(`const ${variable} = new GetObjectCommand\\(`).test(source)) {
+          expect(options, file).toMatch(/^\{\s*expiresIn: DOWNLOAD_URL_EXPIRES_SECONDS\s*\}$/);
           presignedGet++;
           continue;
         }
@@ -88,10 +114,9 @@ describe('storage.service', () => {
           'r2-object-storage.ts',
         );
         expect(source).toMatch(new RegExp(`const ${variable} = new PutObjectCommand\\(`));
-        expect(source).toMatch(/signableHeaders: new Set\(R2_SIGNED_UPLOAD_HEADERS\)/);
+        expect(options).toMatch(/signableHeaders: new Set\(R2_SIGNED_UPLOAD_HEADERS\)/);
         presignedPut++;
       }
-      expect(source, file).not.toMatch(/getSignedUrl\([^)]*PutObjectCommand/);
     }
     expect(presignedGet).toBeGreaterThan(0);
     expect(presignedPut).toBe(1);

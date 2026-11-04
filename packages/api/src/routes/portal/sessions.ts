@@ -10,8 +10,6 @@ import {
   getCompanyCurrency,
   inOperatorStation,
   isAutochargeEnabledForStation,
-  writeAudit,
-  sessionAuditLog,
 } from '@evtivity/database';
 import {
   chargingSessions,
@@ -619,7 +617,8 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           reservationId: chargingSessions.reservationId,
           tokenIdToken: driverTokens.idToken,
           tokenType: driverTokens.tokenType,
-          vehicleId: chargingSessions.vehicleId,
+          // Read from the join, so the vehicle shows only when it is the driver's own.
+          vehicleId: vehicles.id,
           vehicleMake: vehicles.make,
           vehicleModel: vehicles.model,
           vehicleYear: vehicles.year,
@@ -639,7 +638,15 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .leftJoin(sites, sessionSiteJoin)
         .leftJoin(driverTokens, eq(chargingSessions.tokenId, driverTokens.id))
-        .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
+        // An operator can assign a fleet vehicle of another driver to the
+        // session; the driver sees only their own vehicle's details.
+        .leftJoin(
+          vehicles,
+          and(
+            eq(chargingSessions.vehicleId, vehicles.id),
+            eq(vehicles.driverId, chargingSessions.driverId),
+          ),
+        )
         // Another driver's session answers 404 like an unknown one, so a
         // session id does not reveal that the session exists.
         .where(and(eq(chargingSessions.id, id), eq(chargingSessions.driverId, driverId)));
@@ -866,6 +873,9 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             ERROR_CODES.SESSION_NOT_FOUND,
             ERROR_CODES.VEHICLE_NOT_FOUND,
           ]),
+          409: errorWith('The vehicle an operator assigned stays while the depot plan charges', [
+            ERROR_CODES.SESSION_VEHICLE_OPERATOR_ASSIGNED,
+          ]),
         },
       },
     },
@@ -873,52 +883,33 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const { id } = request.params as z.infer<typeof sessionParams>;
       const { vehicleId } = request.body as { vehicleId: string | null };
-
-      const [session] = await db
-        .select({ driverId: chargingSessions.driverId, vehicleId: chargingSessions.vehicleId })
-        .from(chargingSessions)
-        // Another driver's session answers 404 like an unknown one, so a
-        // session id does not reveal that the session exists.
-        .where(and(eq(chargingSessions.id, id), eq(chargingSessions.driverId, driverId)));
-
-      if (session == null) {
-        await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
-        return;
-      }
-      if (vehicleId != null) {
-        const [vehicle] = await db
-          .select({ driverId: vehicles.driverId })
-          .from(vehicles)
-          .where(eq(vehicles.id, vehicleId));
-        // Another driver's vehicle answers 404 like an unknown one.
-        if (vehicle?.driverId !== driverId) {
+      try {
+        // The vehicle writer: the driver's own session and vehicle only (another
+        // driver's answers 404 like an unknown one), the vehicle an operator
+        // assigned stays while the depot plan charges, audit and plan mark.
+        const result = await vehicleService.setDriverSessionVehicle(
+          { sessionId: id, driverId, vehicleId },
+          getAuditActor(request),
+          request.log,
+        );
+        return { vehicleId: result.vehicleId };
+      } catch (err: unknown) {
+        if (err instanceof vehicleService.SessionNotFoundError) {
+          await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+          return;
+        }
+        if (err instanceof vehicleService.VehicleNotFoundError) {
           await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
           return;
         }
+        if (err instanceof vehicleService.SessionVehicleOperatorAssignedError) {
+          await reply
+            .status(409)
+            .send({ error: err.message, code: 'SESSION_VEHICLE_OPERATOR_ASSIGNED' });
+          return;
+        }
+        throw err;
       }
-
-      await db
-        .update(chargingSessions)
-        .set({ vehicleId, updatedAt: new Date() })
-        .where(and(eq(chargingSessions.id, id), eq(chargingSessions.driverId, driverId)));
-
-      if ((session.vehicleId ?? null) !== vehicleId) {
-        await writeAudit(
-          { table: sessionAuditLog, idColumn: 'session_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'vehicle_changed',
-            ...getAuditActor(request),
-            before: { vehicleId: session.vehicleId ?? null },
-            after: { vehicleId },
-          },
-          db,
-          request.log,
-        );
-      }
-
-      return { vehicleId };
     },
   );
 

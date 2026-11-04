@@ -4,8 +4,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { effectiveLayoutSettings } from '@evtivity/lib/site-layout';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { NO_POWER_EQUIPMENT, effectiveLayoutSettings } from '@evtivity/lib/site-layout';
 
+vi.mock('@/lib/auth', () => ({ useHasPermission: () => false }));
 vi.mock('react-i18next', () => ({
   Trans: ({ i18nKey }: { i18nKey: string }) => i18nKey,
   initReactI18next: { type: '3rdParty', init: () => undefined },
@@ -17,7 +19,6 @@ vi.mock('react-i18next', () => ({
 }));
 
 import { LayoutSettingsPanel, parseCountField } from '../LayoutSettingsPanel';
-import { parseRatedKva } from '../PowerEquipment';
 
 const SETTINGS = effectiveLayoutSettings(null);
 
@@ -25,15 +26,18 @@ function renderPanel(stationCount = 4, settings = SETTINGS) {
   const onChange = vi.fn();
   const onInvalidChange = vi.fn();
   render(
-    <MemoryRouter>
-      <LayoutSettingsPanel
-        siteId="site-1"
-        settings={settings}
-        stationCount={stationCount}
-        onChange={onChange}
-        onInvalidChange={onInvalidChange}
-      />
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter>
+        <LayoutSettingsPanel
+          siteId="site-1"
+          settings={settings}
+          equipment={NO_POWER_EQUIPMENT}
+          stationCount={stationCount}
+          onChange={onChange}
+          onInvalidChange={onInvalidChange}
+        />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
   return { onChange, onInvalidChange };
 }
@@ -52,9 +56,6 @@ describe('LayoutSettingsPanel', () => {
     expect(parseCountField('chargersLeft', '0')).toBe(0);
     expect(parseCountField('chargersRight', '101')).toBeNull();
     expect(parseCountField('rows', '')).toBeNull();
-    expect(parseRatedKva('')).toBeNull();
-    expect(parseRatedKva('2500')).toBe(2500);
-    expect(parseRatedKva('0')).toBeUndefined();
   });
 
   it('sends a valid lot change at once and holds Save while a value is invalid', () => {
@@ -84,8 +85,12 @@ describe('LayoutSettingsPanel', () => {
     renderPanel();
     expect(screen.getByLabelText('sites.layoutSettings.spotsPerRow')).toBeTruthy();
     expect(screen.getByLabelText('sites.layoutSettings.facingDeg')).toBeTruthy();
-    // The power equipment sits behind its button, not inline.
-    expect(screen.getByTestId('power-equipment')).toBeTruthy();
+    // No Power Equipment button (owner decision 2026-11-04): a note says
+    // the equipment is dragged in 3D and edited on the Load Management tab.
+    expect(screen.queryByRole('button', { name: /powerEquipment/i })).toBeNull();
+    expect(screen.getByTestId('layout-power-equipment-note').textContent).toBe(
+      'sites.layoutSettings.powerEquipmentDragHint',
+    );
     expect(screen.queryByTestId('layout-energy-assets')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.chargers')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.mounting')).toBeNull();
@@ -154,7 +159,7 @@ describe('LayoutSettingsPanel', () => {
     expect(screen.getByRole('alert').textContent).toBe('sites.layoutSettings.tooSmall');
   });
 
-  it('shows a custom site with no counts and its power equipment button', () => {
+  it('shows a custom site with no counts and its power equipment note', () => {
     const custom = { ...SETTINGS, siteType: 'custom' as const, energyAssets: [] };
     renderPanel(4, custom);
     expect(screen.getByTestId('layout-settings-custom-hint').textContent).toBe(
@@ -162,7 +167,7 @@ describe('LayoutSettingsPanel', () => {
     );
     expect(screen.queryByLabelText('sites.layoutSettings.spotsPerRow')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.facingDeg')).toBeNull();
-    expect(screen.getByTestId('power-equipment')).toBeTruthy();
+    expect(screen.getByTestId('layout-power-equipment-note')).toBeTruthy();
     // A custom site has no spot limit.
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -186,8 +191,8 @@ describe('LayoutSettingsPanel', () => {
     fireEvent.change(bus, { target: { value: '0' } });
     fireEvent.change(truck, { target: { value: '0' } });
     expect(onInvalidChange).toHaveBeenLastCalledWith(true);
-    // Transformers, batteries and solar beside the yard: behind the Power Equipment button.
-    expect(screen.getByTestId('power-equipment')).not.toBeNull();
+    // Transformers, batteries and solar beside the yard: dragged in 3D, edited on Load Management.
+    expect(screen.getByTestId('layout-power-equipment-note')).not.toBeNull();
   });
 
   it('warns when a depot has fewer bus bays and truck lanes than stations', () => {

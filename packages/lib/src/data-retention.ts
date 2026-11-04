@@ -66,6 +66,7 @@ export const DATA_RETENTION_SETTINGS = Object.freeze({
   'logs.connection.retentionDays': logs('operationalLogs', 90),
   'logs.notifications.retentionDays': logs('operationalLogs', 90),
   'logs.loadAllocation.retentionDays': logs('operationalLogs', 90),
+  'logs.departures.retentionDays': logs('operationalLogs', 365),
   'audit.retentionDays': logs('securityAudit', 1095),
   'logs.loginAudit.retentionDays': logs('securityAudit', 90),
   'logs.securityEvents.retentionDays': logs('securityAudit', 365),

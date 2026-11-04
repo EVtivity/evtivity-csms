@@ -92,6 +92,43 @@ export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   cancelled: '#9ca3af',
 };
 
+/**
+ * Escapes text for ApexCharts, which writes series names (legend, tooltip)
+ * and the tooltip title as HTML. Every user-entered text that reaches a
+ * series name or a tooltip formatter goes through it; axis labels are SVG text
+ * and take the raw value.
+ */
+export function escapeChartText(value: string | number | null | undefined): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Categorical series colors in fixed order (one per vehicle of a depot plan),
+ * light and dark steps checked for color-vision separation and contrast
+ * against the card surface. A series past the last slot folds into "Other"
+ * (`SERIES_OTHER_COLOR`); never generate a color.
+ */
+export const SERIES_COLORS = {
+  light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6'],
+  dark: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9'],
+} as const;
+
+export const SERIES_OTHER_COLOR = { light: '#94a3b8', dark: '#64748b' } as const;
+
+/** The card surface behind a chart: the 2px gap between stacked or adjacent fills. */
+export const CHART_SURFACE_COLOR = { light: '#ffffff', dark: '#131a25' } as const;
+
+/** A reference line in a chart (a limit, a capacity): text-like ink, not a series color. */
+export const REFERENCE_LINE_COLOR = { light: '#334155', dark: '#cbd5e1' } as const;
+
+/** A shaded band behind a chart (a period worth noting, such as a higher price). */
+export const BAND_COLOR = { light: '#94a3b8', dark: '#64748b' } as const;
+
 export const SVG_COLORS = {
   stationBody: '#1e293b',
   stationStroke: '#334155',

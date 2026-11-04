@@ -36,6 +36,23 @@ import {
   vehicleAppearanceLabel,
   type VehicleAppearance,
 } from '@/components/VehicleAppearanceFields';
+import {
+  VehicleBatteryFields,
+  batteryBodyValue,
+  batteryInputValue,
+  formatBatteryValue,
+  vehicleBatteryErrors,
+  type VehicleBattery,
+} from '@/components/VehicleBatteryFields';
+import {
+  VehiclePreconditioningFields,
+  formatPreconditioningPower,
+  preconditioningInputValues,
+  preconditioningMinutesBody,
+  preconditioningPowerBody,
+  vehiclePreconditioningErrors,
+  type VehiclePreconditioning,
+} from '@/components/VehiclePreconditioningFields';
 
 interface Vehicle {
   id: string;
@@ -47,6 +64,10 @@ interface Vehicle {
   licensePlate: string | null;
   color: string | null;
   bodyType: string | null;
+  batteryCapacityKwh: number | null;
+  maxChargePowerKw: number | null;
+  preconditioningPowerKw?: number | null;
+  preconditioningMinutes?: number;
   evccid: string | null;
   autochargeEnabled: boolean;
   autochargeBlockedAt: string | null;
@@ -92,6 +113,13 @@ export function VehicleDetail(): React.JSX.Element {
     color: null,
     bodyType: null,
   });
+  const [battery, setBattery] = useState<VehicleBattery>({
+    batteryCapacityKwh: '',
+    maxChargePowerKw: '',
+  });
+  const [preconditioning, setPreconditioning] = useState<VehiclePreconditioning>(
+    preconditioningInputValues(),
+  );
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -159,6 +187,10 @@ export function VehicleDetail(): React.JSX.Element {
       evccid?: string | null;
       color?: string | null;
       bodyType?: string | null;
+      batteryCapacityKwh?: number | null;
+      maxChargePowerKw?: number | null;
+      preconditioningPowerKw?: number | null;
+      preconditioningMinutes?: number;
     }) => api.patch<Vehicle>(`/v1/drivers/${id ?? ''}/vehicles/${vehicleId ?? ''}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', id, 'vehicles', vehicleId] });
@@ -187,6 +219,11 @@ export function VehicleDetail(): React.JSX.Element {
       color: isVehicleColor(vehicle.color) ? vehicle.color : null,
       bodyType: isVehicleBodyType(vehicle.bodyType) ? vehicle.bodyType : null,
     });
+    setBattery({
+      batteryCapacityKwh: batteryInputValue(vehicle.batteryCapacityKwh),
+      maxChargePowerKw: batteryInputValue(vehicle.maxChargePowerKw),
+    });
+    setPreconditioning(preconditioningInputValues(vehicle));
     setEvccid(vehicle.evccid != null ? formatVehicleId(vehicle.evccid) : '');
     setHasSubmitted(false);
     updateMutation.reset();
@@ -206,6 +243,8 @@ export function VehicleDetail(): React.JSX.Element {
     if (evccid.trim() !== '' && normalizeEvccid(evccid) == null) {
       errors.evccid = t('vehicles.evccidFormat');
     }
+    Object.assign(errors, vehicleBatteryErrors(battery, t));
+    Object.assign(errors, vehiclePreconditioningErrors(preconditioning, t));
     return errors;
   }
 
@@ -225,6 +264,10 @@ export function VehicleDetail(): React.JSX.Element {
     const vinValue = optional(vin, vehicle?.vin ?? null);
     const plateValue = optional(licensePlate, vehicle?.licensePlate ?? null);
     const evccidValue = optional(evccid, vehicle?.evccid ?? null);
+    const capacityValue = batteryBodyValue(battery.batteryCapacityKwh);
+    const maxPowerValue = batteryBodyValue(battery.maxChargePowerKw);
+    const preconditioningPowerValue = preconditioningPowerBody(preconditioning);
+    const preconditioningMinutesValue = preconditioningMinutesBody(preconditioning);
     updateMutation.mutate({
       make,
       model,
@@ -235,6 +278,18 @@ export function VehicleDetail(): React.JSX.Element {
       ...(appearance.color !== (vehicle?.color ?? null) ? { color: appearance.color } : {}),
       ...(appearance.bodyType !== (vehicle?.bodyType ?? null)
         ? { bodyType: appearance.bodyType }
+        : {}),
+      ...(capacityValue !== (vehicle?.batteryCapacityKwh ?? null)
+        ? { batteryCapacityKwh: capacityValue }
+        : {}),
+      ...(maxPowerValue !== (vehicle?.maxChargePowerKw ?? null)
+        ? { maxChargePowerKw: maxPowerValue }
+        : {}),
+      ...(preconditioningPowerValue !== (vehicle?.preconditioningPowerKw ?? null)
+        ? { preconditioningPowerKw: preconditioningPowerValue }
+        : {}),
+      ...(preconditioningMinutesValue !== (vehicle?.preconditioningMinutes ?? 30)
+        ? { preconditioningMinutes: preconditioningMinutesValue }
         : {}),
     });
   }
@@ -369,6 +424,20 @@ export function VehicleDetail(): React.JSX.Element {
                     value={appearance}
                     onChange={setAppearance}
                   />
+                  <VehicleBatteryFields
+                    idPrefix="edit"
+                    value={battery}
+                    onChange={setBattery}
+                    errors={hasSubmitted ? vehicleBatteryErrors(battery, t) : undefined}
+                  />
+                  <VehiclePreconditioningFields
+                    idPrefix="edit"
+                    value={preconditioning}
+                    onChange={setPreconditioning}
+                    errors={
+                      hasSubmitted ? vehiclePreconditioningErrors(preconditioning, t) : undefined
+                    }
+                  />
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="edit-evccid" className="leading-6">
                       {t('vehicles.evccid')}
@@ -437,6 +506,32 @@ export function VehicleDetail(): React.JSX.Element {
                   <dt className="text-muted-foreground">{t('vehicles.bodyType')}</dt>
                   <dd className="font-medium">
                     {vehicleAppearanceLabel(t, 'bodyTypes', vehicle.bodyType)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.batteryCapacityKwh')}</dt>
+                  <dd className="font-medium">
+                    {formatBatteryValue(vehicle.batteryCapacityKwh, 'kWh') ?? 'n/a'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.maxChargePowerKw')}</dt>
+                  <dd className="font-medium">
+                    {formatBatteryValue(vehicle.maxChargePowerKw, 'kW') ?? 'n/a'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.preconditioningPowerKw')}</dt>
+                  <dd className="font-medium">
+                    {formatPreconditioningPower(vehicle.preconditioningPowerKw) ?? 'n/a'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.preconditioningMinutes')}</dt>
+                  <dd className="font-medium">
+                    {t('vehicles.preconditioningMinutesValue', {
+                      count: vehicle.preconditioningMinutes ?? 30,
+                    })}
                   </dd>
                 </div>
                 <div>

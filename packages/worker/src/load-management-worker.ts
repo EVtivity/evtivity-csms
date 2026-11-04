@@ -48,11 +48,17 @@ export async function enqueueLoadManagementJobs(loadQueue: Queue): Promise<void>
  * Handles two job types:
  * - 'load-management-coordinator': fans out per-site jobs via enqueueLoadManagementJobs
  * - 'load-management': processes a single site
+ *
+ * `allowSimulatedEnergyAssets` is the worker's ENERGY_ASSETS_ALLOW_SIMULATED
+ * (owner decision D13): only then does the cycle compute simulated battery
+ * and solar readings.
  */
 export function createLoadManagementWorker(
   connection: ConnectionOptions,
   loadQueue: Queue,
+  options: { allowSimulatedEnergyAssets?: boolean } = {},
 ): Worker {
+  const cycleOptions = { allowSimulatedEnergyAssets: options.allowSimulatedEnergyAssets === true };
   const worker = new Worker(
     QUEUE_NAMES.LOAD_MANAGEMENT,
     async (job) => {
@@ -65,7 +71,7 @@ export function createLoadManagementWorker(
       const startTime = Date.now();
       try {
         log.info({ siteId }, 'Processing load management for site');
-        await runLoadManagementCycle(log, siteId);
+        await runLoadManagementCycle(log, siteId, cycleOptions);
         await logJobCompleted(logId, Date.now() - startTime);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';

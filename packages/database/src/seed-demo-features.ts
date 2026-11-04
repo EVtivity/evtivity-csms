@@ -1302,10 +1302,12 @@ export async function seedPaymentTerminalDemo(
  * Turns the demo features on: Plug and Charge (`pnc.enabled`, provider kept,
  * so no contract certificate is issued without a CA the operator creates)
  * and Hologram (`sim.hologram.enabled` without an organization or API key, so
- * the SIM pages show the stored data and no Refresh reaches a provider).
+ * the SIM pages show the stored data and no Refresh reaches a provider),
+ * and route-aware charging (`fleetCharging.enabled`, so the Northgate depot
+ * plans its departures).
  */
 export async function enableDemoFeatureSettings(sql: postgres.Sql): Promise<void> {
-  for (const key of ['pnc.enabled', 'sim.hologram.enabled']) {
+  for (const key of ['pnc.enabled', 'sim.hologram.enabled', 'fleetCharging.enabled']) {
     await sql`
       INSERT INTO settings (key, value) VALUES (${key}, 'true'::jsonb)
       ON CONFLICT (key) DO UPDATE SET value = 'true'::jsonb, updated_at = now()
@@ -1328,6 +1330,8 @@ export interface DemoFeatureCounts {
   vehicleLooks: number;
   /** Demo sessions linked to their driver's only vehicle (seed-demo-vehicles.ts). */
   vehicleSessions: number;
+  /** Weekly departure schedules of the Northgate depot vehicles (seed-demo-layout.ts). */
+  departureSchedules: number;
 }
 
 /**
@@ -1374,5 +1378,6 @@ export async function seedDemoFeatures(
     driverAvatars,
     vehicleLooks: vehicleLooks.vehicles,
     vehicleSessions: vehicleLooks.sessions,
+    departureSchedules: layout.departureSchedules,
   };
 }

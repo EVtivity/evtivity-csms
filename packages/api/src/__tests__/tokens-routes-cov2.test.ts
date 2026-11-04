@@ -122,6 +122,7 @@ function token(overrides: Record<string, unknown> = {}): Record<string, unknown>
     label: null,
     deactivatedBy: null,
     prepaidBalanceCents: null,
+    vehicleId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -297,15 +298,38 @@ describe('token routes (cov2)', () => {
       }
     });
 
-    it('refuses a label longer than 100 characters', async () => {
-      const res = await app.inject({
+    it('refuses a label over the request limit or with a control or bidi character', async () => {
+      for (const label of [
+        'x'.repeat(1001),
+        'Pool\u0000card',
+        'Pool\u202Ecard',
+        'Pool\u009Bcard',
+      ]) {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/tokens/${TOKEN_ID}`,
+          headers: auth,
+          payload: { label },
+        });
+        expect(res.statusCode).toBe(400);
+      }
+      expect(svc.updateToken).not.toHaveBeenCalled();
+    });
+
+    it('passes a label of 100 characters with surrounding spaces to the service', async () => {
+      svc.updateToken.mockResolvedValue({ id: TOKEN_ID });
+      const label = `  ${'x'.repeat(100)}   `;
+      await app.inject({
         method: 'PATCH',
         url: `/tokens/${TOKEN_ID}`,
         headers: auth,
-        payload: { label: 'x'.repeat(101) },
+        payload: { label },
       });
-      expect(res.statusCode).toBe(400);
-      expect(svc.updateToken).not.toHaveBeenCalled();
+      expect(svc.updateToken).toHaveBeenCalledWith(
+        TOKEN_ID,
+        expect.objectContaining({ label }),
+        expect.anything(),
+      );
     });
 
     it('answers 409 TOKEN_DUPLICATE when the new idToken is taken', async () => {

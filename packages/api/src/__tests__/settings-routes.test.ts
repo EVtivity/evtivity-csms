@@ -81,6 +81,8 @@ vi.mock('@evtivity/database', () => ({
   clearRoamingCache: vi.fn(),
   clearSupportCache: vi.fn(),
   clearFleetCache: vi.fn(),
+  clearFleetChargingSettingCache: vi.fn(),
+  clearVdv463SettingCache: vi.fn(),
   WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
   GUEST_STARTS_PER_IP_PER_HOUR_KEY: 'guest.startsPerIpPerHour',
   GUEST_DECLINES_PER_IP_PER_HOUR_KEY: 'guest.declinesPerIpPerHour',

@@ -57,8 +57,8 @@ function cases(): Case[] {
               ? DC_CAR_TAIL_M
               : DC_CAR_FRONT_M
             : backed
-              ? carTailAtStop('pedestal', profile)
-              : carNoseAtStop('pedestal', profile);
+              ? carTailAtStop('curb', profile)
+              : carNoseAtStop('curb', profile);
         const at = carPortInStation(profile, port, { x: 0, z: frontZ });
         const nose = port === 'front_center';
         const connector = kind === 'dc' ? 'ccs1' : 'type1';

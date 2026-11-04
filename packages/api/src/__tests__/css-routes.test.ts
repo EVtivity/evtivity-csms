@@ -370,6 +370,39 @@ describe('CSS routes', () => {
       expect(publishCall).toBeDefined();
     });
 
+    it('passes the EV battery of a plug-in to the simulator', async () => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-001', ocppProtocol: 'ocpp2.1' }]);
+      const ev = { batteryKwh: 400, socPercent: 12.5, bodyType: 'bus' };
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/plugIn',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-001', evseId: 1, ev },
+      });
+      expect(response.statusCode).toBe(200);
+      const publishCall = mockState.publishCalls.find(
+        ([ch, raw]) => ch === 'css_commands' && raw.includes('"action":"plugIn"'),
+      );
+      expect(JSON.parse(String(publishCall?.[1])).params.ev).toEqual(ev);
+    });
+
+    it.each([
+      [{ batteryKwh: 0 }],
+      [{ batteryKwh: 2001 }],
+      [{ socPercent: -1 }],
+      [{ socPercent: 101 }],
+      [{ bodyType: 'tractor' }],
+    ])('refuses an EV battery out of range (%j)', async (ev) => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-001', ocppProtocol: 'ocpp2.1' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/plugIn',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-001', evseId: 1, ev },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
     it.each([
       ['ocpp1.6', 'SOCLimitReached'],
       ['ocpp2.1', 'HardReset'],

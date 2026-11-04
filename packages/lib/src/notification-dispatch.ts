@@ -162,6 +162,7 @@ export const DATE_VARIABLE_NAMES = [
   'refundedAt',
   'idleStartedAt',
   'offlineSince',
+  'departureAt',
 ];
 
 /** Date and time without seconds, e.g. "Mar 5, 2026, 9:04 AM" (en) or "05.03.2026, 09:04" (de). */

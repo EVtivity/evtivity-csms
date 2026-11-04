@@ -189,6 +189,15 @@ describe('notification-dispatch', () => {
       expect(result['offlineSince']).toMatch(/^Mar 5, 2026, 8:04\sAM$/);
     });
 
+    it('formats departureAt (depot departure notices) in the recipient time zone', () => {
+      const { formatDateVariables } = notificationDispatchModule;
+      const result = formatDateVariables(
+        { departureAt: '2026-11-01T10:30:00.000Z' },
+        'America/New_York',
+      );
+      expect(result['departureAt']).toMatch(/^Nov 1, 2026, 5:30\sAM$/);
+    });
+
     it('formats a Date value (a raw timestamptz row) like an ISO string', () => {
       const { formatDateVariables } = notificationDispatchModule;
       const result = formatDateVariables(

@@ -17,6 +17,8 @@ describe('account replies are never cached', () => {
       '/v1/portal/driver/webauthn',
       '/v1/api-keys',
       '/v1/api-keys/:id',
+      '/v1/depot-systems',
+      '/v1/depot-systems/:id/password',
       // Admin views of an account.
       '/v1/users',
       '/v1/users/:id',

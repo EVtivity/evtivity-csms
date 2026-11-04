@@ -49,6 +49,10 @@ import {
   layoutStationCountsOfKinds,
   layoutStationKind,
   normalizeRotationDeg,
+  layoutPositionsOf,
+  layoutStationPlaces,
+  placeEnergyAssetPositions,
+  placePowerEquipment,
   positionToBay,
   resolveFreeOverlaps,
   sameLayoutSettings,
@@ -62,6 +66,7 @@ import type {
   FreePlacement,
   FreeStation,
   LayoutPoint,
+  LayoutPowerEquipment,
   LayoutStationCounts,
   LayoutStationKind,
   SiteLayoutSettings,
@@ -75,7 +80,9 @@ import {
   sites,
   stationLayoutPositions,
 } from '../schema/assets.js';
+import { circuits, panels, siteEnergyAssets, transformers } from '../schema/load-management.js';
 import { isOperatorStation } from './conformance-stations.js';
+import { LoadTreeValidationError } from './load-management-tree.js';
 
 export type StationLayoutDb = Pick<
   typeof db,
@@ -241,6 +248,181 @@ export async function readStoredLayoutSettings(
   return row?.layoutSettings ?? null;
 }
 
+/**
+ * The power equipment rows of a site the layout places: its transformers (in
+ * their sort order) and its batteries and solar (in creation order), with
+ * what the layout labels (name, kind or type, rating or capacity).
+ */
+/**
+ * The stations each transformer feeds through the load management tree: the
+ * circuits of its panels and their sub-panels, and of the panels its
+ * step-down transformers (fed from one of those panels) feed. Pure, for the
+ * default equipment places (`placePowerEquipment`).
+ */
+export function transformerStationIds(tree: {
+  panels: ReadonlyArray<{ id: string; parentPanelId: string | null; transformerId: string | null }>;
+  transformers: ReadonlyArray<{ id: string; fedFromPanelId: string | null }>;
+  circuits: ReadonlyArray<{ id: string; panelId: string }>;
+  stations: ReadonlyArray<{ id: string; circuitId: string | null }>;
+}): Map<string, string[]> {
+  const childPanels = new Map<string, string[]>();
+  for (const p of tree.panels) {
+    if (p.parentPanelId == null) continue;
+    childPanels.set(p.parentPanelId, [...(childPanels.get(p.parentPanelId) ?? []), p.id]);
+  }
+  const panelsOf = new Map<string, string[]>();
+  for (const p of tree.panels) {
+    if (p.transformerId == null) continue;
+    panelsOf.set(p.transformerId, [...(panelsOf.get(p.transformerId) ?? []), p.id]);
+  }
+  const stepDownsFrom = new Map<string, string[]>();
+  for (const t of tree.transformers) {
+    if (t.fedFromPanelId == null) continue;
+    stepDownsFrom.set(t.fedFromPanelId, [...(stepDownsFrom.get(t.fedFromPanelId) ?? []), t.id]);
+  }
+  const circuitsOf = new Map<string, string[]>();
+  for (const c of tree.circuits) {
+    circuitsOf.set(c.panelId, [...(circuitsOf.get(c.panelId) ?? []), c.id]);
+  }
+  const stationsOf = new Map<string, string[]>();
+  for (const st of tree.stations) {
+    if (st.circuitId == null) continue;
+    stationsOf.set(st.circuitId, [...(stationsOf.get(st.circuitId) ?? []), st.id]);
+  }
+  const out = new Map<string, string[]>();
+  for (const t of tree.transformers) {
+    const seen = new Set<string>();
+    const queue = [...(panelsOf.get(t.id) ?? [])];
+    const ids: string[] = [];
+    while (queue.length > 0) {
+      const panel = queue.shift() as string;
+      if (seen.has(panel)) continue;
+      seen.add(panel);
+      for (const c of circuitsOf.get(panel) ?? []) ids.push(...(stationsOf.get(c) ?? []));
+      queue.push(...(childPanels.get(panel) ?? []));
+      for (const sd of stepDownsFrom.get(panel) ?? []) queue.push(...(panelsOf.get(sd) ?? []));
+    }
+    if (ids.length > 0) out.set(t.id, [...new Set(ids)]);
+  }
+  return out;
+}
+
+export async function readLayoutPowerEquipment(
+  siteId: string,
+  executor: Pick<typeof db, 'select'> = db,
+): Promise<LayoutPowerEquipment> {
+  const [txRows, assetRows, panelRows, circuitRows, stationRows] = await Promise.all([
+    executor
+      .select({
+        id: transformers.id,
+        kind: transformers.kind,
+        name: transformers.name,
+        ratedKva: transformers.ratedKva,
+        maxContinuousKw: transformers.maxContinuousKw,
+        fedFromPanelId: transformers.fedFromPanelId,
+      })
+      .from(transformers)
+      .where(eq(transformers.siteId, siteId))
+      .orderBy(transformers.sortOrder, transformers.createdAt, transformers.id),
+    executor
+      .select({
+        id: siteEnergyAssets.id,
+        type: siteEnergyAssets.type,
+        name: siteEnergyAssets.name,
+        capacityKwh: siteEnergyAssets.capacityKwh,
+        peakKwp: siteEnergyAssets.peakKwp,
+      })
+      .from(siteEnergyAssets)
+      .where(eq(siteEnergyAssets.siteId, siteId))
+      .orderBy(siteEnergyAssets.createdAt, siteEnergyAssets.id),
+    // The load management tree, for the stations each transformer feeds.
+    executor
+      .select({
+        id: panels.id,
+        parentPanelId: panels.parentPanelId,
+        transformerId: panels.transformerId,
+      })
+      .from(panels)
+      .where(eq(panels.siteId, siteId)),
+    executor
+      .select({ id: circuits.id, panelId: circuits.panelId })
+      .from(circuits)
+      .innerJoin(panels, eq(panels.id, circuits.panelId))
+      .where(eq(panels.siteId, siteId)),
+    executor
+      .select({ id: chargingStations.id, circuitId: chargingStations.circuitId })
+      .from(chargingStations)
+      .where(eq(chargingStations.siteId, siteId)),
+  ]);
+  const fed = transformerStationIds({
+    panels: panelRows,
+    transformers: txRows.map((t) => ({ id: t.id, fedFromPanelId: t.fedFromPanelId })),
+    circuits: circuitRows,
+    stations: stationRows,
+  });
+  return {
+    transformers: txRows.map((t) => ({
+      id: t.id,
+      kind: t.kind,
+      name: t.name,
+      ratedKva: t.ratedKva == null ? null : Number(t.ratedKva),
+      maxContinuousKw: t.maxContinuousKw == null ? null : Number(t.maxContinuousKw),
+      ...(fed.has(t.id) ? { stationIds: fed.get(t.id) ?? [] } : {}),
+    })),
+    energyAssets: assetRows,
+  };
+}
+
+/**
+ * Stored settings without the positions of equipment the site no longer has
+ * (a transformer or energy asset deleted since): the same object when none
+ * is gone.
+ */
+function withoutGoneEquipment(
+  settings: SiteLayoutSettings,
+  equipment: LayoutPowerEquipment,
+): SiteLayoutSettings {
+  const txIds = new Set(equipment.transformers.map((t) => t.id));
+  const assetIds = new Set(equipment.energyAssets.map((a) => a.id));
+  const assets = settings.energyAssets;
+  const keptTx = settings.transformers.filter((t) => txIds.has(t.id));
+  const keptAssets = assets?.filter((a) => assetIds.has(a.id));
+  if (keptTx.length === settings.transformers.length && keptAssets?.length === assets?.length) {
+    return settings;
+  }
+  return {
+    ...settings,
+    transformers: keptTx,
+    ...(keptAssets != null ? { energyAssets: keptAssets } : {}),
+  };
+}
+
+/**
+ * Refuses sent settings that place equipment the site does not have: every
+ * transformer and energy asset id must be a row of the site (400
+ * VALIDATION_ERROR naming the field).
+ */
+function assertOwnEquipment(settings: SiteLayoutSettings, equipment: LayoutPowerEquipment): void {
+  const txIds = new Set(equipment.transformers.map((t) => t.id));
+  const foreignTx = settings.transformers.filter((t) => !txIds.has(t.id)).map((t) => t.id);
+  if (foreignTx.length > 0) {
+    throw new LoadTreeValidationError(
+      `Transformer not found on this site: ${foreignTx.join(', ')}`,
+      'settings.transformers',
+    );
+  }
+  const assetIds = new Set(equipment.energyAssets.map((a) => a.id));
+  const foreignAssets = (settings.energyAssets ?? [])
+    .filter((a) => !assetIds.has(a.id))
+    .map((a) => a.id);
+  if (foreignAssets.length > 0) {
+    throw new LoadTreeValidationError(
+      `Energy asset not found on this site: ${foreignAssets.join(', ')}`,
+      'settings.energyAssets',
+    );
+  }
+}
+
 /** A stored 2D board position (both columns, else none). */
 export function boardOf(row: {
   boardX?: number | null | undefined;
@@ -279,7 +461,9 @@ export async function readSiteLayoutPositions(
 /**
  * The layout settings the views and the placement use: the stored ones (the
  * fields of the site type filled in from `stationCount` where absent), else
- * the default lot grown to hold the stored positions, with one transformer.
+ * the default lot grown to hold the stored positions; the positions of the
+ * site's power equipment by id, each at its stored point or its default one
+ * (`placePowerEquipment`), positions of deleted equipment left out.
  * `stationCount` is the operator stations at the site (a depot reads them by
  * kind, `readSiteStationCounts`); the stored positions are counted when it is
  * not given.
@@ -291,11 +475,23 @@ export async function readSiteLayoutSettings(
 ): Promise<SiteLayoutSettings> {
   const stored = await readStoredLayoutSettings(siteId, executor);
   const positions = await readSiteLayoutPositions(siteId, executor);
-  return effectiveLayoutSettings(
+  const equipment = await readLayoutPowerEquipment(siteId, executor);
+  const effective = effectiveLayoutSettings(
     stored,
     positions.map((p) => positionToBay({ x: p.positionX, y: p.positionY })),
     stationCount,
   );
+  // A transformer without a stored position stands next to the stations it feeds.
+  const places = layoutStationPlaces(
+    positions.map((p) => ({
+      id: p.stationId,
+      positionX: p.positionX,
+      positionY: p.positionY,
+      freePosition: p.free,
+    })),
+    effective,
+  );
+  return layoutPositionsOf(placePowerEquipment(effective, equipment, places));
 }
 
 /**
@@ -336,10 +532,25 @@ export async function placeStationOnLayout(
   const ids = [...rows.map((r) => r.stationId), stationId];
   const kinds = await readStationLayoutKinds(ids, tx);
   const kind = kinds.get(stationId);
-  const settings = effectiveLayoutSettings(
+  const effective = effectiveLayoutSettings(
     stored,
     points.map((p) => positionToBay(p)),
     layoutStationCountsOfKinds(kindsIn(kinds, ids)),
+  );
+  const settings = layoutPositionsOf(
+    placePowerEquipment(
+      effective,
+      await readLayoutPowerEquipment(siteId, tx),
+      layoutStationPlaces(
+        rows.map((r) => ({
+          id: r.stationId,
+          positionX: Number(r.positionX),
+          positionY: Number(r.positionY),
+          freePosition: freeOf(r),
+        })),
+        effective,
+      ),
+    ),
   );
   // The first free spot of the station's group (a depot: of its area), never
   // inside the other charging kind's range.
@@ -586,9 +797,13 @@ function freeLayoutOf(
  * stations keep their positions (a station placed below a full layout stays
  * off it until the layout grows). A site without stored settings has the
  * default lot grown to hold every station, so nothing is outside it.
- * Transformers stand on the grass: one on the lot moves to the nearest lot
- * side. Fields of the site type left unset are filled from the station count
- * and stored.
+ * Transformers and batteries stand on the grass: one on the lot moves to the
+ * nearest lot side. Equipment positions name rows of the site by id: a sent
+ * id that is no transformer or energy asset of the site throws
+ * LoadTreeValidationError (field `settings.transformers` or
+ * `settings.energyAssets`) and writes nothing; stored positions of equipment
+ * deleted since are dropped (also on a Save without settings). Fields of the
+ * site type left unset are filled from the station count and stored.
  */
 export async function saveSiteLayout(
   tx: StationLayoutDb,
@@ -597,8 +812,14 @@ export async function saveSiteLayout(
   settings?: SiteLayoutSettings | null,
 ): Promise<SavedSiteLayout> {
   await lockSiteLayout(tx, siteId);
-  const stored = await readStoredLayoutSettings(siteId, tx);
+  // Equipment positions name rows of the site: a sent id of another site or
+  // of nothing is refused, a stored position of deleted equipment is dropped.
+  const equipment = await readLayoutPowerEquipment(siteId, tx);
+  if (settings != null) assertOwnEquipment(settings, equipment);
+  const storedRaw = await readStoredLayoutSettings(siteId, tx);
+  const stored = storedRaw == null ? null : withoutGoneEquipment(storedRaw, equipment);
   const target = settings === undefined ? stored : settings;
+  const assetTypes = new Map(equipment.energyAssets.map((a) => [a.id, a.type]));
 
   // Every operator station of the site, at its sent, saved or free position.
   const stationRows = await readSiteStations(tx, siteId);
@@ -609,7 +830,7 @@ export async function saveSiteLayout(
       : [],
   );
   const settingsBefore = effectiveLayoutSettings(
-    stored,
+    storedRaw,
     storedPoints.map((p) => positionToBay(p)),
     stationCount,
   );
@@ -628,10 +849,24 @@ export async function saveSiteLayout(
   const kindById = new Map(stationRows.map((r) => [r.id, r.kind]));
   const placedPoints = located.flatMap((s) => (s.point != null ? [s.point] : []));
   const unplaced = located.filter((s) => s.point == null);
-  const placementGrid = effectiveLayoutSettings(
+  // The equipment at the points the views draw it, so new stations group
+  // next to the same transformer there.
+  const placementSettings = effectiveLayoutSettings(
     target,
     placedPoints.map((p) => positionToBay(p)),
     stationCount,
+  );
+  const placementGrid = layoutPositionsOf(
+    placePowerEquipment(
+      placementSettings,
+      equipment,
+      layoutStationPlaces(
+        located.flatMap((st) =>
+          st.point != null ? [{ id: st.id, positionX: st.point.x, positionY: st.point.y }] : [],
+        ),
+        placementSettings,
+      ),
+    ),
   );
   const placed = located.flatMap((s) =>
     s.point != null
@@ -654,7 +889,11 @@ export async function saveSiteLayout(
     s.point = slots[i] ?? null;
   });
   const finalBays = located.flatMap((s) => (s.point != null ? [positionToBay(s.point)] : []));
-  const settingsAfter = effectiveLayoutSettings(target, finalBays, stationCount);
+  // The type of an energy asset lives in its row: a battery moves to the grass by it.
+  const settingsAfter = placeEnergyAssetPositions(
+    effectiveLayoutSettings(target, finalBays, stationCount),
+    assetTypes,
+  );
 
   const moved: LayoutPosition[] = [];
   if (usesFreePositions(settingsAfter)) {
@@ -700,13 +939,14 @@ export async function saveSiteLayout(
   for (const m of moved) toWrite.set(m.stationId, { ...toWrite.get(m.stationId), ...m });
   await writePositions(tx, siteId, toWrite.values());
 
-  // Stored as sent with the transformers on the grass; null resets.
+  // Stored as sent with the transformers and batteries on the grass; null
+  // resets. Without sent settings the stored ones stay, less the positions of
+  // deleted equipment.
   const nextStored = settings === undefined ? stored : settings === null ? null : settingsAfter;
   const settingsChanged =
-    settings !== undefined &&
-    (stored == null || nextStored == null
-      ? stored !== nextStored
-      : !sameLayoutSettings(stored, nextStored));
+    storedRaw == null || nextStored == null
+      ? storedRaw !== nextStored
+      : !sameLayoutSettings(storedRaw, nextStored);
   if (settingsChanged) {
     await tx
       .update(sites)
@@ -763,7 +1003,12 @@ export async function setSiteLayoutType(
   options: { chargerPlacement?: ChargerPlacement | undefined } = {},
 ): Promise<SiteTypeChange> {
   await lockSiteLayout(tx, siteId);
-  const stored = await readStoredLayoutSettings(siteId, tx);
+  const storedRaw = await readStoredLayoutSettings(siteId, tx);
+  // The stored positions of deleted equipment do not carry over.
+  const stored =
+    storedRaw == null
+      ? null
+      : withoutGoneEquipment(storedRaw, await readLayoutPowerEquipment(siteId, tx));
   const stationRows = await readSiteStations(tx, siteId);
   const located = stationRows.flatMap((s) =>
     s.positionX != null && s.positionY != null

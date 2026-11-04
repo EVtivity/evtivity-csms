@@ -140,6 +140,9 @@ const EVENT_FAMILY_PERMISSION: Readonly<Record<string, string>> = {
   certificate: 'certificates:read',
   maintenance: 'maintenance:read',
   load: 'loadManagement:read',
+  // Route-aware charging: the depot plan (fleetCharging.updated) and its departures (departure.changed).
+  fleetCharging: 'loadManagement:read',
+  departure: 'fleets:read',
   roaming: 'roaming:read',
   pricing: 'pricing:read',
   displayMessage: 'stations:read',

@@ -48,7 +48,7 @@ vi.mock('@/lib/timezone', () => ({
 
 import { Tabs } from '@/components/ui/tabs';
 import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
-import { SiteDetailsTab } from '../site/SiteDetailsTab';
+import { SiteDetailsTab, type SiteDetailsTabProps } from '../site/SiteDetailsTab';
 
 const SITE = {
   id: 'sit_1',
@@ -79,7 +79,7 @@ const SITE = {
 };
 
 function renderTab(
-  site = SITE,
+  site: SiteDetailsTabProps['site'] = SITE,
   options: { onDelete?: () => void; deleteError?: unknown } = {},
 ): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -216,10 +216,15 @@ describe('SiteDetailsTab site type and layout summary', () => {
     spotsPerRow: 10,
     rows: 2,
     facingDeg: 0,
+    transformers: [{ id: 'tx-1', x: 30, z: -3 }],
+  };
+  // Two transformers of the site, one without a stored position: both count.
+  const EQUIPMENT = {
     transformers: [
-      { id: 'tx-1', name: null, ratedKva: null, x: 30, z: -3 },
-      { id: 'tx-2', name: null, ratedKva: null, x: 34, z: -3 },
+      { id: 'tx-1', kind: 'service' as const, name: 'A', ratedKva: 1000, maxContinuousKw: 950 },
+      { id: 'tx-2', kind: 'service' as const, name: 'B', ratedKva: null, maxContinuousKw: null },
     ],
+    energyAssets: [],
   };
 
   beforeEach(() => {
@@ -233,7 +238,7 @@ describe('SiteDetailsTab site type and layout summary', () => {
   });
 
   it('summarizes a parking lot with its transformers and links to the Layout tab', () => {
-    renderTab({ ...SITE, layoutSettings: BASE });
+    renderTab({ ...SITE, layoutSettings: BASE, powerEquipment: EQUIPMENT });
     expect(screen.getByTestId('site-type-value').textContent).toBe(
       'sites.layoutSettings.siteTypeParkingLot',
     );
@@ -242,6 +247,13 @@ describe('SiteDetailsTab site type and layout summary', () => {
       'sites.layoutSummary.parkingLotTransformers:{"rows":2,"spots":10,"count":2}',
     );
     expect(link.getAttribute('href')).toBe('/sites/sit_1?tab=layout');
+  });
+
+  it('summarizes the lot without equipment when the site carries none (no loadManagement:read)', () => {
+    renderTab({ ...SITE, layoutSettings: BASE });
+    const link = screen.getByTestId('site-layout-summary');
+    expect(link.textContent).toContain('"rows":2,"spots":10');
+    expect(link.textContent).not.toContain('Transformers');
   });
 
   it('summarizes an office or retail site by its mounting and a curbside site by its sides', () => {
@@ -279,7 +291,7 @@ describe('SiteDetailsTab site type and layout summary', () => {
   });
 
   it('sends the site type only when it changed', async () => {
-    renderTab({ ...SITE, layoutSettings: BASE });
+    renderTab({ ...SITE, layoutSettings: BASE, powerEquipment: EQUIPMENT });
     fireEvent.click(screen.getByText('common.edit'));
     const select = screen.getByLabelText('sites.layoutSettings.siteType');
     expect((select as HTMLSelectElement).value).toBe('parking_lot');

@@ -17,7 +17,12 @@ import {
   snapTransformerToGrass,
   usesFreePositions,
   type FreePlacement,
+  type LayoutEnergyAssetPosition,
+  type LayoutPowerEquipment,
   type SiteLayoutSettings,
+  NO_POWER_EQUIPMENT,
+  placePowerEquipment,
+  layoutStationPlaces,
   heldSpots,
   sharesSpotPair,
   splitDispenserCount,
@@ -40,7 +45,6 @@ import { cn } from '@/lib/utils';
 import { ConnectionLegend, StationStateLegend } from './StationStateIcon';
 import { SCENE_COLORS } from './site-layout-colors';
 import { LayoutSettingsPanel } from './LayoutSettingsPanel';
-import { PowerEquipmentField } from './PowerEquipment';
 import { useSiteTerminals } from './layout-terminals';
 import {
   autoLayout,
@@ -153,6 +157,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         country?: string | null;
         reservationsEnabled?: boolean;
         layoutSettings: SiteLayoutSettings | null;
+        powerEquipment?: LayoutPowerEquipment;
       }>(`/v1/sites/${siteId}`),
   });
   // Public branding: the company logo on the back of the 3D chargers.
@@ -239,6 +244,19 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
       ),
     [pendingSettings, site, placedStations],
   );
+  // The site's power equipment rows at their positions: what the 3D view
+  // draws and labels (the layout settings hold positions by id only).
+  const equipment = site?.powerEquipment ?? NO_POWER_EQUIPMENT;
+  const placedSettings = useMemo(
+    () =>
+      placePowerEquipment(
+        layoutSettings,
+        equipment,
+        // A transformer without a stored position stands next to the stations it feeds.
+        layoutStationPlaces(placedStations, layoutSettings),
+      ),
+    [layoutSettings, equipment, placedStations],
+  );
 
   const siteType = siteTypeOf(layoutSettings);
   const officeRetail = siteType === 'office_retail';
@@ -301,11 +319,11 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     () =>
       layoutLegend({
         stations: shownStations,
-        settings: layoutSettings,
+        settings: placedSettings,
         show3d,
         reservationsEnabled: site?.reservationsEnabled,
       }),
-    [shownStations, layoutSettings, show3d, site],
+    [shownStations, placedSettings, show3d, site],
   );
 
   function startReplay(): void {
@@ -438,27 +456,38 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   }
 
   // A transformer dropped in 3D (already on the grass).
+  // A transformer dropped in 3D (already on the grass); one without a stored
+  // position gets one.
   function handleTransformerMove(transformerId: string, x: number, z: number): void {
     const base = layoutSettings;
     const spot = snapTransformerToGrass(x, z, base);
+    const others = base.transformers.filter((tr) => tr.id !== transformerId);
+    const known = others.length < base.transformers.length;
     setPendingSettings({
       ...base,
-      transformers: base.transformers.map((tr) =>
-        tr.id === transformerId ? { ...tr, ...spot } : tr,
-      ),
+      transformers: known
+        ? base.transformers.map((tr) => (tr.id === transformerId ? { id: tr.id, ...spot } : tr))
+        : [...base.transformers, { id: transformerId, ...spot }],
     });
+  }
+
+  /** The energy asset positions with one asset's position changed (added when it had none). */
+  function withAssetPosition(
+    base: SiteLayoutSettings,
+    assetId: string,
+    change: Omit<LayoutEnergyAssetPosition, 'id'>,
+  ): LayoutEnergyAssetPosition[] {
+    const assets = energyAssetsOf(base);
+    return assets.some((a) => a.id === assetId)
+      ? assets.map((a) => (a.id === assetId ? { ...a, ...change } : a))
+      : [...assets, { id: assetId, ...change }];
   }
 
   // A battery dropped in 3D (already on the grass).
   function handleEnergyAssetMove(assetId: string, x: number, z: number): void {
     const base = layoutSettings;
     const spot = snapTransformerToGrass(x, z, base);
-    setPendingSettings({
-      ...base,
-      energyAssets: energyAssetsOf(base).map((a) =>
-        a.id === assetId && a.type === 'battery' ? { ...a, ...spot } : a,
-      ),
-    });
+    setPendingSettings({ ...base, energyAssets: withAssetPosition(base, assetId, spot) });
   }
 
   // A station of a custom site moved or turned (3D drag, handle or keys, or the 2D board).
@@ -471,11 +500,11 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     const base = layoutSettings;
     setPendingSettings({
       ...base,
-      energyAssets: energyAssetsOf(base).map((a) =>
-        a.id === assetId && a.type === 'solar'
-          ? { ...a, x: placement.x, z: placement.z, rotationDeg: placement.rotationDeg }
-          : a,
-      ),
+      energyAssets: withAssetPosition(base, assetId, {
+        x: placement.x,
+        z: placement.z,
+        rotationDeg: placement.rotationDeg,
+      }),
     });
   }
 
@@ -632,16 +661,11 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
           key={settingsPanelKey}
           siteId={siteId}
           settings={layoutSettings}
+          equipment={equipment}
           stationCount={resolvedStations.length}
           onChange={setPendingSettings}
           onInvalidChange={setSettingsInvalid}
         />
-      )}
-      {!canWrite && resolvedStations.length > 0 && !replaying && (
-        // Without write access the power equipment opens read-only.
-        <div className="mb-3">
-          <PowerEquipmentField siteId={siteId} settings={layoutSettings} />
-        </div>
       )}
       {view === '3d' && !webgl && resolvedStations.length > 0 && (
         <p className="mb-3 text-sm text-muted-foreground" data-testid="site-layout-webgl-note">
@@ -663,9 +687,10 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         >
           <SiteLayout3D
             stations={shownStations}
-            settings={layoutSettings}
+            settings={placedSettings}
             terminals={terminals}
             hierarchy={loadManagement?.hierarchy ?? null}
+            equipment={equipment}
             loadManaged={loadManagement?.config?.isEnabled === true}
             logoUrl={logoUrl}
             california={site != null && isCaliforniaSite(site)}

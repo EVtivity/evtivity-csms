@@ -157,6 +157,13 @@ export const FLEET_BILLING_SYSTEM_EVENTS = [
   'fleet.InvoiceRunFailed',
 ] as const;
 
+// Depot departure alerts: sent to the operators who manage fleets at the depot
+export const FLEET_DEPARTURE_EVENTS = [
+  'fleet.DepartureAtRisk',
+  'fleet.DepartureMissed',
+  'fleet.DepotRequestsRefused',
+] as const;
+
 // Fleet invoices: emailed with the PDF to a fleet's billing contacts
 export const FLEET_INVOICE_EVENTS = [
   'invoice.FleetInvoice',
@@ -182,6 +189,7 @@ export const OPERATOR_EVENT_TYPES = [
   ...OPERATOR_PAYMENT_TERMINAL_EVENTS,
   ...SITE_HOST_EVENTS,
   ...FLEET_BILLING_SYSTEM_EVENTS,
+  ...FLEET_DEPARTURE_EVENTS,
   ...FLEET_INVOICE_EVENTS,
   ...OPERATOR_AI_EVENTS,
   ...SECURITY_NOTICE_EVENTS,
@@ -1139,6 +1147,67 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'currency', description: 'Currency code' },
     { name: 'companyName', description: 'Company name' },
   ],
+  'fleet.DepartureAtRisk': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'vehicleName', description: 'Vehicle make and model (else its license plate)' },
+    { name: 'licensePlate', description: 'Vehicle license plate (empty when unknown)' },
+    { name: 'siteName', description: 'Depot (site) name' },
+    { name: 'departureAt', description: 'Departure time' },
+    { name: 'cannotMeet', description: 'True when the target cannot be met at all, else at risk' },
+    { name: 'shortfallKwh', description: 'Planned energy shortfall in kWh (empty when none)' },
+    { name: 'reasonSiteCapacity', description: 'True when the site lacks power for every vehicle' },
+    { name: 'reasonNotPluggedIn', description: 'True when the vehicle is not plugged in' },
+    { name: 'reasonLateArrival', description: 'True when the vehicle plugged in too late' },
+    {
+      name: 'reasonChargerNotFollowing',
+      description: 'True when the charger draws more than its plan allows',
+    },
+    { name: 'reasonProfileRejected', description: 'True when the charger refused its plan' },
+    { name: 'reasonStationOffline', description: 'True when the charger is offline' },
+    {
+      name: 'reasonVehiclePower',
+      description: 'True when the vehicle accepts less power than needed',
+    },
+    {
+      name: 'reasonUnknownSoc',
+      description: 'True when the state of charge is unknown (the plan assumes an empty battery)',
+    },
+    {
+      name: 'readinessUrl',
+      description: 'Link to the Fleet Readiness tab of the depot in the CSMS (no token)',
+    },
+  ],
+  'fleet.DepartureMissed': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'vehicleName', description: 'Vehicle make and model (else its license plate)' },
+    { name: 'licensePlate', description: 'Vehicle license plate (empty when unknown)' },
+    { name: 'siteName', description: 'Depot (site) name' },
+    { name: 'departureAt', description: 'Departure time' },
+    { name: 'noVehicle', description: 'True when no vehicle was plugged in for the departure' },
+    { name: 'deliveredKwh', description: 'Energy charged for the departure in kWh' },
+    { name: 'targetKwh', description: 'Energy target in kWh (empty for a state of charge target)' },
+    {
+      name: 'targetSocPercent',
+      description: 'State of charge target in percent (empty for an energy target)',
+    },
+    {
+      name: 'readinessUrl',
+      description: 'Link to the Fleet Readiness tab of the depot in the CSMS (no token)',
+    },
+  ],
+  'fleet.DepotRequestsRefused': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'depotSystemName', description: 'Name of the bus depot system' },
+    { name: 'refusedCount', description: 'Number of charging requests not applied' },
+    { name: 'requestIds', description: 'The first ten refused request ids, comma separated' },
+    {
+      name: 'depotSystemUrl',
+      description: 'Link to the bus depot systems settings in the CSMS (no token)',
+    },
+  ],
   'fleet.InvoiceRunFailed': [
     { name: 'firstName', description: 'Operator first name' },
     { name: 'lastName', description: 'Operator last name' },
@@ -1304,6 +1373,17 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
       description: 'True when the environment, the merchant or a credential changed',
     },
     { name: 'enabled', description: 'True when payment terminals are on after the change' },
+  ],
+  'security.DepotSystemChanged': [
+    { name: 'firstName', description: 'Account first name' },
+    { name: 'lastName', description: 'Account last name' },
+    { name: 'email', description: 'Account email address' },
+    { name: 'isDriver', description: 'True for a driver, false for an operator' },
+    { name: 'depotSystemName', description: 'Name of the bus depot system' },
+    { name: 'presystemId', description: 'Presystem ID the depot system signs in with' },
+    { name: 'created', description: 'True when the depot system was created' },
+    { name: 'deleted', description: 'True when the depot system was deleted' },
+    { name: 'passwordRotated', description: 'True when the depot system got a new password' },
   ],
   'security.RetentionLowered': [
     { name: 'firstName', description: 'Account first name' },

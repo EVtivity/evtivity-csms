@@ -55,6 +55,8 @@ export const ID_PREFIXES = {
   cpPush: 'cpp',
   panel: 'pnl',
   circuit: 'cir',
+  transformer: 'tfm',
+  energyAsset: 'ena',
   maintenanceEvent: 'mne',
   aiConversation: 'aic',
   aiMessage: 'aim',
@@ -66,6 +68,9 @@ export const ID_PREFIXES = {
   sim: 'sim',
   paymentTerminal: 'ptm',
   paymentTerminalTransaction: 'ptx',
+  departureSchedule: 'vds',
+  departure: 'vdp',
+  depotSystem: 'dms',
 } as const;
 
 export type EntityType = keyof typeof ID_PREFIXES;

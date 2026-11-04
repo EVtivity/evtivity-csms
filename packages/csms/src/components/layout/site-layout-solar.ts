@@ -15,7 +15,7 @@
 // the back edge (u = 0, the low edge) to the far edge (u = depth), heights in
 // meters above the paving. Sources: SOLAR_CARPORT.
 
-import { STANDARD_DIMENSIONS, parkingRowGap } from '@evtivity/lib/site-layout';
+import { STANDARD_DIMENSIONS, parkingHeadStrip, parkingRowGap } from '@evtivity/lib/site-layout';
 import { chargersAtBack, rowFrontZ, type Lot } from './site-layout-grid';
 
 const FT = 0.3048;
@@ -299,10 +299,10 @@ export function rowCarport(
   const atBack = chargersAtBack(row, lot);
   const head = atBack ? front + lot.spotD : front;
   const dirZ: 1 | -1 = atBack ? -1 : 1;
-  // Past the head on the grass past the lot edge. A row whose head faces a
-  // drive aisle keeps its columns on the stall lines just inside the head,
-  // the pier touching the head line, out of the aisle.
-  const atLotEdge = head <= EPS || head >= lot.depth - EPS;
+  // Past the head on the grass past the lot edge, or on the charger strip at
+  // the head of the next to last row of an odd lot.
+  const atLotEdge =
+    head <= EPS || head >= lot.depth - EPS || (atBack && parkingHeadStrip(row, lot.rows));
   const beyond = atLotEdge ? SOLAR_CARPORT.edgeColumnBeyondHeadM : -SOLAR_CARPORT.pierDiameterM / 2;
   const columnZ = head - dirZ * beyond;
   const frame = carportFrame(0, spots * lot.spotW, half + beyond + lot.spotD, columnXs);

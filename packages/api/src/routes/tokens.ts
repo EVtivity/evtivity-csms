@@ -26,6 +26,7 @@ import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { sessionsAtSites } from '../lib/session-site-scope.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { tokenLabelSchema } from '../lib/token-label.js';
 
 const tokenTypeSchema = z.enum(OCPP_ID_TOKEN_TYPES);
 
@@ -64,6 +65,10 @@ const tokenItem = z
       .describe(
         'Prepaid credit in cents of the company currency. Null when the token is not prepaid; zero or less is answered NoCredit',
       ),
+    vehicleId: z
+      .string()
+      .nullable()
+      .describe('Vehicle the card belongs to (a vehicle of the card driver), null for none'),
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
     driverFirstName: z
@@ -93,6 +98,10 @@ const tokenCreated = z
       .describe(
         'Prepaid credit in cents of the company currency. Null when the token is not prepaid; zero or less is answered NoCredit',
       ),
+    vehicleId: z
+      .string()
+      .nullable()
+      .describe('Vehicle the card belongs to (a vehicle of the card driver), null for none'),
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
   })
@@ -127,10 +136,9 @@ const tokenSessionItem = z
   })
   .loose();
 
-const labelSchema = z
-  .string()
-  .max(100)
-  .describe('Free-text label, e.g. "Pool card fleet 3". Trimmed; empty means no label');
+const labelSchema = tokenLabelSchema(
+  'Free-text label, e.g. "Pool RFID card, fleet 3", shown to the driver in the portal',
+);
 
 const tokenParams = z.object({
   id: ID_PARAMS.driverTokenId.describe('Token ID'),
@@ -143,6 +151,12 @@ const createTokenBody = z.object({
   label: labelSchema.nullable().optional(),
   expiresAt: z.coerce.date().nullable().optional().describe('Optional expiration timestamp'),
   prepaidBalanceCents: prepaidBalanceSchema,
+  vehicleId: ID_PARAMS.vehicleId
+    .nullable()
+    .optional()
+    .describe(
+      'Vehicle the card belongs to (a card per bus), a vehicle of the card driver; null for none. Another driver vehicle answers 400 VALIDATION_ERROR',
+    ),
 });
 
 const updateTokenBody = z
@@ -167,6 +181,12 @@ const updateTokenBody = z
       .optional()
       .describe('Optional reason recorded when the token is deactivated'),
     prepaidBalanceCents: prepaidBalanceSchema,
+    vehicleId: ID_PARAMS.vehicleId
+      .nullable()
+      .optional()
+      .describe(
+        'Vehicle the card belongs to (a card per bus), a vehicle of the card driver; null for none. Another driver vehicle answers 400 VALIDATION_ERROR',
+      ),
     expectedPrepaidBalanceCents: z
       .number()
       .int()

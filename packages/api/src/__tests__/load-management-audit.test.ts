@@ -12,9 +12,10 @@ import type { FastifyInstance } from 'fastify';
 // through the `@evtivity/database` tree writer (mocked here, its audit rows are
 // covered by the database package test), called in the request's name.
 
-const { state, writeAuditMock, tree } = vi.hoisted(() => ({
+const { state, writeAuditMock, markSitePlanStaleMock, tree } = vi.hoisted(() => ({
   state: { results: [] as unknown[][], index: 0 },
   writeAuditMock: vi.fn(),
+  markSitePlanStaleMock: vi.fn(),
   tree: {
     createPanel: vi.fn(),
     updatePanel: vi.fn(),
@@ -77,6 +78,7 @@ vi.mock('@evtivity/database', async () => ({
   stationAuditLog: { name: 'station_audit_log' },
   writeAudit: writeAuditMock,
   ...tree,
+  markSitePlanStale: markSitePlanStaleMock,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -85,6 +87,8 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
+
+vi.mock('../lib/site-exists.js', () => ({ siteExists: vi.fn(async () => true) }));
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
@@ -128,6 +132,7 @@ const panelRow = {
   safetyMarginKw: '0',
   oversubscriptionRatio: '1',
   phaseConnections: null,
+  transformerId: null,
   sortOrder: 0,
   createdAt: created,
   updatedAt: created,
@@ -180,9 +185,15 @@ describe('load management audit', () => {
     setupDbResults();
     writeAuditMock.mockReset().mockResolvedValue(undefined);
     for (const fn of Object.values(tree)) fn.mockReset();
+    markSitePlanStaleMock.mockReset().mockResolvedValue(true);
   });
 
   const caller = expect.objectContaining({ actor: 'operator', actorUserId: USER });
+
+  async function planMarks(): Promise<unknown[][]> {
+    await new Promise((resolve) => setImmediate(resolve));
+    return markSitePlanStaleMock.mock.calls;
+  }
 
   it('POST panel creates the panel through the writer in the caller name', async () => {
     tree.createPanel.mockResolvedValue(panelRow);
@@ -197,6 +208,9 @@ describe('load management audit', () => {
       expect.objectContaining({ siteId: SITE, name: 'Main', breakerRatingAmps: 200 }),
       caller,
     );
+    expect(await planMarks()).toEqual([
+      [SITE, 'panel_changed', expect.anything(), { departureAwareOnly: true }],
+    ]);
   });
 
   it('PATCH panel updates through the writer with the row it read', async () => {
@@ -259,6 +273,7 @@ describe('load management audit', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(tree.deletePanel).not.toHaveBeenCalled();
+    expect(await planMarks()).toEqual([]);
   });
 
   it('POST circuit creates the circuit on the site through the writer', async () => {
@@ -276,6 +291,7 @@ describe('load management audit', () => {
       expect.objectContaining({ panelId: 'pnl_a', name: 'Bay 1', breakerRatingAmps: 40 }),
       caller,
     );
+    expect((await planMarks())[0]?.slice(0, 2)).toEqual([SITE, 'circuit_changed']);
   });
 
   it('PATCH circuit updates the breaker and capacity through the writer', async () => {
@@ -330,6 +346,7 @@ describe('load management audit', () => {
       after: { circuitId: null },
       notes: 'unassigned from circuit',
     });
+    expect((await planMarks())[0]?.slice(0, 2)).toEqual([SITE, 'station_circuit_changed']);
   });
 
   it('PATCH station circuit to the same circuit writes no audit row', async () => {
@@ -372,6 +389,7 @@ describe('load management audit', () => {
       after: { unmanagedLoad: { id: 7, name: 'HVAC' } },
       notes: 'unmanaged load created: HVAC',
     });
+    expect((await planMarks())[0]?.slice(0, 2)).toEqual([SITE, 'unmanaged_load_changed']);
   });
 });
 

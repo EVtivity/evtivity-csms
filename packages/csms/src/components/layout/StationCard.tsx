@@ -46,6 +46,25 @@ export interface LayoutSessionDriver {
   avatar: AvatarData | null;
 }
 
+/**
+ * The departure a session charges for (route-aware charging, only with
+ * fleets:read). The readiness fields are null while the depot plan does not run.
+ */
+export interface LayoutSessionDeparture {
+  id: string;
+  /** Null for an ad hoc request of a bus depot system (charge as soon as possible). */
+  departureAt: string | null;
+  /** IANA time zone of the depot. */
+  timezone: string;
+  readiness: 'ready' | 'on_track' | 'at_risk' | 'cannot_meet' | 'waiting_for_vehicle' | null;
+  reason: string | null;
+  targetKwh: number | null;
+  targetSocPercent: number | null;
+  deliveredKwh: number | null;
+  shortfallKwh: number | null;
+  predictedReadyAt: string | null;
+}
+
 /** The newest active session of a station (only with sessions:read). */
 export interface LayoutSession {
   id: string;
@@ -56,6 +75,8 @@ export interface LayoutSession {
   driver: LayoutSessionDriver | null;
   /** The car the layout draws (color and body type); null or absent draws a grey sedan. */
   vehicle?: { color: string | null; bodyType: string | null } | null | undefined;
+  /** Absent without fleets:read, null when the session charges for no departure. */
+  departure?: LayoutSessionDeparture | null | undefined;
 }
 
 export interface LayoutStation {

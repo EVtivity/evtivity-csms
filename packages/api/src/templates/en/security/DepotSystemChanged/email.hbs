@@ -1,0 +1,4 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}Hello {{firstName}},{{else}}Hello,{{/if}}</p>
+<h2 style='color:#1a1a1a;margin:0 0 8px 0;font-size:20px;'>Bus Depot System Changed</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if created}}The bus depot system {{depotSystemName}} ({{presystemId}}) was created.{{else if deleted}}The bus depot system {{depotSystemName}} ({{presystemId}}) was deleted.{{else if passwordRotated}}The bus depot system {{depotSystemName}} ({{presystemId}}) got a new password; its connection was closed.{{else}}The bus depot system {{depotSystemName}} ({{presystemId}}) was changed.{{/if}} A bus depot system can change the charging plan of its depots.</p>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>If you did not expect this change, review Settings &gt; Integrations &gt; Bus Depot Systems and the audit log, and contact your administrator at once.</p>

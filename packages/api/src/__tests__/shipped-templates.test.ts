@@ -191,13 +191,14 @@ describe('notification subjects', () => {
   );
 });
 
-// Chinese terms: driver is 驾驶员 / 駕駛員 and firmware is 固件 in both scripts.
+// Chinese terms: driver is 驾驶员 / 駕駛員, firmware is 固件, a charging station
+// is 充电桩 / 充電樁 and a site is 充电站 / 充電站, never 站点 / 站點, in both scripts.
 // Korean: driver is 운전자.
 // Bare 驾驶 / 駕駛 passes only in its verb and compound senses (燃油驾驶避免,
 // 驾驶里程, 副驾驶, 自动驾驶). The docs label check uses the same patterns.
 const FORBIDDEN_TERMS: Record<string, RegExp> = {
-  zh: /司机|驾驶人|韧体|(?<![副动])驾驶(?![员避里距不着车])/gu,
-  'zh-TW': /司機|駕駛人|韌體|(?<![副動])駕駛(?![員避里距不著車])/gu,
+  zh: /司机|驾驶人|韧体|站点|(?<![副动])驾驶(?![员避里距不着车])/gu,
+  'zh-TW': /司機|駕駛人|韌體|站點|(?<![副動])駕駛(?![員避里距不著車])/gu,
   // Korean: a driver is 운전자, never 드라이버 (owner decision 2026-10-11).
   ko: /드라이버/gu,
 };
@@ -215,7 +216,7 @@ describe('notification template terms', () => {
   });
 
   it.each(termFiles.map(({ lang, file }) => [relative(PACKAGES_DIR, file), lang, file]))(
-    '%s uses the driver and firmware terms',
+    '%s uses the driver, firmware and site terms',
     (_name, lang, file) => {
       const pattern = FORBIDDEN_TERMS[lang] ?? /$^/u;
       const found = [...readFileSync(file, 'utf-8').matchAll(pattern)].map((m) => m[0]);

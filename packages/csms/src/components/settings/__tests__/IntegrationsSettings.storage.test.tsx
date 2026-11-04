@@ -424,6 +424,15 @@ describe('IntegrationsSettings storage tab', () => {
       await screen.findByText('settings.s3R2EndpointRefused');
     });
 
+    it('says why an S3 API URL naming another bucket was not saved', async () => {
+      apiMock.put.mockRejectedValue(
+        new ApiError(400, { error: 'refused', code: 'VALIDATION_ERROR', field: 'bucket' }),
+      );
+      renderStorageTab(R2_SETTINGS);
+      save();
+      await screen.findByText('settings.s3R2BucketMismatch');
+    });
+
     it('sends no proof when the URL is pasted again with the bucket name', async () => {
       proofKinds(['password']);
       renderStorageTab(R2_SETTINGS);
@@ -443,6 +452,9 @@ describe('IntegrationsSettings storage tab', () => {
       expect(setup.textContent).toContain('settings.s3R2TokenDescription');
       expect(setup.textContent).toContain('settings.s3R2CorsDescription');
       expect(screen.getByTestId('s3-cors-example').textContent).toContain('"PUT"');
+      expect(
+        screen.getByRole('link', { name: 'settings.s3R2SetupDocsLink' }).getAttribute('href'),
+      ).toBe('https://evtivity.com/docs/csms/settings#cloudflare-r2-setup');
       expect(screen.queryByText('settings.s3PolicyTitle')).toBeNull();
       expect(screen.queryByTestId('s3-compatible-setup')).toBeNull();
     });

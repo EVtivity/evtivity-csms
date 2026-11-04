@@ -28,7 +28,7 @@ try {
     actorUserId: admin?.id ?? null,
   });
   console.log(
-    `${String(counts.powerSites)} sites with sized power equipment, ${String(counts.pncSessions)} Plug and Charge sessions, ${String(counts.freeVendSessions)} free vend sessions, ${String(counts.sims)} SIMs, ${String(counts.terminalPayments)} terminal payments and ${String(counts.layoutStations)} site layout demo stations and ${String(counts.driverAvatars)} demo driver avatars, ${String(counts.vehicleLooks)} demo vehicle looks and ${String(counts.vehicleSessions)} vehicle session links created.`,
+    `${String(counts.powerSites)} sites with sized power equipment, ${String(counts.pncSessions)} Plug and Charge sessions, ${String(counts.freeVendSessions)} free vend sessions, ${String(counts.sims)} SIMs, ${String(counts.terminalPayments)} terminal payments and ${String(counts.layoutStations)} site layout demo stations and ${String(counts.driverAvatars)} demo driver avatars, ${String(counts.vehicleLooks)} demo vehicle looks and ${String(counts.vehicleSessions)} vehicle session links and ${String(counts.departureSchedules)} depot departure schedules created.`,
   );
 } finally {
   await client.end();

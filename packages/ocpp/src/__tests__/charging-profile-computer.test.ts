@@ -3,16 +3,24 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PubSubClient } from '@evtivity/lib';
+import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
+
+const fleetMock = vi.hoisted(() => ({
+  isFleetChargingEnabled: vi.fn(() => Promise.resolve(false)),
+  markSitePlanStale: vi.fn(() => Promise.resolve(true)),
+}));
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
   getDefaultMaxPowerW: vi.fn(() => Promise.resolve(11000)),
+  isFleetChargingEnabled: fleetMock.isFleetChargingEnabled,
+  markSitePlanStale: fleetMock.markSitePlanStale,
   operatorStationSql: (await importOriginal<typeof import('@evtivity/database')>())
     .operatorStationSql,
 }));
 
 import {
-  chargingNeedsProfileId,
   computeAndSendChargingProfile,
+  departurePlanSiteId,
   renegotiateChargingNeedsProfile,
   evMaxPowerW,
   requestedEnergyWh,
@@ -130,16 +138,6 @@ describe('scheduleLimitW', () => {
         now: NOW,
       }),
     ).toBe(2500);
-  });
-});
-
-describe('chargingNeedsProfileId', () => {
-  it('is stable per transaction and in the upper int32 range', () => {
-    const id = chargingNeedsProfileId('CS-1', 'tx-1');
-    expect(chargingNeedsProfileId('CS-1', 'tx-1')).toBe(id);
-    expect(chargingNeedsProfileId('CS-1', 'tx-2')).not.toBe(id);
-    expect(id).toBeGreaterThanOrEqual(0x40000000);
-    expect(id).toBeLessThanOrEqual(0x7fffffff);
   });
 });
 
@@ -324,5 +322,59 @@ describe('renegotiateChargingNeedsProfile', () => {
     const ps = pubsub();
     await expect(renegotiateChargingNeedsProfile(sql as never, ps, input)).resolves.toBe(false);
     expect(ps.publish).not.toHaveBeenCalled();
+  });
+});
+
+describe('a session the depot plan charges', () => {
+  const input = {
+    stationUuid: 'sta_1',
+    stationOcppId: 'CS-1',
+    evseId: 1,
+    transactionId: 'tx-1',
+    chargingNeeds: { requestedEnergyTransfer: 'DC' },
+    maxScheduleTuples: 3,
+  };
+  let pubsub: PubSubClient;
+
+  beforeEach(() => {
+    fleetMock.isFleetChargingEnabled.mockResolvedValue(true);
+    pubsub = {
+      publish: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+  });
+
+  it('sends no profile and marks the site plan stale at a Departure Aware site', async () => {
+    const sql = createSqlMock([{ site_id: 'sit_depot' }]);
+    await computeAndSendChargingProfile(sql as never, pubsub, input, NOW);
+    expect(pubsub.publish).not.toHaveBeenCalled();
+    expect(fleetMock.markSitePlanStale).toHaveBeenCalledWith(
+      'sit_depot',
+      'charging_needs',
+      undefined,
+      { departureAwareOnly: true },
+    );
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls[0]).toContain("strategy = 'departure_aware'");
+    expect(sqlCalls[0]).toContain('is_enabled = true');
+    // Only a session the plan holds or a bound departure yields.
+    expect(sqlCalls[0]).toContain('vehicle_departures');
+    expect(sqlCalls[0]).toContain("e->>'sessionId' = s.id");
+    expect(sqlValues[0]).toEqual(['sta_1', 'tx-1']);
+  });
+
+  it('computes the profile as before for an unplanned session or another strategy', async () => {
+    const sql = createSqlMock([], [{ max_power_kw: 22 }], []);
+    await computeAndSendChargingProfile(sql as never, pubsub, input, NOW);
+    expect(fleetMock.markSitePlanStale).not.toHaveBeenCalled();
+    expect(sentCommand(pubsub).action).toBe('SetChargingProfile');
+  });
+
+  it('reads no site while fleet charging is off', async () => {
+    fleetMock.isFleetChargingEnabled.mockResolvedValue(false);
+    const sql = createSqlMock();
+    expect(await departurePlanSiteId(sql as never, 'sta_1', 'tx-1')).toBeNull();
+    expect(sqlCalls).toHaveLength(0);
   });
 });

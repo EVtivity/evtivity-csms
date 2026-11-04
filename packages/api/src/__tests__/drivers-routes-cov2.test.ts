@@ -732,6 +732,10 @@ describe('Driver routes (operator), uncovered paths', () => {
         evccid: '92D50A693F80',
         autochargeEnabled: true,
         autochargeBlockedAt: null,
+        batteryCapacityKwh: null,
+        maxChargePowerKw: null,
+        preconditioningPowerKw: null,
+        preconditioningMinutes: 30,
         createdAt: now,
         updatedAt: now,
       };
@@ -847,6 +851,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         paymentMethodsRemoved: 1,
         vehiclesRemoved: 2,
         tokensDeactivated: 3,
+        tokenLabelsCleared: 2,
         avatarRemoved: true,
       });
       const res = await app.inject({
@@ -860,6 +865,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         paymentMethodsRemoved: 1,
         vehiclesRemoved: 2,
         tokensDeactivated: 3,
+        tokenLabelsCleared: 2,
         avatarRemoved: true,
       });
       expect(eraseDriverMock).toHaveBeenCalledWith(

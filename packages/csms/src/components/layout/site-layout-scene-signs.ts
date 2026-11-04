@@ -8,10 +8,15 @@ import { SCENE_COLORS } from './site-layout-colors';
 import { VIRTUAL_SIGN_OPACITY, type VirtualSign } from './site-layout-grid';
 import { SIGN_FONT_FAMILY, signCanvasSize, signLetterPx, signLines } from './site-layout-signs';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { VIRTUAL_SIGN_WIDTH_M } from './site-layout-scene-types';
 
-export function installSigns(scn: SceneCtx): void {
+type SignsCtx = SceneSlice<
+  'renderer' | 'theme' | 'track' | 'virtualSprites',
+  'evSignTexture' | 'virtualSignSprite' | 'warningTexture'
+>;
+
+export function installSigns(scn: SignsCtx): void {
   // An EV charging sign face, drawn in code at the sign's proportions: the
   // R7-113 (No Parking Except While Charging: red legend and border on white,
   // 12 by 18 in, MUTCD 11th Edition Section 2B.53) or the California

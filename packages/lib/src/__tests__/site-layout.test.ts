@@ -36,8 +36,16 @@ import {
   LAYOUT_GRID_LIMITS,
   energyAssetsOf,
   placeEnergyAsset,
+  placePowerEquipment,
+  placeEnergyAssetPositions,
+  layoutEquipmentPoint,
+  layoutPositionsOf,
+  newBatteryPoint,
+  newTransformerPoint,
+  NO_POWER_EQUIPMENT,
   type LayoutBattery,
-  type LayoutEnergyAsset,
+  type LayoutPowerEquipment,
+  type LayoutSolarCanopy,
   SITE_TYPES,
   type SiteLayoutSettings,
   snapTransformerToGrass,
@@ -110,13 +118,13 @@ describe('site layout grid', () => {
     expect(firstFreeSlot(firstFive, five)).toEqual({ x: 20, y: 160 });
   });
 
-  it('uses the default lot of 2 rows of 10 spots, grown to hold the stations, with one transformer', () => {
+  it('uses the default lot of 2 rows of 10 spots, grown to hold the stations, with no equipment positions', () => {
     const fresh = effectiveLayoutSettings(null);
     expect(fresh).toEqual(expect.objectContaining({ spotsPerRow: 10, rows: 2, facingDeg: 0 }));
     expect(fresh).not.toHaveProperty('spotWidthM');
-    expect(fresh.transformers).toHaveLength(1);
-    const t = fresh.transformers[0]!;
-    // On the grass right of the lot.
+    expect(fresh.transformers).toEqual([]);
+    // The equipment point stands on the grass right of the lot.
+    const t = layoutEquipmentPoint(fresh);
     expect(t.x).toBeGreaterThanOrEqual(lotExtentM(fresh).width + TRANSFORMER_CLEARANCE_M);
     const grown = effectiveLayoutSettings(null, [{ col: 12, row: 3 }]);
     expect(grown).toMatchObject({ spotsPerRow: 13, rows: 4 });
@@ -125,7 +133,7 @@ describe('site layout grid', () => {
       ...DEFAULT_LAYOUT_GRID,
       spotsPerRow: 4,
       rows: 1,
-      transformers: [{ id: 'a', name: null, ratedKva: null, x: 2, z: 2 }],
+      transformers: [{ id: 'a', x: 2, z: 2 }],
     };
     const kept = effectiveLayoutSettings(stored, [{ col: 30, row: 9 }]);
     expect(kept.spotsPerRow).toBe(4);
@@ -162,18 +170,27 @@ describe('site layout grid', () => {
     expect(gridBoardExtent(grid)).toEqual({ width: 380, height: 140 });
   });
 
-  it('compares settings field by field, transformers included', () => {
-    const a = effectiveLayoutSettings(null);
+  it('compares settings field by field, transformer positions included', () => {
+    const a = { ...effectiveLayoutSettings(null), transformers: [{ id: 'tfm_a', x: 30, z: 2 }] };
     expect(sameLayoutSettings(a, { ...a, transformers: [...a.transformers] })).toBe(true);
     expect(sameLayoutSettings(a, { ...a, facingDeg: 90 })).toBe(false);
     expect(sameLayoutSettings(a, { ...a, transformers: [] })).toBe(false);
+    expect(sameLayoutSettings(a, { ...a, transformers: [{ id: 'tfm_a', x: 30, z: 3 }] })).toBe(
+      false,
+    );
+    expect(sameLayoutSettings(a, { ...a, transformers: [{ id: 'tfm_b', x: 30, z: 2 }] })).toBe(
+      false,
+    );
     expect(sameLayoutSettings(a, { ...a, siteType: 'office_retail' })).toBe(false);
     expect(sameLayoutGrid(layoutGridOf(a), DEFAULT_LAYOUT_GRID)).toBe(true);
   });
 
   it('reads settings without a site type as a parking lot, and keeps a stored one', () => {
     expect(effectiveLayoutSettings(null).siteType).toBe('parking_lot');
-    const legacy: SiteLayoutSettings = { ...effectiveLayoutSettings(null) };
+    const legacy: SiteLayoutSettings = {
+      ...effectiveLayoutSettings(null),
+      transformers: [{ id: 'tfm_a', x: 30, z: 2 }],
+    };
     delete legacy.siteType;
     expect(siteTypeOf(legacy)).toBe('parking_lot');
     expect(effectiveLayoutSettings(legacy).siteType).toBe('parking_lot');
@@ -196,7 +213,7 @@ describe('site layout grid', () => {
         spotsPerRow: 10,
         rows: 2,
         facingDeg: 0,
-        transformers: [{ id: 'tx', name: null, ratedKva: null, x: transformerX, z: 2.5 }],
+        transformers: [{ id: 'tx', x: transformerX, z: 2.5 }],
       });
     const rowOf = (kinds: Map<string, 'ac' | 'dc'>, row: number, slots: Map<string, LayoutPoint>) =>
       [...slots]
@@ -432,13 +449,21 @@ describe('site layout grid', () => {
 describe('site layout settings schema', () => {
   const valid = effectiveLayoutSettings(null);
 
-  it('accepts the default settings and a named transformer', () => {
+  it('accepts the default settings and a transformer position by id, never a name or a rating', () => {
     expect(siteLayoutSettingsSchema.safeParse(valid).success).toBe(true);
-    const named = {
+    const positioned = {
       ...valid,
-      transformers: [{ id: 'tx-2', name: 'Main Feed', ratedKva: 2500, x: 40, z: 3 }],
+      transformers: [{ id: 'tfm_0a1b2c3d4e5f', x: 40, z: 3 }],
     };
-    expect(siteLayoutSettingsSchema.safeParse(named).success).toBe(true);
+    expect(siteLayoutSettingsSchema.safeParse(positioned).success).toBe(true);
+    for (const extra of [{ name: 'Main Feed' }, { ratedKva: 2500 }, { name: null }]) {
+      expect(
+        siteLayoutSettingsSchema.safeParse({
+          ...valid,
+          transformers: [{ id: 'tfm_a', x: 40, z: 3, ...extra }],
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it('takes either site type, or none (stored before the site type existed)', () => {
@@ -469,14 +494,16 @@ describe('site layout settings schema', () => {
     expect(siteLayoutSettingsSchema.safeParse({ ...valid, ...patch }).success).toBe(false);
   });
 
-  it('refuses duplicate transformer ids, a bad kVA and more than 10 transformers', () => {
-    const t = { id: 'a', name: null, ratedKva: null, x: 40, z: 0 };
+  it('refuses duplicate transformer ids, a point out of reach and more than 10 transformers', () => {
+    const t = { id: 'a', x: 40, z: 0 };
     expect(siteLayoutSettingsSchema.safeParse({ ...valid, transformers: [t, t] }).success).toBe(
       false,
     );
     expect(
-      siteLayoutSettingsSchema.safeParse({ ...valid, transformers: [{ ...t, ratedKva: 0 }] })
-        .success,
+      siteLayoutSettingsSchema.safeParse({ ...valid, transformers: [{ ...t, x: 1e6 }] }).success,
+    ).toBe(false);
+    expect(
+      siteLayoutSettingsSchema.safeParse({ ...valid, transformers: [{ ...t, id: 'a b' }] }).success,
     ).toBe(false);
     const many = Array.from({ length: 11 }, (_, i) => ({ ...t, id: `t${String(i)}` }));
     expect(siteLayoutSettingsSchema.safeParse({ ...valid, transformers: many }).success).toBe(
@@ -487,20 +514,14 @@ describe('site layout settings schema', () => {
 
 describe('site layout energy assets', () => {
   const base = effectiveLayoutSettings(null);
-  const battery: LayoutBattery = {
-    id: 'bat-1',
-    type: 'battery',
-    name: 'Storage',
-    capacityKwh: 500,
-    x: 5,
-    z: 2,
-  };
-  const solar: LayoutEnergyAsset = {
-    id: 'pv-1',
-    type: 'solar',
-    name: null,
-    capacityKwp: 120,
-    row: 7,
+  const batteryAt = { id: 'ena_battery', x: 5, z: 2 };
+  const solarAt = { id: 'ena_solar', row: 7 };
+  const equipment: LayoutPowerEquipment = {
+    transformers: [],
+    energyAssets: [
+      { id: 'ena_battery', type: 'battery', name: 'Storage', capacityKwh: 500, peakKwp: null },
+      { id: 'ena_solar', type: 'solar', name: 'Carport', capacityKwh: null, peakKwp: 120 },
+    ],
   };
 
   it('reads absent energy assets as none, and a site without settings gets none', () => {
@@ -514,53 +535,162 @@ describe('site layout energy assets', () => {
     expect(sameLayoutSettings(legacy, base)).toBe(true);
   });
 
-  it('moves a battery on the lot to the grass and clamps a solar row into the lot', () => {
-    const placed = effectiveLayoutSettings({ ...base, energyAssets: [battery, solar] });
-    const [b, s] = placed.energyAssets ?? [];
-    expect(b).toEqual({
-      ...battery,
-      ...snapTransformerToGrass(battery.x, battery.z, base),
-    });
-    expect(b?.type === 'battery' && b.z).toBe(-TRANSFORMER_CLEARANCE_M);
-    expect(s).toEqual({ ...solar, row: base.rows - 1 });
-    expect(placeEnergyAsset({ ...solar, row: 0 }, base)).toEqual({ ...solar, row: 0 });
-    // A smaller lot clamps the row again.
-    const oneRow = effectiveLayoutSettings({ ...base, rows: 1, energyAssets: [solar] });
-    expect(oneRow.energyAssets?.[0]).toEqual({ ...solar, row: 0 });
+  it('clamps a stored solar row into the lot and leaves the rest of a position as stored', () => {
+    const effective = effectiveLayoutSettings({ ...base, energyAssets: [batteryAt, solarAt] });
+    expect(effective.energyAssets).toEqual([batteryAt, { ...solarAt, row: base.rows - 1 }]);
+    const oneRow = effectiveLayoutSettings({ ...base, rows: 1, energyAssets: [solarAt] });
+    expect(oneRow.energyAssets?.[0]).toEqual({ ...solarAt, row: 0 });
   });
 
-  it('shows solar only on a parking lot and compares energy assets field by field', () => {
+  it('joins the table rows: the type, name and capacity from the table, the place by type', () => {
+    const placed = placePowerEquipment(
+      effectiveLayoutSettings({ ...base, energyAssets: [batteryAt, solarAt] }),
+      equipment,
+    );
+    const [b, s] = placed.energyAssets;
+    // A battery on the lot moves to the grass; a canopy covers its (clamped) row.
+    expect(b).toEqual({
+      id: 'ena_battery',
+      type: 'battery',
+      name: 'Storage',
+      capacityKwh: 500,
+      ...snapTransformerToGrass(batteryAt.x, batteryAt.z, base),
+    });
+    expect(b?.type === 'battery' && b.z).toBe(-TRANSFORMER_CLEARANCE_M);
+    expect(s).toEqual({
+      id: 'ena_solar',
+      type: 'solar',
+      name: 'Carport',
+      capacityKwp: 120,
+      row: base.rows - 1,
+    });
+    expect(placeEnergyAsset({ ...(s as LayoutSolarCanopy), row: 0 }, base)).toMatchObject({
+      row: 0,
+    });
+  });
+
+  it('gives equipment without a position the default place of its type, in table order', () => {
+    const placed = placePowerEquipment(base, equipment);
+    expect(placed.energyAssets[0]).toMatchObject({ type: 'battery', ...newBatteryPoint(base, 0) });
+    // The first row without a canopy.
+    expect(placed.energyAssets[1]).toMatchObject({ type: 'solar', row: 0 });
+    expect(placed.energyAssets[1]).not.toHaveProperty('x');
+    const two = placePowerEquipment(base, {
+      transformers: [],
+      energyAssets: [equipment.energyAssets[1]!, { ...equipment.energyAssets[1]!, id: 'ena_s2' }],
+    });
+    expect(two.energyAssets.map((a) => a.type === 'solar' && a.row)).toEqual([0, 1]);
+  });
+
+  it('places stored positions by the table type without filling in defaults', () => {
+    const types = new Map([
+      ['ena_battery', 'battery' as const],
+      ['ena_solar', 'solar' as const],
+    ]);
+    const placed = placeEnergyAssetPositions(
+      { ...base, energyAssets: [batteryAt, solarAt, { id: 'ena_unknown', x: 2, z: 2 }] },
+      types,
+    );
+    expect(placed.energyAssets).toEqual([
+      { id: 'ena_battery', ...snapTransformerToGrass(batteryAt.x, batteryAt.z, base) },
+      { id: 'ena_solar', row: base.rows - 1 },
+      { id: 'ena_unknown', x: 2, z: 2 },
+    ]);
+    expect(placeEnergyAssetPositions(base, types)).toEqual(base);
+  });
+
+  it('leaves out a stored position whose equipment is gone', () => {
+    const placed = placePowerEquipment(
+      { ...base, energyAssets: [{ id: 'ena_gone', x: 1, z: 1 }, batteryAt] },
+      equipment,
+    );
+    expect(placed.energyAssets.map((a) => a.id)).toEqual(['ena_battery', 'ena_solar']);
+    expect(layoutPositionsOf(placed).energyAssets).toEqual([
+      { id: 'ena_battery', ...snapTransformerToGrass(batteryAt.x, batteryAt.z, base) },
+      { id: 'ena_solar', row: 0 },
+    ]);
+  });
+
+  it('shows solar only on a parking lot and compares energy asset positions field by field', () => {
     expect(showsSolar(base)).toBe(true);
     expect(showsSolar({ ...base, siteType: 'office_retail' })).toBe(false);
-    const a = { ...base, energyAssets: [battery, solar] };
-    expect(sameLayoutSettings(a, { ...base, energyAssets: [battery, solar] })).toBe(true);
-    expect(sameLayoutSettings(a, { ...base, energyAssets: [solar, battery] })).toBe(false);
-    expect(sameLayoutSettings(a, { ...base, energyAssets: [battery, { ...solar, row: 0 }] })).toBe(
-      false,
-    );
+    const a = { ...base, energyAssets: [batteryAt, solarAt] };
+    expect(sameLayoutSettings(a, { ...base, energyAssets: [batteryAt, solarAt] })).toBe(true);
+    expect(sameLayoutSettings(a, { ...base, energyAssets: [solarAt, batteryAt] })).toBe(false);
     expect(
-      sameLayoutSettings(a, { ...base, energyAssets: [{ ...battery, capacityKwh: 1 }, solar] }),
+      sameLayoutSettings(a, { ...base, energyAssets: [batteryAt, { ...solarAt, row: 0 }] }),
+    ).toBe(false);
+    expect(
+      sameLayoutSettings(a, { ...base, energyAssets: [{ ...batteryAt, x: 6 }, solarAt] }),
     ).toBe(false);
     expect(sameLayoutSettings(a, base)).toBe(false);
   });
 
-  it('accepts both kinds in the schema and refuses bad ones', () => {
+  it('accepts positions by id in the schema and refuses a type, a name, a capacity or a half point', () => {
     const parse = (energyAssets: unknown) =>
       siteLayoutSettingsSchema.safeParse({ ...base, energyAssets }).success;
-    expect(parse([battery, solar])).toBe(true);
+    expect(parse([batteryAt, solarAt])).toBe(true);
+    expect(parse([{ id: 'ena_x' }])).toBe(true);
     expect(parse(undefined)).toBe(true);
-    expect(parse([battery, { ...solar, id: 'bat-1' }])).toBe(false);
-    expect(parse([{ ...battery, capacityKwh: 0 }])).toBe(false);
-    expect(parse([{ ...battery, capacityKwh: 1.5 }])).toBe(false);
-    expect(parse([{ ...solar, row: -1 }])).toBe(false);
-    expect(parse([{ ...solar, row: 100 }])).toBe(false);
-    expect(parse([{ ...solar, x: 401 }])).toBe(false);
-    expect(parse([{ ...solar, rotationDeg: 360 }])).toBe(false);
-    expect(parse([{ ...battery, type: 'wind' }])).toBe(false);
-    expect(parse([{ ...battery, name: 'x'.repeat(61) }])).toBe(false);
-    expect(parse(Array.from({ length: 11 }, (_, i) => ({ ...battery, id: `b${String(i)}` })))).toBe(
-      false,
+    expect(parse([batteryAt, { ...solarAt, id: 'ena_battery' }])).toBe(false);
+    expect(parse([{ ...batteryAt, type: 'battery' }])).toBe(false);
+    expect(parse([{ ...batteryAt, name: 'Storage' }])).toBe(false);
+    expect(parse([{ ...batteryAt, capacityKwh: 500 }])).toBe(false);
+    expect(parse([{ id: 'ena_x', x: 1 }])).toBe(false);
+    expect(parse([{ ...solarAt, row: -1 }])).toBe(false);
+    expect(parse([{ ...solarAt, row: 100 }])).toBe(false);
+    expect(parse([{ ...solarAt, x: 1e6, z: 0 }])).toBe(false);
+    expect(parse([{ ...solarAt, rotationDeg: 360 }])).toBe(false);
+    expect(
+      parse(Array.from({ length: 11 }, (_, i) => ({ ...batteryAt, id: `b${String(i)}` }))),
+    ).toBe(false);
+  });
+});
+
+describe('site layout power equipment', () => {
+  const base = effectiveLayoutSettings(null);
+  const service = (id: string, name: string) => ({
+    id,
+    kind: 'service' as const,
+    name,
+    ratedKva: 1500,
+    maxContinuousKw: 1425,
+  });
+
+  it('places each service transformer at its stored point, else at its default point', () => {
+    const settings = effectiveLayoutSettings({
+      ...base,
+      transformers: [{ id: 'tfm_b', x: 40, z: 3 }],
+    });
+    const placed = placePowerEquipment(settings, {
+      transformers: [service('tfm_a', 'Main'), service('tfm_b', 'Second')],
+      energyAssets: [],
+    });
+    expect(placed.transformers).toEqual([
+      { ...service('tfm_a', 'Main'), ...newTransformerPoint(settings, 0) },
+      { ...service('tfm_b', 'Second'), x: 40, z: 3 },
+    ]);
+    // The first default point is where the equipment stands without one.
+    expect(newTransformerPoint(base, 0)).toEqual(layoutEquipmentPoint(base));
+    expect(layoutPositionsOf(placed).transformers).toEqual([
+      { id: 'tfm_a', ...newTransformerPoint(settings, 0) },
+      { id: 'tfm_b', x: 40, z: 3 },
+    ]);
+  });
+
+  it('leaves out step-down transformers and stored points of deleted transformers', () => {
+    const placed = placePowerEquipment(
+      { ...base, transformers: [{ id: 'tfm_gone', x: 40, z: 3 }] },
+      {
+        transformers: [
+          service('tfm_a', 'Main'),
+          { ...service('tfm_sd', 'Step-Down'), kind: 'step_down' },
+        ],
+        energyAssets: [],
+      },
     );
+    expect(placed.transformers.map((t) => t.id)).toEqual(['tfm_a']);
+    expect(placePowerEquipment(base, NO_POWER_EQUIPMENT).transformers).toEqual([]);
   });
 });
 
@@ -723,13 +853,15 @@ describe('custom site free positions', () => {
   it('keeps transformers and batteries where they were put, within reach', () => {
     const settings = effectiveLayoutSettings({
       ...custom,
-      transformers: [{ id: 'tx-1', name: null, ratedKva: null, x: 3, z: 4 }],
-      energyAssets: [
-        { id: 'b1', type: 'battery', name: null, capacityKwh: null, x: 5.04, z: -900 },
-      ],
+      transformers: [{ id: 'tx-1', x: 3, z: 4 }],
+      energyAssets: [{ id: 'b1', x: 5.04, z: -900 }],
     });
     expect(settings.transformers[0]).toMatchObject({ x: 3, z: 4 });
-    expect(energyAssetsOf(settings)[0]).toMatchObject({ x: 5, z: -FREE_LAYOUT.reachM });
+    const placed = placePowerEquipment(settings, {
+      transformers: [],
+      energyAssets: [{ id: 'b1', type: 'battery', name: 'B', capacityKwh: null, peakKwp: null }],
+    });
+    expect(placed.energyAssets[0]).toMatchObject({ x: 5, z: -FREE_LAYOUT.reachM });
   });
 
   it('snaps positions to 0.5 m and turns to 15 degrees, or keeps a free turn', () => {
@@ -766,12 +898,13 @@ describe('custom site free positions', () => {
   });
 
   it('lays the spots in front of the charger and turns them with the station', () => {
-    // The charger stands 0.6 m behind the head of its spots (CPF50, behind the curb).
+    // The charger stands 0.58 m behind the head of its spots (CPF50: 18 in from the curb).
     const corners = freeFootprint({ x: 10, z: 20, rotationDeg: 0 }, 2);
-    expect(corners[0]).toEqual({ x: 7.4, z: 19.4 });
+    expect(corners[0]!.x).toBeCloseTo(7.4);
+    expect(corners[0]!.z).toBeCloseTo(19.42);
     expect(corners[2]!.x).toBeCloseTo(12.6);
-    expect(corners[2]!.z).toBeCloseTo(26.1);
-    expect(freeSpotRects(2, 'car')[0]).toMatchObject({ minZ: 0.6, maxZ: 6.1 });
+    expect(corners[2]!.z).toBeCloseTo(26.08);
+    expect(freeSpotRects(2, 'car')[0]).toMatchObject({ minZ: 0.58, maxZ: 6.08 });
     // A quarter turn clockwise from above: the spots lie toward -x.
     const turned = freeToSite({ x: 0, z: 0, rotationDeg: 90 }, 0, 4);
     expect(turned.x).toBeCloseTo(-4);
@@ -802,26 +935,26 @@ describe('custom site free positions', () => {
   });
 
   it('keeps the spots of a converted station in place: parking rows, office row and curbs', () => {
-    // The charger 0.6 m behind the stall head line, the spot where it was.
+    // The charger 0.58 m behind the stall head line, the spot where it was.
     const lot = { ...custom, siteType: 'parking_lot' as const, rows: 2 };
     expect(freePlacementFromSlot({ col: 0, row: 0 }, lot)).toEqual({
       x: 1.3,
-      z: -0.6,
+      z: -0.58,
       rotationDeg: 0,
     });
     // Row 1 (behind the 7.3 m aisle) is turned: its chargers stand past its back edge.
     expect(freePlacementFromSlot({ col: 1, row: 1 }, lot)).toEqual({
       x: 3.9,
-      z: 18.9,
+      z: 18.88,
       rotationDeg: 180,
     });
     expect(
       freePlacementFromSlot({ col: 2, row: 0 }, { ...lot, siteType: 'office_retail' }),
-    ).toEqual({ x: 6.5, z: -0.6, rotationDeg: 0 });
+    ).toEqual({ x: 6.5, z: -0.58, rotationDeg: 0 });
     const street = { ...lot, siteType: 'curbside' as const };
     expect(freePlacementFromSlot({ col: 0, row: 0 }, street)).toEqual({
       x: 3,
-      z: -0.6,
+      z: -0.58,
       rotationDeg: 0,
     });
     expect(freePlacementFromSlot({ col: 1, row: 1 }, street)).toMatchObject({
@@ -959,7 +1092,7 @@ describe('custom site free positions', () => {
     expect(solarCanopySize(60).lengthM).toBe(49.4);
     expect(solarCanopySize(1).lengthM).toBe(5.2);
     expect(solarCanopySize(100000).lengthM).toBe(60);
-    const canopy = { id: 'pv', type: 'solar' as const, name: null, capacityKwp: null, row: 1 };
+    const canopy = { id: 'pv', type: 'solar' as const, name: 'Canopy', capacityKwp: null, row: 1 };
     expect(freeSolarPlacement(canopy, custom)).toEqual({ x: 13, z: 15.55, rotationDeg: 0 });
     expect(freeSolarPlacement({ ...canopy, x: 2, z: 3, rotationDeg: 30 }, custom)).toEqual({
       x: 2,
@@ -974,9 +1107,6 @@ describe('custom site free positions', () => {
       energyAssets: [
         {
           id: 'pv',
-          type: 'solar',
-          name: null,
-          capacityKwp: 50,
           row: 0,
           x: 1,
           z: 2,
@@ -1016,9 +1146,14 @@ describe('spot types', () => {
     expect(isFreeSpotType('lorry')).toBe(false);
   });
 
-  it('puts the car spot heads 0.6 m in front of the charger, its base behind them', () => {
-    expect(freeSpotsExtent(2)).toEqual({ minX: -2.6, maxX: 2.6, front: -0.6, back: 6.1 });
-    expect(freeSpotsExtent(1, 'car')).toEqual({ minX: -1.3, maxX: 1.3, front: -0.6, back: 6.1 });
+  it('puts the car spot heads 0.58 m in front of the charger, its base behind them', () => {
+    expect(freeSpotsExtent(2)).toEqual({ minX: -2.6, maxX: 2.6, front: -0.58, back: 6.08 });
+    expect(freeSpotsExtent(1, 'car')).toEqual({
+      minX: -1.3,
+      maxX: 1.3,
+      front: -0.58,
+      back: 6.08,
+    });
   });
 
   it('puts two bus bays side by side, nose to the charger between them', () => {
@@ -1337,7 +1472,7 @@ describe('depot site', () => {
     const battery: LayoutBattery = {
       id: 'b',
       type: 'battery',
-      name: null,
+      name: 'Battery',
       capacityKwh: null,
       x: 5,
       z: 10,
@@ -1345,7 +1480,7 @@ describe('depot site', () => {
     expect(placeEnergyAsset(battery, s)).toMatchObject(p);
     // A solar canopy without a position stands behind the yard.
     const solar = freeSolarPlacement(
-      { id: 'pv', type: 'solar', name: null, capacityKwp: null, row: 0 },
+      { id: 'pv', type: 'solar', name: 'Canopy', capacityKwp: null, row: 0 },
       s,
     );
     expect(solar.z).toBeLessThan(yard.minZ);

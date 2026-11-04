@@ -8,10 +8,13 @@ vi.mock('../config.js', () => ({ db: {} }));
 import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import { DEFAULT_LAYOUT_GRID } from '@evtivity/lib/site-layout';
 import { chargingStations, connectors, sites } from '../schema/assets.js';
+import { circuits, panels, siteEnergyAssets, transformers } from '../schema/load-management.js';
+import { LoadTreeValidationError } from '../lib/load-management-tree.js';
 import {
   boardOf,
   ChargerPlacementSiteTypeError,
   LayoutGridTooSmallError,
+  readLayoutPowerEquipment,
   moveStationLayout,
   placeStationOnLayout,
   saveSiteLayout,
@@ -41,8 +44,17 @@ function fakeTx(
     mcs?: string[];
     /** Stations with a DC (CCS2, 150 kW) or AC (Type2, 22 kW) connector. */
     kinds?: Record<string, 'ac' | 'dc'>;
+    /**
+     * The power equipment rows of each site: transformer ids (service, 1500
+     * kVA) and energy assets. Absent: site sit_1 has transformer tx-1.
+     */
+    equipment?: Record<
+      string,
+      { transformers?: string[]; energyAssets?: Array<{ id: string; type: 'battery' | 'solar' }> }
+    >;
   } = {},
 ) {
+  const equipment = options.equipment ?? { sit_1: { transformers: ['tx-1'] } };
   const rows = [...initial];
   const settings = new Map<string, SiteLayoutSettings | null>(
     Object.entries(options.settings ?? {}),
@@ -94,6 +106,37 @@ function fakeTx(
                         : { stationId: id, connectorType: 'Type2', maxPowerKw: '22' },
                     ];
                   }),
+                );
+              },
+            }),
+          };
+        }
+        // The load management tree (readLayoutPowerEquipment): none here.
+        if (table === panels) return { where: () => Promise.resolve([]) };
+        if (table === circuits) {
+          return { innerJoin: () => ({ where: () => Promise.resolve([]) }) };
+        }
+        // The site's power equipment rows (readLayoutPowerEquipment).
+        if (table === transformers || table === siteEnergyAssets) {
+          return {
+            where: (cond: unknown) => ({
+              orderBy: () => {
+                const site = equipment[String(params(cond)[0])];
+                return Promise.resolve(
+                  table === transformers
+                    ? (site?.transformers ?? []).map((id) => ({
+                        id,
+                        kind: 'service',
+                        name: `Transformer ${id}`,
+                        ratedKva: '1500',
+                        maxContinuousKw: '1425',
+                      }))
+                    : (site?.energyAssets ?? []).map((a) => ({
+                        ...a,
+                        name: `Asset ${a.id}`,
+                        capacityKwh: a.type === 'battery' ? 500 : null,
+                        peakKwp: a.type === 'solar' ? 100 : null,
+                      })),
                 );
               },
             }),
@@ -273,7 +316,7 @@ describe('station layout placement', () => {
     ...DEFAULT_LAYOUT_GRID,
     spotsPerRow,
     rows,
-    transformers: [{ id: 'tx-1', name: 'Main', ratedKva: 1500, x: 3, z: 2 }],
+    transformers: [{ id: 'tx-1', x: 3, z: 2 }],
   });
 
   it('places a new station on the first free spot of a stored lot, below it when the lot is full', async () => {
@@ -302,7 +345,7 @@ describe('station layout placement', () => {
     // The transformer stood on the new lot: it moves to the grass beside it.
     const stored = settings.get('sit_1');
     expect(stored?.spotsPerRow).toBe(2);
-    expect(stored?.transformers[0]).toMatchObject({ id: 'tx-1', name: 'Main', x: 3, z: -2.5 });
+    expect(stored?.transformers[0]).toEqual({ id: 'tx-1', x: 3, z: -2.5 });
     // Before: the default lot (never saved).
     expect(saved.settingsBefore.spotsPerRow).toBe(10);
   });
@@ -330,6 +373,91 @@ describe('station layout placement', () => {
     const saved = await saveSiteLayout(tx, 'sit_1', [], null);
     expect(saved.settingsChanged).toBe(true);
     expect(settings.get('sit_1')).toBeNull();
+  });
+
+  it('stores equipment positions by id: a battery moves to the grass, a canopy keeps its row', async () => {
+    const { tx, settings } = fakeTx([], {
+      equipment: {
+        sit_1: {
+          transformers: ['tx-1'],
+          energyAssets: [
+            { id: 'ena_bat', type: 'battery' },
+            { id: 'ena_pv', type: 'solar' },
+          ],
+        },
+      },
+    });
+    await saveSiteLayout(tx, 'sit_1', [], {
+      ...small(4, 2),
+      energyAssets: [
+        { id: 'ena_bat', x: 2, z: 2 },
+        { id: 'ena_pv', row: 1 },
+      ],
+    });
+    const stored = settings.get('sit_1');
+    expect(stored?.transformers).toEqual([{ id: 'tx-1', x: 3, z: -2.5 }]);
+    expect(stored?.energyAssets).toEqual([
+      { id: 'ena_bat', x: -2.5, z: 2 },
+      { id: 'ena_pv', row: 1 },
+    ]);
+  });
+
+  it('refuses a position naming equipment the site does not have and writes nothing', async () => {
+    const { tx, settings } = fakeTx([], {
+      equipment: { sit_1: { transformers: ['tx-1'] }, sit_2: { transformers: ['tx-other'] } },
+    });
+    const foreign = { ...small(4, 1), transformers: [{ id: 'tx-other', x: 3, z: 2 }] };
+    await expect(saveSiteLayout(tx, 'sit_1', [], foreign)).rejects.toThrow(LoadTreeValidationError);
+    await expect(saveSiteLayout(tx, 'sit_1', [], foreign)).rejects.toMatchObject({
+      field: 'settings.transformers',
+    });
+    await expect(
+      saveSiteLayout(tx, 'sit_1', [], {
+        ...small(4, 1),
+        energyAssets: [{ id: 'ena_x', x: 1, z: 1 }],
+      }),
+    ).rejects.toMatchObject({ field: 'settings.energyAssets' });
+    expect(settings.has('sit_1')).toBe(false);
+  });
+
+  it('drops the stored positions of deleted equipment on the next Save', async () => {
+    const stored: SiteLayoutSettings = {
+      ...small(4, 1),
+      transformers: [
+        { id: 'tx-1', x: 3, z: -2.5 },
+        { id: 'tx-gone', x: 20, z: -2.5 },
+      ],
+      energyAssets: [{ id: 'ena_gone', x: 1, z: -2.5 }],
+    };
+    const { tx, settings } = fakeTx([], { settings: { sit_1: stored } });
+    const saved = await saveSiteLayout(tx, 'sit_1', []);
+    expect(saved.settingsChanged).toBe(true);
+    expect(settings.get('sit_1')?.transformers).toEqual([{ id: 'tx-1', x: 3, z: -2.5 }]);
+    expect(settings.get('sit_1')?.energyAssets).toEqual([]);
+    // A second Save finds nothing to drop.
+    expect((await saveSiteLayout(tx, 'sit_1', [])).settingsChanged).toBe(false);
+  });
+
+  it('reads the power equipment rows the layout labels', async () => {
+    const { tx } = fakeTx([], {
+      equipment: {
+        sit_1: { transformers: ['tx-1'], energyAssets: [{ id: 'b', type: 'battery' }] },
+      },
+    });
+    expect(await readLayoutPowerEquipment('sit_1', tx)).toEqual({
+      transformers: [
+        {
+          id: 'tx-1',
+          kind: 'service',
+          name: 'Transformer tx-1',
+          ratedKva: 1500,
+          maxContinuousKw: 1425,
+        },
+      ],
+      energyAssets: [
+        { id: 'b', type: 'battery', name: 'Asset b', capacityKwh: 500, peakKwp: null },
+      ],
+    });
   });
 
   it('sets the site type, moves stations onto the new spots and keeps every other field', async () => {
@@ -448,13 +576,13 @@ describe('custom site free positions', () => {
       const r = rows.find((x) => x.stationId === id)!;
       return { x: Number(r.freeXM), z: Number(r.freeZM), rotationDeg: Number(r.freeRotationDeg) };
     };
-    // Each charger 0.6 m behind its stall head line, the spots where they were.
-    expect(free('sta_a')).toEqual({ x: 1.3, z: -0.6, rotationDeg: 0 });
+    // Each charger 0.58 m behind its stall head line, the spots where they were.
+    expect(free('sta_a')).toEqual({ x: 1.3, z: -0.58, rotationDeg: 0 });
     // Row 1 of the lot is turned.
-    expect(free('sta_c')).toEqual({ x: 1.3, z: 18.9, rotationDeg: 180 });
+    expect(free('sta_c')).toEqual({ x: 1.3, z: 18.88, rotationDeg: 180 });
     // Two spots each: sta_b slides right along its row until its spots are free.
     expect(free('sta_b').x).toBeGreaterThanOrEqual(1.3 + 5.2);
-    expect(free('sta_b')).toMatchObject({ z: -0.6, rotationDeg: 0 });
+    expect(free('sta_b')).toMatchObject({ z: -0.58, rotationDeg: 0 });
     // The grid slots stay, so switching back returns the stations to them.
     expect(rows.find((x) => x.stationId === 'sta_b')).toMatchObject({ positionX: '220' });
     expect(change.moved.map((m) => m.stationId).sort()).toEqual(['sta_a', 'sta_b', 'sta_c']);
@@ -561,7 +689,7 @@ describe('AC and DC grouping', () => {
   const lot: SiteLayoutSettings = {
     siteType: 'parking_lot',
     ...DEFAULT_LAYOUT_GRID,
-    transformers: [{ id: 'tx-1', name: null, ratedKva: null, x: 30, z: 2.5 }],
+    transformers: [{ id: 'tx-1', x: 30, z: 2.5 }],
   };
 
   it('places a new DC station next to the transformer and an AC station at the far end', async () => {
@@ -605,7 +733,7 @@ describe('parking lot charger placement', () => {
     spotsPerRow: 4,
     rows: 4,
     facingDeg: 0,
-    transformers: [{ id: 'tx-1', name: null, ratedKva: null, x: 15, z: 2.5 }],
+    transformers: [{ id: 'tx-1', x: 15, z: 2.5 }],
   };
 
   it('moves stations of the inner rows to the edge rows, DC nearest the transformer', async () => {

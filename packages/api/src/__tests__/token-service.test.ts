@@ -6,6 +6,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
 
+/** The driver row a driver's update reads FOR SHARE on the locked token (PP-L1). */
+const OWNER_ROW = { isActive: true, erasedAt: null };
+
 function setupDbResults(...results: unknown[][]) {
   dbResults = results;
   dbCallIndex = 0;
@@ -167,6 +170,7 @@ import {
   importTokensCsv,
   hasEmailShape,
   normalizeTokenLabel,
+  clearDriverTokenLabels,
   DuplicateTokenError,
   VehicleIdTokenInUseError,
   VehicleShapedCardError,
@@ -181,6 +185,7 @@ import {
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import * as databaseModule from '@evtivity/database';
+import { tokenLabelProblem } from '../lib/token-label.js';
 
 beforeEach(() => {
   dbResults = [];
@@ -207,6 +212,17 @@ describe('listTokens', () => {
 
     expect(result.data).toEqual(tokenRows);
     expect(result.total).toBe(1);
+  });
+
+  it('matches LIKE wildcards in the search only as typed, the label included (PP-I1)', async () => {
+    const { ilike } = await import('drizzle-orm');
+    vi.mocked(ilike).mockClear();
+    setupDbResults([], [{ count: 0 }]);
+    await listTokens({ page: 1, limit: 10, search: '50%_off\\' });
+    const patterns = vi.mocked(ilike).mock.calls.map((c) => c[1]);
+    // idToken, label, first name, last name, email: each escaped.
+    expect(patterns.length).toBeGreaterThanOrEqual(5);
+    for (const p of patterns) expect(p).toBe('%50\\%\\_off\\\\%');
   });
 
   it('applies tokenType and status filters', async () => {
@@ -296,6 +312,27 @@ describe('createToken', () => {
     ).resolves.toEqual(token);
   });
 
+  it("binds a card to a vehicle of the card's driver only", async () => {
+    const token = { id: 't3', idToken: 'BUS', tokenType: 'ISO14443', driverId: 'drv_1' };
+    // existing check, the driver (active), no vehicle id clash, the vehicle of the driver, insert
+    setupDbResults([], [{ isActive: true }], [], [{ id: 'veh_1' }], [token]);
+    await expect(
+      createToken({ idToken: 'BUS', tokenType: 'ISO14443', driverId: 'drv_1', vehicleId: 'veh_1' }),
+    ).resolves.toEqual(token);
+
+    // Another driver's vehicle: the vehicle lookup finds none for this driver.
+    setupDbResults([], [{ isActive: true }], [], []);
+    await expect(
+      createToken({ idToken: 'BUS', tokenType: 'ISO14443', driverId: 'drv_1', vehicleId: 'veh_9' }),
+    ).rejects.toThrow("The vehicle is not one of the card driver's vehicles");
+
+    // A card without a driver cannot belong to a vehicle.
+    setupDbResults([], []);
+    await expect(
+      createToken({ idToken: 'BUS', tokenType: 'ISO14443', vehicleId: 'veh_1' }),
+    ).rejects.toThrow('A card without a driver cannot belong to a vehicle');
+  });
+
   it('throws DuplicateTokenError when (idToken, tokenType) already exists', async () => {
     setupDbResults([{ id: 'existing' }]);
 
@@ -366,9 +403,9 @@ describe('createToken', () => {
       isActive: false,
       deactivatedBy: 'driver',
     };
-    // existing row, current (locked), the driver (active), update returning,
-    // stations holding the token
-    setupDbResults([existing], [currentRow], [{ isActive: true }], [reactivated], []);
+    // existing row, current (locked), the driver actor (FOR SHARE), the driver
+    // (active), update returning, stations holding the token
+    setupDbResults([existing], [currentRow], [OWNER_ROW], [{ isActive: true }], [reactivated], []);
 
     const result = await createToken(
       { idToken: 'RFID-1', tokenType: 'ISO14443', driverId: 'drv_1' },
@@ -384,6 +421,58 @@ describe('createToken', () => {
       ALL_TEMPLATES_DIRS,
       expect.anything(),
     );
+  });
+
+  it("re-adds a card with its vehicle checked like an update: another driver's vehicle is refused", async () => {
+    const existing = { id: 't1', driverId: 'drv_1', isActive: false };
+    const currentRow = {
+      id: 't1',
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_1',
+      isActive: false,
+      deactivatedBy: 'operator',
+      vehicleId: null,
+    };
+    // existing row, current (locked), the driver (active), the vehicle lookup for drv_1 (none)
+    setupDbResults([existing], [currentRow], [{ isActive: true }], []);
+    await expect(
+      createToken({
+        idToken: 'RFID-1',
+        tokenType: 'ISO14443',
+        driverId: 'drv_1',
+        vehicleId: 'veh_9',
+      }),
+    ).rejects.toThrow("The vehicle is not one of the card driver's vehicles");
+  });
+
+  it("re-adds a card with a vehicle of the card's driver", async () => {
+    const existing = { id: 't1', driverId: 'drv_1', isActive: false };
+    const currentRow = {
+      id: 't1',
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_1',
+      isActive: false,
+      deactivatedBy: 'operator',
+      vehicleId: null,
+    };
+    const reactivated = { ...currentRow, isActive: true, vehicleId: 'veh_1' };
+    setupDbResults(
+      [existing],
+      [currentRow],
+      [{ isActive: true }],
+      [{ id: 'veh_1' }],
+      [reactivated],
+      [],
+    );
+    const result = await createToken({
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_1',
+      vehicleId: 'veh_1',
+    });
+    expect(result).toMatchObject({ isActive: true, vehicleId: 'veh_1' });
   });
 
   it('throws DuplicateTokenError when an existing token belongs to a different driver', async () => {
@@ -495,6 +584,17 @@ describe('updateToken', () => {
     expect(result).toEqual(token);
   });
 
+  it("refuses a vehicle that is not one of the card driver's vehicles", async () => {
+    // current row (driver drv_1), the vehicle lookup for drv_1 (none)
+    setupDbResults(
+      [{ idToken: 'C', tokenType: 'ISO14443', driverId: 'drv_1', vehicleId: null, isActive: true }],
+      [],
+    );
+    await expect(updateToken('t1', { vehicleId: 'veh_9' })).rejects.toThrow(
+      "The vehicle is not one of the card driver's vehicles",
+    );
+  });
+
   it('pushes no tombstone from ISO14443 to ISO15693 (same OCPI Token, uid and RFID)', async () => {
     const token = { id: 't1', idToken: 'CARD', tokenType: 'ISO15693' };
     setupDbResults([{ idToken: 'CARD', tokenType: 'ISO14443' }], [], [token]);
@@ -589,7 +689,7 @@ describe('updateToken', () => {
       isActive: false,
       deactivatedBy: 'operator',
     };
-    setupDbResults([current]);
+    setupDbResults([current], [OWNER_ROW]);
 
     await expect(
       updateToken('t1', { isActive: true }, { type: 'driver', driverId: 'drv_1' }),
@@ -606,7 +706,7 @@ describe('updateToken', () => {
       deactivatedBy: 'driver',
     };
     const updated = { ...current, id: 't1', isActive: true, deactivatedBy: null };
-    setupDbResults([current], [{ isActive: true }], [updated], []);
+    setupDbResults([current], [OWNER_ROW], [{ isActive: true }], [updated], []);
 
     const result = await updateToken(
       't1',
@@ -615,6 +715,49 @@ describe('updateToken', () => {
     );
 
     expect(result).toEqual(updated);
+  });
+
+  it('refuses a driver update when the locked row belongs to another driver (PP-L1)', async () => {
+    const current = {
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_other',
+      label: 'Old',
+      isActive: true,
+    };
+    setupDbResults([current]);
+    const result = await updateToken(
+      't1',
+      { label: 'Mine' },
+      { type: 'driver', driverId: 'drv_1' },
+    );
+    expect(result).toBeNull();
+    expect(databaseModule.db.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a driver label on an erased or inactive driver (PP-L1)', async () => {
+    const current = {
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_1',
+      label: null,
+      isActive: true,
+    };
+    for (const owner of [
+      { isActive: false, erasedAt: new Date() },
+      { isActive: false, erasedAt: null },
+      null,
+    ]) {
+      vi.mocked(databaseModule.db.update).mockClear();
+      setupDbResults([current], owner != null ? [owner] : []);
+      const result = await updateToken(
+        't1',
+        { label: 'Anna' },
+        { type: 'driver', driverId: 'drv_1' },
+      );
+      expect(result).toBeNull();
+      expect(databaseModule.db.update).not.toHaveBeenCalled();
+    }
   });
 
   it('maps a foreign key violation on driver_id to TokenDriverNotFoundError', async () => {
@@ -973,6 +1116,214 @@ describe('token label', () => {
     );
     // Only the current-row SELECT and the update ran: no station list query.
     expect(dbCallIndex).toBe(2);
+  });
+
+  it('sends partners nothing for a change of the label alone', async () => {
+    const current = {
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_1',
+      label: 'Old',
+      isActive: true,
+      expiresAt: null,
+      revokedReason: null,
+      prepaidBalanceCents: null,
+      vehicleId: null,
+    };
+    setupDbResults([current], [OWNER_ROW], [{ ...current, id: 't1', label: 'New' }]);
+
+    const result = await updateToken('t1', { label: 'New' }, { type: 'driver', driverId: 'drv_1' });
+
+    expect(result).toMatchObject({ label: 'New' });
+    expect(publishOcpiTokenPushMock).not.toHaveBeenCalled();
+  });
+
+  it('still pushes the token to partners when the label changes with another field', async () => {
+    const current = {
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_1',
+      label: 'Old',
+      isActive: true,
+      expiresAt: null,
+      revokedReason: null,
+      prepaidBalanceCents: null,
+      vehicleId: null,
+    };
+    const expiresAt = new Date('2030-01-01T00:00:00Z');
+    setupDbResults([current], [{ ...current, id: 't1', label: 'New', expiresAt }]);
+
+    await updateToken('t1', { label: 'New', expiresAt });
+
+    expect(publishOcpiTokenPushMock).toHaveBeenCalledWith({ tokenIds: ['t1'], tombstones: [] });
+  });
+
+  it.each([
+    ['a line break', 'Pool\ncard'],
+    ['a tab', 'Pool\tcard'],
+    ['a C1 control', 'Pool\u0085card'],
+    ['a right-to-left override', 'Pool\u202Ecard'],
+    ['a bidi isolate', 'Pool\u2067card'],
+    ['a right-to-left mark', 'Pool\u200Fcard'],
+  ])('refuses a label with %s before any query', async (_name, label) => {
+    setupDbResults();
+    await expect(updateToken('t1', { label })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { field: 'label', problem: 'control_characters' },
+    });
+    await expect(
+      createToken({ idToken: 'NEW', tokenType: 'ISO14443', label }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(dbCallIndex).toBe(0);
+  });
+
+  it('checks the length after trimming', async () => {
+    const token = { id: 't1', idToken: 'NEW', tokenType: 'ISO14443', driverId: null };
+    setupDbResults([], [], [token]);
+    await createToken({ idToken: 'NEW', tokenType: 'ISO14443', label: `  ${'x'.repeat(100)}   ` });
+    const insertChain = vi.mocked(databaseModule.db.insert).mock.results[0]?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ label: 'x'.repeat(100) }),
+    );
+    await expect(updateToken('t1', { label: 'x'.repeat(101) })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { field: 'label', problem: 'too_long' },
+    });
+  });
+
+  describe('a token moved to another driver', () => {
+    function captureUpdateSet(): { set: ReturnType<typeof vi.fn> } {
+      const captured = { set: vi.fn() };
+      vi.mocked(databaseModule.db.transaction).mockImplementationOnce((async (
+        fn: (tx: unknown) => Promise<unknown>,
+      ) => {
+        const update = vi.fn(() => {
+          const chain = makeChain();
+          chain['set'] = vi.fn((values: unknown) => {
+            captured.set(values);
+            return chain;
+          });
+          return chain;
+        });
+        return fn({
+          select: vi.fn(() => makeChain()),
+          insert: vi.fn(() => makeChain()),
+          update,
+          delete: vi.fn(() => makeChain()),
+        });
+      }) as never);
+      return captured;
+    }
+    const current = {
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: 'drv_1',
+      label: 'Anna car',
+      isActive: false,
+      expiresAt: null,
+      revokedReason: null,
+      prepaidBalanceCents: null,
+      vehicleId: null,
+    };
+
+    it('clears its label and notes it in the audit row', async () => {
+      const { writeAudit } = databaseModule;
+      const captured = captureUpdateSet();
+      // current row, another driver's vehicle with the value (none), update returning
+      setupDbResults([current], [], [{ ...current, id: 't1', driverId: 'drv_2', label: null }]);
+
+      await updateToken('t1', { driverId: 'drv_2' }, { type: 'operator', userId: 'usr_1' });
+
+      expect(captured.set).toHaveBeenCalledWith(
+        expect.objectContaining({ driverId: 'drv_2', label: null }),
+      );
+      expect(writeAudit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: 'updated',
+          before: expect.objectContaining({ label: 'Anna car', driverId: 'drv_1' }),
+          after: expect.objectContaining({ label: null, driverId: 'drv_2' }),
+          notes: 'Label cleared: the token moved to another driver',
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('clears the label a full edit form sends back unchanged', async () => {
+      const captured = captureUpdateSet();
+      setupDbResults([current], [], [{ ...current, id: 't1', driverId: 'drv_2', label: null }]);
+
+      await updateToken('t1', { driverId: 'drv_2', label: 'Anna car' });
+
+      expect(captured.set).toHaveBeenCalledWith(expect.objectContaining({ label: null }));
+    });
+
+    it('keeps a new label the request sends with the move', async () => {
+      const captured = captureUpdateSet();
+      setupDbResults([current], [], [{ ...current, id: 't1', driverId: 'drv_2', label: 'Ben' }]);
+
+      await updateToken('t1', { driverId: 'drv_2', label: ' Ben ' });
+
+      expect(captured.set).toHaveBeenCalledWith(expect.objectContaining({ label: 'Ben' }));
+    });
+
+    it('keeps the label when the driver stays', async () => {
+      const captured = captureUpdateSet();
+      setupDbResults([current], [{ ...current, id: 't1', isActive: false }]);
+
+      await updateToken('t1', { driverId: 'drv_1', isActive: false });
+
+      expect(captured.set.mock.calls[0]?.[0]).not.toHaveProperty('label');
+    });
+  });
+
+  it('clears the labels of a driver in the given transaction and writes no token audit row', async () => {
+    const tx = { update: vi.fn(() => makeChain()) };
+    setupDbResults([{ id: 't1' }, { id: 't2' }]);
+
+    const cleared = await clearDriverTokenLabels(tx as never, 'drv_1');
+
+    expect(cleared).toBe(2);
+    expect(tx.update).toHaveBeenCalledTimes(1);
+    const chain = tx.update.mock.results[0]?.value as { set: ReturnType<typeof vi.fn> };
+    expect(chain.set).toHaveBeenCalledWith(expect.objectContaining({ label: null }));
+    // An audit row here would carry the label in its before snapshot.
+    expect(databaseModule.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('refuses an imported label with a control character per row', async () => {
+    setupDbResults([], [], [], []);
+    const result = await importTokensCsv([
+      { idToken: 'T2', tokenType: 'ISO14443', label: 'Pool\u202Ecard' },
+    ]);
+    expect(result.imported).toBe(0);
+    expect(result.errors).toEqual(['Row 1: label contains control or invisible format characters']);
+  });
+
+  it('refuses a label with a zero-width character and keeps an emoji sequence (PP-I2)', () => {
+    for (const label of [
+      'Pool​card',
+      'Pool‌card',
+      'Pool‍card',
+      'Pool⁠card',
+      '﻿Pool card',
+      'Pool­card',
+      'Pool‮card',
+      'Pool\ncard',
+    ]) {
+      expect(tokenLabelProblem(label), JSON.stringify(label)).toBe('control_characters');
+    }
+    for (const label of [
+      'Family car \u{1F468}‍\u{1F469}‍\u{1F467}',
+      'Dev \u{1F469}\u{1F3FD}‍\u{1F4BB}',
+      'Rainbow \u{1F3F3}️‍\u{1F308}',
+      'Plain café car',
+    ]) {
+      expect(tokenLabelProblem(label), label).toBeNull();
+    }
   });
 
   it('imports a label and refuses one longer than 100 characters per row', async () => {

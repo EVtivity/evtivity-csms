@@ -103,5 +103,12 @@ export function redactAccessLogBody(
   if (path === '/v1/sims/import' && Array.isArray(body['rows'])) {
     sanitized['rows'] = body['rows'].length;
   }
+  // A departure CSV names vehicles, routes and times: the log keeps its size only.
+  if (path === '/v1/fleets/:id/departures/import' && typeof body['csv'] === 'string') {
+    const csv = body['csv'];
+    delete sanitized['csv'];
+    sanitized['csvBytes'] = Buffer.byteLength(csv, 'utf8');
+    sanitized['csvRows'] = csv.split(/\r?\n/).filter((line) => line.trim() !== '').length;
+  }
   return sanitized;
 }

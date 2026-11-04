@@ -7,23 +7,48 @@ import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 import * as THREE from 'three';
 import { type CarPort } from './site-layout-cable';
 import type { CarKit } from './site-layout-car-geometry';
+import type { ConnectorKind } from './site-layout-connectors';
 import type { ChargerKit } from './site-layout-model-charger-parts';
 import type { ModelKit } from './site-layout-model-kit';
+import type { VehicleInletKind } from './site-layout-vehicle-inlet';
 import { createVehicleKit } from './site-layout-vehicle-kit';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { type Disposable } from './site-layout-scene-types';
 
-export function installKit(scn: SceneCtx): void {
+type KitCtx = SceneSlice<
+  never,
+  | 'M'
+  | 'box'
+  | 'built'
+  | 'carKit'
+  | 'carKits'
+  | 'chargerKit'
+  | 'cylinder'
+  | 'marker'
+  | 'modelKit'
+  | 'modelKits'
+  | 'modelOf'
+  | 'roundedPrism'
+  | 'shadowed'
+  | 'track'
+>;
+
+export function installKit(scn: KitCtx): void {
   // The car geometries of each body type (site-layout-car-geometry.ts), built
   // on first use and shared by every car of the type for the scene's life.
   const carKits = new Map<string, CarKit>();
   scn.carKits = carKits;
-  function carKit(bodyType: VehicleBodyType, port: CarPort = 'front_left'): CarKit {
-    const key = `${bodyType}:${port}`;
+  function carKit(
+    bodyType: VehicleBodyType,
+    port: CarPort = 'front_left',
+    inlet?: VehicleInletKind,
+    plug?: ConnectorKind | null,
+  ): CarKit {
+    const key = `${bodyType}:${port}:${inlet ?? ''}:${plug === undefined ? '' : (plug ?? 'closed')}`;
     let kit = carKits.get(key);
     if (kit == null) {
-      kit = createVehicleKit(bodyType, port);
+      kit = createVehicleKit(bodyType, port, inlet, plug);
       carKits.set(key, kit);
     }
     return kit;

@@ -379,6 +379,14 @@ function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
       const table = sql.identifier('payment_terminal_audit_log');
       return sql`COALESCE(${table}.after->>'auditSiteId', ${table}.before->>'auditSiteId')`;
     }
+    case 'vehicle_departure': {
+      // A departure or schedule row follows the site it was written at
+      // (`auditSiteId`), never the live row: a schedule moved to another depot
+      // leaves its history at the old one. An unstamped row is for all-site
+      // users only.
+      const table = sql.identifier('vehicle_departure_audit_log');
+      return sql`COALESCE(${table}.after->>'auditSiteId', ${table}.before->>'auditSiteId')`;
+    }
     case 'payment':
       // The site of the session, else of the reserved station, else of the
       // site payment config (ad hoc payments).
@@ -436,15 +444,16 @@ function simAuditStationCondition(siteIds: string[]): SQL {
 }
 
 /**
- * A payment terminal audit row names sites besides the one it was written at:
- * a pairing from site B back to site A holds B's site and station in `before`.
- * The row shows to a site-restricted viewer only when every site it names is
- * theirs: the `auditSiteIds` stamped on both views, and the `siteId` of each
- * view (rows written before the stamp, fail closed). Security case 277, the
- * SIM case 48 pattern.
+ * A payment terminal or departure audit row names sites besides the one it was
+ * written at: a pairing from site B back to site A holds B's site and station
+ * in `before`, a schedule moved between depots names both. The row shows to a
+ * site-restricted viewer only when every site it names is theirs: the
+ * `auditSiteIds` stamped on both views, and the `siteId` of each view (rows
+ * written before the stamp, fail closed). Security case 277, the SIM case 48
+ * pattern.
  */
-function terminalAuditNamedSitesCondition(siteList: SQL): SQL {
-  const table = sql.identifier('payment_terminal_audit_log');
+function auditNamedSitesCondition(tableName: string, siteList: SQL): SQL {
+  const table = sql.identifier(tableName);
   const stamped = (view: SQL): SQL =>
     sql`(CASE WHEN jsonb_typeof(${view}->'auditSiteIds') = 'array' THEN ${view}->'auditSiteIds' ELSE '[]'::jsonb END)`;
   const before = sql`${table}.before`;
@@ -496,8 +505,8 @@ function auditSiteCondition(
     siteIds.map((siteId) => sql`${siteId}`),
     sql`, `,
   );
-  if (entityType === 'payment_terminal') {
-    return sql`${siteExpr} IN (${siteList}) AND ${terminalAuditNamedSitesCondition(siteList)}`;
+  if (entityType === 'payment_terminal' || entityType === 'vehicle_departure') {
+    return sql`${siteExpr} IN (${siteList}) AND ${auditNamedSitesCondition(`${entityType}_audit_log`, siteList)}`;
   }
   return sql`${siteExpr} IN (${siteList})`;
 }

@@ -3,7 +3,11 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-import { effectiveLayoutSettings } from '@evtivity/lib/site-layout';
+import {
+  NO_POWER_EQUIPMENT,
+  effectiveLayoutSettings,
+  placePowerEquipment,
+} from '@evtivity/lib/site-layout';
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
@@ -55,13 +59,16 @@ describe('SiteTypeField charger placement', () => {
   it('names Lot Edge in the layout summary of a parking lot', () => {
     const t = ((key: string, opts?: Record<string, unknown>) =>
       opts != null && 'summary' in opts ? `${key}:${String(opts['summary'])}` : key) as never;
-    const islands = effectiveLayoutSettings({
-      siteType: 'parking_lot',
-      spotsPerRow: 6,
-      rows: 3,
-      facingDeg: 0,
-      transformers: [],
-    });
+    const islands = placePowerEquipment(
+      effectiveLayoutSettings({
+        siteType: 'parking_lot',
+        spotsPerRow: 6,
+        rows: 3,
+        facingDeg: 0,
+        transformers: [],
+      }),
+      NO_POWER_EQUIPMENT,
+    );
     expect(layoutSummary(t, islands)).toBe('sites.layoutSummary.parkingLot');
     expect(layoutSummary(t, { ...islands, chargerPlacement: 'lot_edge' })).toBe(
       'sites.layoutSummary.lotEdge:sites.layoutSummary.parkingLot',

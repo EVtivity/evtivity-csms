@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { effectiveLayoutSettings, type SiteLayoutSettings } from '@evtivity/lib/site-layout';
+import {
+  NO_POWER_EQUIPMENT,
+  effectiveLayoutSettings,
+  placePowerEquipment,
+  type PlacedLayoutSettings,
+} from '@evtivity/lib/site-layout';
 import { layoutLegend } from '../site-layout-legend';
 import type { LayoutStation } from '../StationCard';
 
@@ -47,8 +52,8 @@ function station(
   };
 }
 
-const lot = effectiveLayoutSettings(null);
-const depot: SiteLayoutSettings = {
+const lot = placePowerEquipment(effectiveLayoutSettings(null), NO_POWER_EQUIPMENT);
+const depot: PlacedLayoutSettings = {
   ...lot,
   siteType: 'depot',
   busBays: 3,
@@ -145,5 +150,20 @@ describe('layout legend', () => {
     });
     expect(cellular.connections).toEqual(['cellular', 'wifi_or_wired']);
     expect(cellular.signal).toBe(true);
+  });
+});
+
+describe('layout legend equipment', () => {
+  it('lists a battery and solar from the site equipment rows, without a stored position', () => {
+    const withAssets = placePowerEquipment(effectiveLayoutSettings(null), {
+      transformers: [],
+      energyAssets: [
+        { id: 'ena_b', type: 'battery', name: 'B', capacityKwh: null, peakKwp: null },
+        { id: 'ena_s', type: 'solar', name: 'S', capacityKwh: null, peakKwp: null },
+      ],
+    });
+    expect(
+      layoutLegend({ stations: [station('a', 'CCS1', 150)], settings: withAssets, show3d: true }),
+    ).toMatchObject({ battery: true, solar: true });
   });
 });

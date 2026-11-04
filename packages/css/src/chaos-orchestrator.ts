@@ -6,7 +6,13 @@ import type postgres from 'postgres';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 import { isOcpp21, isOcpp2x, type OcppProtocol } from '@evtivity/lib/ocpp-version';
-import { ChaosJourneys } from './chaos-journey.js';
+import {
+  ChaosJourneys,
+  DepotJourneys,
+  depotArrivalSoc,
+  depotVehicleKey,
+  type DepotVehicle,
+} from './chaos-journey.js';
 import { isOcpp201Action } from './lib/ocpp201.js';
 import { logger } from './lib/logger.js';
 
@@ -495,6 +501,47 @@ const REFRESH_INTERVAL_MS = 30_000;
 // Share of ticks that take a due session step instead of a random action.
 const JOURNEY_TICK_SHARE = 0.5;
 
+// Session steps a depot station takes only from its overnight journey, never
+// as a random pick.
+const DEPOT_JOURNEY_ACTIONS: ReadonlySet<string> = new Set([
+  'plugIn',
+  'authorize',
+  'startCharging',
+  'stopCharging',
+  'unplug',
+]);
+
+/** A card of a depot station's fleets, its vehicle, the vehicle's next departure and the site timezone. */
+interface DepotRow {
+  station_id: string;
+  id_token: string;
+  token_type: string;
+  vehicle_id?: string | null;
+  body_type?: string | null;
+  battery_capacity_kwh?: string | number | null;
+  timezone?: string | null;
+  next_departure_at?: Date | string | null;
+}
+
+/** A depot station: the fleet vehicles that charge there and the site timezone. */
+interface DepotStation {
+  timeZone: string;
+  vehicles: DepotVehicle[];
+}
+
+// Postgres numeric columns arrive as strings.
+function numberOrNull(value: string | number | null | undefined): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function timeOrNull(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 /**
  * The chaos actions of a protocol. A 2.0.1 station gets the 2.x actions whose
  * message 2.0.1 defines (`sendNotifySettlement` and the other 2.1-only messages are left out).
@@ -518,11 +565,13 @@ export class ChaosOrchestrator {
   private stationIds: string[] = [];
   private tokens: DriverToken[] = [];
   private fleetTokens = new Map<string, DriverToken[]>();
+  private depotStations = new Map<string, DepotStation>();
   private stationProtocols: Map<string, OcppProtocol> = new Map();
   private offlineStations: Set<string> = new Set();
   private chargingStations: Set<string> = new Set();
   private chargingTokenByStation: Map<string, string> = new Map();
   private readonly journeys = new ChaosJourneys();
+  private readonly depotJourneys = new DepotJourneys();
 
   constructor(
     sql: postgres.Sql,
@@ -548,6 +597,7 @@ export class ChaosOrchestrator {
     stations: Array<{ station_id: string; ocpp_protocol: string }>;
     tokens: DriverToken[];
     fleetTokens: Map<string, DriverToken[]>;
+    depotStations: Map<string, DepotStation>;
   }> {
     const stationRows = await this.sql<Array<{ station_id: string; ocpp_protocol: string }>>`
       SELECT cs.station_id, cs.ocpp_protocol
@@ -585,25 +635,71 @@ export class ChaosOrchestrator {
     // A depot station is charged by the drivers of the fleets it is assigned
     // to. A depot station is a fleet station on a site of type Depot (its
     // layout settings, bus bays and truck lanes). Any other fleet station
-    // takes the pool above.
-    const fleetRows = await this.sql<
-      Array<{ station_id: string; id_token: string; token_type: string }>
-    >`
-      SELECT DISTINCT cs.station_id, t.id_token, t.token_type
+    // takes the pool above. Each card comes with its vehicle (the card's own,
+    // else the driver's first), the vehicle's next departure from that site
+    // and the site timezone, for the overnight journeys.
+    const fleetRows = await this.loadDepotRows();
+    const fleetTokens = new Map<string, DriverToken[]>();
+    const depotStations = new Map<string, DepotStation>();
+    for (const r of fleetRows) {
+      const list = fleetTokens.get(r.station_id) ?? [];
+      list.push({ idToken: r.id_token, tokenType: r.token_type });
+      fleetTokens.set(r.station_id, list);
+      const depot = depotStations.get(r.station_id) ?? {
+        timeZone: r.timezone ?? 'UTC',
+        vehicles: [],
+      };
+      depot.vehicles.push({
+        idToken: r.id_token,
+        tokenType: r.token_type,
+        vehicleId: r.vehicle_id ?? null,
+        bodyType: r.body_type ?? null,
+        batteryKwh: numberOrNull(r.battery_capacity_kwh),
+        nextDepartureMs: timeOrNull(r.next_departure_at),
+      });
+      depotStations.set(r.station_id, depot);
+    }
+    return { stations, tokens, fleetTokens, depotStations };
+  }
+
+  /**
+   * The cards of the depot stations' fleets with their vehicles. A failed read
+   * (such as a database without the departures migration) is logged, and chaos
+   * runs on without depot journeys: those stations take the public pool until
+   * a refresh reads them.
+   */
+  private async loadDepotRows(): Promise<DepotRow[]> {
+    try {
+      return await this.sql<DepotRow[]>`
+      SELECT DISTINCT cs.station_id, t.id_token, t.token_type,
+             v.id AS vehicle_id, v.body_type, v.battery_capacity_kwh,
+             s.timezone, nd.departure_at AS next_departure_at
       FROM fleet_stations fs
       JOIN charging_stations cs ON cs.id = fs.station_id
       JOIN fleet_drivers fd ON fd.fleet_id = fs.fleet_id
       JOIN driver_tokens t ON t.driver_id = fd.driver_id AND t.is_active = true
       JOIN sites s ON s.id = cs.site_id
+      LEFT JOIN LATERAL (
+        SELECT vv.id, vv.body_type, vv.battery_capacity_kwh
+        FROM vehicles vv
+        WHERE vv.id = t.vehicle_id OR (t.vehicle_id IS NULL AND vv.driver_id = t.driver_id)
+        ORDER BY vv.created_at, vv.id
+        LIMIT 1
+      ) v ON true
+      LEFT JOIN LATERAL (
+        SELECT d.departure_at
+        FROM vehicle_departures d
+        WHERE d.vehicle_id = v.id AND d.site_id = cs.site_id
+          AND d.status = 'scheduled' AND d.departure_at > now()
+        ORDER BY d.departure_at
+        LIMIT 1
+      ) nd ON true
       WHERE s.layout_settings->>'siteType' = 'depot'
-    `;
-    const fleetTokens = new Map<string, DriverToken[]>();
-    for (const r of fleetRows) {
-      const list = fleetTokens.get(r.station_id) ?? [];
-      list.push({ idToken: r.id_token, tokenType: r.token_type });
-      fleetTokens.set(r.station_id, list);
+      `;
+    } catch (err) {
+      logger.error({ err }, 'Load of the depot stations failed, chaos runs without depot journeys');
+      return [];
     }
-    return { stations, tokens, fleetTokens };
   }
 
   /** The tokens a station's sessions use: its fleets' drivers for a depot station (a Depot site), else the pool. */
@@ -615,6 +711,7 @@ export class ChaosOrchestrator {
     stations: Array<{ station_id: string; ocpp_protocol: string }>,
     tokens: DriverToken[],
     fleetTokens: Map<string, DriverToken[]>,
+    depotStations: Map<string, DepotStation> = new Map(),
   ): void {
     const liveIds = new Set(stations.map((s) => s.station_id));
 
@@ -643,6 +740,12 @@ export class ChaosOrchestrator {
 
     this.tokens = tokens;
     this.fleetTokens = fleetTokens;
+    this.depotStations = new Map([...depotStations].filter(([id]) => liveIds.has(id)));
+    this.depotJourneys.retain(new Set(this.depotStations.keys()));
+    const now = Date.now();
+    for (const [stationId, depot] of this.depotStations) {
+      this.depotJourneys.ensure(stationId, depot.timeZone, now);
+    }
   }
 
   async start(): Promise<void> {
@@ -650,8 +753,8 @@ export class ChaosOrchestrator {
     // and migration 0001 -- plus any added at runtime via the dashboard
     // simulator toggle or POST /v1/css/stations. The orchestrator just reads
     // them to populate its in-memory action targets; no INSERT mirroring.
-    const { stations, tokens, fleetTokens } = await this.loadStations();
-    this.applyLoaded(stations, tokens, fleetTokens);
+    const { stations, tokens, fleetTokens, depotStations } = await this.loadStations();
+    this.applyLoaded(stations, tokens, fleetTokens, depotStations);
 
     console.log(
       `[chaos] Loaded ${String(stations.length)} stations and ${String(this.tokens.length)} tokens`,
@@ -668,7 +771,12 @@ export class ChaosOrchestrator {
       void (async (): Promise<void> => {
         try {
           const loaded = await this.loadStations();
-          this.applyLoaded(loaded.stations, loaded.tokens, loaded.fleetTokens);
+          this.applyLoaded(
+            loaded.stations,
+            loaded.tokens,
+            loaded.fleetTokens,
+            loaded.depotStations,
+          );
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(`[chaos] Refresh failed: ${msg}`);
@@ -701,12 +809,21 @@ export class ChaosOrchestrator {
     this.chargingStations.delete(stationId);
     this.chargingTokenByStation.delete(stationId);
     this.journeys.drop(stationId);
+    this.depotStations.delete(stationId);
+    this.depotJourneys.drop(stationId);
   }
 
   private async dispatchRandomAction(): Promise<void> {
     if (this.stationIds.length === 0) return;
 
-    const due = Math.random() < JOURNEY_TICK_SHARE ? this.journeys.nextDue(Date.now()) : null;
+    const now = Date.now();
+    let due: { stationId: string; action: string } | null = null;
+    let depotDue = false;
+    if (Math.random() < JOURNEY_TICK_SHARE) {
+      due = this.depotJourneys.nextDue(now);
+      depotDue = due != null;
+      due ??= this.journeys.nextDue(now);
+    }
     const stationId = due?.stationId ?? pick(this.stationIds);
     const protocol = this.stationProtocols.get(stationId) ?? 'ocpp1.6';
 
@@ -803,6 +920,10 @@ export class ChaosOrchestrator {
     if (pool.length === 0) {
       actions = actions.filter((a) => a.name !== 'authorize' && a.name !== 'startCharging');
     }
+    if (this.depotStations.has(stationId) && !depotDue) {
+      // A depot station's sessions follow its overnight journey only.
+      actions = actions.filter((a) => !DEPOT_JOURNEY_ACTIONS.has(a.name));
+    }
 
     let action: (typeof actions)[number] | undefined;
     if (due != null) {
@@ -810,7 +931,8 @@ export class ChaosOrchestrator {
       if (action == null) {
         // The station already started the transaction itself, or it left the
         // session path (fault, unplug, stop by an operator).
-        this.journeys.skipDue(stationId, due.action, hasActiveTx, Date.now());
+        if (depotDue) this.depotJourneys.skipDue(stationId, due.action, hasActiveTx, now);
+        else this.journeys.skipDue(stationId, due.action, hasActiveTx, now);
         return;
       }
     } else {
@@ -821,10 +943,22 @@ export class ChaosOrchestrator {
       action = pick(actions);
     }
     let params: Record<string, unknown>;
+    let depotVehicle: DepotVehicle | null = null;
 
-    if (action.name === 'startCharging') {
-      // Pick a token that does not already have an active session
-      const busy = new Set(this.chargingTokenByStation.values());
+    if (depotDue) {
+      const step = this.depotStepParams(stationId, action.name);
+      if (step == null) {
+        this.depotJourneys.skipDue(stationId, action.name, hasActiveTx, now);
+        return;
+      }
+      params = step.params;
+      depotVehicle = step.vehicle;
+    } else if (action.name === 'startCharging') {
+      // Pick a token without an active session or a vehicle plugged in at a depot
+      const busy = new Set([
+        ...this.chargingTokenByStation.values(),
+        ...this.depotJourneys.heldTokens(),
+      ]);
       const available = pool.filter((t) => !busy.has(t.idToken));
       if (available.length === 0) {
         return; // All drivers are charging, skip
@@ -854,10 +988,73 @@ export class ChaosOrchestrator {
           params,
         }),
       );
-      this.journeys.record(stationId, action.name, Date.now());
+      if (depotDue) this.recordDepotStep(stationId, action.name, params, depotVehicle, now);
+      else this.journeys.record(stationId, action.name, now);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.log(`[chaos] ${stationId} -> ${action.name} failed: ${message}`);
     }
+  }
+
+  /**
+   * The params of a depot journey step: the plug-in brings a free vehicle of
+   * the station's fleets with its battery and state of charge, the start uses
+   * the card of the vehicle plugged in. Null when no vehicle is free or the
+   * station holds none.
+   */
+  private depotStepParams(
+    stationId: string,
+    action: string,
+  ): { params: Record<string, unknown>; vehicle: DepotVehicle | null } | null {
+    if (action === 'plugIn') {
+      const busyTokens = new Set([
+        ...this.chargingTokenByStation.values(),
+        ...this.depotJourneys.heldTokens(),
+      ]);
+      const busyVehicles = this.depotJourneys.heldVehicles();
+      const free = (this.depotStations.get(stationId)?.vehicles ?? []).filter(
+        (v) => !busyTokens.has(v.idToken) && !busyVehicles.has(depotVehicleKey(v)),
+      );
+      if (free.length === 0) return null;
+      const vehicle = pick(free);
+      const ev: Record<string, unknown> = { socPercent: depotArrivalSoc() };
+      if (vehicle.bodyType != null) ev['bodyType'] = vehicle.bodyType;
+      if (vehicle.batteryKwh != null) ev['batteryKwh'] = vehicle.batteryKwh;
+      return { params: { evseId: 1, ev }, vehicle };
+    }
+    if (action === 'startCharging') {
+      const vehicle = this.depotJourneys.vehicleAt(stationId);
+      if (vehicle == null) return null;
+      return {
+        params: { evseId: 1, idToken: vehicle.idToken, tokenType: vehicle.tokenType },
+        vehicle,
+      };
+    }
+    if (action === 'stopCharging') return { params: { evseId: 1, reason: 'Local' }, vehicle: null };
+    return { params: { evseId: 1 }, vehicle: null };
+  }
+
+  /** Moves a depot journey on once its step was published. */
+  private recordDepotStep(
+    stationId: string,
+    action: string,
+    params: Record<string, unknown>,
+    vehicle: DepotVehicle | null,
+    now: number,
+  ): void {
+    if (action === 'plugIn') {
+      if (vehicle != null) {
+        this.depotJourneys.arrive(stationId, vehicle, now);
+      }
+      return;
+    }
+    if (action === 'startCharging') {
+      this.chargingStations.add(stationId);
+      this.chargingTokenByStation.set(stationId, String(params['idToken']));
+    } else if (action === 'stopCharging' || action === 'unplug') {
+      this.chargingStations.delete(stationId);
+      this.chargingTokenByStation.delete(stationId);
+    }
+    this.depotJourneys.record(stationId, action, now);
   }
 }

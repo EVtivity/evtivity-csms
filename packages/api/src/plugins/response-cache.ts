@@ -81,11 +81,13 @@ export const CROSS_INVALIDATION: Record<string, string[]> = {
 };
 
 // A station's SIM status and timeline change with every Refresh of that
-// station, and the live OCPP messages of a site with every message, which
-// the 5 s station and site rules would hide. Checked before CACHE_RULES.
+// station, the live OCPP messages of a site with every message, and a battery
+// or solar reading every few seconds, which the 5 s station and site rules
+// would hide. Checked before CACHE_RULES.
 const UNCACHED_PATHS: readonly RegExp[] = [
   /^\/v1\/stations\/[^/]+\/sim(?:\/|$)/,
   /^\/v1\/sites\/[^/]+\/ocpp-messages$/,
+  /^\/v1\/sites\/[^/]+\/energy-assets\/[^/]+\/reading$/,
 ];
 
 export function matchCacheRule(pathname: string): CacheRule | null {

@@ -52,6 +52,7 @@ const ROW_IDS = {
   'logs.connection.retentionDays': 'connection',
   'logs.notifications.retentionDays': 'notifications',
   'logs.loadAllocation.retentionDays': 'loadAllocation',
+  'logs.departures.retentionDays': 'departures',
   'audit.retentionDays': 'audit',
   'logs.loginAudit.retentionDays': 'loginAudit',
   'logs.securityEvents.retentionDays': 'securityEvents',

@@ -66,17 +66,18 @@ describe('insight prompt', () => {
 
   it('gives the platform Chinese terms to insights, translations and workers', () => {
     const zh = insightSystemBlocks('station_offline', 'zh', '')[0]?.text ?? '';
-    expect(zh).toContain('充电站');
+    expect(zh).toContain('充电桩');
+    expect(zh).toContain('never 充电站');
     expect(zh).toContain('never 站点');
     expect(zh).toContain('驾驶员');
     expect(zh).toContain('固件');
     const tw = translationSystemBlocks('zh-TW')[0]?.text ?? '';
+    expect(tw).toContain('充電樁');
     expect(tw).toContain('充電站');
-    expect(tw).toContain('站點');
     expect(tw).toContain('駕駛員');
-    expect(opsSystemPrompt('network_summary', 'zh', '')).toContain('充电站');
-    expect(opsSystemPrompt('stuck_sessions', 'zh-TW', 'Custom prompt.')).toContain('充電站');
-    expect(insightAnswerContract('en')).not.toContain('充电站');
+    expect(opsSystemPrompt('network_summary', 'zh', '')).toContain('充电桩');
+    expect(opsSystemPrompt('stuck_sessions', 'zh-TW', 'Custom prompt.')).toContain('充電樁');
+    expect(insightAnswerContract('en')).not.toContain('充电桩');
   });
 });
 

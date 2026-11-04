@@ -16,8 +16,8 @@ function profiles(h: Harness): Map<number, Record<string, unknown>> {
   return priv(h, 'chargingProfilesCache') as Map<number, Record<string, unknown>>;
 }
 
-function powerLimit(h: Harness, evseId: number): number | null | undefined {
-  return (priv(h, 'evsePowerLimits') as Map<number, number | null>).get(evseId);
+function powerLimit(h: Harness, evseId: number): number | null {
+  return (h.p['powerLimitFor'] as (id: number) => number | null).call(h.sim, evseId);
 }
 
 function txDefaultProfile(id: number, limit: number, extra: Record<string, unknown> = {}) {
@@ -234,7 +234,10 @@ describe('SetChargingProfile (K01)', () => {
         csChargingProfiles: { ...profile, transactionId: 77 },
       }),
     ).toEqual({ status: 'Accepted' });
-    expect(powerLimit(h, 1)).toBe(16);
+    // The meter loop charges a TxProfile while its transaction runs on the EVSE.
+    (priv(h, 'activeTransactionIds') as Map<number, string>).set(1, '77');
+    // 16 A per phase x 230 V x 3 phases.
+    expect(powerLimit(h, 1)).toBe(11040);
     expect(profiles(h).get(4)).toMatchObject({ _evseId: 1 });
   });
 
@@ -279,7 +282,8 @@ describe('ClearChargingProfile (K10)', () => {
       status: 'Accepted',
     });
     expect(Array.from(profiles(h).keys())).toEqual([2, 3]);
-    expect(powerLimit(h, 1)).toBeNull();
+    // The profiles left still apply: TxDefaultProfile 2000 W under the 3000 W station limit.
+    expect(powerLimit(h, 1)).toBe(2000);
     expect(
       await h.invoke('ClearChargingProfile', {
         chargingProfileCriteria: { chargingProfilePurpose: 'TxDefaultProfile', stackLevel: 1 },

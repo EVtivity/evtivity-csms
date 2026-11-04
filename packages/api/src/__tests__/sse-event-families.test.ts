@@ -66,6 +66,19 @@ describe('SSE event families', () => {
     expect(missing).toEqual([]);
   });
 
+  it('sends depot plan events with loadManagement:read and departure events with fleets:read', () => {
+    expect(eventReadPermission('fleetCharging.updated')).toBe('loadManagement:read');
+    expect(eventReadPermission('departure.changed')).toBe('fleets:read');
+    expect(isEventPermitted(['loadManagement:read'], { eventType: 'fleetCharging.updated' })).toBe(
+      true,
+    );
+    expect(isEventPermitted(['fleets:write'], { eventType: 'departure.changed' })).toBe(true);
+    expect(isEventPermitted(['fleets:read'], { eventType: 'fleetCharging.updated' })).toBe(false);
+    expect(isEventPermitted(['loadManagement:read'], { eventType: 'departure.changed' })).toBe(
+      false,
+    );
+  });
+
   it('refuses an event of an unknown family and delivers an open one', () => {
     expect(eventReadPermission('futureFamily.changed')).toBe(false);
     expect(isEventPermitted(['stations:read'], { eventType: 'futureFamily.changed' })).toBe(false);

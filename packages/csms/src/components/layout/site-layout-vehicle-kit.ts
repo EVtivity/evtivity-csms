@@ -10,8 +10,22 @@ import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 import type { CarPort } from './site-layout-cable';
 import { isLargeBodyType } from './site-layout-car';
 import { createCarKit, type CarKit } from './site-layout-car-geometry';
+import type { ConnectorKind } from './site-layout-connectors';
 import { createLargeVehicleKit } from './site-layout-large-vehicle-geometry';
+import type { VehicleInletKind } from './site-layout-vehicle-inlet';
 
-export function createVehicleKit(bodyType: VehicleBodyType, port?: CarPort): CarKit {
-  return isLargeBodyType(bodyType) ? createLargeVehicleKit(bodyType) : createCarKit(bodyType, port);
+/**
+ * A vehicle kit with its charge inlet: `inlet` its kind (default CCS1 on a
+ * car and a bus, MCS on a semi), `plug` the connector in it (default the
+ * inlet's own DC plug; null closes the door).
+ */
+export function createVehicleKit(
+  bodyType: VehicleBodyType,
+  port?: CarPort,
+  inlet?: VehicleInletKind,
+  plug?: ConnectorKind | null,
+): CarKit {
+  return isLargeBodyType(bodyType)
+    ? createLargeVehicleKit(bodyType, inlet, plug)
+    : createCarKit(bodyType, port, inlet, plug);
 }

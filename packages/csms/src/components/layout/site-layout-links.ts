@@ -54,9 +54,150 @@ export interface LinkPanel {
   maxContinuousKw: number;
   circuits: LinkCircuit[];
   childPanels: LinkPanel[];
+  /**
+   * A top-level panel: the service transformer that feeds it
+   * (`panels.transformer_id`, `linkHierarchy`), so its switchboard stands at
+   * that transformer; null or absent: the placement rule from before
+   * transformer links (`equipmentGroups`).
+   */
+  transformerId?: string | null | undefined;
+  /**
+   * A step-down transformer between a panel and the sub-panels it feeds
+   * (`linkHierarchy`): drawn as the dry-type model next to the panelboard it
+   * feeds, fed from its switchboard. `kva` is its nameplate rating.
+   */
+  stepDown?: { kva: number | null } | undefined;
 }
 
-export type LinkKind = 'panel' | 'circuit' | 'station';
+/**
+ * A node of the load management hierarchy as `GET /v1/sites/:id/load-management`
+ * answers it: a panel, or a transformer node (`type: 'transformer'`): a
+ * service transformer as a root above the top-level panels that name it, a
+ * step-down transformer between a panel and the sub-panels that name it.
+ */
+export interface HierarchyLinkNode {
+  type?: 'panel' | 'circuit' | 'transformer' | undefined;
+  transformerKind?: 'service' | 'step_down' | undefined;
+  id: string;
+  name: string;
+  breakerRatingAmps: number;
+  maxContinuousKw: number;
+  /** The node's draw now, kW (the allocation's own figure). */
+  currentDrawKw?: number | undefined;
+  circuits: LinkCircuit[];
+  childPanels: HierarchyLinkNode[];
+  /** The batteries and solar connected at this node, with their supply state. */
+  energyAssets?:
+    | ReadonlyArray<{
+        id: string;
+        type: 'battery' | 'solar';
+        supply: { state: 'fresh' | 'stale' | 'none'; creditKw: number };
+      }>
+    | undefined;
+}
+
+function isTransformerNode(node: HierarchyLinkNode): boolean {
+  return node.type === 'transformer';
+}
+
+/**
+ * The hierarchy as the 3D view routes it, from the load management reply:
+ * a service transformer root is unwrapped into the top-level panels it
+ * feeds, each naming it (`transformerId`), so their switchboards stand at it
+ * (replacing the index matching of `equipmentGroups`). A step-down
+ * transformer stays a node between its panel and its sub-panels
+ * (`stepDown`, `kvaOf` gives its rating) when `stepDowns` is true; otherwise
+ * (an office or retail site, whose switchboard and step-down units stand
+ * inside the building) its sub-panels hang under the panel directly.
+ */
+export function linkHierarchy(
+  nodes: readonly HierarchyLinkNode[],
+  options: { stepDowns: boolean; kvaOf?: (transformerId: string) => number | null },
+): LinkPanel[] {
+  const panelOf = (node: HierarchyLinkNode): LinkPanel => ({
+    id: node.id,
+    name: node.name,
+    breakerRatingAmps: node.breakerRatingAmps,
+    maxContinuousKw: node.maxContinuousKw,
+    circuits: node.circuits,
+    childPanels: childrenOf(node.childPanels),
+  });
+  const childrenOf = (children: readonly HierarchyLinkNode[]): LinkPanel[] =>
+    children.flatMap((child) => {
+      if (!isTransformerNode(child)) return [panelOf(child)];
+      if (!options.stepDowns) return childrenOf(child.childPanels);
+      return [
+        {
+          ...panelOf(child),
+          breakerRatingAmps: 0,
+          circuits: [],
+          stepDown: { kva: options.kvaOf?.(child.id) ?? null },
+        },
+      ];
+    });
+  return nodes.flatMap((node) =>
+    isTransformerNode(node)
+      ? childrenOf(node.childPanels).map((panel) => ({ ...panel, transformerId: node.id }))
+      : [panelOf(node)],
+  );
+}
+
+/** The draw and capacity of each transformer of the hierarchy (transformer id), kW. */
+export function transformerLoads(
+  nodes: readonly HierarchyLinkNode[],
+): Map<string, { drawKw: number; capacityKw: number }> {
+  const out = new Map<string, { drawKw: number; capacityKw: number }>();
+  const walk = (list: readonly HierarchyLinkNode[]): void => {
+    for (const node of list) {
+      if (isTransformerNode(node)) {
+        out.set(node.id, { drawKw: node.currentDrawKw ?? 0, capacityKw: node.maxContinuousKw });
+      }
+      walk(node.childPanels);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/** Where a battery or solar asset is connected, and its supply now. */
+export interface AssetConnection {
+  /** The transformer or panel id the asset is connected at. */
+  nodeId: string;
+  state: 'fresh' | 'stale' | 'none';
+  creditKw: number;
+}
+
+/** The connection point and supply of every connected battery and solar asset (asset id). */
+export function assetConnections(
+  nodes: readonly HierarchyLinkNode[],
+): Map<string, AssetConnection> {
+  const out = new Map<string, AssetConnection>();
+  const walk = (list: readonly HierarchyLinkNode[]): void => {
+    for (const node of list) {
+      for (const asset of node.energyAssets ?? []) {
+        out.set(asset.id, {
+          nodeId: node.id,
+          state: asset.supply.state,
+          creditKw: asset.supply.creditKw,
+        });
+      }
+      walk(node.childPanels);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/**
+ * The share of a capacity a draw takes, in whole percent (above 100 when the
+ * draw passes it); null without a capacity.
+ */
+export function loadPercent(drawKw: number, capacityKw: number | null): number | null {
+  if (capacityKw == null || capacityKw <= 0) return null;
+  return Math.round((Math.max(0, drawKw) / capacityKw) * 100);
+}
+
+export type LinkKind = 'panel' | 'circuit' | 'station' | 'supply';
 
 /** A cable run on the ground: an orthogonal polyline. */
 export interface LinkSegment {
@@ -71,6 +212,12 @@ export interface LinkSegment {
   kind: LinkKind;
   /** At least two points; consecutive points share x or z. */
   points: Point[];
+  /**
+   * A battery or solar link (`supplyLinks`) whose asset gives supply now (a
+   * fresh reading with a credit): it carries the green charge flow from the
+   * asset toward the equipment it feeds.
+   */
+  flowing?: boolean | undefined;
 }
 
 export interface LinkLabel {
@@ -83,6 +230,8 @@ export interface LinkLabel {
   amps: number | null;
   /** Maximum output in kW: the panel or circuit limit, or the station's allocated limit. */
   kw: number | null;
+  /** A step-down transformer: its nameplate rating in kVA. */
+  kva?: number | null | undefined;
 }
 
 export interface LoadLinks {
@@ -104,7 +253,15 @@ export interface PanelPlacement {
    * panelboard on the building facade of an office or retail site
    * (`placeFacadePanels`).
    */
-  model: 'switchboard' | 'panelboard' | 'wall' | 'cabinet';
+  model: 'switchboard' | 'panelboard' | 'wall' | 'cabinet' | 'dry_transformer';
+  /** A step-down transformer (`dry_transformer`): its kVA rating, which sizes the model. */
+  kva?: number | null | undefined;
+  /**
+   * A switchboard (or cabinet) in the row at a service transformer on the
+   * layout: that transformer's id. Edit Layout drags the transformer when it
+   * is grabbed (the row follows the transformer).
+   */
+  atTransformerId?: string | undefined;
   /**
    * The turn of the model about the vertical axis, in radians (0: its front
    * faces +z): a panelboard rack at a row end faces the lot edge, so its
@@ -299,30 +456,40 @@ export function panelFrame(ground: Box, transformer?: Point | null): PanelFrame 
   return { side, to, from: to, ground: g, transformer: t };
 }
 
-/** The transformers of a site: none, one or several. */
-type Transformers = Point | readonly Point[] | null | undefined;
+/** A service transformer on the layout: its point and its `transformers.id`. */
+export type LinkTransformer = Point & { id?: string | undefined };
 
-function transformerList(transformers: Transformers): readonly Point[] {
+/** The transformers of a site: none, one or several. */
+type Transformers = LinkTransformer | readonly LinkTransformer[] | null | undefined;
+
+function transformerList(transformers: Transformers): readonly LinkTransformer[] {
   if (transformers == null) return [];
   return 'x' in transformers ? [transformers] : transformers;
 }
 
 /**
- * The equipment groups of a site: the j-th top-level panel and everything
- * under it stand at the j-th transformer, the last transformer taking the
- * rest (a large site with an equipment pad per charger group, such as a depot
- * with one transformer and switchboard for its buses and one for its trucks);
- * without a transformer, all of them stand left of the ground.
+ * The equipment groups of a site: a top-level panel that names a
+ * transformer on the layout (`transformerId`, `panels.transformer_id`)
+ * stands with everything under it at that transformer. A top-level panel
+ * without one keeps the placement rule from before transformer links: the
+ * j-th top-level panel at the j-th transformer, the last transformer taking
+ * the rest (a large site with an equipment pad per charger group, such as a
+ * depot with one transformer and switchboard for its buses and one for its
+ * trucks). Without a transformer, all of them stand left of the ground.
  */
 function equipmentGroups(
   hierarchy: readonly LinkPanel[],
   transformers: Transformers,
-): Array<{ roots: LinkPanel[]; transformer: Point | null }> {
+): Array<{ roots: LinkPanel[]; transformer: LinkTransformer | null }> {
   const list = transformerList(transformers);
-  if (list.length <= 1) return [{ roots: [...hierarchy], transformer: list[0] ?? null }];
+  if (list.length === 0) return [{ roots: [...hierarchy], transformer: null }];
   const groups = list.map((transformer) => ({ roots: [] as LinkPanel[], transformer }));
   hierarchy.forEach((root, j) => {
-    groups[Math.min(j, groups.length - 1)]?.roots.push(root);
+    const linked =
+      root.transformerId != null
+        ? groups.find((g) => g.transformer.id === root.transformerId)
+        : undefined;
+    (linked ?? groups[Math.min(j, groups.length - 1)])?.roots.push(root);
   });
   return groups.filter((g) => g.roots.length > 0);
 }
@@ -335,6 +502,8 @@ interface PanelGroup {
   model: PanelPlacement['model'];
   /** A row of group panels beside the stations they feed, away from the switchboard row. */
   remote: boolean;
+  /** The pad row at a transformer on the layout: that transformer's id. */
+  transformerId?: string | undefined;
   /** The first pad's x in the frame; the others follow outward. */
   firstX: number;
   pitch: number;
@@ -453,6 +622,28 @@ function panelGroups(
       const place = placeOf(panel);
       if (place != null) away.set(panel, place);
     }
+    // A step-down transformer stands next to the panelboard it feeds, so it
+    // goes where its sub-panels go when they all go to one row (it comes
+    // before them in the hierarchy order, so it takes the slot beside them);
+    // otherwise it stays in the switchboard row on the pad, next to the
+    // switchboard that feeds it.
+    for (const { panel } of flat) {
+      if (panel.stepDown == null || panel.childPanels.length === 0) continue;
+      const places = panel.childPanels.map((c) => away.get(c));
+      const first = places[0];
+      if (
+        first != null &&
+        places.every(
+          (p) =>
+            p != null && p.side === first.side && Math.abs(p.lineZ - first.lineZ) <= ISLAND_MERGE_M,
+        )
+      ) {
+        away.set(panel, first);
+      }
+    }
+    // A step-down unit joins the row of what it feeds (AC or DC alike).
+    const acOf = (panel: LinkPanel): boolean =>
+      panel.stepDown != null ? panel.childPanels.every(acOf) : isAc(panel);
     // One row of racks or cabinets per row end and line (lines closer than an
     // island's two back lines are one line), AC and DC apart.
     const rowsAt = new Map<
@@ -462,7 +653,7 @@ function panelGroups(
     for (const entry of flat) {
       const place = away.get(entry.panel);
       if (place == null) continue;
-      const ac = isAc(entry.panel);
+      const ac = acOf(entry.panel);
       const existing = [...rowsAt.values()].find(
         (r) =>
           r.side === place.side && r.ac === ac && Math.abs(r.lineZ - place.lineZ) <= ISLAND_MERGE_M,
@@ -601,6 +792,7 @@ function panelGroups(
       flat: pad,
       model: 'switchboard',
       remote: false,
+      ...(g.transformer?.id != null ? { transformerId: g.transformer.id } : {}),
       firstX: Math.min(
         frame.transformer.x - PANEL_FROM_TRANSFORMER_M,
         laneEdge - PANEL_FROM_LANES_M,
@@ -643,9 +835,19 @@ export function placePanels(
       amps: panel.breakerRatingAmps,
       kw: panel.maxContinuousKw,
       point: g.frame.from({ x: g.firstX - i * g.pitch, z: g.frame.transformer.z }),
-      // A split system's power cabinet keeps its own model wherever its row stands.
-      model: panel.id.startsWith(CABINET_PREFIX) ? 'cabinet' : g.model,
-      // A rack at a row end faces the lot edge (-x in its frame).
+      // A split system's power cabinet and a step-down transformer keep their
+      // own models wherever their row stands.
+      model:
+        panel.stepDown != null
+          ? 'dry_transformer'
+          : panel.id.startsWith(CABINET_PREFIX)
+            ? 'cabinet'
+            : g.model,
+      ...(panel.stepDown != null ? { kva: panel.stepDown.kva } : {}),
+      ...(g.transformerId != null && !g.remote ? { atTransformerId: g.transformerId } : {}),
+      // A rack at a row end faces the lot edge (-x in its frame), and so
+      // does a step-down transformer beside it (its front toward the same
+      // working space).
       turn:
         g.remote && g.model === 'panelboard'
           ? (g.frame.side === 'left' ? -1 : 1) * (Math.PI / 2)
@@ -802,7 +1004,12 @@ function feederLinks(
     const home = homeOf(remote);
     if (home == null) continue;
     const before = taken.get(home) ?? 0;
-    taken.set(home, before + remote.flat.length);
+    // A panel fed from its own row (a panelboard beside the step-down
+    // transformer that feeds it) gets its feeder in that row (`groupLinks`).
+    const fed = remote.flat.filter(
+      ({ parentId }) => !remote.flat.some((e) => e.panel.id === parentId),
+    );
+    taken.set(home, before + fed.length);
     const zs = [...points.map((p) => p.z), ...panels.map((p) => p.point.z)];
     const xs = [...points.map((p) => p.x), ...panels.map((p) => p.point.x)];
     const front = Math.min(...zs) - FEEDER_OUTSIDE_M;
@@ -828,7 +1035,7 @@ function feederLinks(
         : Math.max(rowOut, Math.max(...xs) + FEEDER_OUTSIDE_M);
     const homeOut = beyond(homeDir, outer(home));
     const farOut = beyond(farDir, outer(remote));
-    remote.flat.forEach(({ panel, parentId }, k) => {
+    fed.forEach(({ panel, parentId }, k) => {
       const node = at.get(panel.id);
       const parent = parentId != null ? at.get(parentId) : undefined;
       if (node == null || parent == null) return;
@@ -887,6 +1094,88 @@ function feederLinks(
   return out;
 }
 
+/**
+ * A battery or solar asset as the supply links start from it: a battery or a
+ * free-standing canopy at its point, a lot row's carport canopy at its row
+ * (`rowZ`: its conductors come down the column line to the row end on the
+ * grass, at the end nearer the equipment it feeds).
+ */
+export type SupplyAsset = { id: string; point: Point } | { id: string; rowZ: number };
+
+/**
+ * The battery and solar cable runs (owner decision D8): one run on the
+ * ground from each asset to its connection point (`assetConnections`): the
+ * switchboard or panelboard of a load-side connection (NEC 705.12), the
+ * service transformer of a supply-side one (705.11). `targets` holds each
+ * connection point's place (panel placements and transformers by id); an
+ * asset without a connection, or whose connection is not drawn, gets none.
+ * The run is orthogonal: one turn when that keeps it off the ground (the lot,
+ * the yard), else around the ground's nearer side outside its edge. Its
+ * points run from the asset toward the equipment, the way the energy flows,
+ * and it is `flowing` while the asset gives supply (a fresh reading with a
+ * credit above 0).
+ */
+export function supplyLinks(
+  assets: readonly SupplyAsset[],
+  connections: ReadonlyMap<string, AssetConnection>,
+  targets: ReadonlyMap<string, Point>,
+  ground: Box,
+): LinkSegment[] {
+  const out: LinkSegment[] = [];
+  const mid = (ground.minX + ground.maxX) / 2;
+  const length = (pts: readonly Point[]): number =>
+    pts.reduce((n, p, i) => {
+      const q = pts[i - 1];
+      return q == null ? n : n + Math.abs(p.x - q.x) + Math.abs(p.z - q.z);
+    }, 0);
+  for (const asset of assets) {
+    const conn = connections.get(asset.id);
+    const t = conn != null ? targets.get(conn.nodeId) : undefined;
+    if (conn == null || t == null) continue;
+    const a =
+      'point' in asset
+        ? asset.point
+        : {
+            x: t.x <= mid ? ground.minX - LANE_START_M : ground.maxX + LANE_START_M,
+            z: asset.rowZ,
+          };
+    const inGround =
+      a.x > ground.minX && a.x < ground.maxX && a.z > ground.minZ && a.z < ground.maxZ;
+    const turns: Point[][] = [
+      [a, { x: a.x, z: t.z }, t],
+      [a, { x: t.x, z: a.z }, t],
+    ];
+    const left = ground.minX - FEEDER_OUTSIDE_M;
+    const right = ground.maxX + FEEDER_OUTSIDE_M;
+    const front = ground.minZ - FEEDER_OUTSIDE_M;
+    const back = ground.maxZ + FEEDER_OUTSIDE_M;
+    const around: Point[][] = [
+      ...[left, right].map((x) => [a, { x, z: a.z }, { x, z: t.z }, t]),
+      ...[front, back].map((z) => [a, { x: a.x, z }, { x: t.x, z }, t]),
+    ];
+    const clear = [...turns, ...around].filter((pts) => !polylineHitsBox(pts, ground));
+    // An asset standing on the ground (a free canopy over its spots) takes the shortest turn.
+    const pick =
+      !inGround && clear.length > 0
+        ? clear.reduce((best, pts) => (length(pts) < length(best) ? pts : best))
+        : (turns[0] ?? []);
+    // Drop repeated points (an asset in line with its target).
+    const points = pick.filter(
+      (p, i) =>
+        i === 0 || Math.hypot(p.x - (pick[i - 1]?.x ?? 0), p.z - (pick[i - 1]?.z ?? 0)) > 1e-6,
+    );
+    if (points.length < 2) continue;
+    out.push({
+      id: `supply:${asset.id}`,
+      flowId: `supply:${asset.id}`,
+      kind: 'supply',
+      points,
+      flowing: conn.state === 'fresh' && conn.creditKw > 0,
+    });
+  }
+  return out;
+}
+
 /** Whether an orthogonal polyline passes through the inside of a box. */
 function polylineHitsBox(points: readonly Point[], box: Box): boolean {
   for (let i = 1; i < points.length; i++) {
@@ -928,8 +1217,10 @@ function groupLinks(
       kind: 'panel',
       point: frame.from(node),
       name: panel.name,
-      amps: panel.breakerRatingAmps,
+      // A step-down transformer has a kVA rating, no breaker of its own.
+      amps: panel.stepDown != null ? null : panel.breakerRatingAmps,
       kw: panel.maxContinuousKw,
+      ...(panel.stepDown != null ? { kva: panel.stepDown.kva } : {}),
     });
     const parent = parentId != null ? at.get(parentId) : undefined;
     const sameRow = parentId != null && flat.some((e) => e.panel.id === parentId);

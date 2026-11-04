@@ -288,6 +288,7 @@ const mockWriteReservationAudit = vi.fn().mockResolvedValue(undefined);
 const mockReprice = vi.fn().mockResolvedValue(false);
 const mockFreeVend = vi.fn().mockResolvedValue(false);
 const mockElectricityPeriods = vi.fn().mockResolvedValue([]);
+const mockMarkSitePlanStale = vi.fn().mockResolvedValue(true);
 // The session's token link reads the same card the routed queries return.
 vi.mock('../../authorization/station-token-match.js', () => ({
   findLinkableStationTokens: vi.fn(() => {
@@ -309,6 +310,7 @@ vi.mock('../../authorization/station-token-match.js', () => ({
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
+  markSitePlanStale: (...args: unknown[]) => mockMarkSitePlanStale(...args) as unknown,
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   // The real OCPI token owner checks (one statement each), on the mocked client.
@@ -506,10 +508,50 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockFreeVend.mockResolvedValue(false);
   mockElectricityPeriods.mockResolvedValue([]);
+  mockMarkSitePlanStale.mockResolvedValue(true);
   mockAuthorizeSessionHold.mockResolvedValue({
     outcome: 'authorized',
     paymentRecordId: 1,
     paymentId: 'pi_test',
+  });
+});
+
+describe('Depot plan triggers', () => {
+  function planMarks(trigger: string): unknown[][] {
+    return mockMarkSitePlanStale.mock.calls.filter((call) => call[1] === trigger);
+  }
+
+  it('marks the plan of a departure-aware site stale when a session starts', async () => {
+    await projectWithRetry(startedEvent());
+
+    expect(planMarks('session_started')).toEqual([
+      ['site-1', 'session_started', logger, { departureAwareOnly: true }],
+    ]);
+  });
+
+  it('marks it stale when a session ends', async () => {
+    await projectWithRetry(transactionEvent('Ended', { stoppedReason: 'Local' }));
+
+    expect(planMarks('session_ended')).toHaveLength(1);
+    expect(planMarks('session_ended')[0]?.[3]).toEqual({ departureAwareOnly: true });
+  });
+
+  it('marks it stale when the session gets its driver and vehicle after the start', async () => {
+    db.firstToken = {
+      reservation_id: null,
+      started_at: '2026-10-07T10:00:00.000Z',
+      token_id: 'tok-p',
+      token_driver_id: 'drv-1',
+      prepaid: true,
+      roaming: false,
+    };
+    db.tokenRow = { prepaid_balance_cents: 5000 };
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'PREPAID-1' }));
+
+    expect(planMarks('vehicle_linked')).toEqual([
+      ['site-1', 'vehicle_linked', logger, { departureAwareOnly: true }],
+    ]);
   });
 });
 

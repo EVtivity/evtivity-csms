@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { ChartBody, type QueryState } from './ChartBody';
 import { formatUtilizationPercent, relativeBarLengths } from './utilization-format';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { CHART_COLORS, getGridColor, escapeChartText } from '@/lib/chart-theme';
 
 interface UtilizationChartProps {
   data: { site: string; utilization: number }[];
@@ -66,6 +66,8 @@ export function UtilizationChart({
       },
       dataLabels: { enabled: false },
       tooltip: {
+        // Site and city names are user text; the tooltip title is HTML.
+        x: { formatter: (val: string | number) => escapeChartText(val) },
         y: {
           // The real utilization of the site, not the relative bar length.
           formatter: (_val: number, opts?: { dataPointIndex?: number }) =>

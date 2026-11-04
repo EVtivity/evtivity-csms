@@ -19,12 +19,15 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     isRoamingEnabled: vi.fn(),
     isPncEnabled: vi.fn(),
     isFleetEnabled: vi.fn(),
+    isFleetChargingEnabled: vi.fn(),
     isGuestChargingEnabled: vi.fn(),
     isChatbotAiEnabled: vi.fn(),
     isAiInsightsEnabled: vi.fn(),
     clearRoamingCache: vi.fn(),
     clearSupportCache: vi.fn(),
     clearFleetCache: vi.fn(),
+    clearFleetChargingSettingCache: vi.fn(),
+    clearVdv463SettingCache: vi.fn(),
     clearGuestChargingCache: vi.fn(),
     clearPncSettingsCache: vi.fn(),
     clearAiSettingsCache: vi.fn(),
@@ -89,12 +92,15 @@ vi.mock('@evtivity/database', () => ({
   isRoamingEnabled: mocks.isRoamingEnabled,
   isPncEnabled: mocks.isPncEnabled,
   isFleetEnabled: mocks.isFleetEnabled,
+  isFleetChargingEnabled: mocks.isFleetChargingEnabled,
   isGuestChargingEnabled: mocks.isGuestChargingEnabled,
   isChatbotAiEnabled: mocks.isChatbotAiEnabled,
   isAiInsightsEnabled: mocks.isAiInsightsEnabled,
   clearRoamingCache: mocks.clearRoamingCache,
   clearSupportCache: mocks.clearSupportCache,
   clearFleetCache: mocks.clearFleetCache,
+  clearFleetChargingSettingCache: mocks.clearFleetChargingSettingCache,
+  clearVdv463SettingCache: mocks.clearVdv463SettingCache,
   clearGuestChargingCache: mocks.clearGuestChargingCache,
   GUEST_STARTS_PER_IP_PER_HOUR_KEY: 'guest.startsPerIpPerHour',
   GUEST_DECLINES_PER_IP_PER_HOUR_KEY: 'guest.declinesPerIpPerHour',
@@ -286,6 +292,7 @@ describe('settings routes (cov2)', () => {
     mocks.isRoamingEnabled.mockResolvedValue(true);
     mocks.isPncEnabled.mockResolvedValue(false);
     mocks.isFleetEnabled.mockResolvedValue(true);
+    mocks.isFleetChargingEnabled.mockResolvedValue(true);
     mocks.isGuestChargingEnabled.mockResolvedValue(false);
     mocks.isChatbotAiEnabled.mockResolvedValue(true);
     mocks.isAiInsightsEnabled.mockResolvedValue(false);
@@ -302,6 +309,7 @@ describe('settings routes (cov2)', () => {
       roamingEnabled: true,
       pncEnabled: false,
       fleetEnabled: true,
+      fleetChargingEnabled: true,
       guestChargingEnabled: false,
       autochargeEnabled: false,
       chatbotAiEnabled: true,
@@ -325,6 +333,7 @@ describe('settings routes (cov2)', () => {
       mocks.isRoamingEnabled,
       mocks.isPncEnabled,
       mocks.isFleetEnabled,
+      mocks.isFleetChargingEnabled,
       mocks.isGuestChargingEnabled,
       mocks.isChatbotAiEnabled,
       mocks.isAiInsightsEnabled,
@@ -352,6 +361,7 @@ describe('settings routes (cov2)', () => {
       mocks.isRoamingEnabled,
       mocks.isPncEnabled,
       mocks.isFleetEnabled,
+      mocks.isFleetChargingEnabled,
       mocks.isGuestChargingEnabled,
       mocks.isChatbotAiEnabled,
       mocks.isAiInsightsEnabled,
@@ -516,6 +526,8 @@ describe('settings routes (cov2)', () => {
     ['roaming.enabled', 'clearRoamingCache'],
     ['support.enabled', 'clearSupportCache'],
     ['fleet.enabled', 'clearFleetCache'],
+    ['fleetCharging.enabled', 'clearFleetChargingSettingCache'],
+    ['vdv463.enabled', 'clearVdv463SettingCache'],
     ['guest.enabled', 'clearGuestChargingCache'],
     ['pnc.enabled', 'clearPncSettingsCache'],
     ['chatbotAi.enabled', 'clearAiSettingsCache'],
@@ -533,12 +545,30 @@ describe('settings routes (cov2)', () => {
       'clearRoamingCache',
       'clearSupportCache',
       'clearFleetCache',
+      'clearFleetChargingSettingCache',
+      'clearVdv463SettingCache',
       'clearGuestChargingCache',
       'clearPncSettingsCache',
       'clearAiSettingsCache',
     ] as const) {
       if (other !== clear) expect(mocks[other]).not.toHaveBeenCalled();
     }
+  });
+
+  it('PUT vdv463.enabled tells every API process to recheck the depot interface switch', async () => {
+    setupDbResults([], [{ key: 'vdv463.enabled', value: false }]);
+    mocks.publish.mockClear();
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/settings/vdv463.enabled',
+      headers: auth,
+      payload: { value: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.publish).toHaveBeenCalledWith(
+      'depot_system_changed',
+      JSON.stringify({ all: true }),
+    );
   });
 
   describe('AI settings (TC-AI-C-05, TC-AI-C-06)', () => {

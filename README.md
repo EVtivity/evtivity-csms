@@ -77,6 +77,7 @@ graph TB
 | AI Assistant             | Ask about stations, sessions, revenue, and operations in plain language. Answers stream, and conversations are kept with search, rename, and delete          |
 | Image and File Analysis  | Attach images (such as a photo of a charger screen), PDF, CSV, text, log, and JSON files                                                                     |
 | Confirmed Changes        | The assistant reads data through API tools. A change it proposes shows a confirmation card and runs only after the operator confirms                         |
+| Automatic Insights       | Root-cause notes for station, session, and authorization problems, for the sites and stations you choose                                                     |
 | Support Assist           | Drafts support case replies in the driver's language and internal notes in the operator's, with the sources it read                                          |
 | Provider Choice          | Anthropic, OpenAI, Google Gemini, or DeepSeek, set per surface or per user, with an effort level                                                             |
 | Redaction and Guardrails | Secrets and personal data are masked in tool results before they reach the model. Settings, secrets, users, payments, and station security stay out of reach |
@@ -97,39 +98,47 @@ graph TB
 
 ### Station Management
 
-| Feature              | Description                                                                                                                                                                                                                |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Multi-site Hierarchy | Sites, stations, EVSEs, and connectors with per-operator site access control                                                                                                                                               |
-| Real-time Monitoring | Live connector status, session activity, and meter values via server-sent events                                                                                                                                           |
-| Station Images       | Upload, tag, and publish images per station with driver-visible flag                                                                                                                                                       |
-| Firmware Management  | Network-wide firmware campaigns with per-station scheduling and status tracking                                                                                                                                            |
-| Configuration        | Configuration templates with station drift detection and bulk apply                                                                                                                                                        |
-| Station Metrics      | NEVI uptime compliance, ChargeX KPIs, utilization rate, and fault rate reporting                                                                                                                                           |
-| Popular Times        | Session frequency heatmap by day and hour per station                                                                                                                                                                      |
-| Remote Diagnostics   | Trigger status notifications, retrieve diagnostics, clear fault states                                                                                                                                                     |
-| Per-site Maintenance | Schedule one-off or immediate maintenance windows that take stations offline, cancel overlapping reservations, optionally stop active sessions with driver notification, and surface a Maintenance badge on the sites list |
+| Feature               | Description                                                                                                                                                                                                                |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-site Hierarchy  | Sites, stations, EVSEs, and connectors with per-operator site access control                                                                                                                                               |
+| Real-time Monitoring  | Live connector status, session activity, and meter values via server-sent events                                                                                                                                           |
+| Station Images        | Upload, tag, and publish images per station with driver-visible flag                                                                                                                                                       |
+| Firmware Management   | Network-wide firmware campaigns with per-station scheduling and status tracking                                                                                                                                            |
+| Configuration         | Configuration templates with station drift detection and bulk apply                                                                                                                                                        |
+| Station Metrics       | NEVI uptime compliance, ChargeX KPIs, utilization rate, and fault rate reporting                                                                                                                                           |
+| Popular Times         | Session frequency heatmap by day and hour per station                                                                                                                                                                      |
+| Remote Diagnostics    | Trigger status notifications, retrieve diagnostics, clear fault states                                                                                                                                                     |
+| Per-site Maintenance  | Schedule one-off or immediate maintenance windows that take stations offline, cancel overlapping reservations, optionally stop active sessions with driver notification, and surface a Maintenance badge on the sites list |
+| Site Layout           | A 3D and 2D representation of each site (parking lot, office or retail, curbside, depot, or custom) with live station status, and a replay of any day of the last 90 days                                                  |
+| Cellular Connectivity | SIM status, data sessions, and SIM alerts from Hologram or 1NCE, the modem signal grade, the likely cause of each disconnect, and a cellular network reset                                                                 |
+| SIM Inventory         | One record per SIM with CSV import and export, attachments to stations, and attachment history                                                                                                                             |
+| Data Plans            | Wi-Fi or wired and cellular sets of OCPP settings per station or site, with WebSocket compression, to keep cellular data use low                                                                                           |
 
 ### Smart Charging
 
-| Feature           | Description                                                                        |
-| ----------------- | ---------------------------------------------------------------------------------- |
-| Load Management   | Site-level power budget with equal-share and priority-based allocation             |
-| Charging Profiles | OCPP charging profile delivery with composite schedule support                     |
-| Idle Detection    | Multi-signal idle detection (chargingState, power meter, status) with grace period |
-| V2G               | Vehicle-to-grid discharging state tracking via OCPP 2.1 chargingState              |
+| Feature              | Description                                                                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Load Management      | Site-level power budget with equal-share and priority-based allocation                                                                                                                           |
+| Charging Profiles    | OCPP charging profile delivery with composite schedule support                                                                                                                                   |
+| Route-Aware Charging | Plans each fleet vehicle at a Depot site by its departure time and needed energy, inside panel, circuit, and phase limits, cheapest hours first, with a Fleet Readiness view and at-risk notices |
+| Bus Depot Interface  | VDV 463 1.1.0 WebSocket interface for bus depot management systems and ITCS: charging requests in, live charging information and the predicted state of charge out                               |
+| Idle Detection       | Multi-signal idle detection (chargingState, power meter, status) with grace period                                                                                                               |
+| V2G                  | Vehicle-to-grid discharging state tracking via OCPP 2.1 chargingState                                                                                                                            |
 
 ### Billing and Payments
 
-| Feature                   | Description                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| Tariff Engine             | Flat, time-of-day, day-of-week, seasonal, holiday, and energy-threshold tariffs             |
-| Pricing Assignment        | Tariff group assignment at driver, fleet, station, and site levels with priority resolution |
-| Split Billing             | Per-segment cost tracking when tariff changes mid-session                                   |
-| Idle and Reservation Fees | Per-minute idle fee with grace period and per-minute reservation fee                        |
-| Multi-currency            | 10 currencies with Intl.NumberFormat formatting                                             |
-| Payment Processing        | Stripe pre-authorization, capture, partial and full refunds                                 |
-| Guest Charging            | Card-on-file payment for unauthenticated drivers via QR code                                |
-| Invoicing                 | Session receipts, monthly statements, and revenue reconciliation                            |
+| Feature                   | Description                                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tariff Engine             | Flat, time-of-day, day-of-week, seasonal, holiday, and energy-threshold tariffs                                                                      |
+| Pricing Assignment        | Tariff group assignment at driver, fleet, station, and site levels with priority resolution                                                          |
+| Split Billing             | Per-segment cost tracking when tariff changes mid-session                                                                                            |
+| Idle and Reservation Fees | Per-minute idle fee with grace period and per-minute reservation fee                                                                                 |
+| Multi-currency            | 10 currencies with Intl.NumberFormat formatting                                                                                                      |
+| Payment Processing        | Stripe and Adyen pre-authorization, capture, partial and full refunds                                                                                |
+| Guest Charging            | Card-on-file payment for unauthenticated drivers via QR code                                                                                         |
+| Payment Terminals         | Card readers at the charger, driven through the terminal provider cloud. Simulated and ID TECH providers. ID TECH is not yet available in production |
+| Invoicing                 | Session receipts, monthly statements, and revenue reconciliation                                                                                     |
+| Invoice Payment Details   | Bank details, a payment reference, and an EPC QR code on EUR invoices                                                                                |
 
 ### Roaming
 
@@ -138,6 +147,7 @@ graph TB
 | OCPI 2.2.1 / 2.3.0     | CPO and eMSP roles with dual-version support                                       |
 | Partner Management     | Credential exchange, endpoint registration, and connection status monitoring       |
 | Location Publishing    | Per-site publish control with partner-level visibility settings                    |
+| Partner Role Approval  | A new OCPI partner gets no role until the operator approves one                    |
 | CDR Generation         | Automatic charge detail record creation and push to eMSP partners                  |
 | Token Authorization    | Real-time and offline authorization of external driver tokens                      |
 | Remote Commands        | CPO commands receiver (START_SESSION, STOP_SESSION, RESERVE_NOW, UNLOCK_CONNECTOR) |
@@ -156,6 +166,7 @@ graph TB
 | Fleet Management      | Fleet grouping with fleet-specific pricing and driver token assignment            |
 | Vehicle Management    | Vehicle profiles for energy-to-miles estimation based on real-world efficiency    |
 | RFID Self-service     | Drivers add and manage their own RFID cards from the portal                       |
+| Avatars               | Drivers and operators build a generated avatar or upload a photo                  |
 | In-app Notifications  | Real-time notification bell with history drawer and per-channel preferences       |
 | Support Cases         | Support tickets with session linking, refund actions, and S3 file attachments     |
 | Notifications         | Email and SMS for session events, payment status, reservations, and support cases |
@@ -173,36 +184,41 @@ graph TB
 
 ### Security and Access
 
-| Feature             | Description                                                                         |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| Authentication      | JWT-based auth with role-based access control for operators and drivers             |
-| SAML SSO            | SAML 2.0 single sign-on with configurable IdP, auto-provisioning, attribute mapping |
-| API Keys            | Long-lived API keys for programmatic access, inheriting the creator's site access   |
-| Multi-factor Auth   | TOTP authenticator app, email code, and SMS code options                            |
-| Site Access Control | Per-operator site assignment with default-deny enforcement                          |
-| Email Verification  | Account verification on driver self-registration before portal access is granted    |
-| Bot Protection      | Google reCAPTCHA v3 on operator and driver login                                    |
-| Audit Logs          | Access log of operator actions for compliance and security review                   |
+| Feature             | Description                                                                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Authentication      | JWT-based auth with role-based access control for operators and drivers                                                                |
+| SAML SSO            | SAML 2.0 single sign-on with configurable IdP, auto-provisioning, attribute mapping                                                    |
+| API Keys            | Long-lived API keys for programmatic access, inheriting the creator's site access                                                      |
+| Multi-factor Auth   | TOTP authenticator app, email code, and SMS code options, recovery codes, and required MFA for all operators, chosen roles, or drivers |
+| Passkeys            | Passkeys and FIDO2 security keys as a second factor, with optional sign-in without a password                                          |
+| Password Policy     | One password policy for operators and drivers, with separate session lifetimes                                                         |
+| Security Notices    | An email or SMS notice when a sign-in factor, phone number, or email changes, or an API key is created                                 |
+| Site Access Control | Per-operator site assignment with default-deny enforcement                                                                             |
+| Email Verification  | Account verification on driver self-registration before portal access is granted                                                       |
+| Bot Protection      | Google reCAPTCHA v3 on operator and driver login                                                                                       |
+| Audit Logs          | Access log of operator actions for compliance and security review                                                                      |
 
 ### Reporting and Analytics
 
-| Feature            | Description                                                                    |
-| ------------------ | ------------------------------------------------------------------------------ |
-| Dashboards         | Real-time revenue, energy, session count, and connector status charts          |
-| Reports            | 9 report types including energy consumption, revenue, utilization, and faults  |
-| NEVI Compliance    | Station uptime tracking and excluded downtime management per NEVI requirements |
-| Scheduled Delivery | Automated report delivery by email or FTP on configurable schedules            |
+| Feature                | Description                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| Dashboards             | Real-time revenue, energy, session count, and connector status charts          |
+| Customizable Dashboard | Each user arranges and hides the live dashboard charts                         |
+| Reports                | 9 report types including energy consumption, revenue, utilization, and faults  |
+| NEVI Compliance        | Station uptime tracking and excluded downtime management per NEVI requirements |
+| Scheduled Delivery     | Automated report delivery by email or FTP on configurable schedules            |
 
 ### Notifications and Messaging
 
-| Feature              | Description                                                                      |
-| -------------------- | -------------------------------------------------------------------------------- |
-| Event-driven Alerts  | 41 configurable OCPP event types with per-event recipient, channel, and template |
-| Driver Notifications | Session, payment, reservation, and support case notifications per driver         |
-| Channels             | Email (SMTP), SMS (Twilio), webhook, and in-app delivery                         |
-| Template Editor      | WYSIWYG email editor with drag-and-drop variable insertion and live preview      |
-| Email Layout         | Configurable HTML wrapper template applied to all outgoing emails                |
-| Notification History | Delivery log with email preview and SMS/push inline expand                       |
+| Feature              | Description                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| Event-driven Alerts  | 41 configurable OCPP event types with per-event recipient, channel, and template              |
+| Driver Notifications | Session, payment, reservation, and support case notifications per driver                      |
+| Channels             | Email (SMTP), SMS (Twilio), webhook, and in-app delivery                                      |
+| Signed Webhooks      | Outbound webhooks carry an `X-EVtivity-Signature` header made with a generated signing secret |
+| Template Editor      | WYSIWYG email editor with drag-and-drop variable insertion and live preview                   |
+| Email Layout         | Configurable HTML wrapper template applied to all outgoing emails                             |
+| Notification History | Delivery log with email preview and SMS/push inline expand                                    |
 
 ### Deployment and Operations
 
@@ -213,6 +229,9 @@ graph TB
 | Auto-scaling        | Kubernetes HPA for API and OCPP with WebSocket-aware scale-down stabilization                                                                                            |
 | Rate Limiting       | Configurable global and per-endpoint rate limiting with separate auth rate limits                                                                                        |
 | Observability       | Prometheus metrics, Grafana dashboards, Loki log aggregation                                                                                                             |
+| File Storage        | Amazon S3 or an S3-compatible provider such as MinIO or Wasabi                                                                                                           |
+| Data Retention      | Retention of logs, meter values, audit history, and AI data set in the dashboard                                                                                         |
+| System Information  | Version and settings of every process, with search and a section filter                                                                                                  |
 | Conformance Testing | Built-in OCTT conformance test runner for CSMS SUT (OCPP 2.1, 2.0.1 and 1.6) and Charging Station SUT (OCPP 2.1 and 1.6) with dashboard reporting and per-module results |
 | Multi-language UI   | 6 languages: English, German, Spanish, Korean, Simplified and Traditional Chinese                                                                                        |
 | Responsive Filters  | Filter controls collapse into dropdown on tablet and mobile for all list pages                                                                                           |

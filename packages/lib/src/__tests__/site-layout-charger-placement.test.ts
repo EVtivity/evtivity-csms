@@ -26,7 +26,7 @@ const lot = (rows: number, placement?: 'islands' | 'lot_edge'): SiteLayoutSettin
   rows,
   facingDeg: 0,
   ...(placement != null ? { chargerPlacement: placement } : {}),
-  transformers: [{ id: 'tx', name: null, ratedKva: null, x: 20, z: 2.5 }],
+  transformers: [{ id: 'tx', x: 20, z: 2.5 }],
 });
 
 describe('parking lot charger placement', () => {

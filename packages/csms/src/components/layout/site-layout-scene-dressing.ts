@@ -14,7 +14,7 @@ import {
 import { createSiteBollardKit } from './site-layout-model-bollard';
 import type { ChargerSlot } from './site-layout-model-charger-parts';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { type Palette, type SceneStation, type StationObject } from './site-layout-scene-types';
 
 export const LOGO_PADDING = 0.03;
@@ -55,7 +55,19 @@ export function loadLogoCanvas(url: string): Promise<HTMLCanvasElement | null> {
   });
 }
 
-export function installDressing(scn: SceneCtx): void {
+type DressingCtx = SceneSlice<
+  'M' | 'box' | 'glowTexture' | 'logo' | 'modelKit' | 'modelOf' | 'theme' | 'track',
+  | 'addGlow'
+  | 'bollardMaterials'
+  | 'cabinetGlow'
+  | 'chargerMaterials'
+  | 'chargerShared'
+  | 'logoPanel'
+  | 'pipeBollard'
+  | 'socketRing'
+>;
+
+export function installDressing(scn: DressingCtx): void {
   // The logo panel of a charger model (`CHARGER_LOGO_PANELS`): a plain plate
   // with the logo fitted on it, padded, never stretched. `at`: the cabinet
   // center of a large model, the wall box offset of a wall box.

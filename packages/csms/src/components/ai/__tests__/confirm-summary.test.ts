@@ -63,8 +63,8 @@ describe('confirmSummary', () => {
     ['de', 'Station IOCHARGER-002 zurücksetzen (im Leerlauf)'],
     ['es', 'Reiniciar la estación IOCHARGER-002 (cuando esté inactiva)'],
     ['ko', '충전소 IOCHARGER-002 재설정 (유휴 상태일 때)'],
-    ['zh', '重置充电站 IOCHARGER-002（空闲时）'],
-    ['zh-TW', '重設充電站 IOCHARGER-002（閒置時）'],
+    ['zh', '重置充电桩 IOCHARGER-002（空闲时）'],
+    ['zh-TW', '重設充電樁 IOCHARGER-002（閒置時）'],
   ] as const)('describes an OCPP 2.1 reset (%s)', (lang, text) => {
     expect(summary(lang, RESET_21)).toBe(text);
   });

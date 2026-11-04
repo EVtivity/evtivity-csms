@@ -47,6 +47,24 @@
     "./load-allocation": {
       "import": "./src/load-allocation.ts"
     },
+    "./energy-supply": {
+      "import": "./src/energy-supply.ts"
+    },
+    "./energy-asset-simulation": {
+      "import": "./src/energy-asset-simulation.ts"
+    },
+    "./charging-plan": {
+      "import": "./src/charging-plan.ts"
+    },
+    "./vdv463": {
+      "import": "./src/vdv463/index.ts"
+    },
+    "./charging-profile-ids": {
+      "import": "./src/charging-profile-ids.ts"
+    },
+    "./departure-schedule": {
+      "import": "./src/departure-schedule.ts"
+    },
     "./number": {
       "import": "./src/number.ts"
     },

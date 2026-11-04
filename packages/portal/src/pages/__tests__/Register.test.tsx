@@ -78,6 +78,15 @@ function fill(password: string): void {
   fireEvent.change(screen.getByLabelText('auth.password'), { target: { value: password } });
 }
 
+// The submit stays disabled until the reCAPTCHA config answers.
+async function submitWhenReady(): Promise<void> {
+  const button = screen.getByRole<HTMLButtonElement>('button', { name: 'auth.createAccount' });
+  await waitFor(() => {
+    expect(button.disabled).toBe(false);
+  });
+  fireEvent.click(button);
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -93,11 +102,11 @@ describe('Register', () => {
     );
   });
 
-  it('names the missing rules and does not call the API', () => {
+  it('names the missing rules and does not call the API', async () => {
     getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     renderPage();
     fill('abcdefghijkl');
-    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await submitWhenReady();
     expect(screen.getByText('missing: uppercase and number')).toBeTruthy();
     expect(registerMock).not.toHaveBeenCalled();
   });
@@ -107,7 +116,7 @@ describe('Register', () => {
     registerMock.mockRejectedValue(new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD' }));
     renderPage();
     fill('Abcdefghijk1');
-    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await submitWhenReady();
     expect(await screen.findByText('translated:errors.WEAK_PASSWORD')).toBeTruthy();
   });
 
@@ -118,7 +127,7 @@ describe('Register', () => {
     );
     renderPage();
     fill('Abcdefghijk1');
-    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await submitWhenReady();
     expect(await screen.findByText('missing: symbol')).toBeTruthy();
     const symbol = screen
       .getByTestId('password-requirements')
@@ -145,7 +154,7 @@ describe('Register', () => {
       ).toBeTruthy();
     });
     fill('Abcdefghijk1');
-    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await submitWhenReady();
     expect(screen.getByText('missing: minLength and symbol')).toBeTruthy();
     expect(registerMock).not.toHaveBeenCalled();
   });
@@ -161,7 +170,7 @@ describe('Register', () => {
     // Let the security query settle before submitting.
     await new Promise((resolve) => setTimeout(resolve, 0));
     fill('Abcdefghijk1');
-    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await submitWhenReady();
     await waitFor(() => {
       expect(registerMock).toHaveBeenCalledWith(
         expect.objectContaining({ recaptchaToken: 'captcha-token', password: 'Abcdefghijk1' }),
@@ -187,7 +196,7 @@ describe('Register', () => {
     );
     expect(screen.queryByRole('dialog')).toBeNull();
     fill('Abcdefghijk1');
-    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await submitWhenReady();
     await waitFor(() => {
       expect(registerMock).toHaveBeenCalled();
     });
@@ -201,7 +210,7 @@ describe('Register', () => {
     registerMock.mockResolvedValue(undefined);
     renderPage();
     fill('Abcdefghijk1');
-    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await submitWhenReady();
     expect(await screen.findByText('auth.registerCheckEmailTitle')).toBeTruthy();
     expect(screen.getByText('auth.registerCheckEmail')).toBeTruthy();
     expect(screen.queryByLabelText('auth.password')).toBeNull();

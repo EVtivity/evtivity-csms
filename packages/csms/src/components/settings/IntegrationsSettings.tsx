@@ -22,8 +22,11 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
 import { api, ApiError } from '@/lib/api';
+import { useToast } from '@/components/ui/toast';
+import { getErrorMessage } from '@/lib/error-message';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import {
+  R2_SETUP_DOCS_URL,
   S3_COMPATIBLE_SETUP_DOCS_URL,
   STORAGE_ACCESS_ACTIONS,
   buildS3CorsExample,
@@ -37,6 +40,7 @@ import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
 import { PncLocalCaSection } from '@/components/settings/PncLocalCaSection';
 import { FleetCreditReservationSettings } from '@/components/settings/FleetCreditReservationSettings';
+import { BusDepotSystemsSettings } from './BusDepotSystemsSettings';
 import { SimProvidersSettings } from '@/components/settings/SimProvidersSettings';
 import { OcppDataPlanSettings } from '@/components/settings/OcppDataPlanSettings';
 import {
@@ -49,6 +53,9 @@ import { useMfaStatus } from '@/components/profile/mfa-status';
 import { isEditedField, useLoadedValues } from '@/hooks/use-loaded-values';
 
 /** The endpoint as the API stores it (the origin), to tell whether it changed. */
+// A bus depot system opened in place belongs to its sub tab; another sub tab drops it.
+const SUB_TAB_CLEARS = ['depotSystem', 'depotTab'];
+
 function storedEndpointForm(value: string): string {
   return URL.parse(value.trim())?.origin ?? value.trim();
 }
@@ -84,8 +91,9 @@ interface IntegrationsSettingsProps {
 export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const [integrationsSubTab, setIntegrationsSubTab] = useTab('ocppDefaults', 'sub');
+  const [integrationsSubTab, setIntegrationsSubTab] = useTab('ocppDefaults', 'sub', SUB_TAB_CLEARS);
 
   const str = (key: string): string => {
     const v = settings?.[key];
@@ -189,17 +197,20 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     reservation: settings?.['reservation.enabled'] !== false,
     support: settings?.['support.enabled'] !== false,
     fleet: settings?.['fleet.enabled'] !== false,
+    fleetCharging: settings?.['fleetCharging.enabled'] === true,
     guest: settings?.['guest.enabled'] !== false,
   });
   const {
     reservation: reservationEnabled,
     support: supportEnabled,
     fleet: fleetEnabled,
+    fleetCharging: fleetChargingEnabled,
     guest: guestChargingEnabled,
   } = features;
   const setReservationEnabled = field(setFeatures, 'reservation');
   const setSupportEnabled = field(setFeatures, 'support');
   const setFleetEnabled = field(setFeatures, 'fleet');
+  const setFleetChargingEnabled = field(setFeatures, 'fleetCharging');
   const setGuestChargingEnabled = field(setFeatures, 'guest');
 
   const storedGuestStarts = settings?.['guest.startsPerIpPerHour'];
@@ -405,10 +416,28 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     },
   });
 
+  // A failed save puts the switch back and says why.
   const fleetMutation = useMutation({
     mutationFn: (enabled: boolean) => api.put('/v1/settings/fleet.enabled', { value: enabled }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+    onError: (err: unknown, enabled: boolean) => {
+      setFleetEnabled(!enabled);
+      toast({ title: getErrorMessage(err, t), variant: 'destructive' });
+    },
+  });
+
+  const fleetChargingMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      api.put('/v1/settings/fleetCharging.enabled', { value: enabled }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['site-charging-plan'] });
+    },
+    onError: (err: unknown, enabled: boolean) => {
+      setFleetChargingEnabled(!enabled);
+      toast({ title: getErrorMessage(err, t), variant: 'destructive' });
     },
   });
 
@@ -551,6 +580,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
         <TabsTrigger value="reservation">{t('settings.reservation')}</TabsTrigger>
         <TabsTrigger value="support">{t('settings.support')}</TabsTrigger>
         <TabsTrigger value="fleet">{t('settings.fleet')}</TabsTrigger>
+        <TabsTrigger value="depot-systems">{t('depotSystems.tab')}</TabsTrigger>
         <TabsTrigger value="guest">{t('settings.guestCharging')}</TabsTrigger>
         <TabsTrigger value="idling">{t('settings.idling')}</TabsTrigger>
         <TabsTrigger value="session">{t('settings.session')}</TabsTrigger>
@@ -997,11 +1027,34 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 disabled={fleetMutation.isPending}
               />
             </div>
+            <div className="mt-4 flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label className="leading-6">{t('settings.fleetChargingEnabled')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.fleetChargingEnabledDesc')}
+                </p>
+              </div>
+              <ConfirmToggle
+                aria-label={t('settings.fleetChargingEnabled')}
+                label={t('settings.fleetChargingEnabled')}
+                offDescription={t('settings.fleetChargingEnabledOff')}
+                size="lg"
+                checked={fleetChargingEnabled}
+                onCheckedChange={() => {
+                  setFleetChargingEnabled(!fleetChargingEnabled);
+                  fleetChargingMutation.mutate(!fleetChargingEnabled);
+                }}
+                disabled={fleetChargingMutation.isPending}
+              />
+            </div>
             <div className="mt-4">
               <FleetCreditReservationSettings settings={settings} />
             </div>
           </CardContent>
         </Card>
+      </TabsContent>
+      <TabsContent value="depot-systems" className="mt-4">
+        <BusDepotSystemsSettings settings={settings} />
       </TabsContent>
       <TabsContent value="autocharge" className="mt-4">
         <AutochargeSettings settings={settings} />
@@ -1643,7 +1696,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     ? t('settings.s3AllowedHostsRefused')
                     : s3RefusedField(s3Mutation.error) === 'endpoint'
                       ? t('settings.s3R2EndpointRefused')
-                      : t('settings.s3SaveFailed')}
+                      : s3RefusedField(s3Mutation.error) === 'bucket'
+                        ? t('settings.s3R2BucketMismatch')
+                        : t('settings.s3SaveFailed')}
               </p>
             )}
             {s3TestMutation.isSuccess && (
@@ -1704,6 +1759,14 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 </pre>
                 <p className="text-sm text-muted-foreground">{t('settings.s3BucketPrivateNote')}</p>
                 <p className="text-sm text-muted-foreground">{t('settings.s3R2ImageOriginHint')}</p>
+                <a
+                  href={R2_SETUP_DOCS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-sm text-link hover:underline"
+                >
+                  {t('settings.s3R2SetupDocsLink')}
+                </a>
               </div>
             ) : (
               <>

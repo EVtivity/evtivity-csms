@@ -20,8 +20,11 @@ import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { siteExists } from '../lib/site-exists.js';
 import { loadTreeContext } from '../lib/load-management-audit.js';
+import { withTreeValidation } from '../lib/load-tree-validation.js';
 import {
   PANEL_VOLTAGES,
   SUB_PANEL_PHASE_CONNECTIONS,
@@ -63,6 +66,13 @@ const createPanelBody = z.object({
     .describe(
       'Phases of the three-phase parent panel that feed this single-phase sub-panel (one phase line to neutral, two line to line). Omit when unknown: the sub-panel load then counts on every parent phase. Refused unless the panel is single-phase below a three-phase parent',
     ),
+  transformerId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      'Transformer that feeds this panel: a service transformer for a top-level panel, a step-down transformer fed from the parent panel for a sub-panel. Only a rated transformer of the site; null or omitted for none',
+    ),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -89,6 +99,13 @@ const updatePanelBody = z.object({
     .optional()
     .describe(
       'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown (its load counts on every parent phase). Refused unless the panel is single-phase below a three-phase parent',
+    ),
+  transformerId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      'Transformer that feeds this panel (service for a top-level panel, step-down fed from the parent for a sub-panel); null clears the link',
     ),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
@@ -121,6 +138,10 @@ const panelItem = z
       .describe(
         'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown',
       ),
+    transformerId: z
+      .string()
+      .nullable()
+      .describe('Transformer that feeds this panel; null when none is linked'),
     sortOrder: z.number().int().min(0).describe('Display ordering within the site'),
     circuitCount: z.number().int().min(0).describe('Number of circuits attached to this panel'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
@@ -194,6 +215,10 @@ const panelDetailItem = z
       .describe(
         'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown',
       ),
+    transformerId: z
+      .string()
+      .nullable()
+      .describe('Transformer that feeds this panel; null when none is linked'),
     sortOrder: z.number().int().min(0).describe('Display ordering within the site'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
@@ -205,6 +230,13 @@ const panelDetailItem = z
   .loose();
 
 // --- Helpers ---
+
+const panelValidationError = errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR], {
+  field: z
+    .string()
+    .optional()
+    .describe('The input to fix, such as transformerId for a link the tree refuses'),
+});
 
 const SUB_PANEL_PHASE_ERROR = {
   error: 'Phase connections apply only to a single-phase sub-panel of a three-phase panel',
@@ -225,6 +257,7 @@ export function panelRoutes(app: FastifyInstance): void {
     '/sites/:siteId/panels',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('panel_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Create a panel',
@@ -234,7 +267,7 @@ export function panelRoutes(app: FastifyInstance): void {
         body: zodSchema(createPanelBody),
         response: {
           201: itemResponse(panelItem),
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          400: panelValidationError,
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
           500: errorWith('Create failed', [ERROR_CODES.CREATE_FAILED]),
         },
@@ -246,7 +279,7 @@ export function panelRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (!siteInScope(siteIds, siteId)) {
+      if (!siteInScope(siteIds, siteId) || !(await siteExists(siteId))) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -286,22 +319,27 @@ export function panelRoutes(app: FastifyInstance): void {
         body.phases,
       );
 
-      const created = await createPanel(
-        {
-          siteId,
-          parentPanelId: body.parentPanelId ?? null,
-          name: body.name,
-          breakerRatingAmps: body.breakerRatingAmps,
-          voltageV: body.voltageV,
-          phases: body.phases,
-          maxContinuousKw: String(maxContinuousKw),
-          safetyMarginKw: String(body.safetyMarginKw),
-          oversubscriptionRatio: String(body.oversubscriptionRatio),
-          phaseConnections: body.phaseConnections ?? null,
-          sortOrder: body.sortOrder ?? 0,
-        },
-        loadTreeContext(request),
+      const result = await withTreeValidation(reply, () =>
+        createPanel(
+          {
+            siteId,
+            parentPanelId: body.parentPanelId ?? null,
+            name: body.name,
+            breakerRatingAmps: body.breakerRatingAmps,
+            voltageV: body.voltageV,
+            phases: body.phases,
+            maxContinuousKw: String(maxContinuousKw),
+            safetyMarginKw: String(body.safetyMarginKw),
+            oversubscriptionRatio: String(body.oversubscriptionRatio),
+            phaseConnections: body.phaseConnections ?? null,
+            transformerId: body.transformerId ?? null,
+            sortOrder: body.sortOrder ?? 0,
+          },
+          loadTreeContext(request),
+        ),
       );
+      if (result.refused) return;
+      const created = result.value;
       if (created == null) {
         await reply.status(500).send({ error: 'Failed to create panel', code: 'CREATE_FAILED' });
         return;
@@ -360,6 +398,7 @@ export function panelRoutes(app: FastifyInstance): void {
           safetyMarginKw: panels.safetyMarginKw,
           oversubscriptionRatio: panels.oversubscriptionRatio,
           phaseConnections: panels.phaseConnections,
+          transformerId: panels.transformerId,
           sortOrder: panels.sortOrder,
           createdAt: panels.createdAt,
           updatedAt: panels.updatedAt,
@@ -465,6 +504,7 @@ export function panelRoutes(app: FastifyInstance): void {
     '/sites/:siteId/panels/:panelId',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('panel_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Update a panel',
@@ -474,7 +514,7 @@ export function panelRoutes(app: FastifyInstance): void {
         body: zodSchema(updatePanelBody),
         response: {
           200: itemResponse(panelItem),
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          400: panelValidationError,
           404: errorWith('Panel not found', [ERROR_CODES.PANEL_NOT_FOUND]),
         },
       },
@@ -539,6 +579,7 @@ export function panelRoutes(app: FastifyInstance): void {
       if (body.oversubscriptionRatio != null)
         updateData.oversubscriptionRatio = String(body.oversubscriptionRatio);
       if (body.sortOrder != null) updateData.sortOrder = body.sortOrder;
+      if (body.transformerId !== undefined) updateData.transformerId = body.transformerId;
       if (body.phaseConnections !== undefined) {
         updateData.phaseConnections = body.phaseConnections;
       } else if (newPhases === 3 && existing.phaseConnections != null) {
@@ -549,17 +590,21 @@ export function panelRoutes(app: FastifyInstance): void {
       // If voltage or phases change, the writer recomputes the capacity of the
       // panel's circuits; a panel that is no longer three-phase clears its
       // sub-panels' phase connections.
-      const updated = await updatePanel(
-        {
-          siteId,
-          panelId,
-          existing,
-          set: updateData,
-          recomputeCircuits: body.voltageV != null || body.phases != null,
-          clearSubPanelPhases: body.phases != null,
-        },
-        loadTreeContext(request),
+      const result = await withTreeValidation(reply, () =>
+        updatePanel(
+          {
+            siteId,
+            panelId,
+            existing,
+            set: updateData,
+            recomputeCircuits: body.voltageV != null || body.phases != null,
+            clearSubPanelPhases: body.phases != null,
+          },
+          loadTreeContext(request),
+        ),
       );
+      if (result.refused) return;
+      const updated = result.value;
       if (updated == null) {
         await reply.status(404).send({ error: 'Panel not found', code: 'PANEL_NOT_FOUND' });
         return;
@@ -585,6 +630,7 @@ export function panelRoutes(app: FastifyInstance): void {
     '/sites/:siteId/panels/:panelId',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('panel_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Delete a panel',

@@ -24,6 +24,10 @@ import {
 import { startCacheInvalidateListener } from './services/cache-invalidate-listener.js';
 import { reportPricingGroupsWithoutDefault } from './lib/pricing-default-report.js';
 import { serializeRequestForLog } from '@evtivity/lib/request-log';
+import { attachVdv463Server } from './vdv463/server.js';
+import { redisFailureStore } from './vdv463/auth-failures.js';
+import { readDepotSnapshot } from './services/depot-system-information.js';
+import { applyChargingRequests } from './services/depot-system-requests.js';
 
 async function start(): Promise<void> {
   // A backend terminated while postgres.js fetches its array types must not end
@@ -102,6 +106,20 @@ async function start(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
+  // The bus depot interface (VDV 463) shares the API port: /vdv463 upgrades.
+  // Attached before listen: Fastify takes no hook once it listens.
+  const vdv463 = attachVdv463Server(app.server, {
+    log: app.log,
+    pubsub,
+    trustProxy: config.TRUST_PROXY,
+    allowPlain: config.NODE_ENV === 'development' || config.NODE_ENV === 'test',
+    failures: redisFailureStore(rateLimitRedis, app.log),
+    readSnapshot: readDepotSnapshot,
+    applyRequests: (system, list) => applyChargingRequests(system, list, { log: app.log }),
+  });
+  app.addHook('preClose', async () => {
+    await vdv463.close();
+  });
   await app.listen({ port: config.API_PORT, host: config.API_HOST });
   app.log.info(`API server listening on ${config.API_HOST}:${String(config.API_PORT)}`);
   await reportPricingGroupsWithoutDefault(client, app.log);

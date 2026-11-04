@@ -14,6 +14,7 @@ import { FleetDetailsTab } from '@/components/fleet/FleetDetailsTab';
 import { FleetSessionsTab } from '@/components/fleet/FleetSessionsTab';
 import { FleetStationsTab } from '@/components/fleet/FleetStationsTab';
 import { FleetVehiclesTab } from '@/components/fleet/FleetVehiclesTab';
+import { FleetDeparturesTab } from '@/components/fleet/FleetDeparturesTab';
 import { FleetDriversTab } from '@/components/fleet/FleetDriversTab';
 import { FleetPricingTab } from '@/components/fleet/FleetPricingTab';
 import { FleetReservationsTab } from '@/components/fleet/FleetReservationsTab';
@@ -86,6 +87,7 @@ export function FleetDetail(): React.JSX.Element {
           <TabsTrigger value="sessions">{t('sessions.title')}</TabsTrigger>
           <TabsTrigger value="stations">{t('fleets.stations')}</TabsTrigger>
           <TabsTrigger value="vehicles">{t('fleets.vehicles')}</TabsTrigger>
+          <TabsTrigger value="departures">{t('fleets.departures.title')}</TabsTrigger>
           <TabsTrigger value="drivers">{t('fleets.drivers')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('fleets.pricing')}</TabsTrigger>
           {hasAllSiteAccess && <TabsTrigger value="billing">{t('fleets.billingTab')}</TabsTrigger>}
@@ -109,6 +111,10 @@ export function FleetDetail(): React.JSX.Element {
 
         <TabsContent value="vehicles">
           <FleetVehiclesTab fleetId={fleetId} canManageMembers={canManageMembers} />
+        </TabsContent>
+
+        <TabsContent value="departures">
+          <FleetDeparturesTab fleetId={fleetId} />
         </TabsContent>
 
         <TabsContent value="drivers">

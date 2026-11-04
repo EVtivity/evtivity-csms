@@ -22,11 +22,20 @@
 //   supply is a feeder, NEC 215.2(A)(1) and 215.3, `computeMaxContinuousKw`),
 //   no panelboard past its 42 spaces (a 2-pole breaker takes two), no
 //   transformer past its rating.
-// - Transformers from the three-phase pad-mounted kVA list of IEEE
-//   C57.12.34 (Eaton Consulting Application Guide, Section 17 Pad-Mounted
-//   Transformers, April 2016, page 17.0-2,
-//   https://content.voltimum.com/tr/39129/section_17_-_pad-mounted_transformers_.pdf),
-//   as the demo layout plan uses them (seed-demo-layout-plan.ts).
+// - Each group's service transformer: the smallest IEEE C57.12.34
+//   three-phase pad-mount rating (`PAD_MOUNT_TRANSFORMER_KVA`) of at least
+//   the group's connected load. The load is apparent power (input V x A, x
+//   sqrt(3) for three-phase), so it is compared with the kVA directly, with
+//   no demand factor and no second divide by a power factor (SDG&E EV
+//   Charging Station Standards 2023, EV-3.10, sheet EV3.11;
+//   `serviceTransformerKva` in seed-demo-layout-plan.ts). It feeds the
+//   group's switchboard (`panels.transformer_id`).
+// - Each 208Y/120 V panelboard under the 480Y/277 V switchboard is fed
+//   through its own dry-type step-down transformer: the smallest SDG&E Table
+//   EV-11.10 rating whose kVA covers the panelboard's connected load and
+//   whose largest 208 V overcurrent device covers its main
+//   (`stepDownTransformerKva`): 75 kVA for a 225 A panelboard, 112.5 or 150
+//   kVA for a 400 A one.
 
 import { circuitConductorPhases, computeMaxContinuousKw } from '@evtivity/lib/load-allocation';
 import {
@@ -36,12 +45,9 @@ import {
   TERRA_184_INPUT_AMPS,
   dcInputAmps,
   evseBreakerAmps,
+  serviceTransformerKva,
+  stepDownTransformerKva,
 } from './seed-demo-layout-plan.js';
-
-/** Three-phase pad-mounted transformer ratings, kVA (IEEE C57.12.34, read in the Eaton guide above). */
-export const PAD_MOUNT_KVA = [
-  45, 75, 112.5, 150, 225, 300, 500, 750, 1000, 1500, 2000, 2500, 3000, 3750, 5000,
-] as const;
 
 /**
  * Main breaker ratings of a group's 480Y/277 V switchboard: the standard
@@ -123,7 +129,7 @@ export interface PlannedCircuit {
   breakerAmps: number;
   /** The circuit's stored capacity (80 percent of its breaker), kW. */
   maxContinuousKw: number;
-  /** The connected load the charger draws, kW (kVA for a DC input at unity power factor). */
+  /** The connected load the charger draws: input V x A, apparent power in kVA. */
   loadKw: number;
   /** A 2-pole 208 V circuit's phase pair; null for a 3-phase DC breaker. */
   phaseConnections: string | null;
@@ -133,8 +139,11 @@ export interface PlannedPanelboard {
   amps: (typeof PANELBOARD_AMPS)[number];
   maxContinuousKw: number;
   circuits: PlannedCircuit[];
+  /** Connected load, kVA. */
   loadKw: number;
   spaces: number;
+  /** The step-down transformer that feeds it from the 480Y/277 V switchboard, kVA. */
+  stepDownKva: number;
 }
 
 export interface PlannedGroup {
@@ -143,7 +152,7 @@ export interface PlannedGroup {
   switchboardMaxContinuousKw: number;
   dc: PlannedCircuit[];
   panelboards: PlannedPanelboard[];
-  /** Connected load of the group, kW. */
+  /** Connected load of the group, kVA. */
   loadKw: number;
   stationIds: string[];
 }
@@ -226,6 +235,7 @@ function panelboardsOf(stations: readonly PowerStation[]): PlannedPanelboard[] {
       circuits: p.circuits,
       loadKw: p.loadKw,
       spaces: p.spaces,
+      stepDownKva: stepDownTransformerKva(p.loadKw, amps),
     };
   });
 }
@@ -242,8 +252,7 @@ export function plannedGroup(stations: readonly PowerStation[]): PlannedGroup {
   );
   // A group never holds more than the largest main carries (`planSitePower` splits).
   if (switchboardAmps == null) throw new Error(`Group load ${String(loadKw)} kW past 4000 A`);
-  const transformerKva = PAD_MOUNT_KVA.find((k) => k >= loadKw - 1e-9);
-  if (transformerKva == null) throw new Error(`Group load ${String(loadKw)} kW past 5000 kVA`);
+  const transformerKva = serviceTransformerKva(loadKw);
   return {
     transformerKva,
     switchboardAmps,

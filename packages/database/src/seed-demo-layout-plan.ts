@@ -4,8 +4,8 @@
 // The site layout demo as plain data (no database import), so the seed, its
 // tests and the docs screenshot fixtures read one plan. Four sites, one per
 // site type and charger mounting, as on real sites: Harbor Point Charging Hub,
-// a parking lot (an outdoor hub of DC fast chargers, 2 rows of 6 spots, two
-// transformers and a battery on the grass, a solar carport over the back row,
+// a parking lot (an outdoor hub of DC fast chargers, 2 rows of 6 spots, a
+// transformer and a battery at the lot edge, a solar carport over the front row,
 // one faulted station without a simulator, switchboards with load management
 // links); Lakeside Retail Park, an office or retail site with 12 charger
 // positions along the building front and AC wall boxes on the facade;
@@ -34,9 +34,170 @@ import {
   groupedSpotOrder,
   positionToBay,
 } from '@evtivity/lib/site-layout';
-import type { FreePlacement, LayoutBay, SiteLayoutSettings } from '@evtivity/lib/site-layout';
-import { circuitConductorPhases, computeMaxContinuousKw } from '@evtivity/lib/load-allocation';
+import type {
+  FreePlacement,
+  LayoutBay,
+  LayoutEnergyAsset,
+  LayoutPowerEquipment,
+  SiteLayoutSettings,
+} from '@evtivity/lib/site-layout';
+import {
+  PAD_MOUNT_TRANSFORMER_KVA,
+  STEP_DOWN_TRANSFORMER_KVA,
+  circuitConductorPhases,
+  computeMaxContinuousKw,
+  computeTransformerCapacityKw,
+} from '@evtivity/lib/load-allocation';
+import type { LoadAllocationStrategy } from '@evtivity/lib/load-allocation';
 import type { VehicleBodyType, VehicleColor } from '@evtivity/lib/vehicle-appearance';
+import { layoutEquipmentRowId } from './lib/layout-equipment-id.js';
+
+/**
+ * A service transformer of a demo site as the plan writes it: its row (name,
+ * rating) and its layout position. `id` is the plan's layout id; the row's id
+ * is `layoutEquipmentRowId('tfm', siteId, id)`, the id the v0.1.50 migration
+ * gave the transformers an earlier plan stored in the layout settings.
+ */
+export interface DemoTransformer {
+  id: string;
+  name: string;
+  ratedKva: number;
+  x: number;
+  z: number;
+  /** The top-level panel (switchboard) it feeds (`panels.transformer_id`). */
+  feeds?: string;
+  /** The ratings earlier plans seeded: a rerun moves a row still at one of these to `ratedKva`. */
+  ratedKvaBefore?: readonly number[];
+}
+
+/**
+ * How a demo battery or solar canopy is wired and read (the
+ * `site_energy_assets` columns the layout settings do not hold).
+ */
+export interface DemoAssetElectrical {
+  /** AC nameplate of the inverter, kW (caps every credit). */
+  inverterKw: number;
+  /** Battery: the most it discharges and charges, kW. */
+  maxDischargeKw?: number;
+  maxChargeKw?: number;
+  /**
+   * Where it connects: supply-side at the service transformer (NEC 705.11,
+   * the plan's layout id) or load-side on a panel (NEC 705.12).
+   */
+  connection: { transformer: string } | { panel: string };
+  /**
+   * `simulated` (shown live where ENERGY_ASSETS_ALLOW_SIMULATED is true,
+   * `none` elsewhere), or `api` with an old reading so it reads Stale.
+   */
+  telemetry: 'simulated' | 'api';
+  /** `api`: the age of the one reading the seed writes, minutes (past its TTL). */
+  staleReadingMinutes?: number;
+  /** `api`: the power of that reading, kW. */
+  staleReadingKw?: number;
+  /** The ratings earlier plans seeded (kWh or kWp): a rerun moves a row still at one of these. */
+  ratingBefore?: readonly number[];
+}
+
+/** A demo battery or solar canopy: its layout entry and, in the current plan, its wiring. */
+export type DemoEnergyAsset = LayoutEnergyAsset & { electrical?: DemoAssetElectrical };
+
+/**
+ * A step-down transformer of a demo site (480 V to 208Y/120 V, dry-type),
+ * fed from a switchboard breaker and feeding one panelboard.
+ */
+export interface DemoStepDown {
+  id: string;
+  name: string;
+  ratedKva: number;
+  /** The switchboard it is fed from. */
+  fedFromPanelId: string;
+  /** The panelboard it feeds. */
+  panelId: string;
+}
+
+/**
+ * A demo site's layout settings with its power equipment as the plan writes
+ * it (names and ratings with the positions). The seed writes the rows through
+ * the load management writers and stores the positions by their table ids
+ * (`demoLayoutPositions`). An energy asset's `id` is its layout id too
+ * (`layoutEquipmentRowId('ena', ...)`).
+ */
+export interface DemoLayoutSettings extends Omit<
+  SiteLayoutSettings,
+  'transformers' | 'energyAssets'
+> {
+  transformers: DemoTransformer[];
+  energyAssets?: DemoEnergyAsset[];
+}
+
+/**
+ * The power equipment rows a demo plan writes (service transformers, then the
+ * step-down units, at the default power factor and loading limit; energy
+ * assets), as the layout reads them (`readLayoutPowerEquipment`).
+ */
+export function demoPowerEquipment(
+  siteId: string,
+  s: DemoLayoutSettings,
+  stepDowns: readonly DemoStepDown[] = [],
+): LayoutPowerEquipment {
+  return {
+    transformers: [
+      ...s.transformers.map((t) => ({
+        id: layoutEquipmentRowId('tfm', siteId, t.id),
+        kind: 'service' as const,
+        name: t.name,
+        ratedKva: t.ratedKva,
+        maxContinuousKw: computeTransformerCapacityKw(t.ratedKva, 0.95, 100),
+      })),
+      ...stepDowns.map((t) => ({
+        id: t.id,
+        kind: 'step_down' as const,
+        name: t.name,
+        ratedKva: t.ratedKva,
+        maxContinuousKw: computeTransformerCapacityKw(t.ratedKva, 0.95, 100),
+      })),
+    ],
+    energyAssets: (s.energyAssets ?? []).map((a) => ({
+      id: layoutEquipmentRowId('ena', siteId, a.id),
+      type: a.type,
+      name: a.name,
+      capacityKwh: a.type === 'battery' ? a.capacityKwh : null,
+      peakKwp: a.type === 'solar' ? a.capacityKwp : null,
+    })),
+  };
+}
+
+/**
+ * The layout settings a demo plan stores: each transformer and energy asset
+ * by the id of its row with its position (a battery `x`, `z`; a canopy `row`,
+ * and `x`, `z`, `rotationDeg` when it stands freely), the form the v0.1.50
+ * migration wrote over the settings an earlier plan stored.
+ */
+export function demoLayoutPositions(siteId: string, s: DemoLayoutSettings): SiteLayoutSettings {
+  return {
+    ...s,
+    transformers: s.transformers.map((t) => ({
+      id: layoutEquipmentRowId('tfm', siteId, t.id),
+      x: t.x,
+      z: t.z,
+    })),
+    ...(s.energyAssets != null
+      ? {
+          energyAssets: s.energyAssets.map((a) => {
+            const id = layoutEquipmentRowId('ena', siteId, a.id);
+            if (a.type === 'battery') return { id, x: a.x, z: a.z };
+            return {
+              id,
+              row: a.row,
+              ...(a.x != null ? { x: a.x } : {}),
+              ...(a.z != null ? { z: a.z } : {}),
+              ...(a.rotationDeg != null ? { rotationDeg: a.rotationDeg } : {}),
+            };
+          }),
+        }
+      : {}),
+  };
+}
 
 export interface LayoutDemoStation {
   id: string;
@@ -125,7 +286,7 @@ export interface LayoutDemoSite {
   city: string;
   latitude: string;
   longitude: string;
-  settings: SiteLayoutSettings;
+  settings: DemoLayoutSettings;
   panels: LayoutDemoPanel[];
   stations: LayoutDemoStation[];
 }
@@ -225,9 +386,60 @@ export interface LayoutDemoTerminal {
 // on a 2-pole 208 V circuit, the phase pairs rotated for balance. Where a
 // 208Y/120 V panelboard hangs under a 480 V switchboard (Patroon Creek, Willow
 // Creek), a real site feeds it through a 480 to 208Y/120 V step-down
-// transformer. The load management model has no transformer node (panels and
-// circuits only), so the panelboard hangs directly under the switchboard and
-// the layout draws no step-down transformer.
+// transformer: one dry-type unit per panelboard, fed from a switchboard
+// breaker and linked to the panelboard (`panels.transformer_id`,
+// `demoStepDowns`), drawn next to it on the layout. Every service transformer
+// feeds its group's switchboard (`DemoTransformer.feeds`).
+//
+// Transformer sizing: the connected load is apparent power (a charger's input
+// V x A, times sqrt(3) for three-phase, already kVA), compared directly with
+// the nameplate kVA with no demand factor and no second divide by a power
+// factor. SDG&E EV Charging Station Standards 2023 (Rev C, 07/21/2022),
+// EV-3.10, sheet EV3.11: "There is no applicable demand factor to use on EVSE
+// loads" and "For EVSE power factor is typically very close to 1 (>0.95). In
+// this case kW and kVA are almost interchangeable",
+// https://www.sdge.com/sites/default/files/EVSE2023v0120e%20%281%29.pdf.
+// Load management turns the kVA into kW at the 0.95 default power factor.
+
+/**
+ * The largest 208 V overcurrent device each dry-type step-down rating takes,
+ * A: SDG&E EV Charging Station Standards 2023, Table EV-11.10 (sheet
+ * EV11.10): 75 kVA 250 A, 112.5 kVA 400 A, 150 kVA 500 A, 225 kVA 800 A,
+ * 300 kVA 1000 A, 500 kVA 1600 A (the kVA list is `STEP_DOWN_TRANSFORMER_KVA`).
+ */
+export const STEP_DOWN_MAX_OCPD_AMPS: Readonly<
+  Record<(typeof STEP_DOWN_TRANSFORMER_KVA)[number], number>
+> = { 75: 250, 112.5: 400, 150: 500, 225: 800, 300: 1000, 500: 1600 };
+
+/**
+ * The step-down transformer of a 208Y/120 V panelboard: the smallest Table
+ * EV-11.10 rating whose kVA is at least the panelboard's connected kVA and
+ * whose largest 208 V overcurrent device is at least the panelboard's main
+ * (a 225 A panelboard takes at least 75 kVA, a 400 A one 112.5 kVA). Throws
+ * past 500 kVA.
+ */
+export function stepDownTransformerKva(loadKva: number, mainAmps: number): number {
+  const found = STEP_DOWN_TRANSFORMER_KVA.find(
+    (k) => k >= loadKva - 1e-9 && STEP_DOWN_MAX_OCPD_AMPS[k] >= mainAmps,
+  );
+  if (found == null) {
+    throw new Error(
+      `No step-down rating for ${String(loadKva)} kVA and a ${String(mainAmps)} A main`,
+    );
+  }
+  return found;
+}
+
+/**
+ * The service transformer of a group: the smallest IEEE C57.12.34 three-phase
+ * pad-mount rating (`PAD_MOUNT_TRANSFORMER_KVA`) of at least the group's
+ * connected kVA (SDG&E EV-3.10). Throws past the list.
+ */
+export function serviceTransformerKva(loadKva: number): number {
+  const found = PAD_MOUNT_TRANSFORMER_KVA.find((k) => k >= loadKva - 1e-9);
+  if (found == null) throw new Error(`No pad-mount rating for ${String(loadKva)} kVA`);
+  return found;
+}
 
 /** Standard ampere ratings of breakers (NEC 2023, 240.6(A)), up to 6000 A. */
 const STANDARD_BREAKER_AMPS = [
@@ -249,7 +461,8 @@ export function evseBreakerAmps(loadAmps: number): number {
  * datasheet), over sqrt(3) x 480 V. For the Terra 184 itself the datasheet
  * gives 230 A and a 300 A breaker (`TERRA_184_INPUT_AMPS`), which this matches.
  * Only for models without a datasheet input value: a model with one uses it
- * (`TERRA_184_INPUT_AMPS`, `KEMPOWER_C502P200_INPUT_AMPS`).
+ * (`TERRA_184_INPUT_AMPS`, `KEMPOWER_C502P200_INPUT_AMPS`,
+ * `HVC_450PD_INPUT_AMPS`, `HVC_C_150_INPUT_AMPS`).
  */
 export function dcInputAmps(kw: number): number {
   return (kw * 1000) / (0.96 * 0.96 * Math.sqrt(3) * 480);
@@ -268,6 +481,22 @@ export const TERRA_184_INPUT_AMPS = 230;
  */
 export const KEMPOWER_C502P200_INPUT_AMPS = 278;
 export const KEMPOWER_C502P200_FUSE_AMPS = 400;
+/**
+ * ABB HVC 450PD depot charging cabinet (the pantograph poles): 510 kVA input,
+ * so 510,000 / (sqrt(3) x 480 V) = 613.4 A at 480 V three-phase (derived).
+ * New Flyer Charger Catalog 2023, pp. 2 and 9,
+ * https://www.newflyer.com/site-content/uploads/2023/01/Charger-Catalog-2023.pdf
+ * (research 2026-11-03). Its breaker: 125 percent is 767 A, so 800 A.
+ */
+export const HVC_450PD_INPUT_KVA = 510;
+export const HVC_450PD_INPUT_AMPS = (HVC_450PD_INPUT_KVA * 1000) / (Math.sqrt(3) * 480);
+/**
+ * ABB HVC-C 150 plug-in charging cabinet: 170 kVA input, so 204.5 A at 480 V
+ * three-phase (derived; same catalog, p. 9). Its breaker: 125 percent is
+ * 255.6 A, so 300 A (the 250 A of the 150 kW estimate is too small).
+ */
+export const HVC_C_150_INPUT_KVA = 170;
+export const HVC_C_150_INPUT_AMPS = (HVC_C_150_INPUT_KVA * 1000) / (Math.sqrt(3) * 480);
 /** ABB Terra 184 (NA): the 300 A breaker of its product leaflet. */
 export const TERRA_184_BREAKER_AMPS = 300;
 /** A Level 2 charger's continuous current in the demo (32 A at 208 V). */
@@ -365,24 +594,43 @@ function acCircuit(
   };
 }
 
+/**
+ * The step-down transformers of a demo site: one for each 208Y/120 V
+ * panelboard under a 480Y/277 V switchboard, sized by
+ * `stepDownTransformerKva` from the panelboard's connected kVA (each Level 2
+ * circuit 208 V x 32 A = 6.66 kVA, a dual-port pedestal's one shared
+ * circuit counted once) and its main. Ids are fixed per panelboard
+ * (`layoutEquipmentRowId('tfm', site, 'sd-<panel id>')`), so a rerun finds them.
+ */
+export function demoStepDowns(site: Pick<LayoutDemoSite, 'id' | 'panels'>): DemoStepDown[] {
+  const byId = new Map(site.panels.map((p) => [p.id, p]));
+  return site.panels.flatMap((p) => {
+    const parent = p.parentPanelId != null ? byId.get(p.parentPanelId) : undefined;
+    if (parent == null || p.voltageV !== V208 || parent.voltageV !== V480) return [];
+    const loadKva = round2((p.circuits.length * 208 * LEVEL_2_AMPS) / 1000);
+    return [
+      {
+        id: layoutEquipmentRowId('tfm', site.id, `sd-${p.id}`),
+        name: `Step-Down Transformer ${p.name.replace(/^Panelboard /, '')}`,
+        ratedKva: stepDownTransformerKva(loadKva, p.breakerRatingAmps),
+        fedFromPanelId: parent.id,
+        panelId: p.id,
+      },
+    ];
+  });
+}
+
 const acCircuits = (
   stations: readonly number[],
   reused: Record<number, LayoutDemoCircuit['renamedFrom']> = {},
 ) => stations.map((n, i) => acCircuit(n, i, reused[n]));
 
 /**
- * Northgate Fleet Depot's layout. The bus group (3 x 450 kW + 2 x 150 kW, about
- * 1.8 MVA of input) on a 2500 kVA transformer, the truck group (2 x 1 MW +
- * 240 kW, about 2.4 MVA) on a 3750 kVA one. Both are ratings of the
- * three-phase pad-mounted kVA list of IEEE C57.12.34 (45, 75, 112.5, 150, 225,
- * 300, 500, 750, 1000, 1500, 2000, 2500, 3000, 3750, 5000 to 10,000 kVA), read
- * in Eaton Consulting Application Guide, Section 17 Pad-Mounted Transformers
- * (April 2016), page 17.0-2, "Nominal impedance per IEEE C57.12.34",
- * https://content.voltimum.com/tr/39129/section_17_-_pad-mounted_transformers_.pdf.
- * 2500 kVA would carry the truck group at about 96 percent; 3750 kVA leaves
- * margin.
+ * Northgate Fleet Depot's layout with its equipment out on the grass, as an
+ * earlier plan seeded it (2500 kVA bus and 3750 kVA truck transformers; the
+ * current ratings are in `DEPOT_SETTINGS`).
  */
-const DEPOT_SETTINGS_FAR_EQUIPMENT: SiteLayoutSettings = {
+const DEPOT_SETTINGS_FAR_EQUIPMENT: DemoLayoutSettings = {
   siteType: 'depot',
   spotsPerRow: 8,
   rows: 1,
@@ -414,11 +662,56 @@ const DEPOT_SETTINGS_FAR_EQUIPMENT: SiteLayoutSettings = {
  * end, x 61.5), so the circuits run along the lane ends and islands, never
  * around the drive lane.
  */
-const DEPOT_SETTINGS: SiteLayoutSettings = {
+//
+// The 5000 kVA of the depot's earlier single substation as two standard
+// pad-mount units, one per charger group and switchboard: a single 5000 kVA
+// unit at 480Y/277 V would carry 5,000,000 / (sqrt(3) x 480) = 6014 A, past
+// a 4000 A switchboard, and the SMU three-phase pad-mount specification (Dec
+// 2021, 1.1 and 2.1, citing IEEE C57.12.34) lists 45 to 3750 kVA for
+// secondaries of 700 V or less. Ratings `serviceTransformerKva` of each
+// group's connected kVA (SDG&E EV-3.10):
+//   - Bus: 3 ABB HVC 450PD pantograph cabinets of 510 kVA input and 2 HVC-C
+//     150 plug-in cabinets of 170 kVA (New Flyer Charger Catalog 2023, pp. 2
+//     and 9, https://www.newflyer.com/site-content/uploads/2023/01/Charger-Catalog-2023.pdf):
+//     3 x 510 + 2 x 170 = 1870 kVA, 2000 kVA (94 percent of nameplate). The
+//     circuits carry the same inputs (`HVC_450PD_INPUT_AMPS`,
+//     `HVC_C_150_INPUT_AMPS`).
+//   - Truck: 2 x 1000 kW megawatt cabinets and a 240 kW one, no datasheet
+//     input, so output over 0.96 efficiency and 0.96 power factor (derived):
+//     2 x 1085.1 + 260.4 = 2431 kVA. 2500 kVA would run at 97 percent; 3000
+//     kVA (81 percent) keeps headroom.
+//
+// Battery: 2000 kWh at 0.5C, 1000 kW discharge and charge, the 2-hour class
+// of the Tesla Megapack 2 XL datasheet (Rev 1.5.1, 2023-02-10, Power and
+// Energy table: 2-hour 1927 kW / 3854 kWh), its inverter at the datasheet's
+// 1.25 kVA per kW (2400 kVA for 1927 kW): 1250 kW, taken as the AC nameplate
+// at unity power factor (derived). Its simulated readings use the depot
+// dispatch and the one generic efficiency and state of charge window of
+// @evtivity/lib energy-asset-simulation (no per-asset value). Supply-side at the bus
+// transformer (NEC 2023 705.11): the 1250 kW inverter is 1504 A at 480 V, and
+// 125 percent of it (1879 A) is past the 800 A a 4000 A bus takes load-side
+// under the 120 percent rule of 705.12(B)(3)(2) (derived).
+const DEPOT_SETTINGS: DemoLayoutSettings = {
   ...DEPOT_SETTINGS_FAR_EQUIPMENT,
   transformers: [
-    { id: 'tx-1', name: 'Bus Charging Transformer', ratedKva: 2500, x: 0, z: -6.1 },
-    { id: 'tx-2', name: 'Truck Charging Transformer', ratedKva: 3750, x: 68, z: -10.1 },
+    {
+      id: 'tx-1',
+      name: 'Bus Charging Transformer',
+      ratedKva: 2000,
+      x: 0,
+      z: -6.1,
+      feeds: 'pnl_demolayout08',
+      ratedKvaBefore: [2500],
+    },
+    {
+      id: 'tx-2',
+      name: 'Truck Charging Transformer',
+      ratedKva: 3000,
+      x: 68,
+      z: -10.1,
+      feeds: 'pnl_demolayout09',
+      ratedKvaBefore: [3750],
+    },
   ],
   energyAssets: [
     {
@@ -428,6 +721,13 @@ const DEPOT_SETTINGS: SiteLayoutSettings = {
       capacityKwh: 2000,
       x: 5.5,
       z: -6.1,
+      electrical: {
+        inverterKw: 1250,
+        maxDischargeKw: 1000,
+        maxChargeKw: 1000,
+        connection: { transformer: 'tx-1' },
+        telemetry: 'simulated',
+      },
     },
   ],
 };
@@ -435,7 +735,7 @@ const DEPOT_SETTINGS: SiteLayoutSettings = {
 const HARBOR = 'sit_demolayout01';
 
 /** Harbor Point's layout before the solar carport moved to the front edge row (over the middle row). */
-const HARBOR_SETTINGS_MIDDLE_CARPORT: SiteLayoutSettings = {
+const HARBOR_SETTINGS_MIDDLE_CARPORT: DemoLayoutSettings = {
   siteType: 'parking_lot',
   spotsPerRow: 6,
   rows: 3,
@@ -451,12 +751,12 @@ const HARBOR_SETTINGS_MIDDLE_CARPORT: SiteLayoutSettings = {
   ],
 };
 
-/** Willow Creek's layout with its solar carport at `canopyZ`. */
+/** Willow Creek's layout with its solar carport at `canopyZ`, as earlier plans seeded it (1000 kVA, 10 kWp). */
 const willowSettings = (
   canopyZ: number,
   battery: { x: number; z: number } = { x: 30, z: -24 },
   transformer: { x: number; z: number } = { x: -30, z: -26 },
-): SiteLayoutSettings => ({
+): DemoLayoutSettings => ({
   siteType: 'custom',
   spotsPerRow: 10,
   rows: 2,
@@ -479,6 +779,62 @@ const willowSettings = (
     },
   ],
 });
+
+/**
+ * Willow Creek's power equipment as the current plan rates and wires it:
+ *   - Transformer 750 kVA, `serviceTransformerKva` of the connected load: 3
+ *     ABB Terra 184 at sqrt(3) x 480 V x 230 A = 191.2 kVA each and 5 Level 2
+ *     pedestals at 208 V x 32 A = 6.66 kVA each, 573.6 + 33.3 = 607 kVA (81
+ *     percent of 750; 1000 kVA before). It feeds the main switchboard.
+ *   - Battery 500 kWh at 0.5C, 250 kW, inverter 1.25 kVA per kW (Tesla
+ *     Megapack 2 XL datasheet Rev 1.5.1, 2-hour) = 313 kW (derived). Supply-side
+ *     at the transformer (NEC 2023 705.11): the 313 kW inverter is 376 A at
+ *     480 V and 125 percent of it (471 A) is past the 240 A a 1200 A bus takes
+ *     load-side under the 120 percent rule of 705.12(B)(3)(2) (derived).
+ *   - Solar canopy over 3 stalls at 2.93 kWp a stall (the mean of the Six
+ *     Flags Magic Mountain 2.87, MSU 2.70 and Disneyland Paris 3.22 kWp a
+ *     space carports, derived): 8.8, so 9 kWp (10 before), with a 7.5 kW
+ *     inverter at the 1.2 DC to AC ratio of the PVWatts API v8 default and LBNL
+ *     Tracking the Sun 2024 (1.23 to 1.25), derived 9 / 1.2. Load-side on the
+ *     main switchboard (7.5 kW is 9 A at 480 V). Telemetry `api` with an old
+ *     reading, so the demo shows a stale feed: no credit, no load.
+ */
+function willowCurrent(base: DemoLayoutSettings): DemoLayoutSettings {
+  return {
+    ...base,
+    transformers: base.transformers.map((t) => ({
+      ...t,
+      ratedKva: 750,
+      feeds: 'pnl_demolayout07',
+      ratedKvaBefore: [1000],
+    })),
+    energyAssets: (base.energyAssets ?? []).map((a) =>
+      a.type === 'battery'
+        ? {
+            ...a,
+            electrical: {
+              inverterKw: 313,
+              maxDischargeKw: 250,
+              maxChargeKw: 250,
+              connection: { transformer: 'tx-1' },
+              telemetry: 'simulated' as const,
+            },
+          }
+        : {
+            ...a,
+            capacityKwp: 9,
+            electrical: {
+              inverterKw: 7.5,
+              connection: { panel: 'pnl_demolayout07' },
+              telemetry: 'api' as const,
+              staleReadingMinutes: 15,
+              staleReadingKw: 6,
+              ratingBefore: [10],
+            },
+          },
+    ),
+  };
+}
 /**
  * The transformer stands beside the DC group it feeds (the three DC
  * dispensers at the west end), and the battery on the same equipment pad
@@ -487,10 +843,12 @@ const willowSettings = (
  * next to the group it feeds).
  */
 const WILLOW_TRANSFORMER = { x: -26.5, z: -21 };
-const WILLOW_SETTINGS = willowSettings(-23, { x: -26.5, z: -25.5 }, WILLOW_TRANSFORMER);
+const WILLOW_SETTINGS = willowCurrent(
+  willowSettings(-23, { x: -26.5, z: -25.5 }, WILLOW_TRANSFORMER),
+);
 
 /** Harbor Point's layout with its equipment 14 m out on the grass, before the pad moved to the lot edge. */
-const HARBOR_SETTINGS_FAR_EQUIPMENT: SiteLayoutSettings = {
+const HARBOR_SETTINGS_FAR_EQUIPMENT: DemoLayoutSettings = {
   ...HARBOR_SETTINGS_MIDDLE_CARPORT,
   energyAssets: [
     { id: 'bat-1', type: 'battery', name: 'Battery Storage', capacityKwh: 1000, x: 25, z: 4 },
@@ -507,7 +865,7 @@ const HARBOR_SETTINGS_FAR_EQUIPMENT: SiteLayoutSettings = {
  * in line beyond it (`placePanels`); the solar carport tie-in transformer and
  * the battery in front of the carport's column line, clear of the cable lanes.
  */
-const HARBOR_SETTINGS: SiteLayoutSettings = {
+const HARBOR_SETTINGS_TIE_IN: DemoLayoutSettings = {
   ...HARBOR_SETTINGS_MIDDLE_CARPORT,
   transformers: [
     { id: 'tx-1', name: 'Utility Transformer', ratedKva: 2500, x: -2.5, z: 2.5 },
@@ -516,6 +874,72 @@ const HARBOR_SETTINGS: SiteLayoutSettings = {
   energyAssets: [
     { id: 'bat-1', type: 'battery', name: 'Battery Storage', capacityKwh: 1000, x: -7.5, z: -3.5 },
     { id: 'pv-1', type: 'solar', name: 'Solar Carport', capacityKwp: 180, row: 0 },
+  ],
+};
+/**
+ * Harbor Point's power equipment as the current plan rates and wires it:
+ *   - Utility transformer 2500 kVA, `serviceTransformerKva` of 11 ABB Terra
+ *     184 at sqrt(3) x 480 V x 230 A = 191.2 kVA each, 2103 kVA (84 percent).
+ *     It feeds the main switchboard. The earlier 750 kVA "Solar Carport
+ *     Tie-In" is gone: about 40 times the canopy's inverter, and a 480 V
+ *     three-phase inverter connects without one (research note, no source).
+ *   - Battery 1000 kWh at 0.5C, 500 kW (the 2-hour class of the Sungrow
+ *     ST255CS-2H, 125 kW / 257 kWh, and of the Tesla Megapack 2 XL), inverter
+ *     1.25 kVA per kW (Megapack 2 XL datasheet Rev 1.5.1) = 625 kW (derived).
+ *     Supply-side at the transformer (NEC 2023 705.11): the 625 kW inverter
+ *     is 752 A at 480 V, and 125 percent of it (940 A) is past the 800 A a
+ *     4000 A bus with a 4000 A main takes load-side under the 120 percent
+ *     rule of 705.12(B)(3)(2) (derived).
+ *   - Solar canopy over the 6 stalls of the front row at 2.93 kWp a stall (the
+ *     mean of the Six Flags Magic Mountain 2.87, MSU 2.70 (13,490 kWp,
+ *     Inovateus, over 5,000 spaces, MSU Today, March 2018) and Disneyland Paris
+ *     3.22 kWp a space carports, derived): 17.6, so 18 kWp (180 before, 30 kWp
+ *     a stall), with a 15 kW inverter at a 1.2 DC to AC ratio (PVWatts API v8
+ *     default; LBNL Tracking the Sun 2024, 1.23 to 1.25), derived 18 / 1.2.
+ *     Load-side on the main switchboard: 15 kW is 18 A at 480 V, 23 A at 125
+ *     percent, within the 800 A (derived).
+ */
+const HARBOR_SETTINGS: DemoLayoutSettings = {
+  ...HARBOR_SETTINGS_MIDDLE_CARPORT,
+  transformers: [
+    {
+      id: 'tx-1',
+      name: 'Utility Transformer',
+      ratedKva: 2500,
+      x: -2.5,
+      z: 2.5,
+      feeds: 'pnl_demolayout01',
+    },
+  ],
+  energyAssets: [
+    {
+      id: 'bat-1',
+      type: 'battery',
+      name: 'Battery Storage',
+      capacityKwh: 1000,
+      x: -7.5,
+      z: -3.5,
+      electrical: {
+        inverterKw: 625,
+        maxDischargeKw: 500,
+        maxChargeKw: 500,
+        connection: { transformer: 'tx-1' },
+        telemetry: 'simulated',
+      },
+    },
+    {
+      id: 'pv-1',
+      type: 'solar',
+      name: 'Solar Carport',
+      capacityKwp: 18,
+      row: 0,
+      electrical: {
+        inverterKw: 15,
+        connection: { panel: 'pnl_demolayout01' },
+        telemetry: 'simulated',
+        ratingBefore: [180],
+      },
+    },
   ],
 };
 const LAKESIDE = 'sit_demolayout02';
@@ -535,17 +959,29 @@ const PATROON = 'sit_demolayout07';
  * "two stations back to back centered on four spaces"), in the slots the
  * placement gives them after the DC group (`freeSlotsFor`).
  */
-const PATROON_SETTINGS: SiteLayoutSettings = {
+const PATROON_SETTINGS: DemoLayoutSettings = {
   siteType: 'parking_lot',
   spotsPerRow: 8,
   rows: 4,
   facingDeg: 0,
   chargerPlacement: 'islands',
-  transformers: [{ id: 'tx-1', name: 'Utility Transformer', ratedKva: 1000, x: -2.5, z: 2.5 }],
+  // 1000 kVA, `serviceTransformerKva` of 4 ABB Terra 184 at 191.2 kVA and 8
+  // dual-port Level 2 pedestals at 208 V x 32 A = 6.66 kVA: 764.8 + 53.3 =
+  // 818 kVA (82 percent). It feeds the main switchboard.
+  transformers: [
+    {
+      id: 'tx-1',
+      name: 'Utility Transformer',
+      ratedKva: 1000,
+      x: -2.5,
+      z: 2.5,
+      feeds: 'pnl_demolayout15',
+    },
+  ],
   energyAssets: [],
 };
 /** Patroon Creek's layout before its transformer moved to the lot edge (5 m out). */
-const PATROON_SETTINGS_FAR_TRANSFORMER: SiteLayoutSettings = {
+const PATROON_SETTINGS_FAR_TRANSFORMER: DemoLayoutSettings = {
   ...PATROON_SETTINGS,
   transformers: [{ id: 'tx-1', name: 'Utility Transformer', ratedKva: 1000, x: -5, z: 2.5 }],
 };
@@ -611,8 +1047,79 @@ export interface LayoutDemoFleetDriver {
     licensePlate: string;
     bodyType: VehicleBodyType;
     color: VehicleColor;
+    /** Usable battery size in kWh. */
+    batteryCapacityKwh: number;
+    /** The most power the vehicle accepts, in kW. */
+    maxChargePowerKw: number;
   };
+  /** The vehicle's weekly departure from the depot (local time of the site). */
+  departure: LayoutDemoDeparture;
 }
+
+/** A weekly departure of a depot vehicle: days, time, energy for the route and priority. */
+export interface LayoutDemoDeparture {
+  /** ISO days, 1 (Monday) to 7 (Sunday). */
+  daysOfWeek: number[];
+  /** HH:MM, local time of the depot. */
+  departureTime: string;
+  targetEnergyKwh: number;
+  /** The targets earlier plans seeded: a rerun moves a schedule still at one of these to `targetEnergyKwh`. */
+  targetEnergyKwhBefore?: readonly number[];
+  /** 1 lowest to 10 highest. */
+  priority: number;
+}
+
+/**
+ * Battery size and accepted power of each depot body type, typical of the
+ * demo models. Bus: 550 kWh, a New Flyer Xcelsior CHARGE NG 40 ft option
+ * (440, 550 or 660 kWh; specs page, https://www.newflyer.com/bus/xcelsior-charge-ng/specs/),
+ * charging up to 450 kW through its roof pantograph (SAE J3105-A, New Flyer
+ * brochure 2023, p. 2). 525 kWh before, no product option.
+ */
+export const DEPOT_BODY_TYPE_BATTERY: Readonly<
+  Partial<Record<VehicleBodyType, { batteryCapacityKwh: number; maxChargePowerKw: number }>>
+> = {
+  bus: { batteryCapacityKwh: 550, maxChargePowerKw: 450 },
+  semi_truck: { batteryCapacityKwh: 565, maxChargePowerKw: 750 },
+  box_truck: { batteryCapacityKwh: 291, maxChargePowerKw: 180 },
+};
+
+/** Battery sizes earlier demo plans seeded, by body type: a rerun moves a vehicle still at one of these. */
+export const DEPOT_BODY_TYPE_BATTERY_BEFORE: Readonly<Partial<Record<VehicleBodyType, number[]>>> =
+  {
+    bus: [525],
+  };
+
+const WEEKDAYS = [1, 2, 3, 4, 5];
+/**
+ * A bus's energy for its day, kWh: 180, inside what evaluated US transit
+ * fleets use a day: Foothill Transit 1.90 kWh/mi over 3022 mi a month, about
+ * 99 mi and 189 kWh a day (NREL/TP-5400-80022, June 2021, Table ES-2, p. viii,
+ * daily figures derived); King County Metro 2.36 kWh/mi, 76 mi, 179 kWh (FTA
+ * Report 0118, Feb 2018, Table ES-1); Duluth 85 kWh (NREL/TP-5400-83038, Sep
+ * 2022, Table ES-1, p. v). 330 kWh before (about 174 mi at 1.9 kWh/mi, past
+ * every evaluated fleet, derived).
+ */
+const EARLY_BUS: LayoutDemoDeparture = {
+  daysOfWeek: WEEKDAYS,
+  departureTime: '05:30',
+  targetEnergyKwh: 180,
+  targetEnergyKwhBefore: [330],
+  priority: 6,
+};
+const LATE_BUS: LayoutDemoDeparture = { ...EARLY_BUS, departureTime: '06:15' };
+const SEMI: LayoutDemoDeparture = {
+  daysOfWeek: WEEKDAYS,
+  departureTime: '04:00',
+  targetEnergyKwh: 420,
+  priority: 5,
+};
+const BOX_TRUCK: LayoutDemoDeparture = {
+  daysOfWeek: WEEKDAYS,
+  departureTime: '07:00',
+  targetEnergyKwh: 200,
+  priority: 4,
+};
 
 /** The fleet of the depot: its drivers charge only at the depot's stations (fleet_stations). */
 export interface LayoutDemoFleet {
@@ -620,6 +1127,8 @@ export interface LayoutDemoFleet {
   name: string;
   description: string;
   siteId: string;
+  /** The load management strategy of the depot: the planner charges each vehicle for its departure. */
+  loadStrategy: LoadAllocationStrategy;
   drivers: LayoutDemoFleetDriver[];
 }
 
@@ -627,18 +1136,31 @@ const depotDriver = (
   n: number,
   firstName: string,
   lastName: string,
-  vehicle: Omit<LayoutDemoFleetDriver['vehicle'], 'id' | 'licensePlate'>,
+  vehicle: Omit<
+    LayoutDemoFleetDriver['vehicle'],
+    'id' | 'licensePlate' | 'batteryCapacityKwh' | 'maxChargePowerKw'
+  > &
+    Partial<Pick<LayoutDemoFleetDriver['vehicle'], 'maxChargePowerKw'>>,
+  departure: LayoutDemoDeparture,
 ): LayoutDemoFleetDriver => {
   const nn = String(n).padStart(2, '0');
   // Ids keep 12 characters after the prefix, the format the detail routes accept.
   const nnn = String(n).padStart(3, '0');
+  const battery = DEPOT_BODY_TYPE_BATTERY[vehicle.bodyType];
+  if (battery == null) throw new Error(`No depot battery data for ${vehicle.bodyType}`);
   return {
     id: `drv_demodepot${nnn}`,
     firstName,
     lastName,
     email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@northgate-fleet.example`,
     idToken: `RFID-DEPOT-${nn}`,
-    vehicle: { id: `veh_demodepot${nnn}`, licensePlate: `NGF-${String(100 + n)}`, ...vehicle },
+    vehicle: {
+      id: `veh_demodepot${nnn}`,
+      licensePlate: `NGF-${String(100 + n)}`,
+      ...battery,
+      ...vehicle,
+    },
+    departure,
   };
 };
 
@@ -1005,7 +1527,8 @@ export const LAYOUT_DEMO: {
       settings: DEPOT_SETTINGS,
       // DC only. Each charger group's transformer feeds its own 480Y/277 V
       // switchboard (bus and truck), each power cabinet on its own
-      // breaker: 450 kW pantograph cabinets on 800 A, 150 kW plug-in on 250 A,
+      // breaker, sized from the cabinet input of its datasheet (HVC 450PD
+      // 613 A on 800 A, HVC-C 150 204.5 A on 300 A; 250 A before),
       // 1 MW megawatt cabinets on 2000 A, the 240 kW box truck cabinet on 400 A.
       panels: [
         panelOf(
@@ -1015,15 +1538,19 @@ export const LAYOUT_DEMO: {
           4000,
           V480,
           [
-            dcCircuit(42, dcInputAmps(450), [
+            dcCircuit(42, HVC_450PD_INPUT_AMPS, [
               { name: 'Bus Pantograph Circuit', panelId: 'pnl_demolayout08', amps: 2000 },
             ]),
-            dcCircuit(43, dcInputAmps(450)),
-            dcCircuit(44, dcInputAmps(450)),
-            dcCircuit(45, dcInputAmps(150), [
+            dcCircuit(43, HVC_450PD_INPUT_AMPS),
+            dcCircuit(44, HVC_450PD_INPUT_AMPS),
+            // The plug-in cabinets were seeded on 250 A from the 150 kW estimate.
+            dcCircuit(45, HVC_C_150_INPUT_AMPS, [
               { name: 'Bus Plug-In Circuit', panelId: 'pnl_demolayout08', amps: 800 },
+              { name: 'Charger CS-3045', panelId: 'pnl_demolayout08', amps: 250 },
             ]),
-            dcCircuit(46, dcInputAmps(150)),
+            dcCircuit(46, HVC_C_150_INPUT_AMPS, [
+              { name: 'Charger CS-3046', panelId: 'pnl_demolayout08', amps: 250 },
+            ]),
           ],
           [{ name: 'Depot Main Switchboard', amps: 4000 }],
         ),
@@ -1172,91 +1699,170 @@ export const LAYOUT_DEMO: {
     name: 'Northgate Transit and Freight',
     description: 'Transit buses, semi trucks and box trucks charging at Northgate Fleet Depot',
     siteId: DEPOT,
+    loadStrategy: 'departure_aware',
     drivers: [
-      depotDriver(1, 'Daniel', 'Reyes', {
-        make: 'New Flyer',
-        model: 'Xcelsior CHARGE NG',
-        year: '2025',
-        bodyType: 'bus',
-        color: 'white',
-      }),
-      depotDriver(2, 'Grace', 'Okafor', {
-        make: 'New Flyer',
-        model: 'Xcelsior CHARGE NG',
-        year: '2025',
-        bodyType: 'bus',
-        color: 'blue',
-      }),
-      depotDriver(3, 'Hector', 'Alvarez', {
-        make: 'Gillig',
-        model: 'Low Floor Battery Electric',
-        year: '2024',
-        bodyType: 'bus',
-        color: 'green',
-      }),
-      depotDriver(4, 'Priya', 'Nair', {
-        make: 'Gillig',
-        model: 'Low Floor Battery Electric',
-        year: '2024',
-        bodyType: 'bus',
-        color: 'yellow_orange',
-      }),
-      depotDriver(5, 'Samuel', 'Brooks', {
-        make: 'New Flyer',
-        model: 'Xcelsior CHARGE NG',
-        year: '2023',
-        bodyType: 'bus',
-        color: 'red',
-      }),
-      depotDriver(6, 'Lena', 'Fischer', {
-        make: 'Nova Bus',
-        model: 'LFSe+',
-        year: '2024',
-        bodyType: 'bus',
-        color: 'silver',
-      }),
-      depotDriver(7, 'Marcus', 'Hill', {
-        make: 'Freightliner',
-        model: 'eCascadia',
-        year: '2025',
-        bodyType: 'semi_truck',
-        color: 'white',
-      }),
-      depotDriver(8, 'Elena', 'Petrova', {
-        make: 'Volvo',
-        model: 'VNR Electric',
-        year: '2025',
-        bodyType: 'semi_truck',
-        color: 'blue',
-      }),
-      depotDriver(9, 'Tom', 'Becker', {
-        make: 'Freightliner',
-        model: 'eCascadia',
-        year: '2024',
-        bodyType: 'semi_truck',
-        color: 'red',
-      }),
-      depotDriver(10, 'Aisha', 'Bello', {
-        make: 'Tesla',
-        model: 'Semi',
-        year: '2025',
-        bodyType: 'semi_truck',
-        color: 'black',
-      }),
-      depotDriver(11, 'Kevin', 'Tran', {
-        make: 'Freightliner',
-        model: 'eM2',
-        year: '2024',
-        bodyType: 'box_truck',
-        color: 'white',
-      }),
-      depotDriver(12, 'Rosa', 'Medina', {
-        make: 'Freightliner',
-        model: 'eM2',
-        year: '2025',
-        bodyType: 'box_truck',
-        color: 'yellow_orange',
-      }),
+      depotDriver(
+        1,
+        'Daniel',
+        'Reyes',
+        {
+          make: 'New Flyer',
+          model: 'Xcelsior CHARGE NG',
+          year: '2025',
+          bodyType: 'bus',
+          color: 'white',
+        },
+        EARLY_BUS,
+      ),
+      depotDriver(
+        2,
+        'Grace',
+        'Okafor',
+        {
+          make: 'New Flyer',
+          model: 'Xcelsior CHARGE NG',
+          year: '2025',
+          bodyType: 'bus',
+          color: 'blue',
+        },
+        EARLY_BUS,
+      ),
+      depotDriver(
+        3,
+        'Hector',
+        'Alvarez',
+        {
+          make: 'Gillig',
+          model: 'Low Floor Battery Electric',
+          year: '2024',
+          bodyType: 'bus',
+          color: 'green',
+        },
+        EARLY_BUS,
+      ),
+      depotDriver(
+        4,
+        'Priya',
+        'Nair',
+        {
+          make: 'Gillig',
+          model: 'Low Floor Battery Electric',
+          year: '2024',
+          bodyType: 'bus',
+          color: 'yellow_orange',
+        },
+        LATE_BUS,
+      ),
+      depotDriver(
+        5,
+        'Samuel',
+        'Brooks',
+        {
+          make: 'New Flyer',
+          model: 'Xcelsior CHARGE NG',
+          year: '2023',
+          bodyType: 'bus',
+          color: 'red',
+          // An older bus that accepts 125 kW and runs the longest route, 189 kWh
+          // (the highest daily energy of the evaluated fleets, Foothill Transit,
+          // NREL/TP-5400-80022; 470 kWh before, past every fleet): the tight
+          // schedule of the demo, about 2 hours at its own maximum with the
+          // buffer, At Risk once it is not plugged in by about 04:15.
+          maxChargePowerKw: 125,
+        },
+        { ...LATE_BUS, targetEnergyKwh: 189, targetEnergyKwhBefore: [470] },
+      ),
+      depotDriver(
+        6,
+        'Lena',
+        'Fischer',
+        {
+          make: 'Nova Bus',
+          model: 'LFSe+',
+          year: '2024',
+          bodyType: 'bus',
+          color: 'silver',
+        },
+        LATE_BUS,
+      ),
+      depotDriver(
+        7,
+        'Marcus',
+        'Hill',
+        {
+          make: 'Freightliner',
+          model: 'eCascadia',
+          year: '2025',
+          bodyType: 'semi_truck',
+          color: 'white',
+        },
+        SEMI,
+      ),
+      depotDriver(
+        8,
+        'Elena',
+        'Petrova',
+        {
+          make: 'Volvo',
+          model: 'VNR Electric',
+          year: '2025',
+          bodyType: 'semi_truck',
+          color: 'blue',
+        },
+        SEMI,
+      ),
+      depotDriver(
+        9,
+        'Tom',
+        'Becker',
+        {
+          make: 'Freightliner',
+          model: 'eCascadia',
+          year: '2024',
+          bodyType: 'semi_truck',
+          color: 'red',
+        },
+        SEMI,
+      ),
+      depotDriver(
+        10,
+        'Aisha',
+        'Bello',
+        {
+          make: 'Tesla',
+          model: 'Semi',
+          year: '2025',
+          bodyType: 'semi_truck',
+          color: 'black',
+        },
+        SEMI,
+      ),
+      depotDriver(
+        11,
+        'Kevin',
+        'Tran',
+        {
+          make: 'Freightliner',
+          model: 'eM2',
+          year: '2024',
+          bodyType: 'box_truck',
+          color: 'white',
+        },
+        BOX_TRUCK,
+      ),
+      depotDriver(
+        12,
+        'Rosa',
+        'Medina',
+        {
+          make: 'Freightliner',
+          model: 'eM2',
+          year: '2025',
+          bodyType: 'box_truck',
+          color: 'yellow_orange',
+        },
+        BOX_TRUCK,
+      ),
     ],
   },
   /** The demo maintenance event of Harbor Point (one station). */
@@ -1323,7 +1929,7 @@ export const LAYOUT_DEMO: {
  * and mountings (one row of 12 spots turned 90 degrees); Northgate's the
  * custom site it was before the Depot site type.
  */
-export const LAYOUT_DEMO_PREVIOUS_SETTINGS: Readonly<Record<string, SiteLayoutSettings[]>> = {
+export const LAYOUT_DEMO_PREVIOUS_SETTINGS: Readonly<Record<string, DemoLayoutSettings[]>> = {
   [HARBOR]: [
     {
       spotsPerRow: 10,
@@ -1363,6 +1969,8 @@ export const LAYOUT_DEMO_PREVIOUS_SETTINGS: Readonly<Record<string, SiteLayoutSe
     HARBOR_SETTINGS_MIDDLE_CARPORT,
     // The equipment 14 m out on the grass, before the pad moved to the lot edge.
     HARBOR_SETTINGS_FAR_EQUIPMENT,
+    // The pad at the lot edge with the 750 kVA solar carport tie-in transformer.
+    HARBOR_SETTINGS_TIE_IN,
   ],
   // The transformer 5 m out, before it moved to the lot edge.
   [PATROON]: [PATROON_SETTINGS_FAR_TRANSFORMER],

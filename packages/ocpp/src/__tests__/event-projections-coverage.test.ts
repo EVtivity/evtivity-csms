@@ -96,6 +96,7 @@ vi.mock('postgres', () => {
 });
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
+const mockMarkSitePlanStale = vi.fn().mockResolvedValue(true);
 
 // The payment service (@evtivity/payments): the gate's hold and the
 // settlement on Ended. The mode classification stays real.
@@ -212,6 +213,8 @@ vi.mock('../authorization/station-token-match.js', () => ({
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
+  // The depot plan stale mark (tested in transaction-rerun.test.ts).
+  markSitePlanStale: (...args: unknown[]) => mockMarkSitePlanStale(...args) as unknown,
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   // The real OCPI token owner checks (one statement each), on the mocked client.
@@ -526,6 +529,13 @@ describe('Event projections - coverage expansion', () => {
         'ocpi_push',
         expect.stringContaining('site-abc'),
       );
+      // A departure-aware site plans with the station again.
+      expect(mockMarkSitePlanStale).toHaveBeenCalledWith(
+        'site-abc',
+        'station_online',
+        expect.anything(),
+        { departureAwareOnly: true },
+      );
     });
 
     it('skips OCPI push when siteId is null', async () => {
@@ -682,6 +692,12 @@ describe('Event projections - coverage expansion', () => {
       expect(mockPubSub.publish).toHaveBeenCalledWith(
         'ocpi_push',
         expect.stringContaining('site-1'),
+      );
+      expect(mockMarkSitePlanStale).toHaveBeenCalledWith(
+        'site-1',
+        'station_offline',
+        expect.anything(),
+        { departureAwareOnly: true },
       );
     });
   });
@@ -2694,6 +2710,8 @@ describe('Event projections - coverage expansion', () => {
       [], // INSERT transaction_events
       [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
       [{ driver_id: 'driver-pay' }], // SELECT driver_id
+      [], // SELECT the card's vehicle (none)
+      [{ depot_driver: false, vehicle_ids: [] }], // depot fleet driver check (not one)
       [], // SELECT vehicle_id (no previous vehicle, auto-link skipped)
       [
         {
@@ -3087,10 +3105,12 @@ describe('Event projections - coverage expansion', () => {
         [], // 4: INSERT transaction_events
         [{ is_roaming: false }], // 6: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'drv_nopay' }], // 7: SELECT driver_id
-        [], // 9: SELECT vehicle_id (auto-link)
+        [], // 8: SELECT the card's vehicle (none)
+        [{ depot_driver: false, vehicle_ids: [] }], // 9: depot fleet driver check (not one)
+        [], // 10: SELECT vehicle_id (auto-link)
       );
       // loadStationPricing: the group, its tariffs and the site timezone
-      sqlResults[8] = [
+      sqlResults[10] = [
         {
           group_id: 'pg-1',
           group_name: 'Group',
@@ -3107,11 +3127,11 @@ describe('Event projections - coverage expansion', () => {
           is_default: true,
         },
       ];
-      sqlResults[9] = []; // pricing holidays
-      sqlResults[10] = []; // UPDATE session (tariff snapshot)
-      sqlResults[11] = []; // INSERT session_tariff_segments
-      sqlResults[12] = [{ site_id: null }]; // resolveSiteId
-      sqlResults[13] = [{ name: null }]; // resolveSiteName
+      sqlResults[11] = []; // pricing holidays
+      sqlResults[12] = []; // UPDATE session (tariff snapshot)
+      sqlResults[13] = []; // INSERT session_tariff_segments
+      sqlResults[14] = [{ site_id: null }]; // resolveSiteId
+      sqlResults[15] = [{ name: null }]; // resolveSiteName
 
       // runPaymentGate: paid tariff, the service finds no payment method
 
@@ -3158,10 +3178,12 @@ describe('Event projections - coverage expansion', () => {
         [], // 4: INSERT transaction_events
         [{ is_roaming: false }], // 6: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'drv_free' }], // 7: SELECT driver_id
-        [], // 9: SELECT vehicle_id (auto-link)
+        [], // 8: SELECT the card's vehicle (none)
+        [{ depot_driver: false, vehicle_ids: [] }], // 9: depot fleet driver check (not one)
+        [], // 10: SELECT vehicle_id (auto-link)
       );
       // loadStationPricing: the group, its tariffs and the site timezone
-      sqlResults[9] = [
+      sqlResults[11] = [
         {
           group_id: 'pg-free',
           group_name: 'Group',
@@ -3178,11 +3200,11 @@ describe('Event projections - coverage expansion', () => {
           is_default: true,
         },
       ];
-      sqlResults[10] = []; // pricing holidays
-      sqlResults[11] = []; // UPDATE session (tariff snapshot)
-      sqlResults[12] = []; // INSERT session_tariff_segments
-      sqlResults[13] = [{ site_id: null }]; // resolveSiteId
-      sqlResults[14] = [{ name: null }]; // resolveSiteName
+      sqlResults[12] = []; // pricing holidays
+      sqlResults[13] = []; // UPDATE session (tariff snapshot)
+      sqlResults[14] = []; // INSERT session_tariff_segments
+      sqlResults[15] = [{ site_id: null }]; // resolveSiteId
+      sqlResults[16] = [{ name: null }]; // resolveSiteName
 
       // runPaymentGate: free from the session's tariff snapshot (no hold)
 

@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 
 /** From this many stations, the fixed parts of the station models are merged (outside Edit Layout). */
 export const MERGE_STATIONS_FROM = 60;
@@ -57,7 +57,9 @@ export function concatGeometries(parts: readonly THREE.BufferGeometry[]): THREE.
   return out;
 }
 
-export function installMerge(scn: SceneCtx): void {
+type MergeCtx = SceneSlice<'objects' | 'site' | 'track', 'mergeStations'>;
+
+export function installMerge(scn: MergeCtx): void {
   // What makes two materials draw the same: merged meshes share the first one.
   function materialKey(m: THREE.Material): string {
     // Only standard materials carry these; a basic material leaves them out.
@@ -87,8 +89,8 @@ export function installMerge(scn: SceneCtx): void {
   // Merges the fixed parts of every station model into one mesh per look,
   // so a site of 200 stations takes a few dozen draw calls instead of
   // thousands. A pulsing or blinking status light, the charging glow,
-  // the selection ring and every additive halo stay separate (they animate or
-  // change). Each station keeps an invisible box to pick it by; its group
+  // the selection ring, the charge flow tubes and every additive halo stay
+  // separate (they animate or change). Each station keeps an invisible box to pick it by; its group
   // stays where it was, so labels and the popup still follow it.
   function mergeStations(): void {
     scn.site.updateMatrixWorld(true);
@@ -111,6 +113,8 @@ export function installMerge(scn: SceneCtx): void {
         const material = o.material as THREE.Material | THREE.Material[];
         if (Array.isArray(material) || keep.has(material)) return;
         if (material.blending === THREE.AdditiveBlending || o.userData['ring'] === true) return;
+        // The charge flow tubes animate their own texture and draw over the cable.
+        if (o.userData['chargeFlow'] === true) return;
         // The rotation handle shows only in Edit Layout, where stations are not merged.
         if (o.userData['rotateHandle'] != null) return;
         const part = flatGeometry(o.geometry as THREE.BufferGeometry);

@@ -15,7 +15,10 @@ import {
   bayToWorld,
   bayTurn,
   carNoseAtStop,
+  chargerAtCurb,
   chargerBehindStallHead,
+  chargerOnIsland,
+  isSpot,
   lotOf,
   parkingRowGaps,
   spotRect,
@@ -29,7 +32,7 @@ import {
 } from '../site-layout-grid';
 import { CAR_PROFILES, type CarBodyType } from '../site-layout-car';
 
-const base = { kind: 'ac' as const, wall: false, onSpot: true, largeSpot: false, curb: true };
+const base = { kind: 'ac' as const, wall: false, onSpot: true, largeSpot: false };
 
 describe('wheel stops at AC spots', () => {
   it('puts a stop at AC pedestals and wall boxes of lot and office spots and AC car spots of a custom site', () => {
@@ -37,8 +40,6 @@ describe('wheel stops at AC spots', () => {
     expect(wheelStopMount({ ...base, siteType: 'office_retail' })).toBe('curb');
     expect(wheelStopMount({ ...base, siteType: 'office_retail', wall: true })).toBe('wall');
     expect(wheelStopMount({ ...base, siteType: 'custom', onSpot: false })).toBe('curb');
-    // A row whose head faces a drive aisle: the pedestal stays in the head of its spot.
-    expect(wheelStopMount({ ...base, siteType: 'parking_lot', curb: false })).toBe('pedestal');
   });
 
   it('puts none at DC chargers, curbs, depots, large spots or off the layout', () => {
@@ -60,7 +61,7 @@ describe('wheel stops at AC spots', () => {
     // The stop lies inside the spot, across it; the stall keeps its full 5.5 m depth.
     expect(STANDARD_DIMENSIONS.spotDepthM).toBeCloseTo(5.5);
     expect(WHEEL_STOP.lengthM).toBeLessThan(STANDARD_DIMENSIONS.spotWidthM);
-    for (const mount of ['curb', 'wall', 'pedestal'] as const) {
+    for (const mount of ['curb', 'wall'] as const) {
       expect(wheelStopNearZ(mount)).toBeGreaterThan(stallHeadZ(mount));
       expect(wheelStopNearZ(mount) + WHEEL_STOP.depthM).toBeLessThan(
         stallHeadZ(mount) + STANDARD_DIMENSIONS.spotDepthM,
@@ -81,14 +82,10 @@ describe('wheel stops at AC spots', () => {
     const dcPadAndBollards = { minX: -0.8, maxX: 0.8, minZ: -0.6, maxZ: 0.69 };
     const overlaps = (a: typeof acPad, b: typeof acPad) =>
       a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ;
-    for (const mount of ['curb', 'pedestal'] as const) {
-      expect(overlaps(stopFor(mount), acPad), mount).toBe(false);
-      expect(overlaps(stopFor(mount), dcPadAndBollards), mount).toBe(false);
-      // A clear gap between the stop and the pad (a sweeper passes; no tire on the pad).
-      expect(wheelStopNearZ(mount) - AC_PAD_FRONT_Z, mount).toBeGreaterThan(0.3);
-    }
-    // In the head of its spot: 3 ft in front of the pad (CPF50).
-    expect(wheelStopNearZ('pedestal')).toBeCloseTo(AC_PAD_FRONT_Z + 0.9);
+    expect(overlaps(stopFor('curb'), acPad)).toBe(false);
+    expect(overlaps(stopFor('curb'), dcPadAndBollards)).toBe(false);
+    // A clear gap between the stop and the pad (a sweeper passes; no tire on the pad).
+    expect(wheelStopNearZ('curb') - AC_PAD_FRONT_Z).toBeGreaterThan(0.3);
     // A wall box has no base on the ground.
     expect(wheelStopNearZ('wall')).toBeGreaterThan(stallHeadZ('wall'));
   });
@@ -96,7 +93,7 @@ describe('wheel stops at AC spots', () => {
   it('parks every car body type with its front tires at the stop and its nose clear of the charger', () => {
     for (const bodyType of Object.keys(CAR_PROFILES) as CarBodyType[]) {
       const profile = CAR_PROFILES[bodyType];
-      for (const mount of ['curb', 'wall', 'pedestal'] as const) {
+      for (const mount of ['curb', 'wall'] as const) {
         const nose = carNoseAtStop(mount, profile);
         const axle = nose + profile.frontAxle;
         // The tire meets the stop's far face at the stop's height.
@@ -135,25 +132,41 @@ describe('wheel stops at AC spots', () => {
     // An island pedestal already stands behind its curb.
     const islands = lotOf({ ...DEFAULT_LAYOUT_GRID, rows: 4 });
     expect(chargerBehindStallHead({ col: 0, row: 1 }, islands, 'ac', false)).toBe(false);
-    // An odd Islands lot: the first and last row move behind the lot edge; the
-    // row whose head faces the last drive aisle keeps its pedestal in its spot,
-    // never in the aisle.
-    for (const rows of [3, 5]) {
-      const odd = lotOf({ ...DEFAULT_LAYOUT_GRID, rows });
-      for (let row = 0; row < rows; row++) {
-        const bay = { col: 1, row };
-        const shift = stationBackShift(bay, odd, 'ac', false);
-        const z = bayToWorld(bay, odd).z + (bayTurn(bay, odd) !== 0 ? shift : -shift);
-        // The charger stands in its spot, on an island or outside the lot, never in an aisle.
-        const aisle = parkingRowGaps(odd).some(
-          (g) => g.kind === 'aisle' && z > g.minZ + 1e-6 && z < g.maxZ - 1e-6,
-        );
-        expect(aisle, `rows ${String(rows)} row ${String(row)}`).toBe(false);
-        expect(shift > 0, `rows ${String(rows)} row ${String(row)}`).toBe(
-          row === 0 || row === rows - 1,
-        );
+    // Every row of 1 to 7 row lots, both placements: the first and last row move
+    // behind the lot edge, the others stand on an island or, the next to last
+    // row of an odd lot, on the charger strip at its head. No pedestal stands in
+    // its stall or in an aisle.
+    for (const chargerPlacement of ['islands', 'lot_edge'] as const) {
+      for (let rows = 1; rows <= 7; rows++) {
+        const lot = lotOf({ ...DEFAULT_LAYOUT_GRID, rows, chargerPlacement });
+        for (let row = 0; row < rows; row++) {
+          const bay = { col: 1, row };
+          if (!isSpot(bay, lot)) continue;
+          const label = `${chargerPlacement} rows ${String(rows)} row ${String(row)}`;
+          const shift = stationBackShift(bay, lot, 'ac', false);
+          const z = bayToWorld(bay, lot).z + (bayTurn(bay, lot) !== 0 ? shift : -shift);
+          const spot = spotRect(bay, lot);
+          const back = bayTurn(bay, lot) !== 0;
+          // The pedestal center stands the setback past the stall head line.
+          expect(back ? z - spot.maxZ : spot.minZ - z, label).toBeCloseTo(
+            CHARGER_BEHIND_STALL_HEAD_M,
+          );
+          // Its pad stays out of the stall.
+          expect(back ? z - AC_PAD_FRONT_Z : z + AC_PAD_FRONT_Z, label).toSatisfy((edge: number) =>
+            back ? edge >= spot.maxZ - 1e-6 : edge <= spot.minZ + 1e-6,
+          );
+          const aisle = parkingRowGaps(lot).some(
+            (g) => g.kind === 'aisle' && z > g.minZ + 1e-6 && z < g.maxZ - 1e-6,
+          );
+          expect(aisle, label).toBe(false);
+          expect(chargerAtCurb(bay, lot, 'ac', false), label).toBe(true);
+        }
       }
     }
+    // The odd lot's strip is a curbed island between the head and the aisle.
+    const odd = lotOf({ ...DEFAULT_LAYOUT_GRID, rows: 3 });
+    expect(parkingRowGaps(odd).map((g) => g.kind)).toEqual(['aisle', 'island', 'aisle']);
+    expect(chargerOnIsland({ col: 1, row: 1 }, odd)).toBe(true);
     // Office or retail stall posts on the sidewalk, wall boxes on the facade.
     const office = lotOf({
       siteType: 'office_retail',

@@ -16,4 +16,4 @@
 
 ## Contributor License Agreement
 
-- [ ] I have read and agree to the [Contributor License Agreement](../CLA.md). I confirm that my contribution is my original work and I have the right to assign copyright to EVtivity.
+By opening this pull request you agree to the [Contributor License Agreement](../CLA.md) for this and every later contribution. First-time contributors: the CLA bot asks you to sign once by commenting `I have read the CLA Document and I hereby sign the CLA`. A pull request cannot be merged until the `cla` check passes.

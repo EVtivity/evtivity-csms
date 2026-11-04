@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { CHART_COLORS, getGridColor, escapeChartText } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 import { ChartBody, type QueryState } from './ChartBody';
 
@@ -70,6 +70,8 @@ export function LocationsByCityChart({
       yaxis: { labels: { maxWidth: 150 } },
       dataLabels: { enabled: false },
       tooltip: {
+        // Site and city names are user text; the tooltip title is HTML.
+        x: { formatter: (val: string | number) => escapeChartText(val) },
         y: {
           formatter: (val: number, opts?: { dataPointIndex?: number }) =>
             t('dashboard.cityTooltip', {

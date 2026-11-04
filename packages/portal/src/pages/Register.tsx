@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -12,18 +11,14 @@ import { CardContent, CardHeader } from '@/components/ui/card';
 import { AuthLayout } from '@/components/AuthLayout';
 import { useAuth } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
-import { api, getApiErrorCode } from '@/lib/api';
-import { executeRecaptcha } from '@/lib/recaptcha';
+import { getApiErrorCode } from '@/lib/api';
+import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
 import type { PasswordRule } from '@evtivity/lib/password-policy';
 import { AvatarField, type GeneratedAvatarChoice } from '@/components/account/AvatarEditor';
-
-interface SecurityPublic {
-  recaptchaEnabled: boolean;
-  recaptchaSiteKey: string;
-}
 
 export function Register(): React.JSX.Element {
   const { t, i18n } = useTranslation();
@@ -46,10 +41,8 @@ export function Register(): React.JSX.Element {
   // Set once the API accepted the request: the page then asks to check the inbox.
   const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
 
-  const { data: securityPublic } = useQuery({
-    queryKey: ['security-public'],
-    queryFn: () => api.get<SecurityPublic>('/v1/security/public?app=portal'),
-  });
+  const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
+    useRecaptchaToken();
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -82,10 +75,7 @@ export function Register(): React.JSX.Element {
     setError('');
     setLoading(true);
     try {
-      let recaptchaToken: string | undefined;
-      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
-        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'register');
-      }
+      const recaptchaToken = await getRecaptchaToken('register');
       await register({
         firstName,
         lastName,
@@ -246,8 +236,15 @@ export function Register(): React.JSX.Element {
             mode="deferred"
             onChoose={setAvatar}
           />
-          <Button type="submit" className="w-full" size="lg" disabled={loading}>
-            {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
+          <Button
+            type="submit"
+            className="relative w-full"
+            size="lg"
+            disabled={recaptchaConfigPending || loading}
+          >
+            <ButtonPendingLabel pending={recaptchaConfigPending}>
+              {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
+            </ButtonPendingLabel>
           </Button>
         </form>
         <p className="mt-4 text-center text-sm text-muted-foreground">

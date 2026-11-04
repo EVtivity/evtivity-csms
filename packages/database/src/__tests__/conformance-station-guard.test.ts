@@ -37,6 +37,8 @@ const BY_ID_ONLY = new Set([
   'api/src/lib/charging-profile-id.ts',
   'api/src/lib/command-station.ts',
   'api/src/lib/css-pairing.ts',
+  // The station of a departure's requested EVSE, by the EVSE id.
+  'api/src/lib/departure-views.ts',
   'api/src/lib/fleet-operation-scope.ts',
   'api/src/lib/pricing-events.ts',
   'api/src/lib/remote-start-timeout.ts',
@@ -88,6 +90,7 @@ const BY_ID_ONLY = new Set([
   'database/src/lib/station-status.ts',
   'database/src/lib/station-watch.ts',
   'database/src/lib/tariff-resolution.ts',
+  'database/src/lib/vehicle-departures.ts',
   'ocpi/src/routes/cpo/commands.ts',
   'services/src/ad-hoc-payment.service.ts',
   'services/src/ai-evidence/authorization.ts',

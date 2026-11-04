@@ -110,7 +110,8 @@ export function isRequiredDriverEventType(eventType: string): boolean {
  * permissions, an administrator resends a password setup link, or the retention of
  * the audit, sign-in or security event history is shortened (to every all-site user
  * who may change it), or the payment terminal settings change (to every all-site user
- * who may change them). They hold no secret.
+ * who may change them), or a bus depot system is created, changed, gets a new password
+ * or is deleted (to every all-site user who may change integrations). They hold no secret.
  */
 export const SECURITY_NOTICE_EVENT_TYPES = [
   'security.FactorAdded',
@@ -127,6 +128,7 @@ export const SECURITY_NOTICE_EVENT_TYPES = [
   'security.SsoUnlinked',
   'security.RetentionLowered',
   'security.PaymentTerminalSettingsChanged',
+  'security.DepotSystemChanged',
 ] as const;
 
 export type SecurityNoticeEventType = (typeof SECURITY_NOTICE_EVENT_TYPES)[number];

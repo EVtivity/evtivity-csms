@@ -2,6 +2,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+
+const {
+  siteChargingPlanViewMock,
+  isFleetChargingEnabledMock,
+  isFleetEnabledMock,
+  requestHasPermissionMock,
+} = vi.hoisted(() => ({
+  siteChargingPlanViewMock: vi.fn(),
+  isFleetChargingEnabledMock: vi.fn(() => Promise.resolve(true)),
+  isFleetEnabledMock: vi.fn(() => Promise.resolve(true)),
+  requestHasPermissionMock: vi.fn((_permission: string) => Promise.resolve(true)),
+}));
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -50,6 +62,8 @@ function makeChain() {
 }
 
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    requestHasPermissionMock(permission) as unknown,
   authorize:
     () =>
     async (
@@ -85,7 +99,20 @@ vi.mock('@evtivity/database', () => ({
   siteLoadManagement: {},
   chargingStations: {},
   loadAllocationLog: {},
+  markSitePlanStale: vi.fn().mockResolvedValue(true),
+  isFleetChargingEnabled: () => isFleetChargingEnabledMock() as unknown,
+  isFleetEnabled: () => isFleetEnabledMock() as unknown,
 }));
+
+vi.mock('../lib/charging-plan-view.js', async () => {
+  const { z } = await import('zod');
+  return {
+    sitePlanItem: z
+      .object({ planning: z.boolean().describe('Planning'), departures: z.array(z.unknown()) })
+      .loose(),
+    siteChargingPlanView: (...args: unknown[]) => siteChargingPlanViewMock(...args) as unknown,
+  };
+});
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
@@ -118,6 +145,11 @@ vi.mock('@evtivity/services/load-management.service', () => ({
   }),
   clearLoadManagementProfiles: vi.fn().mockResolvedValue(true),
   parseAppliedAllocations: vi.fn(() => null),
+  // Without a supply credit the capacity is the rating less the margin.
+  nodeCapacityKw: vi.fn(
+    (n: { maxContinuousKw: number; safetyMarginKw: number; supplyCreditKw?: number }) =>
+      n.maxContinuousKw - n.safetyMarginKw + (n.supplyCreditKw ?? 0),
+  ),
   getSitePowerStatus: vi.fn().mockResolvedValue({
     totalDrawKw: 50,
     stations: [
@@ -164,6 +196,7 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import {
   buildSiteHierarchy,
   computeHierarchicalAllocation,
+  computeSiteAllocation,
 } from '@evtivity/services/load-management.service';
 
 const SITE = 'sit_000000000001';
@@ -253,7 +286,7 @@ describe('Load management routes (hierarchy and site scope)', () => {
     });
     const root = node({ children: [circuit, childPanel] });
     vi.mocked(buildSiteHierarchy).mockResolvedValue([root] as never);
-    setupDbResults([{ strategy: 'priority_based', isEnabled: true }]);
+    setupDbResults([{ strategy: 'priority_based', isEnabled: true, departureBufferMinutes: 45 }]);
 
     const res = await app.inject({
       method: 'GET',
@@ -262,7 +295,11 @@ describe('Load management routes (hierarchy and site scope)', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.config).toEqual({ strategy: 'priority_based', isEnabled: true });
+    expect(body.config).toEqual({
+      strategy: 'priority_based',
+      isEnabled: true,
+      departureBufferMinutes: 45,
+    });
     expect(computeHierarchicalAllocation).toHaveBeenCalledWith([root], 'priority_based');
 
     const panel = body.hierarchy[0];
@@ -297,6 +334,137 @@ describe('Load management routes (hierarchy and site scope)', () => {
     const stations = body.stations as { id: string; allocatedLimitKw: number | null }[];
     expect(stations.find((s) => s.id === 'sit_000000000001')?.allocatedLimitKw).toBe(45);
     expect(stations.find((s) => s.id === 'sit_000000000002')?.allocatedLimitKw).toBeNull();
+  });
+
+  it('marks a station whose limit is power kept for it, not a limit sent', async () => {
+    const circuit = node({
+      type: 'circuit',
+      id: 'cir_1',
+      name: 'Circuit A',
+      maxContinuousKw: 40,
+      safetyMarginKw: 0,
+      stations: [station('sit_000000000001', 10, 22), station('sit_000000000002', 0, 100)],
+    });
+    const root = node({ children: [circuit] });
+    vi.mocked(buildSiteHierarchy).mockResolvedValue([root] as never);
+    vi.mocked(computeSiteAllocation).mockImplementationOnce(async () => ({
+      status: {
+        totalDrawKw: 10,
+        stations: [station('sit_000000000001', 10, 22), station('sit_000000000002', 0, 100)],
+      } as never,
+      hierarchy: [root] as never,
+      managed: [],
+      // Offline with a session: kept at its maximum, above its circuit.
+      reservedKw: new Map([['sit_000000000002', 100]]),
+      allocations: [{ stationDbId: 'sit_000000000001', allocatedKw: 30 }] as never,
+      baseKw: new Map(),
+      creditValidToMs: null,
+    }));
+    setupDbResults([{ strategy: 'equal_share', isEnabled: true, departureBufferMinutes: 30 }]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE}/load-management`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    const stations = res.json().stations as {
+      id: string;
+      allocatedLimitKw: number | null;
+      limitReserved: boolean;
+    }[];
+    expect(stations.find((s) => s.id === 'sit_000000000001')).toMatchObject({
+      allocatedLimitKw: 30,
+      limitReserved: false,
+    });
+    expect(stations.find((s) => s.id === 'sit_000000000002')).toMatchObject({
+      allocatedLimitKw: 100,
+      limitReserved: true,
+    });
+  });
+
+  it('returns transformer nodes with their supply credit and assets', async () => {
+    const sub = node({ id: 'pnl_sub', name: 'Sub', maxContinuousKw: 50, safetyMarginKw: 0 });
+    const stepDown = node({
+      type: 'transformer',
+      transformerKind: 'step_down',
+      id: 'tfm_sd',
+      name: 'Step Down',
+      maxContinuousKw: 70,
+      safetyMarginKw: 0,
+      supplyCreditKw: 20,
+      children: [sub],
+    });
+    const board = node({
+      id: 'pnl_main',
+      maxContinuousKw: 200,
+      safetyMarginKw: 0,
+      currentDrawKw: 10,
+      supplyLoadKw: 10,
+      children: [stepDown],
+      energyAssets: [
+        {
+          id: 'ena_1',
+          name: 'Battery',
+          type: 'battery',
+          phases: 3,
+          telemetry: 'api',
+          connection: 'panel',
+          state: 'stale',
+          creditKw: 0,
+          loadKw: 10,
+          creditApplied: false,
+          readingReceivedAt: new Date('2026-11-03T12:00:00Z'),
+          socPercent: 50,
+        },
+      ],
+    });
+    const service = node({
+      type: 'transformer',
+      transformerKind: 'service',
+      id: 'tfm_svc',
+      name: 'Service',
+      maxContinuousKw: 285,
+      safetyMarginKw: 0,
+      currentDrawKw: 10,
+      supplyCreditKw: 20,
+      children: [board],
+    });
+    vi.mocked(buildSiteHierarchy).mockResolvedValue([service] as never);
+    setupDbResults([{ strategy: 'equal_share', isEnabled: true, departureBufferMinutes: 30 }]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE}/load-management`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    const root = res.json().hierarchy[0];
+    // The credit raises the capacity: 285 + 20 - 10 drawn.
+    expect(root).toMatchObject({
+      type: 'transformer',
+      transformerKind: 'service',
+      supplyCreditKw: 20,
+      availableKw: 295,
+    });
+    const main = root.childPanels[0];
+    expect(main).toMatchObject({ id: 'pnl_main', supplyLoadKw: 10 });
+    expect(main.energyAssets[0]).toEqual({
+      id: 'ena_1',
+      name: 'Battery',
+      type: 'battery',
+      connection: 'panel',
+      supply: {
+        state: 'stale',
+        creditKw: 0,
+        loadKw: 10,
+        creditApplied: false,
+        readingReceivedAt: '2026-11-03T12:00:00.000Z',
+        socPercent: 50,
+      },
+    });
+    expect(main.childPanels[0]).toMatchObject({ type: 'transformer', id: 'tfm_sd' });
+    expect(main.childPanels[0].childPanels[0]).toMatchObject({ type: 'panel', id: 'pnl_sub' });
   });
 
   it('builds its route schemas without a recursive reference warning', async () => {

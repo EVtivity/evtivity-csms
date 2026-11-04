@@ -39,17 +39,35 @@ import type { PowerSlot } from './site-layout-model-power-slots';
 import { createRackPanelboardKit } from './site-layout-model-rack-panelboard';
 import { createOutdoorSwitchboardKit } from './site-layout-model-switchboard';
 import { createPadMountTransformerKit } from './site-layout-model-transformer';
+import { createDryTransformerKit, dryTransformerSize } from './site-layout-model-dry-transformer';
 import { createWallPanelboardKit } from './site-layout-model-wall-panelboard';
 import { createScreenReaderKit } from './site-layout-model-reader-screen';
 import { createSiteWheelStopKit } from './site-layout-model-wheel-stop';
 import { signSupport, type StationSigns } from './site-layout-signs';
 import { wallBoxChargingCable } from './site-layout-wall-box-cable';
 
-import type { SceneCtx } from './site-layout-scene-context';
-import { carLookPort } from './site-layout-scene-station-slots';
+import type { SceneSlice } from './site-layout-scene-context';
+import { carLookPort, inletKey } from './site-layout-scene-station-slots';
 import type { Palette, Templates } from './site-layout-scene-types';
 
-export function installTemplates(scn: SceneCtx): void {
+type TemplatesCtx = SceneSlice<
+  | 'M'
+  | 'box'
+  | 'cableGround'
+  | 'carKit'
+  | 'chargingCable'
+  | 'connectorHandle'
+  | 'evSignTexture'
+  | 'modelKit'
+  | 'modelOf'
+  | 'shadowed'
+  | 'theme'
+  | 'track'
+  | 'warningTexture',
+  'templates'
+>;
+
+export function installTemplates(scn: TemplatesCtx): void {
   // Fixed per kit; each kit is built once for the scene's life.
   let cabinetLabel: PanelLabelSpot | null = null;
   let rackLabel: PanelLabelSpot | null = null;
@@ -164,49 +182,57 @@ export function installTemplates(scn: SceneCtx): void {
     };
     const result: Templates = {
       vehicle: (look) =>
-        once(`vehicle-${look.bodyType}-${look.color}`, () =>
-          scn.carKit(look.bodyType).build({ ...carShared, paint: paintFor(look.color) }),
+        once(`vehicle-${look.bodyType}-${look.color}-${inletKey(look)}`, () =>
+          scn
+            .carKit(look.bodyType, undefined, look.inlet, look.plug)
+            .build({ ...carShared, paint: paintFor(look.color) }),
         ),
       car: (look, frontZ = CAR_FRONT) =>
-        once(`car-${look.bodyType}-${look.color}-${carLookPort(look)}-${String(frontZ)}`, () => {
-          const g = new THREE.Group();
-          const port = carLookPort(look);
-          const car = scn.carKit(look.bodyType, port).build({
-            ...carShared,
-            paint: paintFor(look.color),
-          });
-          if (parksBackedIn(port) && !isLargeBodyType(look.bodyType)) {
-            // Backed in: turned a half turn, its tail `frontZ` in front of the charger.
-            car.rotation.y = Math.PI;
-            car.position.z = frontZ + CAR_PROFILES[look.bodyType].length;
-          } else {
-            car.position.z = frontZ;
-          }
-          g.add(car);
-          return g;
-        }),
+        once(
+          `car-${look.bodyType}-${look.color}-${carLookPort(look)}-${inletKey(look)}-${String(frontZ)}`,
+          () => {
+            const g = new THREE.Group();
+            const port = carLookPort(look);
+            const car = scn.carKit(look.bodyType, port, look.inlet, look.plug).build({
+              ...carShared,
+              paint: paintFor(look.color),
+            });
+            if (parksBackedIn(port) && !isLargeBodyType(look.bodyType)) {
+              // Backed in: turned a half turn, its tail `frontZ` in front of the charger.
+              car.rotation.y = Math.PI;
+              car.position.z = frontZ + CAR_PROFILES[look.bodyType].length;
+            } else {
+              car.position.z = frontZ;
+            }
+            g.add(car);
+            return g;
+          },
+        ),
       carParallel: (look) =>
-        once(`carParallel-${look.bodyType}-${look.color}-${carLookPort(look)}`, () => {
-          const g = new THREE.Group();
-          // Parallel along the curb, facing -x, never backed in (site-layout-curb-cable.ts).
-          const port = carLookPort(look);
-          const car = scn.carKit(look.bodyType, port).build({
-            ...carShared,
-            paint: paintFor(look.color),
-          });
-          const place = isLargeBodyType(look.bodyType)
-            ? null
-            : parallelPlace(CAR_PROFILES[look.bodyType], port);
-          const at = parallelAt(look.bodyType);
-          car.rotation.y = Math.PI / 2;
-          car.position.set(place?.noseX ?? at[0], 0, place?.centerZ ?? at[1]);
-          g.add(car);
-          return g;
-        }),
+        once(
+          `carParallel-${look.bodyType}-${look.color}-${carLookPort(look)}-${inletKey(look)}`,
+          () => {
+            const g = new THREE.Group();
+            // Parallel along the curb, facing -x, never backed in (site-layout-curb-cable.ts).
+            const port = carLookPort(look);
+            const car = scn.carKit(look.bodyType, port, look.inlet, look.plug).build({
+              ...carShared,
+              paint: paintFor(look.color),
+            });
+            const place = isLargeBodyType(look.bodyType)
+              ? null
+              : parallelPlace(CAR_PROFILES[look.bodyType], port);
+            const at = parallelAt(look.bodyType);
+            car.rotation.y = Math.PI / 2;
+            car.position.set(place?.noseX ?? at[0], 0, place?.centerZ ?? at[1]);
+            g.add(car);
+            return g;
+          },
+        ),
       // From the plugged connector's holster to the handle in the car's port (`carPortInStation`).
       cable: (kind, look, offsetX = 0, frontZ = CAR_FRONT, flowing = true, plug = {}) =>
         perStation(
-          `cable-${kind}-${look.bodyType}-${carLookPort(look)}-${String(offsetX)}-${String(frontZ)}-${String(flowing)}-${plug.connector ?? ''}-${String(plug.side ?? '')}-${String(plug.backM ?? 0)}-${plug.mouth == null ? '' : `${String(plug.mouth.x)},${String(plug.mouth.y)},${String(plug.mouth.z)}`}`,
+          `cable-${kind}-${look.bodyType}-${carLookPort(look)}-${String(offsetX)}-${String(frontZ)}-${String(flowing)}-${plug.connector ?? ''}-${String(plug.side ?? '')}-${String(plug.backM ?? 0)}-${plug.mouth == null ? '' : `${String(plug.mouth.x)},${String(plug.mouth.y)},${String(plug.mouth.z)}`}-${plug.bounds == null ? '' : `${String(plug.bounds.minX)},${String(plug.bounds.maxX)}`}`,
           () => {
             const bodyType = look.bodyType;
             const legacy = portAt(bodyType, frontZ);
@@ -358,6 +384,7 @@ export function installTemplates(scn: SceneCtx): void {
               radiusM: d / 2,
               bendM: CABLE_MIN_BEND_RATIO * d,
               ...(plug.mouth == null ? { lengthM: dcKind ? DC_CABLE_M : AC_CABLE_M } : {}),
+              ...(plug.bounds != null ? { bounds: plug.bounds } : {}),
             });
             g.add(
               scn.chargingCable(
@@ -544,6 +571,27 @@ export function installTemplates(scn: SceneCtx): void {
           if (rackLabel != null) g.add(warningLabel(rackLabel));
           return g;
         }),
+      dryTransformer: (kva) => {
+        const size = dryTransformerSize(kva);
+        return once(`dry-transformer-${String(size.kva)}`, () =>
+          scn.modelOf(
+            scn.modelKit(`dry-transformer:${String(size.kva)}`, () =>
+              createDryTransformerKit(size),
+            ),
+            'dry-transformer',
+            {
+              ...signMaterials(),
+              concrete: concrete(),
+              body: scn.M(palette.dryTransformer, { roughness: 0.5, metalness: 0.3 }),
+              vent: scn.M(palette.dryTransformerVent, { roughness: 0.8 }),
+              seam: scn.M(SCENE_COLORS.dark1, { roughness: 0.6, metalness: 0.2 }),
+              metal: metal(),
+              plate: scn.M(palette.signPlate, { roughness: 0.4 }),
+              conduit: scn.M(SCENE_COLORS.chargerMetal, { roughness: 0.45, metalness: 0.6 }),
+            },
+          ),
+        );
+      },
       wallPanelboard: () =>
         once('wall-panelboard', () => {
           const kit = scn.modelKit('wall-panelboard', () => {

@@ -28,14 +28,22 @@ import {
   TRANSFORMER_CLEARANCE_M,
   type LayoutPoint,
   type LayoutStationKind,
+  type LayoutTransformer,
 } from '@evtivity/lib/site-layout';
 import { db } from './config.js';
 import { writeAudit } from './lib/audit.js';
 import { siteAuditLog, stationAuditLog } from './schema/audit.js';
-import { createCircuit, createPanel, deletePanel } from './lib/load-management-tree.js';
+import {
+  createCircuit,
+  createPanel,
+  createTransformer,
+  deletePanel,
+  updatePanel,
+} from './lib/load-management-tree.js';
+import { layoutEquipmentRowId } from './lib/layout-equipment-id.js';
 import type { PanelRow } from './lib/load-management-tree.js';
-import { panels } from './schema/load-management.js';
-import { eq } from 'drizzle-orm';
+import { panels, transformers } from './schema/load-management.js';
+import { and, eq, isNull } from 'drizzle-orm';
 import {
   readSiteLayoutPositions,
   readStoredLayoutSettings,
@@ -266,6 +274,110 @@ async function writeTree(
   return { panels: panelCount, circuits: circuitCount };
 }
 
+/** The service transformer row of group `g` (the id an earlier layout's `tx-<g+1>` moved to). */
+const groupTransformerId = (siteId: string, g: number): string =>
+  layoutEquipmentRowId('tfm', siteId, `tx-${String(g + 1)}`);
+
+/**
+ * The supply of a site's tree, while the tree is this plan's: one service
+ * transformer per group (inserted while its id is free) linked to the
+ * group's switchboard, and one step-down transformer per panelboard linked
+ * to it, each link only while the panel has none and still hangs where the
+ * plan put it. Through the tree writer, audited; a rerun writes nothing.
+ */
+async function writeSupply(
+  siteId: string,
+  groups: readonly PlannedGroup[],
+  ctx: DemoFeatureContext,
+  /** The layout about to be written places every group's transformer: insert them all (unlinked where the tree is not this plan's). */
+  forLayout: boolean,
+): Promise<void> {
+  const treeCtx = { ...auditActor(ctx), notes: 'Demo site power equipment: transformer' };
+  const id = ids(siteId);
+  const sitePanels = await db.select().from(panels).where(eq(panels.siteId, siteId));
+  const panelById = new Map(sitePanels.map((p) => [p.id, p]));
+  const siteTransformers = await db
+    .select()
+    .from(transformers)
+    .where(eq(transformers.siteId, siteId));
+  const transformerById = new Map(siteTransformers.map((t) => [t.id, t]));
+  const link = async (
+    panelId: string,
+    parentPanelId: string | null,
+    transformerId: string,
+    kind: 'service' | 'step_down',
+  ): Promise<void> => {
+    const panel = panelById.get(panelId);
+    const transformer = transformerById.get(transformerId);
+    if (panel == null || panel.transformerId != null || panel.parentPanelId !== parentPanelId) {
+      return;
+    }
+    if (transformer?.kind !== kind || transformer.ratedKva == null) return;
+    if (kind === 'step_down' && transformer.fedFromPanelId !== parentPanelId) return;
+    await updatePanel(
+      {
+        siteId,
+        panelId,
+        existing: panel,
+        set: { transformerId },
+        onlyIf: and(
+          isNull(panels.transformerId),
+          parentPanelId == null
+            ? isNull(panels.parentPanelId)
+            : eq(panels.parentPanelId, parentPanelId),
+        ),
+      },
+      treeCtx,
+    );
+  };
+  for (const [g, group] of groups.entries()) {
+    const switchboardId = id.switchboard(g);
+    const ours = panelById.has(switchboardId);
+    if (!ours && !forLayout) continue;
+    const txId = groupTransformerId(siteId, g);
+    const created = await createTransformer(
+      {
+        id: txId,
+        siteId,
+        kind: 'service',
+        name: groups.length > 1 ? `Utility Transformer ${String(g + 1)}` : 'Utility Transformer',
+        ratedKva: String(group.transformerKva),
+        sortOrder: g,
+      },
+      treeCtx,
+      { ifMissing: true },
+    );
+    if (created != null) transformerById.set(created.id, created);
+    if (!ours) continue;
+    await link(switchboardId, null, txId, 'service');
+    for (const [k, board] of group.panelboards.entries()) {
+      const boardId = id.panelboard(g, k);
+      const panel = panelById.get(boardId);
+      if (panel == null || panel.parentPanelId !== switchboardId || panel.transformerId != null) {
+        continue;
+      }
+      const sdId = layoutEquipmentRowId('tfm', siteId, `sd-${boardId}`);
+      const sd = await createTransformer(
+        {
+          id: sdId,
+          siteId,
+          kind: 'step_down',
+          name: `Step-Down Transformer ${String(g + 1)}${String.fromCharCode(65 + (k % 26))}`,
+          ratedKva: String(board.stepDownKva),
+          phases: 3,
+          secondaryVoltageV: V208,
+          fedFromPanelId: switchboardId,
+          sortOrder: groups.length + k,
+        },
+        treeCtx,
+        { ifMissing: true },
+      );
+      if (sd != null) transformerById.set(sd.id, sd);
+      await link(boardId, switchboardId, sdId, 'step_down');
+    }
+  }
+}
+
 export interface SitePowerSummary {
   siteId: string;
   name: string;
@@ -379,17 +491,21 @@ export async function seedSitePower(
       await writeTree(sql, site.id, groups, stationIds, ctx);
       treeWritten = true;
     }
+    // The transformers and their links, while the tree is this plan's (and
+    // the transformers the layout below places).
+    const writesLayout =
+      stored == null && storedPositions.length === 0 && settings.siteType === 'parking_lot';
+    await writeSupply(site.id, groups, ctx, writesLayout);
 
     // The layout: one transformer per group next to its stations, while the
     // site has no stored settings or positions.
     let layoutWritten = false;
-    if (stored == null && storedPositions.length === 0 && settings.siteType === 'parking_lot') {
+    if (writesLayout) {
       const lot = lotExtentM(settings);
       const points = groupTransformerPoints(groups, spots, lot, TRANSFORMER_CLEARANCE_M);
-      const transformers = groups.map((g, i) => ({
-        id: `tx-${String(i + 1)}`,
-        name: groups.length > 1 ? `Utility Transformer ${String(i + 1)}` : 'Utility Transformer',
-        ratedKva: g.transformerKva,
+      // Each group's service transformer row (`writeSupply`) at its position, by id.
+      const layoutTransformers: LayoutTransformer[] = groups.map((_g, i) => ({
+        id: groupTransformerId(site.id, i),
         x: points[i]?.x ?? lot.width + TRANSFORMER_CLEARANCE_M,
         z: points[i]?.z ?? 0,
       }));
@@ -398,7 +514,11 @@ export async function seedSitePower(
         return { stationId: id, positionX: p.x, positionY: p.y };
       });
       const saved = await db.transaction((tx) =>
-        saveSiteLayout(tx, site.id, positions, { ...settings, transformers, energyAssets: [] }),
+        saveSiteLayout(tx, site.id, positions, {
+          ...settings,
+          transformers: layoutTransformers,
+          energyAssets: [],
+        }),
       );
       await writeAudit(
         { table: siteAuditLog, idColumn: 'site_id' },

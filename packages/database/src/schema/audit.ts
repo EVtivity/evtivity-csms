@@ -1380,6 +1380,76 @@ export const paymentTerminalAuditLog = pgTable(
   ],
 );
 
+// Departures and weekly departure schedules of fleet vehicles (route-aware
+// charging). The entity id is a schedule id (vds_) or a departure id (vdp_).
+export const vehicleDepartureAuditActionEnum = pgEnum('vehicle_departure_audit_action', [
+  'schedule_created',
+  'schedule_updated',
+  'schedule_deleted',
+  'departure_created',
+  'departure_updated',
+  'departure_cancelled',
+  'departures_imported',
+]);
+
+export const vehicleDepartureAuditLog = pgTable(
+  'vehicle_departure_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    vehicleDepartureId: text('vehicle_departure_id'),
+    vehicleDepartureIdSnapshot: text('vehicle_departure_id_snapshot').notNull(),
+    action: vehicleDepartureAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_vehicle_departure_audit_entity_id').on(table.vehicleDepartureId),
+    index('idx_vehicle_departure_audit_created_at').on(table.createdAt),
+  ],
+);
+
+// Bus depot systems of the VDV 463 interface (features/vdv-463.md).
+export const depotSystemAuditActionEnum = pgEnum('depot_system_audit_action', [
+  'created',
+  'updated',
+  'deleted',
+  'password_rotated',
+  'requests_applied',
+  'auth_locked',
+]);
+
+export const depotSystemAuditLog = pgTable(
+  'depot_system_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    depotSystemId: text('depot_system_id'),
+    depotSystemIdSnapshot: text('depot_system_id_snapshot').notNull(),
+    action: depotSystemAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_depot_system_audit_entity_id').on(table.depotSystemId),
+    index('idx_depot_system_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -1420,6 +1490,8 @@ export const AUDIT_TABLES = {
   report_schedule: reportScheduleAuditLog,
   sim: simAuditLog,
   payment_terminal: paymentTerminalAuditLog,
+  vehicle_departure: vehicleDepartureAuditLog,
+  depot_system: depotSystemAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

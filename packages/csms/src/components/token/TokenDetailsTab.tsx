@@ -321,16 +321,6 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
               <dd className="font-medium">{token.idToken}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">{t('tokens.label')}</dt>
-              <dd className="font-medium">
-                {token.label != null && token.label !== '' ? (
-                  token.label
-                ) : (
-                  <span className="text-muted-foreground">{t('tokens.noLabel')}</span>
-                )}
-              </dd>
-            </div>
-            <div>
               <dt className="text-muted-foreground">{t('tokens.tokenType')}</dt>
               <dd className="font-medium">{token.tokenType}</dd>
             </div>

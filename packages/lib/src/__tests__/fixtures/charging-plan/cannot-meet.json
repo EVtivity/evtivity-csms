@@ -1,0 +1,60 @@
+{
+  "description": "300 kWh in one hour at 150 kW: 150 planned, cannot be met.",
+  "input": {
+    "nowMs": 1793577600000,
+    "bufferMinutes": 0,
+    "slots": [
+      {
+        "startMs": 1793577600000,
+        "endMs": 1793578500000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793578500000,
+        "endMs": 1793579400000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793579400000,
+        "endMs": 1793580300000,
+        "hours": 0.25
+      },
+      {
+        "startMs": 1793580300000,
+        "endMs": 1793581200000,
+        "hours": 0.25
+      }
+    ],
+    "pricePerKwh": [0.2, 0.2, 0.2, 0.2],
+    "nodeCapacityKw": {
+      "root": [500, 500, 500, 500]
+    },
+    "rootNodeId": "root",
+    "vehicles": [
+      {
+        "priority": 5,
+        "minKw": 0,
+        "path": [
+          {
+            "nodeId": "root",
+            "weight": 1
+          }
+        ],
+        "departureId": "v",
+        "departureMs": 1793581200000,
+        "neededKwh": 300,
+        "maxKw": 150,
+        "availableFromMs": 1793577600000
+      }
+    ]
+  },
+  "expected": {
+    "v": {
+      "plannedKwh": 150,
+      "shortfallKwh": 150,
+      "state": "cannot_meet",
+      "readinessReason": "vehicle_power"
+    }
+  },
+  "checks": {}
+}

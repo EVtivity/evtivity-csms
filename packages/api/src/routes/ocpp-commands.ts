@@ -36,13 +36,23 @@ import {
 } from '../lib/station-credential-guard.js';
 import {
   isLoadManagedStationIdentity,
+  isPlannedConnectorSession,
+  isPlannedTransaction,
+  plannedClearConflict,
+  plannedClearMessage,
+  plannedConnectorMessage,
+  plannedProfileIdConflict,
+  plannedProfileIdMessage,
   isReservedProfileId,
   loadManagedMessage,
   maxExternalConstraintsIdByIdentity,
   mayOverrideLoadManagement,
   overridesLoadManagement,
+  plannedSessionMessage,
   profileIdentityFromRequest,
   reservedProfileIdMessage,
+  txProfileConnectorWithoutTransaction,
+  txProfileTransactionId,
 } from '../lib/charging-profile-id.js';
 
 // --- v21 type imports ---
@@ -364,6 +374,61 @@ async function dispatchCommandRaw(
           },
         };
       }
+    }
+    // Any profile with the TxProfile id of a planned session replaces the plan
+    // profile, whatever its purpose (security review OCPP-L1).
+    const planIdTransaction = await plannedProfileIdConflict(stationId, profile.profileId);
+    if (planIdTransaction != null && profile.profileId != null) {
+      return {
+        code: 400,
+        body: {
+          error: plannedProfileIdMessage(profile.profileId, planIdTransaction),
+          code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          action,
+        },
+      };
+    }
+    // A TxProfile for a session the depot plan charges would replace the plan.
+    const plannedTransaction = txProfileTransactionId(payload);
+    if (plannedTransaction != null && (await isPlannedTransaction(stationId, plannedTransaction))) {
+      return {
+        code: 400,
+        body: {
+          error: plannedSessionMessage(plannedTransaction),
+          code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          action,
+        },
+      };
+    }
+    // A 1.6 TxProfile without a transactionId applies to the connector's transaction.
+    const plannedConnector = txProfileConnectorWithoutTransaction(payload);
+    if (
+      plannedConnector != null &&
+      (await isPlannedConnectorSession(stationId, plannedConnector))
+    ) {
+      return {
+        code: 400,
+        body: {
+          error: plannedConnectorMessage(plannedConnector),
+          code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          action,
+        },
+      };
+    }
+  }
+
+  if (action === 'ClearChargingProfile') {
+    // A clear that could remove the plan TxProfile of a planned session.
+    const plannedClear = await plannedClearConflict(stationId, payload);
+    if (plannedClear != null) {
+      return {
+        code: 400,
+        body: {
+          error: plannedClearMessage(plannedClear),
+          code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          action,
+        },
+      };
     }
   }
 

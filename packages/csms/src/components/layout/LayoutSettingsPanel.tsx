@@ -6,28 +6,30 @@
 // row, rows and facing. Office or Retail: the charger positions and how they
 // are mounted. Curbside: the chargers on each side of the street. Depot: the
 // bus bays, the truck lanes and the facing. A parking lot, a depot and a
-// custom site also have the Power Equipment button (transformers, batteries
-// and solar canopies in a dialog, PowerEquipment.tsx). Spot sizes are standard. The other
+// custom site also note that their transformers, batteries and solar
+// canopies are dragged in 3D and added, renamed and rated on the Load
+// Management tab (owner decision 2026-11-04). Spot sizes are standard. The other
 // types' values stay in the settings, so switching the type back restores
 // them. Every valid change shows in the layout at once and is saved with the
 // layout Save.
 
 import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import {
   CHARGER_MOUNTINGS,
   LAYOUT_FACINGS,
   LAYOUT_GRID_LIMITS,
   chargerMountingOf,
-  energyAssetsOf,
   layoutCapacity,
-  placeEnergyAsset,
+  placeEnergyAssetPositions,
+  showsTransformers,
   siteTypeOf,
   chargerPlacementOf,
   snapTransformerToGrass,
   type ChargerMounting,
   type LayoutFacing,
+  type LayoutPowerEquipment,
   type SiteLayoutSettings,
   type SiteType,
 } from '@evtivity/lib/site-layout';
@@ -36,7 +38,6 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { CHARGER_PLACEMENT_LABEL, SITE_TYPE_LABEL } from '@/components/site/site-type';
 import { cn } from '@/lib/utils';
-import { PowerEquipmentField } from './PowerEquipment';
 
 const L = LAYOUT_GRID_LIMITS;
 
@@ -111,6 +112,8 @@ const MOUNTING_HINT = {
 interface LayoutSettingsPanelProps {
   siteId: string;
   settings: SiteLayoutSettings;
+  /** The site's transformers and energy assets (their names, kinds and types). */
+  equipment: LayoutPowerEquipment;
   /** Stations at the site: a layout with fewer spots than this cannot be saved. */
   stationCount: number;
   onChange: (settings: SiteLayoutSettings) => void;
@@ -121,6 +124,7 @@ interface LayoutSettingsPanelProps {
 export function LayoutSettingsPanel({
   siteId,
   settings,
+  equipment,
   stationCount,
   onChange,
   onInvalidChange,
@@ -151,14 +155,18 @@ export function LayoutSettingsPanel({
     }
     // Transformers and batteries stay on the grass when the lot (a depot's
     // yard) grows under them; a solar canopy stays over a row of the lot.
-    onChange({
-      ...changed,
-      transformers: changed.transformers.map((tr) => ({
-        ...tr,
-        ...snapTransformerToGrass(tr.x, tr.z, changed),
-      })),
-      energyAssets: energyAssetsOf(changed).map((a) => placeEnergyAsset(a, changed)),
-    });
+    onChange(
+      placeEnergyAssetPositions(
+        {
+          ...changed,
+          transformers: changed.transformers.map((tr) => ({
+            id: tr.id,
+            ...snapTransformerToGrass(tr.x, tr.z, changed),
+          })),
+        },
+        new Map(equipment.energyAssets.map((a) => [a.id, a.type])),
+      ),
+    );
   }
 
   const capacity = layoutCapacity(settings);
@@ -299,7 +307,21 @@ export function LayoutSettingsPanel({
                 })}
         </p>
       )}
-      <PowerEquipmentField siteId={siteId} settings={settings} onChange={onChange} />
+      {showsTransformers(settings) && (
+        <p className="text-xs text-muted-foreground" data-testid="layout-power-equipment-note">
+          <Trans
+            i18nKey="sites.layoutSettings.powerEquipmentDragHint"
+            components={{
+              loadManagement: (
+                <Link
+                  to={`/sites/${siteId}?tab=load-management`}
+                  className="text-link underline-offset-4 hover:underline"
+                />
+              ),
+            }}
+          />
+        </p>
+      )}
     </section>
   );
 }

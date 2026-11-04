@@ -23,6 +23,7 @@ import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { loadTreeContext, writeStationLoadAudit } from '../lib/load-management-audit.js';
 import {
@@ -151,6 +152,7 @@ export function circuitRoutes(app: FastifyInstance): void {
     '/sites/:siteId/panels/:panelId/circuits',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('circuit_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Create a circuit on a panel',
@@ -289,6 +291,7 @@ export function circuitRoutes(app: FastifyInstance): void {
     '/sites/:siteId/panels/:panelId/circuits/:circuitId',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('circuit_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Update a circuit',
@@ -405,6 +408,7 @@ export function circuitRoutes(app: FastifyInstance): void {
     '/sites/:siteId/panels/:panelId/circuits/:circuitId',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('circuit_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Delete a circuit',
@@ -463,6 +467,7 @@ export function circuitRoutes(app: FastifyInstance): void {
     '/sites/:siteId/stations/:stationId/circuit',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('station_circuit_changed')],
       schema: {
         tags: ['Load Management'],
         summary: 'Assign or unassign a station to a circuit',

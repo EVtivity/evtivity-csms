@@ -27,6 +27,7 @@ import { createCronWorker } from './cron-worker.js';
 import { scheduleCronJobs, scheduleLoadManagementCoordinator } from './scheduler.js';
 import { rebuildDelayedJobs, startRedisRecoveryWatch } from './redis-recovery.js';
 import { createLoadManagementWorker } from './load-management-worker.js';
+import { config } from './lib/config.js';
 import { createGuestSessionWorker, startGuestSessionBridge } from './guest-session-worker.js';
 import {
   createReservationWorker,
@@ -144,7 +145,9 @@ async function start(): Promise<void> {
   const octtLockRedis = createBullMQConnection(REDIS_URL);
   const aiWorkerLockRedis = createBullMQConnection(REDIS_URL);
   const cronWorker = createCronWorker(createBullMQConnection(REDIS_URL), cronLockRedis);
-  const loadWorker = createLoadManagementWorker(createBullMQConnection(REDIS_URL), loadQueue);
+  const loadWorker = createLoadManagementWorker(createBullMQConnection(REDIS_URL), loadQueue, {
+    allowSimulatedEnergyAssets: config.ENERGY_ASSETS_ALLOW_SIMULATED,
+  });
   const guestWorker = createGuestSessionWorker(createBullMQConnection(REDIS_URL));
   const reservationWorker = createReservationWorker(createBullMQConnection(REDIS_URL), pubsub);
   const maintenanceFanoutWorker = createMaintenanceFanoutWorker(

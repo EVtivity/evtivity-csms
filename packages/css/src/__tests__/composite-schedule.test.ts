@@ -96,3 +96,42 @@ describe('computeCompositeSchedule', () => {
     expect(periods[0]?.limit).toBe(6);
   });
 });
+
+describe('load management credit profile (security case 334)', () => {
+  // The CSMS sends the station limit without battery or solar readings at
+  // stack level 1 and the credited limit at stack level 2 until the reading
+  // goes stale: the higher stack level overrules while it is valid (K01.FR.17)
+  // and is valid only before validTo (K01.FR.37).
+  const stationMax = (id: number, stackLevel: number, limitW: number, validTo?: string) => ({
+    id,
+    stackLevel,
+    chargingProfilePurpose: 'ChargingStationMaxProfile',
+    chargingProfileKind: 'Absolute',
+    ...(validTo != null ? { validTo } : {}),
+    _evseId: 0,
+    _setAt: now.toISOString(),
+    chargingSchedule: [
+      {
+        id: 1,
+        startSchedule: at(-60),
+        chargingRateUnit: 'W',
+        chargingSchedulePeriod: [{ startPeriod: 0, limit: limitW }],
+      },
+    ],
+  });
+
+  it('falls back to the stack level 1 limit when the credit profile ends', () => {
+    const periods = computeCompositeSchedule(
+      input([stationMax(1_000_000_000, 1, 20_000), stationMax(1_000_000_001, 2, 40_000, at(30))], {
+        evseId: 0,
+        unit: 'W',
+        localLimit: 100_000,
+        durationS: 120,
+      }),
+    );
+    expect(periods.map((p) => [p.startPeriod, p.limit])).toEqual([
+      [0, 40_000],
+      [30, 20_000],
+    ]);
+  });
+});

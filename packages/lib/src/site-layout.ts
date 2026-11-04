@@ -14,6 +14,7 @@
 import type { VehicleBodyType } from './vehicle-appearance.js';
 import { stationChargingKind, type ConnectorPowerInput } from './connector-power.js';
 import type { ChargingKind } from './station-data-plan.js';
+import type { TransformerKind } from './load-allocation.js';
 import { DEFAULT_VEHICLE_BODY_TYPE } from './vehicle-appearance.js';
 
 /** Columns of the grid a new station is placed on. */
@@ -208,18 +209,34 @@ export interface SiteLayoutGrid {
 }
 
 /**
- * A pad-mounted transformer on the grass next to the lot. `x` and `z` are
- * meters in lot coordinates: spot (0, 0) has its front left corner at (0, 0),
- * columns run along x and rows along z.
+ * Where a transformer stands on the layout (sites.layout_settings): `id` is a
+ * `transformers` row of the site, whose kind, name and rating live in the
+ * table (`LayoutPowerEquipment`). `x` and `z` are meters in lot coordinates:
+ * spot (0, 0) has its front left corner at (0, 0), columns run along x and
+ * rows along z.
  */
 export interface LayoutTransformer {
-  /** Stable id within the site (letters, digits, `-` and `_`). */
+  /** The `transformers.id` of the site. */
   id: string;
-  name: string | null;
-  /** Rated power in kVA. */
-  ratedKva: number | null;
   x: number;
   z: number;
+}
+
+/**
+ * Where an energy asset stands on the layout (sites.layout_settings): `id` is
+ * a `site_energy_assets` row of the site, whose type, name and ratings live in
+ * the table. A battery stands at `x`, `z`; a solar canopy covers `row` of a
+ * parking lot, or stands freely at `x`, `z`, turned `rotationDeg` (a custom
+ * site, a depot). Absent fields take the default place of the asset's type
+ * (`placePowerEquipment`).
+ */
+export interface LayoutEnergyAssetPosition {
+  /** The `site_energy_assets.id` of the site. */
+  id: string;
+  x?: number | undefined;
+  z?: number | undefined;
+  row?: number | undefined;
+  rotationDeg?: number | undefined;
 }
 
 /**
@@ -295,13 +312,13 @@ export interface SiteLayoutSettings extends SiteLayoutGrid {
   busBays?: number | undefined;
   /** Depot: truck pull-through lanes (row 1), one station each. */
   truckLanes?: number | undefined;
+  /** Positions of the site's transformers, by id. */
   transformers: LayoutTransformer[];
   /**
-   * Batteries and solar canopies, informational only (nothing else models site
-   * storage or solar). Absent in settings stored before it existed, which read
-   * as none (`energyAssetsOf`).
+   * Positions of the site's batteries and solar canopies, by id. Absent in
+   * settings stored before it existed, which read as none (`energyAssetsOf`).
    */
-  energyAssets?: LayoutEnergyAsset[] | undefined;
+  energyAssets?: LayoutEnergyAssetPosition[] | undefined;
 }
 
 /** The kinds of energy asset a layout shows. */
@@ -309,15 +326,73 @@ export const ENERGY_ASSET_TYPES = ['battery', 'solar'] as const;
 export type EnergyAssetType = (typeof ENERGY_ASSET_TYPES)[number];
 
 /**
+ * A transformer of the site as the layout labels it: its `transformers` row
+ * (kind, name, rated kVA and the computed capacity in kW, null when unrated).
+ */
+export interface LayoutTransformerInfo {
+  id: string;
+  kind: TransformerKind;
+  name: string;
+  ratedKva: number | null;
+  maxContinuousKw: number | null;
+  /**
+   * The stations its load management tree feeds (its panels, their
+   * sub-panels and circuits): a transformer without a stored position stands
+   * next to them (`groupTransformerPoint`). Absent or empty: none known.
+   */
+  stationIds?: readonly string[];
+}
+
+/**
+ * A station where the layout draws it, for the default places of the power
+ * equipment: its spot middle in lot meters (`spotCenterM`), on a custom site
+ * its charger point.
+ */
+export interface LayoutStationPlace {
+  id: string;
+  x: number;
+  z: number;
+}
+
+/** An energy asset of the site as the layout labels it: its `site_energy_assets` row. */
+export interface LayoutEnergyAssetInfo {
+  id: string;
+  type: EnergyAssetType;
+  name: string;
+  /** Battery: usable capacity in kWh. */
+  capacityKwh: number | null;
+  /** Solar: DC peak power in kWp. */
+  peakKwp: number | null;
+}
+
+/** The power equipment rows of a site the layout places, in their table order. */
+export interface LayoutPowerEquipment {
+  transformers: readonly LayoutTransformerInfo[];
+  energyAssets: readonly LayoutEnergyAssetInfo[];
+}
+
+/** No power equipment (a site without rows, or a view before they load). */
+export const NO_POWER_EQUIPMENT: LayoutPowerEquipment = { transformers: [], energyAssets: [] };
+
+/** A service transformer of the site at its layout position (`placePowerEquipment`). */
+export interface PlacedTransformer extends LayoutTransformer {
+  kind: TransformerKind;
+  name: string;
+  ratedKva: number | null;
+  maxContinuousKw: number | null;
+}
+
+/**
  * A battery storage cabinet on the grass next to the lot, placed like a
  * transformer (`x`, `z` in lot meters, moved onto the grass by
- * `snapTransformerToGrass`). Shown on every site type.
+ * `snapTransformerToGrass`): an energy asset of the site joined with its
+ * position (`placePowerEquipment`).
  */
 export interface LayoutBattery {
-  /** Stable id within the site (letters, digits, `-` and `_`). */
+  /** The `site_energy_assets.id` of the site. */
   id: string;
   type: 'battery';
-  name: string | null;
+  name: string;
   /** Usable capacity in kWh. */
   capacityKwh: number | null;
   x: number;
@@ -327,15 +402,16 @@ export interface LayoutBattery {
 /**
  * A solar carport canopy over one row of the lot (`row`, 0-based) on a
  * parking lot, or standing freely on a custom site (`x`, `z`, `rotationDeg`;
- * its size follows its peak power, `solarCanopySize`). Shown on a parking lot
- * and a custom site (`showsSolar`); the other types keep it hidden.
+ * its size follows its peak power, `solarCanopySize`): an energy asset of the
+ * site joined with its position (`placePowerEquipment`). Shown on a parking
+ * lot and a custom site (`showsSolar`); the other types keep it hidden.
  */
 export interface LayoutSolarCanopy {
-  /** Stable id within the site (letters, digits, `-` and `_`). */
+  /** The `site_energy_assets.id` of the site. */
   id: string;
   type: 'solar';
-  name: string | null;
-  /** Peak power in kWp. */
+  name: string;
+  /** Peak power in kWp (`site_energy_assets.peak_kwp`). */
   capacityKwp: number | null;
   row: number;
   /** Custom site: the middle of the canopy in meters (absent: over its row of the parking lot grid). */
@@ -346,6 +422,20 @@ export interface LayoutSolarCanopy {
 }
 
 export type LayoutEnergyAsset = LayoutBattery | LayoutSolarCanopy;
+
+/**
+ * Layout settings with the power equipment joined in: the site's service
+ * transformers and energy assets at their positions (`placePowerEquipment`),
+ * what the views draw and label. Assignable to `SiteLayoutSettings`, never
+ * stored (the names and ratings live in the tables).
+ */
+export interface PlacedLayoutSettings extends Omit<
+  SiteLayoutSettings,
+  'transformers' | 'energyAssets'
+> {
+  transformers: PlacedTransformer[];
+  energyAssets: LayoutEnergyAsset[];
+}
 
 /**
  * What decides the spots of a layout: the site type and its counts. A plain
@@ -363,8 +453,8 @@ export type LayoutShape = SiteLayoutGrid &
     | 'chargerPlacement'
   >;
 
-/** The energy assets of settings: as stored, else none. */
-export function energyAssetsOf(settings: SiteLayoutSettings): LayoutEnergyAsset[] {
+/** The energy asset positions of settings: as stored, else none. */
+export function energyAssetsOf(settings: SiteLayoutSettings): LayoutEnergyAssetPosition[] {
   return settings.energyAssets ?? [];
 }
 
@@ -498,13 +588,10 @@ export const LAYOUT_GRID_LIMITS = {
   chargersPerSide: { min: 0, max: 100 },
   /** Depot bus bays and truck lanes (0 allowed; both together at least 1). */
   depotSpots: { min: 0, max: 100 },
+  /** Transformer positions a layout stores. */
   transformers: { max: 10 },
-  transformerNameLength: 60,
-  ratedKva: { min: 1, max: 100000 },
+  /** Battery and solar canopy positions a layout stores. */
   energyAssets: { max: 10 },
-  energyAssetNameLength: 60,
-  /** Battery kWh and solar kWp (integers). */
-  capacity: { min: 1, max: 100000 },
   /** How far from the lot a transformer may stand, in meters. */
   transformerReachM: 200,
 } as const;
@@ -532,12 +619,29 @@ export const TRANSFORMER_CLEARANCE_M = 2.5;
  * across the first aisle, rows 1 and 2 stand back to back on an island, and
  * so on; an odd last row keeps an aisle in front of it (it has no partner to
  * share one with, and a row needs an aisle to drive in), and past the last
- * row (slots off the lot) the spacing is an aisle.
+ * row (slots off the lot) the spacing is an aisle. The next to last row of an
+ * odd lot faces that aisle with its head, so a curbed charger strip lies
+ * between its head and the aisle (`parkingHeadStrip`).
  */
 export function parkingRowGap(after: number, rows: number): 'aisle' | 'island' {
   if (after < 0 || after + 1 >= rows || after % 2 === 0) return 'aisle';
   if (rows % 2 === 1 && after + 1 === rows - 1) return 'aisle';
   return 'island';
+}
+
+/**
+ * Whether a curbed charger strip lies at the head of row `after`, before the
+ * drive aisle after it: the next to last row of an odd lot, whose head faces
+ * the aisle of the odd last row. Its chargers stand on the strip behind the
+ * curb face, as on a center island, so no AC pedestal stands in its stall
+ * (ChargePoint CPF50 site design guide: the pedestal "against the curb
+ * between spaces", https://docs.chargepoint.com/cpdocs-sec/content/2-ac/cpf50/sdg/cvl-and-mchncl-dsgn.htm).
+ * The strip has the island width, 8 ft back of curb to back of curb, the
+ * minimum parking island of Henderson County, NC
+ * (https://www.hendersoncountync.gov/code-document/42-173-parking-island).
+ */
+export function parkingHeadStrip(after: number, rows: number): boolean {
+  return rows % 2 === 1 && rows >= 3 && after === rows - 2;
 }
 
 /** The front edge of row `row` of a parking lot of `rows` rows, in lot meters (rows past the lot continue it). */
@@ -546,6 +650,7 @@ export function parkingRowZ(row: number, rows: number): number {
   let z = 0;
   for (let r = 0; r < row; r++) {
     z += d.spotDepthM + (parkingRowGap(r, rows) === 'island' ? d.islandWidthM : d.laneWidthM);
+    if (parkingHeadStrip(r, rows)) z += d.islandWidthM;
   }
   return z;
 }
@@ -562,25 +667,29 @@ export function parkingChargersAtBack(row: number, rows: number): boolean {
 }
 
 /**
- * How far behind the stall head line (the curb face of an island, a lot edge
- * or a sidewalk; the head of a custom site's car spot) a charger stands that
- * does not stand in its stall, in meters: an island charger (its back at the
- * island's middle), an AC pedestal of a parking lot row at the lot edge, an
- * office or retail stall post, and a custom site's car spot charger. The
- * ChargePoint CPF50 site design guide places a pedestal "against the curb
- * between spaces", with the wheel stops in the stalls in front of it
+ * How far behind the stall head line (the curb face of an island, a charger
+ * strip, a lot edge or a sidewalk; the head of a custom site's car spot) a
+ * charger stands that does not stand in its stall, to its center, in meters:
+ * an island or strip charger, an AC pedestal of a parking lot row at the lot
+ * edge, an office or retail stall post, and a custom site's car spot
+ * charger. The ChargePoint CPF50 site design guide places a pedestal
+ * "against the curb between spaces", with the wheel stops in the stalls in
+ * front of it, and says "Place the station 450 mm (18 in) from the curb"
  * (https://docs.chargepoint.com/cpdocs-sec/content/2-ac/cpf50/sdg/cvl-and-mchncl-dsgn.htm),
- * so the stall keeps its full depth. The 0.6 m itself has no source (the
- * guide's "600 mm (2 ft) on each side" is the planter width beside the
- * station): it keeps the pedestal's 0.9 m pad just behind the curb face.
+ * so the stall keeps its full depth. Derived: 18 in (0.457 m) from the curb
+ * face to the pedestal's face plus half the 245 mm deep head of the AC
+ * pedestal envelope (0.123 m) is 0.58 m to its center.
  */
-export const CHARGER_BEHIND_STALL_HEAD_M = 0.6;
+export const CHARGER_BEHIND_STALL_HEAD_M = 0.58;
 
-/** Whether the chargers of a parking lot row stand on a center island (the row's charger edge borders one). */
+/**
+ * Whether the chargers of a parking lot row stand on a center island or a
+ * charger strip (the row's charger edge borders one, `parkingHeadStrip`).
+ */
 export function parkingChargerOnIsland(row: number, rows: number): boolean {
   if (row < 0 || row >= rows) return false;
   return parkingChargersAtBack(row, rows)
-    ? parkingRowGap(row, rows) === 'island'
+    ? parkingRowGap(row, rows) === 'island' || parkingHeadStrip(row, rows)
     : row > 0 && parkingRowGap(row - 1, rows) === 'island';
 }
 
@@ -633,14 +742,13 @@ export function sameLayoutGrid(a: SiteLayoutGrid, b: SiteLayoutGrid): boolean {
   return a.spotsPerRow === b.spotsPerRow && a.rows === b.rows && a.facingDeg === b.facingDeg;
 }
 
-function sameEnergyAsset(a: LayoutEnergyAsset, b: LayoutEnergyAsset | undefined): boolean {
-  if (b == null || a.id !== b.id || a.name !== b.name) return false;
-  if (a.type === 'battery') {
-    return b.type === 'battery' && a.capacityKwh === b.capacityKwh && a.x === b.x && a.z === b.z;
-  }
+function sameEnergyAsset(
+  a: LayoutEnergyAssetPosition,
+  b: LayoutEnergyAssetPosition | undefined,
+): boolean {
   return (
-    b.type === 'solar' &&
-    a.capacityKwp === b.capacityKwp &&
+    b != null &&
+    a.id === b.id &&
     a.row === b.row &&
     a.x === b.x &&
     a.z === b.z &&
@@ -649,8 +757,9 @@ function sameEnergyAsset(a: LayoutEnergyAsset, b: LayoutEnergyAsset | undefined)
 }
 
 /**
- * Whether two layout settings are the same (site type, lot, transformers and
- * energy assets, in order; absent energy assets equal none).
+ * Whether two layout settings are the same (site type, lot, and the
+ * transformer and energy asset positions by id, in order; absent energy
+ * assets equal none).
  */
 export function sameLayoutSettings(a: SiteLayoutSettings, b: SiteLayoutSettings): boolean {
   const assetsA = energyAssetsOf(a);
@@ -670,14 +779,7 @@ export function sameLayoutSettings(a: SiteLayoutSettings, b: SiteLayoutSettings)
     a.transformers.length === b.transformers.length &&
     a.transformers.every((t, i) => {
       const o = b.transformers[i];
-      return (
-        o != null &&
-        o.id === t.id &&
-        o.name === t.name &&
-        o.ratedKva === t.ratedKva &&
-        o.x === t.x &&
-        o.z === t.z
-      );
+      return o != null && o.id === t.id && o.x === t.x && o.z === t.z;
     })
   );
 }
@@ -739,14 +841,351 @@ export function snapTransformerToGrass(
   return { x: round(px), z: round(pz) };
 }
 
-/** The transformer a site gets by default: one, at the lot edge right of the first row. */
-export function defaultTransformer(grid: SiteLayoutGrid): LayoutTransformer {
-  const spot = snapTransformerToGrass(
-    lotExtentM(grid).width + TRANSFORMER_CLEARANCE_M,
-    Math.min(STANDARD_DIMENSIONS.spotDepthM / 2, lotExtentM(grid).depth / 2),
-    grid,
+/** Where the first transformer of a lot stands by default: at the lot edge right of the first row. */
+function firstTransformerRawPoint(grid: SiteLayoutGrid): { x: number; z: number } {
+  return {
+    x: lotExtentM(grid).width + TRANSFORMER_CLEARANCE_M,
+    z: Math.min(STANDARD_DIMENSIONS.spotDepthM / 2, lotExtentM(grid).depth / 2),
+  };
+}
+
+/** Where the electrical equipment of a lot stands when the site has no transformer position. */
+export function defaultTransformerPoint(grid: SiteLayoutGrid): { x: number; z: number } {
+  const raw = firstTransformerRawPoint(grid);
+  return snapTransformerToGrass(raw.x, raw.z, grid);
+}
+
+/** How far apart two default transformer places stand (pads and switchboard rows apart). */
+export const DEFAULT_TRANSFORMER_PITCH_M = 6;
+
+/** How far left of the stations a custom site's default equipment stands, in meters. */
+const FREE_EQUIPMENT_OFFSET_M = 6;
+
+/**
+ * The layout places of stations given by grid position (and, on a custom
+ * site, free position): what `placePowerEquipment` puts the equipment next to.
+ */
+export function layoutStationPlaces(
+  stations: ReadonlyArray<{
+    id: string;
+    positionX: number;
+    positionY: number;
+    freePosition?: { x: number; z: number } | null | undefined;
+  }>,
+  settings: LayoutShape,
+): LayoutStationPlace[] {
+  const free = usesFreePositions(settings);
+  return stations.flatMap((st) => {
+    if (free) {
+      return st.freePosition != null
+        ? [{ id: st.id, x: st.freePosition.x, z: st.freePosition.z }]
+        : [];
+    }
+    const bay = positionToBay({ x: st.positionX, y: st.positionY });
+    // A depot slot is a bus bay or a truck lane of the yard, not a lot spot.
+    if (usesDepotSpots(settings)) {
+      const p = depotSlotPlacement(bay, settings);
+      return [{ id: st.id, x: p.x, z: p.z }];
+    }
+    return [{ id: st.id, ...spotCenterM(bay, settings) }];
+  });
+}
+
+/**
+ * Where a transformer without a stored position stands (owner report
+ * 2026-11-04: "as close to the site as possible"), next to the stations it
+ * feeds (`group`, their places), the rule the demo seed follows
+ * (`groupTransformerPoints`, site-layout-standards: 2.5 m center from the
+ * lot edge, level with its group): a parking lot on the grass
+ * TRANSFORMER_CLEARANCE_M past the right edge, level with the middle of its
+ * group (without one, level with the first row); a depot behind its yard,
+ * level with the middle of its group (without one, at the yard's left end);
+ * a custom site DEFAULT_TRANSFORMER_PITCH_M left of its group's stations
+ * (without one, left of all of them). Each steps DEFAULT_TRANSFORMER_PITCH_M
+ * along the edge until it is that far from every place in `taken` (the
+ * transformers placed before it), so pads never overlap.
+ */
+export function groupTransformerPoint(
+  settings: LayoutShape,
+  group: readonly LayoutStationPlace[],
+  all: readonly LayoutStationPlace[],
+  taken: ReadonlyArray<{ x: number; z: number }>,
+): { x: number; z: number } {
+  const pitch = DEFAULT_TRANSFORMER_PITCH_M;
+  const mean = (vs: number[]): number => vs.reduce((a, b) => a + b, 0) / vs.length;
+  const clear = (p: { x: number; z: number }): boolean =>
+    taken.every((t) => Math.hypot(t.x - p.x, t.z - p.z) >= pitch - 1e-6);
+  // Step along the edge (`step` per try) until the place is clear.
+  const firstClear = (
+    start: { x: number; z: number },
+    step: { x: number; z: number },
+    place: (p: { x: number; z: number }) => { x: number; z: number },
+  ): { x: number; z: number } => {
+    let p = place(start);
+    for (let i = 1; i <= 40 && !clear(p); i++) {
+      p = place({ x: start.x + step.x * i, z: start.z + step.z * i });
+    }
+    return p;
+  };
+  if (usesFreePositions(settings)) {
+    const around = group.length > 0 ? group : all;
+    if (around.length === 0) {
+      return firstClear({ x: -8, z: -4 }, { x: 0, z: -4 }, (p) => clampFreePoint(p.x, p.z));
+    }
+    const x = Math.min(...around.map((p) => p.x)) - pitch;
+    const z = mean(around.map((p) => p.z));
+    return firstClear({ x, z }, { x: 0, z: pitch }, (p) => clampFreePoint(p.x, p.z));
+  }
+  const ground = layoutEquipmentGround(settings);
+  const snap = (p: { x: number; z: number }): { x: number; z: number } =>
+    snapTransformerToGrass(p.x, p.z, settings);
+  if (usesDepotSpots(settings)) {
+    const x = group.length > 0 ? mean(group.map((p) => p.x)) : ground.minX + 4;
+    return firstClear({ x, z: ground.minZ - TRANSFORMER_CLEARANCE_M }, { x: pitch, z: 0 }, snap);
+  }
+  const z =
+    group.length > 0
+      ? mean(group.map((p) => p.z))
+      : firstTransformerRawPoint(layoutGridOf(settings)).z;
+  return firstClear({ x: ground.maxX + TRANSFORMER_CLEARANCE_M, z }, { x: 0, z: pitch }, snap);
+}
+
+/**
+ * Where a transformer without a stored position and without known stations
+ * stands, `index` the transformers placed before it the same way: the
+ * `groupTransformerPoint` place with no group, each one pitch on from the
+ * one before.
+ */
+export function newTransformerPoint(
+  settings: LayoutShape,
+  index: number,
+): { x: number; z: number } {
+  const taken: Array<{ x: number; z: number }> = [];
+  let at = groupTransformerPoint(settings, [], [], taken);
+  for (let i = 0; i < index; i++) {
+    taken.push(at);
+    at = groupTransformerPoint(settings, [], [], taken);
+  }
+  return at;
+}
+
+/**
+ * Where a battery without a stored position stands, `index` the batteries
+ * placed before it: on the grass behind the lot (a depot: behind its yard),
+ * right of each other; on a custom site in front of the site origin, left of
+ * each other.
+ */
+export function newBatteryPoint(
+  settings: LayoutShape,
+  index: number,
+  stations: readonly LayoutStationPlace[] = [],
+): { x: number; z: number } {
+  if (usesFreePositions(settings)) {
+    // Next to the stations (a custom site's stations can stand anywhere within reach).
+    if (stations.length > 0) {
+      return clampFreePoint(
+        Math.min(...stations.map((p) => p.x)) - FREE_EQUIPMENT_OFFSET_M - 5 * index,
+        Math.min(...stations.map((p) => p.z)) - FREE_EQUIPMENT_OFFSET_M,
+      );
+    }
+    return clampFreePoint(-6 - 5 * index, -6);
+  }
+  const ground = layoutEquipmentGround(settings);
+  return snapTransformerToGrass(
+    Math.min(ground.maxX, ground.minX + 6 + 5 * index),
+    ground.minZ - TRANSFORMER_CLEARANCE_M,
+    settings,
   );
-  return { id: 'tx-1', name: null, ratedKva: null, ...spot };
+}
+
+/**
+ * Where a solar canopy without a stored position stands, `covered` the rows
+ * the canopies placed before it cover and `index` their count: over the first
+ * row without one (else the last row) on a parking lot; standing freely in
+ * front of the site origin on a custom site, or over staff parking behind the
+ * yard of a depot, below each other.
+ */
+export function newSolarCanopyPlace(
+  settings: LayoutShape,
+  covered: ReadonlySet<number>,
+  index: number,
+  stations: readonly LayoutStationPlace[] = [],
+): Pick<LayoutSolarCanopy, 'row' | 'x' | 'z' | 'rotationDeg'> {
+  if (usesFreePositions(settings)) {
+    // In front of the stations, below each other.
+    if (stations.length > 0) {
+      const xs = stations.map((p) => p.x);
+      const p = clampFreePoint(
+        (Math.min(...xs) + Math.max(...xs)) / 2,
+        Math.min(...stations.map((q) => q.z)) - 12 - 8 * index,
+      );
+      return { row: 0, x: p.x, z: p.z, rotationDeg: 0 };
+    }
+    return { row: 0, x: 0, z: -12 - 8 * index, rotationDeg: 0 };
+  }
+  if (usesDepotSpots(settings)) {
+    const ground = layoutEquipmentGround(settings);
+    return {
+      row: 0,
+      x: Math.round((ground.minX + ground.maxX) / 2),
+      z: Math.round(ground.minZ - 9 - 8 * index),
+      rotationDeg: 0,
+    };
+  }
+  let row = 0;
+  while (covered.has(row) && row < settings.rows - 1) row++;
+  return { row };
+}
+
+/**
+ * The site's power equipment at its layout positions, what the views draw and
+ * label: every service transformer and energy asset of `equipment` (in its
+ * table order) at its stored position by id, else at the default place of its
+ * kind (`newTransformerPoint`, `newBatteryPoint`, `newSolarCanopyPlace`),
+ * placed by its type (`placeEnergyAsset`). A stored position whose equipment
+ * is gone is left out. Step-down transformers stand beside the panelboard
+ * they feed, not on the layout grass, so they are not placed here.
+ * `settings` are the effective settings (`effectiveLayoutSettings`).
+ */
+export function placePowerEquipment(
+  settings: SiteLayoutSettings,
+  equipment: LayoutPowerEquipment,
+  stations?: readonly LayoutStationPlace[],
+): PlacedLayoutSettings {
+  const txAt = new Map(settings.transformers.map((t) => [t.id, t]));
+  const assetAt = new Map(energyAssetsOf(settings).map((a) => [a.id, a]));
+  const placeOf = new Map((stations ?? []).map((p) => [p.id, p]));
+  const service = equipment.transformers.filter((t) => t.kind === 'service');
+  const transformers: PlacedTransformer[] = [];
+  // Stored ones first, so a default place keeps clear of every stored one.
+  const taken: Array<{ x: number; z: number }> = service.flatMap((t) => {
+    const at = txAt.get(t.id);
+    return at != null ? [{ x: at.x, z: at.z }] : [];
+  });
+  for (const info of service) {
+    const stored = txAt.get(info.id);
+    let at: { x: number; z: number };
+    if (stored != null) at = stored;
+    else {
+      const group = (info.stationIds ?? []).flatMap((id) => {
+        const p = placeOf.get(id);
+        return p != null ? [p] : [];
+      });
+      at = groupTransformerPoint(settings, group, stations ?? [], taken);
+      taken.push(at);
+    }
+    transformers.push({
+      id: info.id,
+      kind: info.kind,
+      name: info.name,
+      ratedKva: info.ratedKva,
+      maxContinuousKw: info.maxContinuousKw,
+      x: at.x,
+      z: at.z,
+    });
+  }
+  const energyAssets: LayoutEnergyAsset[] = [];
+  let batteries = 0;
+  let canopies = 0;
+  const covered = new Set<number>();
+  for (const info of equipment.energyAssets) {
+    const at = assetAt.get(info.id);
+    if (info.type === 'battery') {
+      const point =
+        at?.x != null && at.z != null
+          ? { x: at.x, z: at.z }
+          : newBatteryPoint(settings, batteries, stations);
+      batteries++;
+      energyAssets.push(
+        placeEnergyAsset(
+          {
+            id: info.id,
+            type: 'battery',
+            name: info.name,
+            capacityKwh: info.capacityKwh,
+            ...point,
+          },
+          settings,
+        ),
+      );
+      continue;
+    }
+    const place = newSolarCanopyPlace(settings, covered, canopies, stations);
+    canopies++;
+    const canopy = placeEnergyAsset(
+      {
+        id: info.id,
+        type: 'solar',
+        name: info.name,
+        capacityKwp: info.peakKwp,
+        row: at?.row ?? place.row,
+        ...(at?.x != null && at.z != null
+          ? { x: at.x, z: at.z, rotationDeg: at.rotationDeg ?? 0 }
+          : place.x != null && place.z != null
+            ? { x: place.x, z: place.z, rotationDeg: place.rotationDeg ?? 0 }
+            : {}),
+      },
+      settings,
+    );
+    if (canopy.type === 'solar') covered.add(canopy.row);
+    energyAssets.push(canopy);
+  }
+  return { ...settings, transformers, energyAssets };
+}
+
+/**
+ * Settings whose energy asset positions follow their type's place rule
+ * (`placeEnergyAsset`): a battery on the grass beside the lot (a custom site:
+ * within reach), a canopy's row within the lot. `types` are the assets' table
+ * types by id; a position of an unknown asset stays as it is. Fills in no
+ * default place (positions only, as stored).
+ */
+export function placeEnergyAssetPositions(
+  settings: SiteLayoutSettings,
+  types: ReadonlyMap<string, EnergyAssetType>,
+): SiteLayoutSettings {
+  if (settings.energyAssets == null) return settings;
+  return {
+    ...settings,
+    energyAssets: settings.energyAssets.map((a) => {
+      const type = types.get(a.id);
+      if (type === 'battery' && a.x != null && a.z != null) {
+        const placed = placeEnergyAsset(
+          { id: a.id, type, name: '', capacityKwh: null, x: a.x, z: a.z },
+          settings,
+        );
+        return placed.type === 'battery' ? { ...a, x: placed.x, z: placed.z } : a;
+      }
+      if (type === 'solar' && a.row != null) {
+        return { ...a, row: Math.min(settings.rows - 1, Math.max(0, Math.round(a.row))) };
+      }
+      return a;
+    }),
+  };
+}
+
+/**
+ * The positions of placed settings, as `sites.layout_settings` holds them:
+ * each transformer `{ id, x, z }` and each energy asset by id with the fields
+ * of its place (a battery `x`, `z`; a canopy `row`, and `x`, `z`,
+ * `rotationDeg` when it stands freely).
+ */
+export function layoutPositionsOf(settings: PlacedLayoutSettings): SiteLayoutSettings {
+  return {
+    ...settings,
+    transformers: settings.transformers.map((t) => ({ id: t.id, x: t.x, z: t.z })),
+    energyAssets: settings.energyAssets.map((a) =>
+      a.type === 'battery'
+        ? { id: a.id, x: a.x, z: a.z }
+        : {
+            id: a.id,
+            row: a.row,
+            ...(a.x != null && a.z != null
+              ? { x: a.x, z: a.z, ...(a.rotationDeg != null ? { rotationDeg: a.rotationDeg } : {}) }
+              : {}),
+          },
+    ),
+  };
 }
 
 /**
@@ -929,11 +1368,12 @@ function knownFields(stored: SiteLayoutSettings): SiteLayoutSettings {
 /**
  * The layout settings the views and the placement use. Stored settings as
  * stored (the site type filled in, the fields of that type filled in from
- * `stationCount` where absent, transformers and batteries moved onto the
- * grass, solar canopies clamped into the lot's rows, energy assets filled in
- * as none when absent, unknown keys dropped); a site that never saved any gets
+ * `stationCount` where absent, transformer positions moved onto the grass,
+ * solar canopy rows clamped into the lot's rows, energy assets filled in as
+ * none when absent, unknown keys dropped); a site that never saved any gets
  * a parking lot: the default 10 by 2 lot, grown to hold the stations it
- * already has (`bays`), one transformer next to it and no energy assets.
+ * already has (`bays`), with no equipment positions. Positions only: the
+ * equipment itself joins in through `placePowerEquipment`.
  * `stationCount` is the stations at the site (`bays` counted when not given;
  * a depot reads the bus and truck stations of `LayoutStationCounts`).
  */
@@ -951,10 +1391,14 @@ export function effectiveLayoutSettings(
     return {
       ...known,
       transformers: known.transformers.map((t) => ({
-        ...t,
+        id: t.id,
         ...(free ? clampFreePoint(t.x, t.z) : snapTransformerToGrass(t.x, t.z, known)),
       })),
-      energyAssets: energyAssetsOf(known).map((a) => placeEnergyAsset(a, known)),
+      // The type of an asset lives in its table row, so its place follows
+      // there (`placePowerEquipment`); a canopy's row stays within the lot.
+      energyAssets: energyAssetsOf(known).map((a) =>
+        a.row == null ? a : { ...a, row: Math.min(known.rows - 1, Math.max(0, Math.round(a.row))) },
+      ),
     };
   }
   let spotsPerRow = DEFAULT_LAYOUT_GRID.spotsPerRow;
@@ -978,7 +1422,7 @@ export function effectiveLayoutSettings(
   return {
     siteType: DEFAULT_SITE_TYPE,
     ...grid,
-    transformers: [defaultTransformer(grid)],
+    transformers: [],
     energyAssets: [],
   };
 }
@@ -1054,8 +1498,7 @@ export function layoutEquipmentPoint(
 ): { x: number; z: number } {
   const first = settings.transformers?.[0];
   if (first != null) return { x: first.x, z: first.z };
-  const t = defaultTransformer(layoutGridOf(settings));
-  return { x: t.x, z: t.z };
+  return defaultTransformerPoint(layoutGridOf(settings));
 }
 
 /** The middle of spot (c, r) in lot meters (standard dimensions), for the grouping order. */

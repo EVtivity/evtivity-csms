@@ -163,6 +163,7 @@ describe('data retention settings routes', () => {
       // Outside the SIM range the reader uses the default.
       expect(body['sim.sessions.retentionDays']).toBe(90);
       expect(body['audit.retentionDays']).toBe(1095);
+      expect(body['logs.departures.retentionDays']).toBe(365);
     });
 
     it('answers a site-restricted user 404 SETTING_NOT_FOUND', async () => {
@@ -183,10 +184,12 @@ describe('data retention settings routes', () => {
         'logs.ocppMessage.retentionDays': 7,
         'audit.retentionDays': 1095,
         'refreshTokens.retentionDays': 0,
+        'logs.departures.retentionDays': 180,
       });
       expect(res.statusCode).toBe(200);
       expect(written).toEqual([
         { key: 'logs.ocppMessage.retentionDays', value: 7 },
+        { key: 'logs.departures.retentionDays', value: 180 },
         { key: 'refreshTokens.retentionDays', value: 0 },
       ]);
       const audits = mockWriteAudit.mock.calls.map(
@@ -199,6 +202,7 @@ describe('data retention settings routes', () => {
       );
       expect(audits.map((a) => [a.entityId, a.before.value, a.after.value])).toEqual([
         ['logs.ocppMessage.retentionDays', 30, 7],
+        ['logs.departures.retentionDays', null, 180],
         ['refreshTokens.retentionDays', null, 0],
       ]);
       const body = res.json<Record<string, number>>();

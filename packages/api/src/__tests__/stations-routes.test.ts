@@ -131,6 +131,7 @@ function makeChain() {
 
 const mockPlaceStationOnLayout = vi.hoisted(() => vi.fn(() => Promise.resolve({ x: 20, y: 20 })));
 const mockMoveStationLayout = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const mockMarkSitePlanStale = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
 
 vi.mock('@evtivity/database', async () => {
   const rawTimestamp = await import('@evtivity/database/src/lib/raw-timestamp.js');
@@ -169,6 +170,7 @@ vi.mock('@evtivity/database', async () => {
     readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
     placeStationOnLayout: mockPlaceStationOnLayout,
     moveStationLayout: mockMoveStationLayout,
+    markSitePlanStale: mockMarkSitePlanStale,
     client: {},
     setStationDisabled: mockSetStationDisabled,
     SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
@@ -723,6 +725,13 @@ describe('Station routes - handler logic', () => {
         payload: { siteId: 'sit_000000000002' },
       });
       expect(response.statusCode).toBe(200);
+      // The new site's depot plan replans with the station (the old site was none).
+      expect(mockMarkSitePlanStale).toHaveBeenCalledWith(
+        'sit_000000000002',
+        'station_moved',
+        expect.anything(),
+        { departureAwareOnly: true },
+      );
       const repush = mockAddJob.mock.calls.find((c) => c[0] === 'station-message-repush');
       expect(repush?.[1]).toEqual({ stationId: VALID_STATION_ID });
       // The move places the station on a free slot of the new site's layout.

@@ -457,7 +457,7 @@ describe('answer language (TC-AI-DR-26)', () => {
     const system = systemText(adapter);
     expect(system).toContain(LANGUAGE_NAMES.zh);
     expect(system).toContain('驾驶员');
-    expect(system).toContain('充电站');
+    expect(system).toContain('充电桩');
   });
 
   it('TC-AI-DR-26 zh-TW uses the Traditional terms', async () => {
@@ -476,6 +476,6 @@ describe('answer language (TC-AI-DR-26)', () => {
     const system = systemText(adapter);
     expect(system).toContain(LANGUAGE_NAMES['zh-TW']);
     expect(system).toContain('駕駛員');
-    expect(system).toContain('充電站');
+    expect(system).toContain('充電樁');
   });
 });

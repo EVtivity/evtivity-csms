@@ -16,7 +16,7 @@ import {
   type ScreenTextPlan,
 } from './site-layout-screen-text';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { type SceneStation } from './site-layout-scene-types';
 
 const BACKGROUND = '#0b1726';
@@ -33,7 +33,7 @@ interface ScreenEntry {
 // The screen planes of each scene, by station. A build of a station replaces
 // its entries: every screen of one build is added in one synchronous run, so
 // a counter that moves once per run tells a new build from the same one.
-const screensByScene = new WeakMap<SceneCtx, Map<string, ScreenEntry[]>>();
+const screensByScene = new WeakMap<object, Map<string, ScreenEntry[]>>();
 let buildRun = 0;
 let runOpen = false;
 function currentBuildRun(): number {
@@ -47,7 +47,7 @@ function currentBuildRun(): number {
   return buildRun;
 }
 
-function registerScreen(scn: SceneCtx, entry: Omit<ScreenEntry, 'build'>): void {
+function registerScreen(scn: object, entry: Omit<ScreenEntry, 'build'>): void {
   let byStation = screensByScene.get(scn);
   if (byStation == null) {
     byStation = new Map();
@@ -67,7 +67,7 @@ function registerScreen(scn: SceneCtx, entry: Omit<ScreenEntry, 'build'>): void 
  * holds them, so a ray through a screen counts there.
  */
 export function pickChargerScreen(
-  scn: SceneCtx,
+  scn: SceneSlice<'objects'>,
   ray: THREE.Raycaster,
   stationId: string,
 ): string | null {
@@ -92,7 +92,12 @@ export function pickChargerScreen(
   return screenHoverKey(entry.kind, stationId);
 }
 
-export function installScreenText(scn: SceneCtx): void {
+type ScreenTextCtx = SceneSlice<
+  'objects' | 'options' | 'renderer' | 'screenScrolls' | 'site' | 'track',
+  'addScreenMessage'
+>;
+
+export function installScreenText(scn: ScreenTextCtx): void {
   // A screen's text drawn on a canvas: wrapped at a readable fitted size when
   // it fits (`screenTextPlan`), else one line on a wide canvas that scrolls
   // across (`speed`, in texture widths per second). Light text on the dark

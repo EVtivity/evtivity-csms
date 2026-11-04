@@ -27,6 +27,11 @@ export interface NavFeatureFlags {
 /** Every flag of `GET /v1/portal/features` the CSMS reads. */
 export interface FeatureFlags extends NavFeatureFlags {
   guestChargingEnabled: boolean;
+  /**
+   * Depot charging planning is on (`fleetCharging.enabled`): the planner, its
+   * charging profiles and the Departure Aware strategy. Departures show either way.
+   */
+  fleetChargingEnabled: boolean;
   chatbotAiEnabled: boolean;
   /** Station signal reads are on: a SIM Refresh also sends one OCPP request to the station. */
   simStationSignalEnabled: boolean;
@@ -49,7 +54,7 @@ type FeaturesResponse = Partial<Record<keyof FeatureFlags, unknown>>;
 
 /**
  * The flags from `GET /v1/portal/features`. Until it answers (or when it
- * fails), roaming, Plug and Charge, the AI assistant, AI insights and the SIM features count as off and the
+ * fails), roaming, Plug and Charge, depot charging planning, the AI assistant, AI insights and the SIM features count as off and the
  * others as on.
  */
 export function resolveFeatureFlags(features: FeaturesResponse | undefined): FeatureFlags {
@@ -60,6 +65,7 @@ export function resolveFeatureFlags(features: FeaturesResponse | undefined): Fea
     supportEnabled: features?.supportEnabled !== false,
     fleetEnabled: features?.fleetEnabled !== false,
     guestChargingEnabled: features?.guestChargingEnabled !== false,
+    fleetChargingEnabled: features?.fleetChargingEnabled === true,
     chatbotAiEnabled: features?.chatbotAiEnabled === true,
     aiInsightsEnabled: features?.aiInsightsEnabled === true,
     simEnabled: features?.simEnabled === true,

@@ -38,9 +38,9 @@ import {
   wrapPnc16,
   type Pnc16MessageId,
 } from '@evtivity/lib';
-import { MeterValueGenerator } from './meter-value-generator.js';
+import { MeterValueGenerator, batteryKwhFor } from './meter-value-generator.js';
 import { OcmfMeterSigner } from './signed-meter-values.js';
-import { computeCompositeSchedule } from './composite-schedule.js';
+import { computeCompositeSchedule, limitNowW } from './composite-schedule.js';
 import { CSS_MANUFACTURER_ROOT_CA_PEM, parseFirmwareImage } from './lib/manufacturer-root.js';
 import { PersistedCache } from './lib/persisted-cache.js';
 import { endedTriggerFor2x, faultStopReason, isStopReasonFor } from './lib/stop-reasons.js';
@@ -188,6 +188,13 @@ export interface StationConfig {
    */
   extraAllowedFileTransferHosts?: readonly string[];
   /**
+   * How far the station draws past its charging profile limit, as a fraction
+   * (0.1 draws 10 % above it), so a test can check that the CSMS notices a
+   * charger that does not follow its schedule. Set in code only, by tests; no
+   * env var, css_stations column or CSMS route sets it.
+   */
+  profileFollowError?: number;
+  /**
    * Fake log and diagnostics uploads (status notifications only, a location naming
    * `nonexistent`, `redirect`, `failedLocation` or `127.0.0.1` fails) instead of real ones.
    * Set in code only, by the conformance (OCTT) CS runner, whose test cases name upload
@@ -273,6 +280,12 @@ export interface PluggedInEv {
   vin?: string | undefined;
   autocharge?: 'MacAddress' | 'EVCCID' | 'VIN' | undefined;
   idTagPrefix?: string | undefined;
+  /** Usable battery size in kWh (default from the body type, else 60). */
+  batteryKwh?: number | undefined;
+  /** State of charge at the plug-in, in percent (default a random 15-30 %). */
+  socPercent?: number | undefined;
+  /** Vehicle body type (`bus`, `semi_truck`, `box_truck`, a car type), which picks the battery size. */
+  bodyType?: string | undefined;
 }
 
 /** The outcome of an Autocharge plug-in: the authorize status and the transaction it started. */
@@ -320,6 +333,12 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal | null): Promise<boo
   });
 }
 
+/** The transaction a stored TxProfile belongs to, as a string (a 1.6 id is a number). */
+function profileTxId(profile: Record<string, unknown>): string | null {
+  const txId = profile['transactionId'] ?? profile['_transactionId'];
+  return typeof txId === 'string' || typeof txId === 'number' ? String(txId) : null;
+}
+
 export class StationSimulator {
   readonly client: OcppClient;
   private readonly config: StationConfig;
@@ -349,12 +368,6 @@ export class StationSimulator {
   private readonly evConnectTimeoutTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   // Per-EVSE charging state
-  private readonly evsePowerLimits = new Map<number, number | null>();
-  /**
-   * Station-wide limit in W from a ChargingStationMaxProfile (1.6
-   * ChargePointMaxProfile) on EVSE 0, the profile load management sends.
-   */
-  private stationPowerLimitW: number | null = null;
   private readonly evseIdle = new Map<number, boolean>();
   /** The EV plugged into each EVSE (vehicle ids for Autocharge and additionalInfo). */
   private readonly pluggedInEvs = new Map<number, PluggedInEv>();
@@ -1067,7 +1080,6 @@ export class StationSimulator {
           voltage: evse.voltage,
         }),
       );
-      this.evsePowerLimits.set(evse.evseId, null);
       this.evseIdle.set(evse.evseId, false);
       this.evseChargingState.set(evse.evseId, null);
       this.evseSeqNo.set(evse.evseId, 0);
@@ -1665,10 +1677,14 @@ export class StationSimulator {
   ): Promise<string> {
     const ctx = this.evseContexts.get(evseId) as EvseContext;
 
-    // Reset meter generator for this EVSE
+    // Reset meter generator for this EVSE with the plugged-in EV's battery
     const gen = this.meterGens.get(evseId);
     if (gen != null) {
-      gen.resetSession();
+      const ev = this.pluggedInEvs.get(evseId);
+      gen.resetSession({
+        capacityKwh: ev?.batteryKwh ?? batteryKwhFor(ev?.bodyType),
+        startSocPercent: ev?.socPercent,
+      });
     }
 
     // Reset transaction-limit state BEFORE sending the Started event. The
@@ -1975,7 +1991,6 @@ export class StationSimulator {
     this.transactionStartTokens.delete(tx.transactionId);
 
     // Reset per-EVSE state
-    this.evsePowerLimits.set(evseId, null);
     this.evseIdle.set(evseId, false);
     this.evseChargingState.set(evseId, null);
     this.evseSeqNo.set(evseId, 0);
@@ -2363,13 +2378,24 @@ export class StationSimulator {
     const connectorId = this.getConnectorId(evseId);
     const clearCtx = this.evseContexts.get(evseId) as EvseContext;
     // A transaction kept through the fault stays suspended by the EVSE: the connector
-    // is occupied again (1.6 SuspendedEVSE) and resumeCharging restarts the energy.
-    const status = clampStatusForAdminAvailability(
-      clearCtx.transactionId != null ? (this.is16 ? 'SuspendedEVSE' : 'Occupied') : 'Available',
-      this.isEvseAdminUnavailable(evseId),
-    );
+    // is occupied again (1.6 SuspendedEVSE) and resumeCharging restarts the energy. A
+    // fault that ended the transaction leaves a plugged cable in: Occupied (1.6
+    // Finishing) until the EV unplugs.
+    const cleared =
+      clearCtx.transactionId != null
+        ? this.is16
+          ? 'SuspendedEVSE'
+          : 'Occupied'
+        : clearCtx.cablePlugged
+          ? this.is16
+            ? 'Finishing'
+            : 'Occupied'
+          : 'Available';
+    const status = clampStatusForAdminAvailability(cleared, this.isEvseAdminUnavailable(evseId));
     this.evseConnectorStatus.set(evseId, status);
-    if (clearCtx.transactionId == null) clearCtx.state = 'Available';
+    if (clearCtx.transactionId == null) {
+      clearCtx.state = clearCtx.cablePlugged ? (this.is16 ? 'Finishing' : 'Occupied') : 'Available';
+    }
     await this.sendStatusNotification(evseId, connectorId, status);
     await this.updateEvseStatus(evseId, status);
   }
@@ -5425,36 +5451,8 @@ export class StationSimulator {
           }
         }
 
-        // Extract power limit. A 2.1 profile holds an array of schedules, a
-        // 1.6 profile (csChargingProfiles) a single schedule object.
-        const rawSchedule = profile?.['chargingSchedule'];
-        const schedule = (Array.isArray(rawSchedule) ? rawSchedule[0] : rawSchedule) as
-          | Record<string, unknown>
-          | undefined;
-        const periods = (
-          (schedule?.['chargingSchedulePeriod'] ?? []) as Array<Record<string, unknown>>
-        )[0];
-        const limit = periods?.['limit'] as number | undefined;
-        const stationMax =
-          evseIdForProfile === 0 &&
-          (profilePurpose === 'ChargingStationMaxProfile' ||
-            profilePurpose === 'ChargePointMaxProfile');
-        if (limit != null && stationMax) {
-          // Limits the whole station: the EVSEs with a transaction share it.
-          this.stationPowerLimitW = this.limitToWatts(
-            limit,
-            schedule?.['chargingRateUnit'] as string | undefined,
-          );
-          console.log(
-            `[${this.config.stationId}] SetChargingProfile: station power limit set to ${String(this.stationPowerLimitW)} W`,
-          );
-        } else if (limit != null) {
-          this.evsePowerLimits.set(evseIdForProfile, limit);
-          console.log(
-            `[${this.config.stationId}] SetChargingProfile: power limit set to ${String(limit)} W on EVSE ${String(evseIdForProfile)}`,
-          );
-        }
-
+        // The meter loop reads the stored profiles at every tick (powerLimitFor),
+        // so each schedule period applies from its start time.
         // Store in memory cache (stamp _evseId and _chargingLimitSource for GetChargingProfiles)
         if (profile != null) {
           const profileId =
@@ -5462,11 +5460,17 @@ export class StationSimulator {
             (profile['chargingProfileId'] as number | undefined) ??
             0;
           const source = profilePurpose === 'ChargingStationExternalConstraints' ? 'EMS' : 'CSO';
+          // A TxProfile without a transactionId belongs to the transaction running now.
+          const txIdNow =
+            profilePurpose === 'TxProfile' && profile['transactionId'] == null
+              ? this.getActiveTransactionSync(evseIdForProfile)
+              : null;
           this.chargingProfilesCache.set(profileId, {
             ...profile,
             _evseId: evseIdForProfile,
             _chargingLimitSource: source,
             _setAt: new Date().toISOString(),
+            ...(txIdNow != null ? { _transactionId: txIdNow } : {}),
           });
         }
 
@@ -5479,13 +5483,25 @@ export class StationSimulator {
           | Record<string, unknown>
           | undefined;
 
-        // OCPP 1.6: simple clear all
+        // OCPP 1.6 (5.4): the profile with the id, else every profile matching all given
+        // criteria (connectorId, purpose, stackLevel); Unknown when none matched.
         if (this.is16) {
-          for (const evse of this.config.evses) {
-            this.evsePowerLimits.set(evse.evseId, null);
-          }
-          this.stationPowerLimitW = null;
-          this.chargingProfilesCache.clear();
+          const id16 = payload['id'] as number | undefined;
+          const connector16 = payload['connectorId'] as number | undefined;
+          const purpose16 = payload['chargingProfilePurpose'] as string | undefined;
+          const stack16 = payload['stackLevel'] as number | undefined;
+          const matches16 = Array.from(this.chargingProfilesCache.entries())
+            .filter(([profileId, profile]) => {
+              if (id16 != null) return profileId === id16;
+              if (connector16 != null && profile['_evseId'] !== connector16) return false;
+              if (purpose16 != null && profile['chargingProfilePurpose'] !== purpose16)
+                return false;
+              if (stack16 != null && profile['stackLevel'] !== stack16) return false;
+              return true;
+            })
+            .map(([profileId]) => profileId);
+          if (matches16.length === 0) return { status: 'Unknown' };
+          for (const profileId of matches16) this.chargingProfilesCache.delete(profileId);
           console.log(`[${this.config.stationId}] ClearChargingProfile: power limits cleared`);
           return { status: 'Accepted' };
         }
@@ -5518,10 +5534,6 @@ export class StationSimulator {
         }
 
         if (cleared) {
-          for (const evse of this.config.evses) {
-            this.evsePowerLimits.set(evse.evseId, null);
-          }
-          this.stationPowerLimitW = null;
           console.log(`[${this.config.stationId}] ClearChargingProfile: power limits cleared`);
           return { status: 'Accepted' };
         }
@@ -5566,7 +5578,7 @@ export class StationSimulator {
         const gcs_txId = gcs_evseId === 0 ? null : this.getActiveTransactionSync(gcs_evseId);
         const gcs_txStart = gcs_evseId === 0 ? null : this.evseTransactionStartTime.get(gcs_evseId);
         const gcs_periods = computeCompositeSchedule({
-          profiles: Array.from(this.chargingProfilesCache.values()),
+          profiles: this.compositeProfiles(),
           evseId: gcs_evseId,
           now: gcs_now,
           durationS: gcs_duration,
@@ -5665,12 +5677,14 @@ export class StationSimulator {
               _chargingLimitSource: _unused2,
               _setAt: _unused3,
               _invalidated: _unused4,
+              _transactionId: _unused5,
               ...rest
             } = p;
             void _unused;
             void _unused2;
             void _unused3;
             void _unused4;
+            void _unused5;
             groups.set(key, [...(groups.get(key) ?? []), rest]);
           }
           const reports = Array.from(groups.entries());
@@ -9236,7 +9250,6 @@ export class StationSimulator {
           ctx.authorizedTokenType = null;
           ctx.remoteStartId = null;
         }
-        this.evsePowerLimits.set(evseId, null);
         this.evseIdle.set(evseId, false);
         this.evseChargingState.set(evseId, null);
         this.evseSeqNo.set(evseId, 0);
@@ -9416,6 +9429,11 @@ export class StationSimulator {
     if (ctx?.transactionId === localTxId) ctx.transactionId = realTxId;
     if (this.activeTransactionIds.get(evseId) === localTxId) {
       this.activeTransactionIds.set(evseId, realTxId);
+    }
+    for (const [profileId, profile] of this.chargingProfilesCache.entries()) {
+      if (profile['_transactionId'] === localTxId) {
+        this.chargingProfilesCache.set(profileId, { ...profile, _transactionId: realTxId });
+      }
     }
     const startToken = this.transactionStartTokens.get(localTxId);
     if (startToken != null) {
@@ -9646,6 +9664,15 @@ export class StationSimulator {
 
       // Advance simulation state
       gen.tick(idle, this.powerLimitFor(evseId));
+      if (!idle && gen.socPercent >= 100 && this.getActiveTransactionSync(evseId) != null) {
+        // A full battery: the EV stops drawing power.
+        void this.suspendCharging(evseId, 'EV').catch((err: unknown) => {
+          logger.warn(
+            { err, stationId: this.config.stationId, evseId },
+            'Report of a full battery failed',
+          );
+        });
+      }
 
       // N07: threshold and delta monitors on the EVSE Power
       if (!this.is16) {
@@ -10216,24 +10243,92 @@ export class StationSimulator {
   private readonly activeTransactionIds = new Map<number, string>();
 
   /**
-   * Power limit an EVSE charges at: its own profile limit and its even share
-   * of the station-wide limit among the EVSEs with a transaction.
+   * Power limit (W) an EVSE charges at now: the composite of its TxProfile (or
+   * TxDefaultProfile) and its own external constraints at the current time, and
+   * its even share of the station-wide limit (ChargingStationMaxProfile and
+   * ChargingStationExternalConstraints on EVSE 0) among the EVSEs with a
+   * transaction. Null when no profile limits it.
    */
   private powerLimitFor(evseId: number): number | null {
-    const own = this.evsePowerLimits.get(evseId) ?? null;
-    if (this.stationPowerLimitW == null) return own;
-    const charging = this.config.evses.filter(
-      (e) => this.getActiveTransactionSync(e.evseId) != null,
-    ).length;
-    const share = this.stationPowerLimitW / Math.max(1, charging);
-    return own == null ? share : Math.min(own, share);
+    const now = new Date();
+    const profiles = this.compositeProfiles();
+    const stationWide = (p: Record<string, unknown>): boolean =>
+      ((p['_evseId'] as number | undefined) ?? 0) === 0 &&
+      (p['chargingProfilePurpose'] === 'ChargingStationMaxProfile' ||
+        p['chargingProfilePurpose'] === 'ChargingStationExternalConstraints');
+    const stationMax = profiles.filter(stationWide);
+    const evseProfiles = profiles.filter((p) => !stationWide(p));
+    const evse = this.config.evses.find((e) => e.evseId === evseId);
+    const txStart = this.evseTransactionStartTime.get(evseId);
+    const own =
+      evse == null
+        ? null
+        : limitNowW({
+            profiles: evseProfiles,
+            evseId,
+            now,
+            voltage: evse.voltage,
+            phases: evse.phases,
+            transactionId: this.getActiveTransactionSync(evseId),
+            transactionStart: txStart != null ? new Date(txStart) : null,
+          });
+    const first = this.config.evses[0];
+    const station =
+      first == null || stationMax.length === 0
+        ? null
+        : limitNowW({
+            profiles: stationMax,
+            evseId: 0,
+            now,
+            voltage: first.voltage,
+            phases: first.phases,
+            transactionId: null,
+            transactionStart: null,
+          });
+    let limit = own;
+    if (station != null) {
+      const charging = this.config.evses.filter(
+        (e) => this.getActiveTransactionSync(e.evseId) != null,
+      ).length;
+      const share = station / Math.max(1, charging);
+      limit = limit == null ? share : Math.min(limit, share);
+    }
+    const error = this.config.profileFollowError;
+    if (limit != null && error != null && Number.isFinite(error) && error > -1) {
+      return limit * (1 + error);
+    }
+    return limit;
   }
 
-  // A limit in A is per phase: W = A x voltage x phases of the first EVSE.
-  private limitToWatts(limit: number, unit: string | undefined): number {
-    if (unit !== 'A') return limit;
-    const evse = this.config.evses[0];
-    return evse == null ? limit : limit * evse.voltage * Math.max(1, evse.phases);
+  /** Stamps the TxProfiles stored on the EVSE without a transaction (RequestStartTransaction) with it. */
+  private stampTxProfiles(evseId: number, txId: string): void {
+    for (const [profileId, profile] of this.chargingProfilesCache.entries()) {
+      if (
+        profile['chargingProfilePurpose'] === 'TxProfile' &&
+        profile['_evseId'] === evseId &&
+        profileTxId(profile) == null
+      ) {
+        this.chargingProfilesCache.set(profileId, { ...profile, _transactionId: txId });
+      }
+    }
+  }
+
+  /**
+   * The stored profiles in the 2.1 shape the composite schedule reads: a 1.6
+   * ChargePointMaxProfile counts as ChargingStationMaxProfile, and a
+   * TxProfile's transaction id is a string (a 1.6 id is a number, and one set
+   * without an id names the transaction running when it was set).
+   */
+  private compositeProfiles(): Array<Record<string, unknown>> {
+    return Array.from(this.chargingProfilesCache.values(), (p) => {
+      const purpose = p['chargingProfilePurpose'];
+      return {
+        ...p,
+        chargingProfilePurpose:
+          purpose === 'ChargePointMaxProfile' ? 'ChargingStationMaxProfile' : purpose,
+        transactionId: profileTxId(p) ?? undefined,
+      };
+    });
   }
 
   private getActiveTransactionSync(evseId: number): string | null {
@@ -10713,6 +10808,7 @@ export class StationSimulator {
   ): Promise<void> {
     // Track in memory for sync access
     this.activeTransactionIds.set(evseId, txId);
+    this.stampTxProfiles(evseId, txId);
 
     // Mark default tariffs as in use for this transaction (OCPP 2.1 only)
     if (!this.is16) {
@@ -10777,6 +10873,12 @@ export class StationSimulator {
       if (id === txId) {
         this.activeTransactionIds.delete(evseId);
         break;
+      }
+    }
+    // A TxProfile ends with its transaction (2.1 K01, 1.6 3.13.4).
+    for (const [profileId, profile] of this.chargingProfilesCache.entries()) {
+      if (profile['chargingProfilePurpose'] === 'TxProfile' && profileTxId(profile) === txId) {
+        this.chargingProfilesCache.delete(profileId);
       }
     }
 

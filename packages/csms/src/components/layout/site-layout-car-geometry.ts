@@ -4,7 +4,7 @@
 // The cars of the 3D site layout, built in code from the side profiles of
 // site-layout-car.ts: a smooth painted lower body with rounded edges and wheel
 // arches, a tinted greenhouse with a painted roof and pillars, tires with
-// spoked rims, head and tail lights, mirrors, a grille and the charge port.
+// spoked rims, head and tail lights, mirrors, a grille and the charge inlet.
 //
 // A kit holds the geometries of one body type; every car of that type (any
 // color) shares them, so a site of 150 stations builds five kits at most. The
@@ -20,7 +20,10 @@ import {
   type CarProfile,
   type ProfilePoint,
 } from './site-layout-car';
+import { plugYaw, type ConnectorKind } from './site-layout-connectors';
 import { createCarDoorDetailKit } from './site-layout-model-car-doors';
+import { createVehicleInletKit } from './site-layout-model-vehicle-inlet';
+import { defaultPlugOf, type VehicleInletKind } from './site-layout-vehicle-inlet';
 import type { Vec3 } from './site-layout-model-kit';
 import { carMirrorStalk } from './site-layout-model-vehicle-mirror';
 import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
@@ -313,7 +316,23 @@ export function carMirrorParts(
   });
 }
 
-export function createCarKit(bodyType: CarBodyType, chargePort: CarPort = 'front_left'): CarKit {
+/**
+ * The x side, in the inlet frame of a port (`plugYaw`), toward the middle of
+ * the car: a front port's middle is behind it, a rear port's ahead of it.
+ */
+export function inletMiddleSide(port: CarPort): -1 | 1 {
+  if (port === 'front_center') return 1;
+  // Left ports turn the inlet frame's +x toward the nose, right ports toward the tail.
+  const towardNose = port.endsWith('left') ? 1 : -1;
+  return (port.startsWith('front') ? -towardNose : towardNose) as -1 | 1;
+}
+
+export function createCarKit(
+  bodyType: CarBodyType,
+  chargePort: CarPort = 'front_left',
+  inlet: VehicleInletKind = 'ccs1',
+  plug: ConnectorKind | null = defaultPlugOf(inlet),
+): CarKit {
   const p = CAR_PROFILES[bodyType];
   const W = p.width;
   const r = p.wheelRadius;
@@ -342,14 +361,6 @@ export function createCarKit(bodyType: CarBodyType, chargePort: CarPort = 'front
   const mirror = roundedBox(0.2, 0.11, 0.09, 0.035);
   const grille = roundedBox(W * 0.5, 0.12, 0.06, 0.03);
   const pillar = new THREE.BoxGeometry(0.06, 1, 0.07);
-  // The charge port door: on a side panel, or across the nose for a nose port.
-  const nosePort = chargePort === 'front_center';
-  const socket = nosePort
-    ? new THREE.BoxGeometry(0.18, 0.14, 0.03)
-    : new THREE.BoxGeometry(0.03, 0.14, 0.18);
-  const socketLight = nosePort
-    ? new THREE.BoxGeometry(0.12, 0.03, 0.035)
-    : new THREE.BoxGeometry(0.035, 0.03, 0.12);
   const bedLength = p.bed != null ? p.bed[1] - p.bed[0] : 0;
   const bed = p.bed != null ? roundedBox(W - 0.22, 0.05, bedLength, 0.02) : null;
   const parts: THREE.BufferGeometry[] = [
@@ -365,8 +376,6 @@ export function createCarKit(bodyType: CarBodyType, chargePort: CarPort = 'front
     mirror,
     grille,
     pillar,
-    socket,
-    socketLight,
     ...(bed != null ? [bed] : []),
   ];
   // The mirror heads at the windshield base, each on a stalk from the door top
@@ -393,10 +402,20 @@ export function createCarKit(bodyType: CarBodyType, chargePort: CarPort = 'front
     profile: p,
     edgeAt,
     bPillarU: bU,
-    chargePort,
-    port: portAt,
   });
   parts.push(...doors.geometries);
+  // The charge inlet at the port (site-layout-model-vehicle-inlet.ts), in the
+  // plugged handle's frame: turned by the handle's yaw, its door hinged toward
+  // the car's middle and a CHAdeMO car's AC inlet toward the car's end.
+  const nosePort = chargePort === 'front_center';
+  const yaw = plugYaw(portAt, 0, nosePort);
+  const inletKit = createVehicleInletKit({
+    kind: inlet,
+    plug,
+    side: inletMiddleSide(chargePort),
+    nose: nosePort,
+  });
+  parts.push(...inletKit.geometries);
 
   function assemble(m: CarMaterials): THREE.Group {
     const g = new THREE.Group();
@@ -482,15 +501,11 @@ export function createCarKit(bodyType: CarBodyType, chargePort: CarPort = 'front
     }
     // Door gaps, handles, window trim and the open port door.
     g.add(doors.build(m));
-    // The charge port (`carPortLocal`), with its status light above it.
-    const s = add(socket, m.trim);
-    s.position.copy(port);
-    const light = add(socketLight, m.chargePort);
-    light.position.set(
-      nosePort ? port.x : port.x + Math.sign(port.x) * 0.005,
-      port.y + 0.09,
-      nosePort ? port.z - 0.005 : port.z,
-    );
+    // The charge inlet at the port (`carPortLocal`).
+    const inletGroup = inletKit.build(m);
+    inletGroup.position.copy(port);
+    inletGroup.rotation.y = yaw;
+    g.add(inletGroup);
     return g;
   }
 

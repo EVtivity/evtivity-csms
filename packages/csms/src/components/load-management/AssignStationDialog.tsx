@@ -12,6 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { Zap } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -73,7 +74,7 @@ export function AssignStationDialog({
     >
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>{t('loadManagement.assignStation')}</DialogTitle>
+          <DialogTitle>{t('loadManagement.addStation')}</DialogTitle>
         </DialogHeader>
 
         {availableStations.length === 0 ? (
@@ -101,7 +102,7 @@ export function AssignStationDialog({
                   variant={station.isOnline ? 'success' : 'outline'}
                   className="text-xs ml-auto"
                 >
-                  {station.isOnline ? 'Online' : 'Offline'}
+                  {station.isOnline ? t('status.online') : t('status.offline')}
                 </Badge>
               </button>
             ))}
@@ -112,14 +113,13 @@ export function AssignStationDialog({
           <Button variant="outline" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button
+          <CreateButton
+            label={t('loadManagement.addStation')}
             disabled={selectedId == null || mutation.isPending}
             onClick={() => {
               if (selectedId != null) mutation.mutate(selectedId);
             }}
-          >
-            {mutation.isPending ? t('common.loading') : t('loadManagement.assignStation')}
-          </Button>
+          />
         </DialogFooter>
       </DialogContent>
     </Dialog>

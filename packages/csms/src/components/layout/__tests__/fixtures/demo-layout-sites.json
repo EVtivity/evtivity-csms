@@ -11,35 +11,47 @@
         "chargerPlacement": "lot_edge",
         "transformers": [
           {
-            "id": "tx-1",
-            "name": "Utility Transformer",
-            "ratedKva": 2500,
+            "id": "tfm_15eea96c4372",
             "x": -2.5,
             "z": 2.5
-          },
-          {
-            "id": "tx-2",
-            "name": "Solar Carport Tie-In",
-            "ratedKva": 750,
-            "x": -2.5,
-            "z": -3.5
           }
         ],
         "energyAssets": [
           {
-            "id": "bat-1",
-            "type": "battery",
-            "name": "Battery Storage",
-            "capacityKwh": 1000,
+            "id": "ena_1489bd551124",
             "x": -7.5,
             "z": -3.5
           },
           {
-            "id": "pv-1",
+            "id": "ena_274c6d1fd1cd",
+            "row": 0
+          }
+        ]
+      },
+      "powerEquipment": {
+        "transformers": [
+          {
+            "id": "tfm_15eea96c4372",
+            "kind": "service",
+            "name": "Utility Transformer",
+            "ratedKva": 2500,
+            "maxContinuousKw": 2375
+          }
+        ],
+        "energyAssets": [
+          {
+            "id": "ena_1489bd551124",
+            "type": "battery",
+            "name": "Battery Storage",
+            "capacityKwh": 1000,
+            "peakKwp": null
+          },
+          {
+            "id": "ena_274c6d1fd1cd",
             "type": "solar",
             "name": "Solar Carport",
-            "capacityKwp": 180,
-            "row": 0
+            "capacityKwh": null,
+            "peakKwp": 18
           }
         ]
       },
@@ -47,6 +59,7 @@
         {
           "id": "pnl_demolayout01",
           "parentPanelId": null,
+          "transformerId": "tfm_15eea96c4372",
           "name": "Main Switchboard",
           "breakerRatingAmps": 4000,
           "maxContinuousKw": 2659.2,
@@ -92,6 +105,7 @@
         {
           "id": "pnl_demolayout02",
           "parentPanelId": "pnl_demolayout01",
+          "transformerId": null,
           "name": "Distribution Switchboard B",
           "breakerRatingAmps": 1600,
           "maxContinuousKw": 1063.68,
@@ -243,10 +257,15 @@
         "mounting": "wall",
         "transformers": []
       },
+      "powerEquipment": {
+        "transformers": [],
+        "energyAssets": []
+      },
       "panels": [
         {
           "id": "pnl_demolayout03",
           "parentPanelId": null,
+          "transformerId": null,
           "name": "Main Switchboard",
           "breakerRatingAmps": 800,
           "maxContinuousKw": 230.4,
@@ -255,6 +274,7 @@
         {
           "id": "pnl_demolayout04",
           "parentPanelId": "pnl_demolayout03",
+          "transformerId": null,
           "name": "Panelboard LP-1",
           "breakerRatingAmps": 225,
           "maxContinuousKw": 64.8,
@@ -294,6 +314,7 @@
         {
           "id": "pnl_demolayout10",
           "parentPanelId": "pnl_demolayout03",
+          "transformerId": null,
           "name": "Panelboard LP-2",
           "breakerRatingAmps": 225,
           "maxContinuousKw": 64.8,
@@ -436,10 +457,15 @@
         "mounting": "stall",
         "transformers": []
       },
+      "powerEquipment": {
+        "transformers": [],
+        "energyAssets": []
+      },
       "panels": [
         {
           "id": "pnl_demolayout05",
           "parentPanelId": null,
+          "transformerId": null,
           "name": "Main Switchboard",
           "breakerRatingAmps": 400,
           "maxContinuousKw": 115.2,
@@ -448,6 +474,7 @@
         {
           "id": "pnl_demolayout11",
           "parentPanelId": "pnl_demolayout05",
+          "transformerId": null,
           "name": "Panelboard LP-1",
           "breakerRatingAmps": 225,
           "maxContinuousKw": 64.8,
@@ -528,27 +555,19 @@
         "facingDeg": 0,
         "transformers": [
           {
-            "id": "tx-1",
-            "name": "Pad Transformer",
-            "ratedKva": 1000,
+            "id": "tfm_51570c0c185a",
             "x": -26.5,
             "z": -21
           }
         ],
         "energyAssets": [
           {
-            "id": "bat-1",
-            "type": "battery",
-            "name": "Battery Storage",
-            "capacityKwh": 500,
+            "id": "ena_6364a56b8794",
             "x": -26.5,
             "z": -25.5
           },
           {
-            "id": "pv-1",
-            "type": "solar",
-            "name": "Solar Carport",
-            "capacityKwp": 10,
+            "id": "ena_6bb784fc1b8f",
             "row": 0,
             "x": 4.5,
             "z": -23,
@@ -556,10 +575,45 @@
           }
         ]
       },
+      "powerEquipment": {
+        "transformers": [
+          {
+            "id": "tfm_51570c0c185a",
+            "kind": "service",
+            "name": "Pad Transformer",
+            "ratedKva": 750,
+            "maxContinuousKw": 712.5
+          },
+          {
+            "id": "tfm_b709cf86e7c7",
+            "kind": "step_down",
+            "name": "Step-Down Transformer LP-1",
+            "ratedKva": 75,
+            "maxContinuousKw": 71.25
+          }
+        ],
+        "energyAssets": [
+          {
+            "id": "ena_6364a56b8794",
+            "type": "battery",
+            "name": "Battery Storage",
+            "capacityKwh": 500,
+            "peakKwp": null
+          },
+          {
+            "id": "ena_6bb784fc1b8f",
+            "type": "solar",
+            "name": "Solar Carport",
+            "capacityKwh": null,
+            "peakKwp": 9
+          }
+        ]
+      },
       "panels": [
         {
           "id": "pnl_demolayout07",
           "parentPanelId": null,
+          "transformerId": "tfm_51570c0c185a",
           "name": "Main Switchboard",
           "breakerRatingAmps": 1200,
           "maxContinuousKw": 797.76,
@@ -587,6 +641,7 @@
         {
           "id": "pnl_demolayout14",
           "parentPanelId": "pnl_demolayout07",
+          "transformerId": "tfm_b709cf86e7c7",
           "name": "Panelboard LP-1",
           "breakerRatingAmps": 225,
           "maxContinuousKw": 64.8,
@@ -743,28 +798,48 @@
         "truckLanes": 3,
         "transformers": [
           {
-            "id": "tx-1",
-            "name": "Bus Charging Transformer",
-            "ratedKva": 2500,
+            "id": "tfm_66e917b3c04a",
             "x": 0,
             "z": -6.1
           },
           {
-            "id": "tx-2",
-            "name": "Truck Charging Transformer",
-            "ratedKva": 3750,
+            "id": "tfm_019cc1ea0e79",
             "x": 68,
             "z": -10.1
           }
         ],
         "energyAssets": [
           {
-            "id": "bat-1",
+            "id": "ena_1825e3f41b30",
+            "x": 5.5,
+            "z": -6.1
+          }
+        ]
+      },
+      "powerEquipment": {
+        "transformers": [
+          {
+            "id": "tfm_66e917b3c04a",
+            "kind": "service",
+            "name": "Bus Charging Transformer",
+            "ratedKva": 2000,
+            "maxContinuousKw": 1900
+          },
+          {
+            "id": "tfm_019cc1ea0e79",
+            "kind": "service",
+            "name": "Truck Charging Transformer",
+            "ratedKva": 3000,
+            "maxContinuousKw": 2850
+          }
+        ],
+        "energyAssets": [
+          {
+            "id": "ena_1825e3f41b30",
             "type": "battery",
             "name": "Depot Battery Storage",
             "capacityKwh": 2000,
-            "x": 5.5,
-            "z": -6.1
+            "peakKwp": null
           }
         ]
       },
@@ -772,6 +847,7 @@
         {
           "id": "pnl_demolayout08",
           "parentPanelId": null,
+          "transformerId": "tfm_66e917b3c04a",
           "name": "Bus Charging Switchboard",
           "breakerRatingAmps": 4000,
           "maxContinuousKw": 2659.2,
@@ -797,20 +873,21 @@
             {
               "id": "cir_demolayout10",
               "name": "Charger CS-3045",
-              "breakerRatingAmps": 250,
-              "maxContinuousKw": 166.2
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
             },
             {
               "id": "cir_demoevse46",
               "name": "Charger CS-3046",
-              "breakerRatingAmps": 250,
-              "maxContinuousKw": 166.2
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
             }
           ]
         },
         {
           "id": "pnl_demolayout09",
           "parentPanelId": null,
+          "transformerId": "tfm_019cc1ea0e79",
           "name": "Truck Charging Switchboard",
           "breakerRatingAmps": 4000,
           "maxContinuousKw": 2659.2,
@@ -922,11 +999,35 @@
         "chargerPlacement": "islands",
         "transformers": [
           {
-            "id": "tx-1",
-            "name": "Utility Transformer",
-            "ratedKva": 1000,
+            "id": "tfm_5413386688ab",
             "x": -2.5,
             "z": 2.5
+          }
+        ],
+        "energyAssets": []
+      },
+      "powerEquipment": {
+        "transformers": [
+          {
+            "id": "tfm_5413386688ab",
+            "kind": "service",
+            "name": "Utility Transformer",
+            "ratedKva": 1000,
+            "maxContinuousKw": 950
+          },
+          {
+            "id": "tfm_cb7734444192",
+            "kind": "step_down",
+            "name": "Step-Down Transformer LP-1",
+            "ratedKva": 75,
+            "maxContinuousKw": 71.25
+          },
+          {
+            "id": "tfm_f8ccefded9b2",
+            "kind": "step_down",
+            "name": "Step-Down Transformer LP-2",
+            "ratedKva": 75,
+            "maxContinuousKw": 71.25
           }
         ],
         "energyAssets": []
@@ -935,6 +1036,7 @@
         {
           "id": "pnl_demolayout15",
           "parentPanelId": null,
+          "transformerId": "tfm_5413386688ab",
           "name": "Main Switchboard",
           "breakerRatingAmps": 1600,
           "maxContinuousKw": 1063.68,
@@ -968,6 +1070,7 @@
         {
           "id": "pnl_demolayout16",
           "parentPanelId": "pnl_demolayout15",
+          "transformerId": "tfm_cb7734444192",
           "name": "Panelboard LP-1",
           "breakerRatingAmps": 225,
           "maxContinuousKw": 64.8,
@@ -1001,6 +1104,7 @@
         {
           "id": "pnl_demolayout17",
           "parentPanelId": "pnl_demolayout15",
+          "transformerId": "tfm_f8ccefded9b2",
           "name": "Panelboard LP-2",
           "breakerRatingAmps": 225,
           "maxContinuousKw": 64.8,

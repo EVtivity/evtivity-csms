@@ -8,7 +8,7 @@
     "allTime": "全部時間",
     "last30Days": "最近 30 天",
     "summaryLabel": "{label}：",
-    "noSite": "無站點",
+    "noSite": "無充電站",
     "unknown": "未知",
     "yes": "是",
     "no": "否",
@@ -19,7 +19,7 @@
   },
   "columns": {
     "date": "日期",
-    "site": "站點",
+    "site": "充電站",
     "station": "充電樁",
     "stations": "充電樁數",
     "driver": "駕駛員",
@@ -39,7 +39,7 @@
     "title": "營收報告",
     "sheets": {
       "byDay": "依日",
-      "bySite": "依站點",
+      "bySite": "依充電站",
       "payments": "付款"
     },
     "columns": {
@@ -67,7 +67,7 @@
     "sheets": {
       "byDay": "依日",
       "byStation": "依充電樁",
-      "bySite": "依站點"
+      "bySite": "依充電站"
     },
     "columns": {
       "avgKwhPerSession": "每次工作階段平均 kWh"
@@ -129,7 +129,7 @@
   "utilization": {
     "title": "使用率報告",
     "sheets": {
-      "bySite": "依站點",
+      "bySite": "依充電站",
       "byStation": "依充電樁",
       "peakHours": "尖峰時段"
     },
@@ -171,7 +171,7 @@
     "sheets": {
       "summary": "摘要",
       "configuration": "設定",
-      "bySite": "依站點",
+      "bySite": "依充電站",
       "dailyEnergy": "每日電量"
     },
     "columns": {

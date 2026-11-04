@@ -18,12 +18,22 @@ import { SIM_RETENTION_DAYS, SIM_SETTING_KEYS } from '../sim-settings.js';
 describe('data retention settings', () => {
   it('lists every retention key once, in a known group', () => {
     expect(new Set(DATA_RETENTION_KEYS).size).toBe(DATA_RETENTION_KEYS.length);
-    expect(DATA_RETENTION_KEYS).toHaveLength(16);
+    expect(DATA_RETENTION_KEYS).toHaveLength(17);
     for (const def of Object.values(DATA_RETENTION_SETTINGS)) {
       expect(DATA_RETENTION_GROUPS).toContain(def.group);
       expect(def.defaultDays).toBeGreaterThanOrEqual(def.min);
       expect(def.defaultDays).toBeLessThanOrEqual(def.max);
     }
+  });
+
+  it('keeps departures 365 days by default, an operational log of 0 to 3650 days', () => {
+    expect(DATA_RETENTION_SETTINGS['logs.departures.retentionDays']).toMatchObject({
+      group: 'operationalLogs',
+      defaultDays: 365,
+      min: 0,
+      max: 3650,
+      keepForever: true,
+    });
   });
 
   it('reuses the AI and SIM bounds', () => {

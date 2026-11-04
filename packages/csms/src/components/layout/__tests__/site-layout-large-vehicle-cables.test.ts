@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { INLET, inletDoorBounds } from '../site-layout-vehicle-inlet';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { freeSpotRects } from '@evtivity/lib/site-layout';
@@ -234,9 +235,12 @@ describe('MCS truck inlet', () => {
     expect(semi.port.y - 0.13).toBeGreaterThan(box.centerY - box.heightM / 2);
     expect(semi.port.y + 0.18).toBeLessThan(box.centerY + box.heightM / 2);
     expect(Math.abs(semi.port.z - box.centerZ)).toBeLessThan(box.lengthM / 2 - 0.15);
-    // The socket stands on the box face, the box on the left frame rail.
-    expect(-kit.port.x - box.outerX).toBeGreaterThan(0);
-    expect(-kit.port.x - box.outerX).toBeLessThan(0.05);
+    // The plug face sits in the inlet on the box face, the box on the left frame rail.
+    expect(box.outerX + kit.port.x).toBeCloseTo(INLET.seatM, 9);
+    const door = inletDoorBounds('mcs');
+    expect(semi.port.y + door.minY).toBeGreaterThan(box.centerY - box.heightM / 2);
+    expect(semi.port.y + door.maxY).toBeLessThan(box.centerY + box.heightM / 2);
+    expect(door.maxX - door.minX).toBeLessThan(box.lengthM);
   });
 
   it('keeps the MCS arm cable outside the truck side down to the inlet', () => {

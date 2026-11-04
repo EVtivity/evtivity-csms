@@ -47,6 +47,7 @@ import {
   parkingChargerOnIsland,
   parkingChargersAtBack,
   parkingChargerZ,
+  parkingHeadStrip,
   parkingRowGap,
   parkingRowZ,
   CHARGER_BEHIND_STALL_HEAD_M,
@@ -233,12 +234,21 @@ export interface RowGap {
   maxZ: number;
 }
 
-/** The aisles and islands between the rows of a parking lot (none on the other site types). */
+/**
+ * The aisles and islands between the rows of a parking lot (none on the other
+ * site types). A charger strip at the head of a row (`parkingHeadStrip`) is an
+ * island of its own before the aisle.
+ */
 export function parkingRowGaps(lot: Lot): RowGap[] {
   if (lot.siteType !== 'parking_lot') return [];
   const gaps: RowGap[] = [];
   for (let r = 0; r + 1 < lot.rows; r++) {
-    const minZ = parkingRowZ(r, lot.rows) + lot.spotD;
+    let minZ = parkingRowZ(r, lot.rows) + lot.spotD;
+    if (parkingHeadStrip(r, lot.rows)) {
+      const strip = STANDARD_DIMENSIONS.islandWidthM;
+      gaps.push({ kind: 'island', minZ, maxZ: minZ + strip });
+      minZ += strip;
+    }
     gaps.push({ kind: parkingRowGap(r, lot.rows), minZ, maxZ: parkingRowZ(r + 1, lot.rows) });
   }
   return gaps;
@@ -367,10 +377,9 @@ export const AC_PAD_FRONT_Z = 0.45;
  * The stall keeps its full depth and its wheel stop the 2 ft setback from the
  * stall head (`WHEEL_STOP`). A DC dispenser keeps its place in the head of
  * its spot, behind its bollards; a wall box hangs on the facade; an island
- * charger already stands behind its curb. A row whose charger edge faces a
- * drive aisle (the next to last row of an odd Islands lot) has no curb to
- * stand behind: its pedestal stays in the head of its spot
- * (`WheelStopMount` `pedestal`).
+ * charger already stands behind its curb, and so does a charger of the next
+ * to last row of an odd lot, on the charger strip at its head
+ * (`parkingHeadStrip`).
  */
 export function chargerBehindStallHead(
   bay: LayoutBay,
@@ -412,11 +421,11 @@ export function stationBackShift(
  * What a wheel stop is set back from: the stall head line at a curb (an AC
  * pedestal stands behind it: on an island, behind the curb strip of a lot
  * edge, on an office or retail sidewalk, on the apron behind a custom site's
- * car spot), the front of the stall at a building (a wall box hangs on the
- * facade behind the sidewalk), or the pad of a pedestal that stands in the
- * head of its spot because its row's head faces a drive aisle.
+ * car spot, on a charger strip), or the front of the stall at a building (a
+ * wall box hangs on the facade behind the sidewalk). No AC pedestal stands in
+ * its stall.
  */
-export type WheelStopMount = 'curb' | 'wall' | 'pedestal';
+export type WheelStopMount = 'curb' | 'wall';
 
 /**
  * Whether a station's spots get wheel stops, and measured from what
@@ -432,8 +441,6 @@ export function wheelStopMount(input: {
   onSpot: boolean;
   /** A custom site station with bus bays or truck lanes. */
   largeSpot: boolean;
-  /** The charger stands behind a curb at the head of its spot (`chargerAtCurb`). */
-  curb: boolean;
 }): WheelStopMount | null {
   if (input.kind !== 'ac' || input.largeSpot) return null;
   switch (input.siteType) {
@@ -442,7 +449,7 @@ export function wheelStopMount(input: {
     case 'parking_lot':
     case 'office_retail':
       if (!input.onSpot) return null;
-      return input.wall ? 'wall' : input.curb ? 'curb' : 'pedestal';
+      return input.wall ? 'wall' : 'curb';
     default:
       return null;
   }
@@ -452,28 +459,18 @@ export function wheelStopMount(input: {
  * The stall head line of a station's spot (where the stall begins, toward
  * the charger), in the station's own z: `CHARGER_BEHIND_STALL_HEAD_M` in
  * front of a pedestal behind its curb, else the front edge of the spot,
- * BAY_STATION_Z before the spot point (a wall box, and a pedestal in the
- * head of its spot).
+ * BAY_STATION_Z before the spot point (a wall box).
  */
 export function stallHeadZ(mount: WheelStopMount): number {
   return mount === 'curb' ? CHARGER_BEHIND_STALL_HEAD_M : -BAY_STATION_Z;
 }
 
-/** How far in front of its pad the stop of a pedestal in the head of its spot stands (CPF50: 900 mm, 3 ft). */
-export const PEDESTAL_STOP_FROM_PAD_M = 0.9;
-
 /**
  * The near face of the wheel stop (toward the charger), in the station's own
- * z: `WHEEL_STOP.fromStallHeadM` from the stall head line; at a pedestal in
- * the head of its spot no nearer than `PEDESTAL_STOP_FROM_PAD_M` in front of
- * its pad (the ChargePoint CPF50 guide: "wheel stops 900 mm (3 ft) from the
- * front of each stall"), so the car's overhang stops short of the pedestal.
+ * z: `WHEEL_STOP.fromStallHeadM` from the stall head line.
  */
 export function wheelStopNearZ(mount: WheelStopMount): number {
-  const fromHead = stallHeadZ(mount) + WHEEL_STOP.fromStallHeadM;
-  return mount === 'pedestal'
-    ? Math.max(fromHead, AC_PAD_FRONT_Z + PEDESTAL_STOP_FROM_PAD_M)
-    : fromHead;
+  return stallHeadZ(mount) + WHEEL_STOP.fromStallHeadM;
 }
 
 /** The middle of the wheel stop along the spot, in the station's own z. */

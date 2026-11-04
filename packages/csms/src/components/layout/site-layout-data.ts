@@ -10,8 +10,13 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
+  NO_POWER_EQUIPMENT,
   effectiveLayoutSettings,
+  placePowerEquipment,
+  layoutStationPlaces,
   positionToBay,
+  type LayoutPowerEquipment,
+  type PlacedLayoutSettings,
   type SiteLayoutSettings,
 } from '@evtivity/lib/site-layout';
 import { api } from '@/lib/api';
@@ -19,7 +24,7 @@ import { useHasPermission } from '@/lib/auth';
 import type { LayoutStation } from './StationCard';
 import { isCaliforniaSite } from './site-layout-signs';
 import { layoutStationCountsOf } from './site-layout-free';
-import type { LinkPanel } from './site-layout-links';
+import type { HierarchyLinkNode } from './site-layout-links';
 import { useSiteTerminals, type LayoutTerminal } from './layout-terminals';
 import {
   LIVE_INSIGHT_STATUS_FILTER,
@@ -43,7 +48,7 @@ export interface LoadManagementResponse {
     strategy: string;
     isEnabled: boolean;
   } | null;
-  hierarchy: LinkPanel[];
+  hierarchy: HierarchyLinkNode[];
   stations: LoadManagementStation[];
 }
 
@@ -90,10 +95,13 @@ export function useBrandingLogo(): string | null {
 
 export interface SiteLayoutView {
   stations: LayoutStation[];
-  settings: SiteLayoutSettings;
+  /** The effective settings with the site's power equipment at its positions. */
+  settings: PlacedLayoutSettings;
   terminals: Map<string, LayoutTerminal[]>;
   /** The site's panels and circuits, null without loadManagement:read (equipment shows either way). */
-  hierarchy: LinkPanel[] | null;
+  hierarchy: HierarchyLinkNode[] | null;
+  /** The site's transformers and energy assets (names and ratings). */
+  equipment: LayoutPowerEquipment;
   /** Load management is on: the cable runs and the live power show only then. */
   loadManaged: boolean;
   logoUrl: string | null;
@@ -126,6 +134,7 @@ export function useSiteLayoutView(siteId: string, live: boolean): SiteLayoutView
         state?: string | null;
         country?: string | null;
         layoutSettings: SiteLayoutSettings | null;
+        powerEquipment?: LayoutPowerEquipment;
       }>(`/v1/sites/${siteId}`),
     enabled,
   });
@@ -143,15 +152,18 @@ export function useSiteLayoutView(siteId: string, live: boolean): SiteLayoutView
   });
 
   const stations = useMemo(() => placedLayoutStations(layout.data ?? []), [layout.data]);
-  const settings = useMemo(
-    () =>
-      effectiveLayoutSettings(
-        site.data?.layoutSettings,
-        stations.map((s) => positionToBay({ x: s.positionX, y: s.positionY })),
-        layoutStationCountsOf(stations),
-      ),
-    [site.data, stations],
-  );
+  const settings = useMemo(() => {
+    const effective = effectiveLayoutSettings(
+      site.data?.layoutSettings,
+      stations.map((s) => positionToBay({ x: s.positionX, y: s.positionY })),
+      layoutStationCountsOf(stations),
+    );
+    return placePowerEquipment(
+      effective,
+      site.data?.powerEquipment ?? NO_POWER_EQUIPMENT,
+      layoutStationPlaces(stations, effective),
+    );
+  }, [site.data, stations]);
   const power = useMemo(() => {
     const map = new Map<string, { currentDrawKw: number; allocatedLimitKw: number | null }>();
     for (const s of loadManagement.data?.stations ?? []) {
@@ -166,6 +178,7 @@ export function useSiteLayoutView(siteId: string, live: boolean): SiteLayoutView
     settings,
     terminals,
     hierarchy: lm?.hierarchy ?? null,
+    equipment: site.data?.powerEquipment ?? NO_POWER_EQUIPMENT,
     loadManaged: lm?.config?.isEnabled === true,
     logoUrl,
     siteName: site.data?.name,

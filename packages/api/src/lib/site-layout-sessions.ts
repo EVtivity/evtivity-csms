@@ -6,10 +6,23 @@
 // the session needs sessions:read, its driver drivers:read too. An erased
 // driver shows as no driver. Avatars go through `withAvatars`, the one avatar
 // read path. The car (`vehicle`: color and body type, no make, model or
-// plate) shows with sessions:read alone: it names nobody.
+// plate) shows with sessions:read alone: it names nobody. The departure the
+// session charges for (route-aware charging) shows only when the route passes
+// the site, which it does with fleets:read; it carries no vehicle or driver id,
+// and its readiness only while the site's depot plan runs.
 
-import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
-import { db, chargingSessions, drivers, vehicles } from '@evtivity/database';
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import {
+  db,
+  chargingSessions,
+  drivers,
+  isFleetChargingEnabled,
+  siteLoadManagement,
+  sites,
+  vehicleDepartures,
+  vehicles,
+} from '@evtivity/database';
+import type { DepartureReadiness, DepartureReadinessReason } from '@evtivity/lib/charging-plan';
 import type { VehicleBodyType, VehicleColor } from '@evtivity/lib/vehicle-appearance';
 import { withAvatars } from '../services/account-avatar.js';
 import type { AvatarView } from '../services/account-avatar.js';
@@ -26,6 +39,27 @@ export interface LayoutSessionVehicle {
   bodyType: VehicleBodyType | null;
 }
 
+/**
+ * The departure a layout session charges for. `readiness`, `reason`,
+ * `shortfallKwh` and `predictedReadyAt` are null while the site's depot plan
+ * does not run (the fleet charging setting off or another strategy).
+ */
+export interface LayoutSessionDeparture {
+  id: string;
+  /** Null for an ad hoc request of a bus depot system (charges from arrival). */
+  departureAt: string | null;
+  /** IANA time zone of the depot: the departure time shows in it. */
+  timezone: string;
+  readiness: DepartureReadiness | null;
+  reason: DepartureReadinessReason | null;
+  /** The energy target in kWh, null for a state of charge target. */
+  targetKwh: number | null;
+  targetSocPercent: number | null;
+  deliveredKwh: number | null;
+  shortfallKwh: number | null;
+  predictedReadyAt: string | null;
+}
+
 export interface LayoutStationSession {
   id: string;
   startedAt: string;
@@ -34,6 +68,8 @@ export interface LayoutStationSession {
   currency: string;
   driver: LayoutSessionDriver | null;
   vehicle: LayoutSessionVehicle | null;
+  /** Present only when the route asked for departures (fleets:read). */
+  departure?: LayoutSessionDeparture | null;
 }
 
 interface VehicleLook extends LayoutSessionVehicle {
@@ -144,14 +180,81 @@ export function layoutDriverName(firstName: string, lastName: string): string | 
   return name === '' ? null : name;
 }
 
+const numberOrNull = (value: string | null): number | null =>
+  value == null ? null : Number(value);
+
+/**
+ * The earliest scheduled departure of the site each session is bound to,
+ * keyed by session id, with the readiness only while the depot plan runs.
+ */
+export async function readLayoutSessionDepartures(
+  siteId: string,
+  sessionIds: readonly string[],
+): Promise<Map<string, LayoutSessionDeparture>> {
+  const out = new Map<string, LayoutSessionDeparture>();
+  if (sessionIds.length === 0) return out;
+  const [rows, [site], [config], planningOn] = await Promise.all([
+    db
+      .select({
+        id: vehicleDepartures.id,
+        sessionId: vehicleDepartures.sessionId,
+        departureAt: vehicleDepartures.departureAt,
+        targetKind: vehicleDepartures.targetKind,
+        targetEnergyKwh: vehicleDepartures.targetEnergyKwh,
+        targetSocPercent: vehicleDepartures.targetSocPercent,
+        readiness: vehicleDepartures.readiness,
+        readinessReason: vehicleDepartures.readinessReason,
+        deliveredKwh: vehicleDepartures.deliveredKwh,
+        shortfallKwh: vehicleDepartures.shortfallKwh,
+        predictedReadyAt: vehicleDepartures.predictedReadyAt,
+      })
+      .from(vehicleDepartures)
+      .where(
+        and(
+          eq(vehicleDepartures.siteId, siteId),
+          eq(vehicleDepartures.status, 'scheduled'),
+          inArray(vehicleDepartures.sessionId, [...sessionIds]),
+        ),
+      )
+      // An ad hoc departure (no time) charges first, as in the plan view.
+      .orderBy(sql`${vehicleDepartures.departureAt} ASC NULLS FIRST`, asc(vehicleDepartures.id)),
+    db.select({ timezone: sites.timezone }).from(sites).where(eq(sites.id, siteId)),
+    db
+      .select({ strategy: siteLoadManagement.strategy })
+      .from(siteLoadManagement)
+      .where(eq(siteLoadManagement.siteId, siteId)),
+    isFleetChargingEnabled(),
+  ]);
+  const planning = planningOn && config?.strategy === 'departure_aware';
+  const timezone = site?.timezone ?? 'UTC';
+  for (const r of rows) {
+    if (r.sessionId == null || out.has(r.sessionId)) continue;
+    out.set(r.sessionId, {
+      id: r.id,
+      departureAt: r.departureAt?.toISOString() ?? null,
+      timezone,
+      readiness: planning ? r.readiness : null,
+      reason: planning ? r.readinessReason : null,
+      targetKwh: r.targetKind === 'energy' ? numberOrNull(r.targetEnergyKwh) : null,
+      targetSocPercent: r.targetKind === 'soc' ? r.targetSocPercent : null,
+      deliveredKwh: numberOrNull(r.deliveredKwh),
+      shortfallKwh: planning ? numberOrNull(r.shortfallKwh) : null,
+      predictedReadyAt: planning ? (r.predictedReadyAt?.toISOString() ?? null) : null,
+    });
+  }
+  return out;
+}
+
 /**
  * The newest active session of each station (by start, then creation), keyed by
  * the station's internal id. With `includeDriver` false every `driver` is null
- * and no driver row is read.
+ * and no driver row is read. With `departureSiteId` (the caller holds
+ * fleets:read) each session carries the departure of that site it charges for.
  */
 export async function readLayoutStationSessions(
   stationIds: readonly string[],
   includeDriver: boolean,
+  departureSiteId: string | null = null,
 ): Promise<Map<string, LayoutStationSession>> {
   const out = new Map<string, LayoutStationSession>();
   if (stationIds.length === 0) return out;
@@ -181,7 +284,15 @@ export async function readLayoutStationSessions(
       desc(chargingSessions.createdAt),
     );
 
-  const vehicleBySession = await readSessionVehicles(rows);
+  const [vehicleBySession, departureBySession] = await Promise.all([
+    readSessionVehicles(rows),
+    departureSiteId != null
+      ? readLayoutSessionDepartures(
+          departureSiteId,
+          rows.map((r) => r.id),
+        )
+      : Promise.resolve(null),
+  ]);
   const driverById = includeDriver
     ? await readLayoutDrivers(rows.flatMap((r) => (r.driverId != null ? [r.driverId] : [])))
     : new Map<string, LayoutSessionDriver>();
@@ -196,6 +307,7 @@ export async function readLayoutStationSessions(
       currency: r.currency.toUpperCase(),
       driver: r.driverId != null ? (driverById.get(r.driverId) ?? null) : null,
       vehicle: vehicleBySession.get(r.id) ?? null,
+      ...(departureBySession != null ? { departure: departureBySession.get(r.id) ?? null } : {}),
     });
   }
   return out;

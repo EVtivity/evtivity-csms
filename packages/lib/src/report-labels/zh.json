@@ -8,7 +8,7 @@
     "allTime": "全部时间",
     "last30Days": "最近 30 天",
     "summaryLabel": "{label}：",
-    "noSite": "无站点",
+    "noSite": "无充电站",
     "unknown": "未知",
     "yes": "是",
     "no": "否",
@@ -19,7 +19,7 @@
   },
   "columns": {
     "date": "日期",
-    "site": "站点",
+    "site": "充电站",
     "station": "充电桩",
     "stations": "充电桩数",
     "driver": "驾驶员",
@@ -39,7 +39,7 @@
     "title": "收入报告",
     "sheets": {
       "byDay": "按日",
-      "bySite": "按站点",
+      "bySite": "按充电站",
       "payments": "付款"
     },
     "columns": {
@@ -67,7 +67,7 @@
     "sheets": {
       "byDay": "按日",
       "byStation": "按充电桩",
-      "bySite": "按站点"
+      "bySite": "按充电站"
     },
     "columns": {
       "avgKwhPerSession": "每次会话平均 kWh"
@@ -129,7 +129,7 @@
   "utilization": {
     "title": "利用率报告",
     "sheets": {
-      "bySite": "按站点",
+      "bySite": "按充电站",
       "byStation": "按充电桩",
       "peakHours": "高峰时段"
     },
@@ -171,7 +171,7 @@
     "sheets": {
       "summary": "摘要",
       "configuration": "配置",
-      "bySite": "按站点",
+      "bySite": "按充电站",
       "dailyEnergy": "每日电量"
     },
     "columns": {

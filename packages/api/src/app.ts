@@ -57,6 +57,7 @@ import { ocppCommandRoutes } from './routes/ocpp-commands.js';
 import { ocppSchemaRoutes } from './routes/ocpp-schemas.js';
 import { transactionRoutes } from './routes/transactions.js';
 import { fleetRoutes } from './routes/fleets.js';
+import { departureRoutes } from './routes/departures.js';
 import { tokenRoutes } from './routes/tokens.js';
 import { authorizeAttemptRoutes } from './routes/authorize-attempts.js';
 import { dashboardRoutes } from './routes/dashboard.js';
@@ -111,6 +112,7 @@ import { pncSettingsRoutes } from './routes/pnc-settings.js';
 import { simProviderSettingsRoutes } from './routes/sim-provider-settings.js';
 import { paymentTerminalRoutes } from './routes/payment-terminals.js';
 import { paymentTerminalSettingsRoutes } from './routes/payment-terminal-settings.js';
+import { depotSystemRoutes } from './routes/depot-systems.js';
 import { dataRetentionSettingsRoutes } from './routes/data-retention-settings.js';
 import { aiInsightScopeRoutes } from './routes/ai-insight-scope.js';
 import { pncCertificateRoutes } from './routes/pnc-certificates.js';
@@ -133,6 +135,9 @@ import { fleetReservationRoutes } from './routes/fleet-reservations.js';
 import { cssRoutes } from './routes/css.js';
 import { smartChargingRoutes } from './routes/smart-charging.js';
 import { panelRoutes } from './routes/panels.js';
+import { transformerRoutes } from './routes/transformers.js';
+import { energyAssetRoutes } from './routes/energy-assets.js';
+import { energyAssetReadingRoutes } from './routes/energy-asset-readings.js';
 import { circuitRoutes } from './routes/circuits.js';
 import { unmanagedLoadRoutes } from './routes/unmanaged-loads.js';
 import { assistantRoutes } from './routes/assistant.js';
@@ -234,6 +239,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(ocppSchemaRoutes);
       await v1.register(transactionRoutes);
       await v1.register(fleetRoutes);
+      await v1.register(departureRoutes);
       await v1.register(tokenRoutes);
       await v1.register(authorizeAttemptRoutes);
       await v1.register(dashboardRoutes);
@@ -289,6 +295,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(simProviderSettingsRoutes);
       await v1.register(paymentTerminalRoutes);
       await v1.register(paymentTerminalSettingsRoutes);
+      await v1.register(depotSystemRoutes);
       await v1.register(dataRetentionSettingsRoutes);
       await v1.register(aiInsightScopeRoutes);
       await v1.register(pncCertificateRoutes);
@@ -311,6 +318,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(cssRoutes);
       await v1.register(smartChargingRoutes);
       await v1.register(panelRoutes);
+      await v1.register(transformerRoutes);
+      await v1.register(energyAssetRoutes);
+      await v1.register(energyAssetReadingRoutes);
       await v1.register(circuitRoutes);
       await v1.register(unmanagedLoadRoutes);
       await v1.register(assistantRoutes);
@@ -380,7 +390,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // Block fleet routes when Fleet feature is disabled
   app.addHook('onRequest', async (request, reply) => {
     const url = routePath(request);
-    if (!url.startsWith('/v1/fleets') && !url.startsWith('/v1/fleet-reservations')) return;
+    if (
+      !url.startsWith('/v1/fleets') &&
+      !url.startsWith('/v1/fleet-reservations') &&
+      !url.startsWith('/v1/departures') &&
+      !url.startsWith('/v1/departure-schedules')
+    )
+      return;
     const enabled = await isFleetEnabled();
     if (!enabled) {
       await reply.status(403).send({ error: 'Fleet is disabled', code: 'FLEET_DISABLED' });

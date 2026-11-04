@@ -275,8 +275,13 @@ describe('Portal token routes, uncovered paths', () => {
       expect(updateTokenMock).not.toHaveBeenCalled();
     });
 
-    it('answers 400 for a body without isActive and label, or a label over 100 characters', async () => {
-      for (const payload of [{}, { label: 'x'.repeat(101) }]) {
+    it('answers 400 for a body without isActive and label, or a label too long or with a control character', async () => {
+      for (const payload of [
+        {},
+        { label: 'x'.repeat(1001) },
+        { label: 'Pool\tcard' },
+        { label: 'Pool\u2066card' },
+      ]) {
         setupDbResults([ownToken()]);
         const res = await app.inject({
           method: 'PATCH',

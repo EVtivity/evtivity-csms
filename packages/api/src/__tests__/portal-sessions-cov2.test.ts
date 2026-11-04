@@ -50,6 +50,11 @@ function makeChain() {
 }
 
 vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
+const setDriverSessionVehicleMock = vi.hoisted(() => vi.fn());
+vi.mock('../services/vehicle.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/vehicle.service.js')>()),
+  setDriverSessionVehicle: setDriverSessionVehicleMock,
+}));
 
 vi.mock('@evtivity/database', () => ({
   writeAudit: vi.fn(() => Promise.resolve()),
@@ -103,10 +108,13 @@ vi.mock('drizzle-orm', () => {
 
 import { registerAuth } from '../plugins/auth.js';
 import { portalSessionRoutes } from '../routes/portal/sessions.js';
-import { db, writeAudit } from '@evtivity/database';
+import {
+  SessionNotFoundError,
+  SessionVehicleOperatorAssignedError,
+  VehicleNotFoundError,
+} from '../services/vehicle.service.js';
 
 const DRIVER_ID = 'drv_000000000001';
-const OTHER_DRIVER = 'drv_000000000002';
 const SESSION_ID = 'ses_000000000001';
 const VEHICLE_ID = 'veh_000000000001';
 
@@ -264,98 +272,41 @@ describe('Portal sessions routes: vehicle and meter history', () => {
   });
 
   describe('PATCH /portal/sessions/:id/vehicle', () => {
-    it('returns 404 when the session does not exist', async () => {
-      setupDbResults([]);
-      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
-        vehicleId: VEHICLE_ID,
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json()).toEqual({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
-      expect(db.update).not.toHaveBeenCalled();
-    });
+    const patch = (vehicleId: string | null) =>
+      call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, { vehicleId });
 
-    it('returns 404 when the session belongs to another driver (filtered by the query)', async () => {
-      setupDbResults([]);
-      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
-        vehicleId: null,
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('SESSION_NOT_FOUND');
-      expect(db.update).not.toHaveBeenCalled();
-    });
-
-    it('returns 404 when the vehicle does not exist', async () => {
-      setupDbResults([{ driverId: DRIVER_ID }], []);
-      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
-        vehicleId: VEHICLE_ID,
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json()).toEqual({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
-      expect(db.update).not.toHaveBeenCalled();
-    });
-
-    it('returns 404 when the vehicle belongs to another driver', async () => {
-      setupDbResults([{ driverId: DRIVER_ID }], [{ driverId: OTHER_DRIVER }]);
-      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
-        vehicleId: VEHICLE_ID,
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('VEHICLE_NOT_FOUND');
-      expect(db.update).not.toHaveBeenCalled();
-    });
-
-    it('links an own vehicle to the session', async () => {
-      setupDbResults([{ driverId: DRIVER_ID }], [{ driverId: DRIVER_ID }], []);
-      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
-        vehicleId: VEHICLE_ID,
-      });
+    it("goes through the vehicle writer with the driver's own id", async () => {
+      setDriverSessionVehicleMock.mockResolvedValueOnce({ vehicleId: VEHICLE_ID, changed: true });
+      const res = await patch(VEHICLE_ID);
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ vehicleId: VEHICLE_ID });
-      const updateChain = vi.mocked(db.update).mock.results[0]?.value as Record<
-        string,
-        ReturnType<typeof vi.fn>
-      >;
-      expect(updateChain['set']).toHaveBeenCalledWith({
-        vehicleId: VEHICLE_ID,
-        updatedAt: expect.any(Date),
-      });
-      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
-        expect.objectContaining({ idColumn: 'session_id' }),
-        expect.objectContaining({
-          entityId: SESSION_ID,
-          action: 'vehicle_changed',
-          actor: 'driver',
-          actorDriverId: DRIVER_ID,
-          before: { vehicleId: null },
-          after: { vehicleId: VEHICLE_ID },
-        }),
-        expect.anything(),
+      expect(setDriverSessionVehicleMock).toHaveBeenCalledWith(
+        { sessionId: SESSION_ID, driverId: DRIVER_ID, vehicleId: VEHICLE_ID },
+        expect.objectContaining({ actor: 'driver', actorDriverId: DRIVER_ID }),
         expect.anything(),
       );
     });
 
-    it('writes no audit row when the vehicle stays the same', async () => {
-      setupDbResults(
-        [{ driverId: DRIVER_ID, vehicleId: VEHICLE_ID }],
-        [{ driverId: DRIVER_ID }],
-        [],
-      );
-      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
-        vehicleId: VEHICLE_ID,
-      });
-      expect(res.statusCode).toBe(200);
-      expect(vi.mocked(writeAudit)).not.toHaveBeenCalled();
-    });
-
-    it('unlinks the vehicle without looking one up', async () => {
-      setupDbResults([{ driverId: DRIVER_ID }], []);
-      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
-        vehicleId: null,
-      });
+    it('unlinks the vehicle through the writer', async () => {
+      setDriverSessionVehicleMock.mockResolvedValueOnce({ vehicleId: null, changed: true });
+      const res = await patch(null);
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ vehicleId: null });
-      expect(db.select).toHaveBeenCalledTimes(1);
-      expect(db.update).toHaveBeenCalled();
+      expect(setDriverSessionVehicleMock.mock.calls[0]?.[0]).toMatchObject({ vehicleId: null });
+    });
+
+    it('answers the writer errors with their codes (case 314)', async () => {
+      const cases: [Error, number, string][] = [
+        [new SessionNotFoundError(), 404, 'SESSION_NOT_FOUND'],
+        [new VehicleNotFoundError(), 404, 'VEHICLE_NOT_FOUND'],
+        [new SessionVehicleOperatorAssignedError(), 409, 'SESSION_VEHICLE_OPERATOR_ASSIGNED'],
+      ];
+      for (const [err, status, code] of cases) {
+        setDriverSessionVehicleMock.mockRejectedValueOnce(err);
+        const res = await patch(VEHICLE_ID);
+        expect(res.statusCode).toBe(status);
+        expect(res.json().code).toBe(code);
+      }
     });
   });
 

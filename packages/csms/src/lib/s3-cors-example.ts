@@ -52,10 +52,14 @@ export const STORAGE_ACCESS_ACTIONS = [
 export const S3_COMPATIBLE_SETUP_DOCS_URL =
   'https://evtivity.com/docs/csms/settings#minio-and-wasabi-setup';
 
+/** The website section with the Cloudflare R2 setup steps. */
+export const R2_SETUP_DOCS_URL = 'https://evtivity.com/docs/csms/settings#cloudflare-r2-setup';
+
 /**
- * The bucket CORS rule for browser uploads (station images and support
- * attachments from the CSMS, driver photos from the portal) and downloads
- * (presigned GET links), so both origins need the upload method and GET.
+ * The bucket CORS rule for browser uploads (station images, AI chat and
+ * support attachments and user avatars from the CSMS, driver photos from the
+ * portal) and downloads (presigned GET links), so both origins need the upload
+ * method and GET.
  * Uploads are presigned POST forms, or on Cloudflare R2 (`uploadMethod` PUT)
  * a PUT that sends a Content-Type header.
  */

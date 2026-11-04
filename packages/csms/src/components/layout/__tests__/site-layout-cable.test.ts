@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { INLET } from '../site-layout-vehicle-inlet';
 import { describe, it, expect } from 'vitest';
 import { sceneSource } from './helpers/scene-source';
 import {
@@ -98,7 +99,7 @@ describe('car charge ports', () => {
         expect(at.z, `${bodyType} ${port}`).toBeGreaterThan(0.6);
         // Side ports stand on the car's side, a nose port on its middle.
         if (port === 'front_center') expect(at.x).toBe(0);
-        else expect(Math.abs(at.x)).toBeCloseTo(profile.width / 2 + 0.005, 9);
+        else expect(Math.abs(at.x)).toBeCloseTo(profile.width / 2 - INLET.seatM, 9);
       }
       // A backed-in car turned a half turn: its left side port faces +x.
       expect(carPortInStation(profile, 'rear_left', { x: 0, z: 0 }).x).toBeGreaterThan(0);

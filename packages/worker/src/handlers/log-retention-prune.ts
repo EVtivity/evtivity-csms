@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { db, settings } from '@evtivity/database';
+import { db, pruneEndedDepartures, settings } from '@evtivity/database';
 import { inArray, sql, type SQL } from 'drizzle-orm';
 import type { Logger } from '@evtivity/lib';
 import { effectiveRetentionDays, type DataRetentionSettingKey } from '@evtivity/lib/data-retention';
@@ -130,17 +130,17 @@ const LOG_TABLES: readonly LogTable[] = [
   },
 ];
 
+// Completed and cancelled vehicle departures, by their departure time; their
+// sent notices go with them. Scheduled departures are never pruned. Deleted
+// through the departure writer, not the generic table prune.
+const DEPARTURES_SETTING_KEY: DataRetentionSettingKey = 'logs.departures.retentionDays';
+
 export async function logRetentionPruneHandler(log: Logger): Promise<void> {
   // Load all settings in one round trip rather than N queries.
   const rows = await db
     .select({ key: settings.key, value: settings.value })
     .from(settings)
-    .where(
-      inArray(
-        settings.key,
-        LOG_TABLES.map((t) => t.settingKey),
-      ),
-    );
+    .where(inArray(settings.key, [...LOG_TABLES.map((t) => t.settingKey), DEPARTURES_SETTING_KEY]));
   const settingMap = new Map(rows.map((r) => [r.key, r.value]));
 
   let grandTotal = 0;
@@ -161,6 +161,33 @@ export async function logRetentionPruneHandler(log: Logger): Promise<void> {
     grandTotal += tableDeleted;
     if (tableDeleted > 0) {
       log.info({ table: t.table, days, deleted: tableDeleted }, 'log-retention-prune: pruned rows');
+    }
+  }
+
+  const departureDays = effectiveRetentionDays(
+    DEPARTURES_SETTING_KEY,
+    settingMap.get(DEPARTURES_SETTING_KEY),
+  );
+  if (departureDays <= 0) {
+    log.info(
+      { table: 'vehicle_departures', days: departureDays },
+      'log-retention-prune: disabled, skipping',
+    );
+  } else {
+    try {
+      const deleted = await pruneEndedDepartures(departureDays);
+      grandTotal += deleted;
+      if (deleted > 0) {
+        log.info(
+          { table: 'vehicle_departures', days: departureDays, deleted },
+          'log-retention-prune: pruned rows',
+        );
+      }
+    } catch (err: unknown) {
+      log.warn(
+        { err, table: 'vehicle_departures', days: departureDays },
+        'log-retention-prune: departures not pruned, retried next run',
+      );
     }
   }
 

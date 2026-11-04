@@ -11,6 +11,7 @@ import {
   parkingChargerOnIsland,
   parkingChargerZ,
   parkingChargersAtBack,
+  parkingHeadStrip,
   parkingRowGap,
   parkingRowZ,
 } from '../site-layout.js';
@@ -37,7 +38,9 @@ describe('double-loaded parking rows', () => {
   it('sizes the lot from its rows, aisles and islands (1 to 4 rows)', () => {
     expect(lotExtentM(grid(1)).depth).toBeCloseTo(S);
     expect(lotExtentM(grid(2)).depth).toBeCloseTo(2 * S + A);
-    expect(lotExtentM(grid(3)).depth).toBeCloseTo(3 * S + 2 * A);
+    // An odd lot: the next to last row's head strip before the last aisle.
+    expect(lotExtentM(grid(3)).depth).toBeCloseTo(3 * S + 2 * A + I);
+    expect(lotExtentM(grid(5)).depth).toBeCloseTo(5 * S + 3 * A + 2 * I);
     expect(lotExtentM(grid(4)).depth).toBeCloseTo(4 * S + 2 * A + I);
     expect(parkingRowZ(2, 4)).toBeCloseTo(2 * S + A + I);
     expect(lotExtentM(grid(4)).width).toBeCloseTo(10 * STANDARD_DIMENSIONS.spotWidthM);
@@ -62,7 +65,19 @@ describe('double-loaded parking rows', () => {
       true,
       false,
     ]);
-    expect([0, 1, 2].map((r) => parkingChargerOnIsland(r, 3))).toEqual([false, false, false]);
+    // An odd lot: the next to last row stands its chargers on its head strip.
+    expect([0, 1, 2].map((r) => parkingChargerOnIsland(r, 3))).toEqual([false, true, false]);
+    expect([0, 1, 2, 3, 4].map((r) => parkingHeadStrip(r, 5))).toEqual([
+      false,
+      false,
+      false,
+      true,
+      false,
+    ]);
+    expect(parkingHeadStrip(1, 4)).toBe(false);
+    expect(parkingHeadStrip(0, 1)).toBe(false);
+    expect(parkingChargerZ(1, 3)).toBeCloseTo(parkingRowZ(1, 3) + S + CHARGER_BEHIND_STALL_HEAD_M);
+    expect(parkingRowZ(2, 3) - (parkingRowZ(1, 3) + S)).toBeCloseTo(I + A);
     const into = FREE_LAYOUT.stationIntoSpotM;
     // Row 0: at the lot's front edge, in the head of the spot.
     expect(parkingChargerZ(0, 4)).toBeCloseTo(into);

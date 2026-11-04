@@ -22,6 +22,7 @@ import {
   pgConnectionErrorKind,
   SESSION_END_FAILED_REASON,
   findVehicleIdOwners,
+  markSitePlanStale,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
 import {
@@ -66,6 +67,15 @@ import {
   recordSessionVehicleCapture,
   resolveAutochargeVehicle,
 } from './vehicle-capture.js';
+import { linkSessionVehicle } from './session-vehicle-link.js';
+
+/** OCPP 2.1 PreconditioningStatusEnumType values a session stores. */
+const PRECONDITIONING_STATUSES: ReadonlySet<string> = new Set([
+  'Unknown',
+  'Ready',
+  'NotReady',
+  'Preconditioning',
+]);
 
 const CHARGING_STATE_TO_STATUS: Record<string, string> = {
   Charging: 'charging',
@@ -1061,28 +1071,23 @@ export class TransactionProjector {
   }
 
   /**
-   * Auto-links the driver's most recent vehicle to this session so the portal
-   * session detail page shows estimated miles without prompting. The driver
-   * can override later via PATCH /v1/portal/sessions/:id/vehicle. Repeats
+   * Tells a departure-aware site's depot plan to replan on the next load
+   * management cycle: a session started or ended there, or got its vehicle.
+   * Never throws (a missed mark is healed by the next slot boundary).
+   */
+  private async markDepotPlanStale(siteId: string | null, trigger: string): Promise<void> {
+    if (siteId == null) return;
+    await markSitePlanStale(siteId, trigger, this.deps.logger, { departureAwareOnly: true });
+  }
+
+  /**
+   * Links the session's vehicle when no vehicle id was captured: the card's
+   * vehicle, else a depot driver's only vehicle, else the driver's most recent
+   * vehicle (`linkSessionVehicle`). The driver can change it later. Repeats
    * safely.
    */
   private async linkLastVehicle(sessionId: string, driverId: string): Promise<void> {
-    const vehicleRows = await this.deps.sql`
-      SELECT vehicle_id FROM charging_sessions
-      WHERE driver_id = ${driverId}
-        AND vehicle_id IS NOT NULL
-        AND id != ${sessionId}
-      ORDER BY started_at DESC NULLS LAST, created_at DESC
-      LIMIT 1
-    `;
-    const lastVehicleId = vehicleRows[0]?.vehicle_id as string | undefined;
-    if (lastVehicleId != null) {
-      await this.deps.sql`
-        UPDATE charging_sessions
-        SET vehicle_id = ${lastVehicleId}, updated_at = now()
-        WHERE id = ${sessionId}
-      `;
-    }
+    await linkSessionVehicle(this.deps.sql, sessionId, driverId);
   }
 
   /**
@@ -1287,6 +1292,7 @@ export class TransactionProjector {
           await linkCapturedVehicle(this.deps.sql, sessionId, driverUuid, vehicleCapture);
         }
       }
+      await this.markDepotPlanStale(siteId, 'vehicle_linked');
       await this.clearStationWatch(stationUuid, sessionId);
       if (stage === 'updated') {
         const driverIdForNotify = driverUuid;
@@ -1539,6 +1545,7 @@ export class TransactionProjector {
 
     const siteId = await this.deps.lookups.resolveSiteId(stationUuid);
     await this.deps.notify.notifyChange('session.started', stationUuid, siteId, sessionId);
+    await this.markDepotPlanStale(siteId, 'session_started');
     const roamingIdToken = payload.idToken as string | null | undefined;
     if (isRoamingSession && roamingIdToken != null) {
       await this.deps.notify.linkCpoRoamingSession(
@@ -1804,6 +1811,21 @@ export class TransactionProjector {
           transactionId,
           timestamp,
         );
+      }
+      // 2.1 preconditioning status of the EV battery, kept for bus depot
+      // systems (VDV 463 vehicle status). Only the four OCPP values.
+      const preconditioningStatus = getString(payload, 'preconditioningStatus');
+      if (
+        sessionActive &&
+        preconditioningStatus != null &&
+        PRECONDITIONING_STATUSES.has(preconditioningStatus)
+      ) {
+        await this.deps.sql`
+            UPDATE charging_sessions
+            SET preconditioning_status = ${preconditioningStatus}, updated_at = now()
+            WHERE id = ${sessionId} AND status = 'active'
+              AND preconditioning_status IS DISTINCT FROM ${preconditioningStatus}
+          `;
       }
       const chargingState = getString(payload, 'chargingState');
       if (chargingState != null) {
@@ -2320,6 +2342,7 @@ export class TransactionProjector {
 
       await this.deps.notify.notifyChange('session.ended', stationUuid, siteId, sessionId);
       await this.deps.notify.notifyOcpiPush('session', { sessionId });
+      await this.markDepotPlanStale(siteId, 'session_ended');
 
       // The session of an in_use hold ended: in_use -> used, audited (G17).
       const reservationUuidForEnd = sessionRow.reservation_id as string | null;

@@ -22,6 +22,11 @@ import {
   newestLineAt,
   type LiveOcppLine,
 } from './live-ocpp-buffer';
+import {
+  LAYOUT_CHIP_FRAME_CLASS,
+  LAYOUT_CHIP_ICON_CLASS,
+  LAYOUT_CHIP_ITEM_CLASS,
+} from './layout-chip';
 import { summarizeOcppMessage } from './ocpp-message-summary';
 
 /** Within this many px of the bottom the list follows new lines. */
@@ -45,22 +50,30 @@ export function LiveOcppButton({
   const { t } = useTranslation();
   const label = t('sites.layoutView.liveOcpp.button');
   // Phones show the icon only: the label stays for screen readers and as the tooltip.
+  // Same frame and item classes as the charging summary chip above it, so both
+  // have one height, padding, radius and type size at every width.
   return (
-    <Button
+    <button
       type="button"
-      variant="outline"
-      size="sm"
-      className="pointer-events-auto bg-card shadow-xs"
+      className={cn(
+        LAYOUT_CHIP_FRAME_CLASS,
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      )}
       aria-pressed={open}
       title={label}
       data-testid="live-ocpp-toggle"
       onClick={onToggle}
     >
-      <Terminal className="h-4 w-4" aria-hidden="true" />
-      <span className="max-sm:sr-only" data-testid="live-ocpp-toggle-label">
-        {label}
+      <span
+        className={cn(LAYOUT_CHIP_ITEM_CLASS, open && 'bg-accent')}
+        data-testid="live-ocpp-toggle-item"
+      >
+        <Terminal className={LAYOUT_CHIP_ICON_CLASS} aria-hidden="true" />
+        <span className="max-sm:sr-only" data-testid="live-ocpp-toggle-label">
+          {label}
+        </span>
       </span>
-    </Button>
+    </button>
   );
 }
 

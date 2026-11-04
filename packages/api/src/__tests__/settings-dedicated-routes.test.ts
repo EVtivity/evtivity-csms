@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { PAYMENT_TERMINAL_SETTING_KEY_LIST, SIM_SETTING_KEY_LIST } from '@evtivity/lib';
-import { isDedicatedRouteSetting } from '../routes/settings.js';
+import { isDedicatedRouteSetting, isStorageSettingKey } from '../routes/settings.js';
 
 /** Every key prefix that has a dedicated route, with that route. */
 const DEDICATED_PREFIXES: Readonly<Record<string, string>> = {
@@ -43,5 +43,22 @@ describe('dedicated-route settings', () => {
   it('keeps general settings on the generic routes', () => {
     expect(isDedicatedRouteSetting('company.name')).toBe(false);
     expect(isDedicatedRouteSetting('payments.provider')).toBe(false);
+    expect(isStorageSettingKey('company.name')).toBe(false);
+  });
+
+  it('keeps every storage key off the generic key routes (AZ50-L1, AZ50-I3)', () => {
+    for (const key of [
+      's3.provider',
+      's3.endpoint',
+      's3.forcePathStyle',
+      's3.allowedPrivateHosts',
+      's3.bucket',
+      's3.region',
+      's3.accessKeyIdEnc',
+      's3.secretAccessKeyEnc',
+      's3.anyFutureKey',
+    ]) {
+      expect(isStorageSettingKey(key), key).toBe(true);
+    }
   });
 });

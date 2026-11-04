@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -12,15 +11,11 @@ import { AuthLayout } from '@/components/AuthLayout';
 import { api, ApiError } from '@/lib/api';
 import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
-import { executeRecaptcha } from '@/lib/recaptcha';
+import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
 import { rateLimitedMessage } from '@/lib/error-message';
 import type { PasswordRule } from '@evtivity/lib/password-policy';
-
-interface SecurityPublic {
-  recaptchaEnabled: boolean;
-  recaptchaSiteKey: string;
-}
 
 export function ResetPassword(): React.JSX.Element {
   const { t, i18n } = useTranslation();
@@ -38,10 +33,8 @@ export function ResetPassword(): React.JSX.Element {
   // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
   const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
 
-  const { data: securityPublic } = useQuery({
-    queryKey: ['security-public'],
-    queryFn: () => api.get<SecurityPublic>('/v1/security/public?app=portal'),
-  });
+  const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
+    useRecaptchaToken();
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -67,10 +60,7 @@ export function ResetPassword(): React.JSX.Element {
     setError(null);
     setLoading(true);
     try {
-      let recaptchaToken: string | undefined;
-      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
-        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'reset_password');
-      }
+      const recaptchaToken = await getRecaptchaToken('reset_password');
       await api.post('/v1/portal/auth/reset-password', { token, password, recaptchaToken });
       setSuccess(true);
     } catch (err) {
@@ -194,8 +184,14 @@ export function ResetPassword(): React.JSX.Element {
                 )}
               </div>
             )}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? t('auth.resettingPassword') : t('auth.resetPassword')}
+            <Button
+              type="submit"
+              className="relative w-full"
+              disabled={recaptchaConfigPending || loading}
+            >
+              <ButtonPendingLabel pending={recaptchaConfigPending}>
+                {loading ? t('auth.resettingPassword') : t('auth.resetPassword')}
+              </ButtonPendingLabel>
             </Button>
             <Link
               to="/login"

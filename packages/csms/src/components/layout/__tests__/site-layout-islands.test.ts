@@ -93,7 +93,7 @@ describe('parking lot rows with a center island', () => {
       wall: false,
       onSpot: true,
     };
-    expect(wheelStopMount({ ...base, largeSpot: false, curb: true })).toBe('curb');
+    expect(wheelStopMount({ ...base, largeSpot: false })).toBe('curb');
     // The curb is CHARGER_BEHIND_STALL_HEAD_M in front of the charger; the stop 2 ft past it.
     expect(wheelStopNearZ('curb')).toBeCloseTo(
       CHARGER_BEHIND_STALL_HEAD_M + WHEEL_STOP.fromStallHeadM,

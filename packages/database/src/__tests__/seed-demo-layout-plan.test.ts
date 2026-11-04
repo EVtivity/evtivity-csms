@@ -1,7 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { layoutEquipmentRowId } from '../lib/layout-equipment-id.js';
 import {
   CHARGER_PORT_LIMITS,
   accessibleChargingSpace,
@@ -17,7 +19,6 @@ import {
   snapFreePlacement,
   usesFreePositions,
   effectiveLayoutSettings,
-  energyAssetsOf,
   layoutCapacity,
   layoutRowLengths,
   sameLayoutSettings,
@@ -27,13 +28,17 @@ import {
   sharesSpotPair,
   spotPairPartner,
 } from '@evtivity/lib/site-layout';
-import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import { freePlacementSchema, siteLayoutSettingsSchema } from '@evtivity/lib/site-layout-schema';
 import {
+  DEPOT_BODY_TYPE_BATTERY,
   LAYOUT_DEMO,
   LAYOUT_DEMO_PREVIOUS_SETTINGS,
+  demoLayoutPositions,
+  type DemoLayoutSettings,
   LEVEL_2_AMPS,
   TERRA_184_INPUT_AMPS,
+  HVC_450PD_INPUT_AMPS,
+  HVC_C_150_INPUT_AMPS,
   dcInputAmps,
   evseBreakerAmps,
 } from '../seed-demo-layout-plan.js';
@@ -42,6 +47,11 @@ import { DEMO_MODEL_BODY_TYPES } from '../seed-demo-vehicles.js';
 
 const [harbor, lakeside, riverside, maple, willow, depot, patroon] = LAYOUT_DEMO.sites;
 const allStations = LAYOUT_DEMO.sites.flatMap((s) => s.stations);
+/** The energy assets of a demo plan, with their names and ratings. */
+const assetsOf = (s: DemoLayoutSettings) => s.energyAssets ?? [];
+/** Whether two demo plans of a site store the same layout settings (positions by row id). */
+const same = (siteId: string, a: DemoLayoutSettings, b: DemoLayoutSettings): boolean =>
+  sameLayoutSettings(demoLayoutPositions(siteId, a), demoLayoutPositions(siteId, b));
 
 describe('site layout demo plan', () => {
   it('makes Harbor Point a parking lot of DC fast chargers with its transformers', () => {
@@ -55,11 +65,12 @@ describe('site layout demo plan', () => {
     }
     // One battery on the grass and one solar canopy over the front edge row
     // (row 0), so its columns stand past the lot edge, never at a drive aisle.
-    const assets = energyAssetsOf(harbor!.settings);
+    const assets = assetsOf(harbor!.settings);
     expect(assets.map((a) => a.type).sort()).toEqual(['battery', 'solar']);
     expect(assets.find((a) => a.type === 'solar')).toMatchObject({ row: 0 });
-    const effective = effectiveLayoutSettings(harbor!.settings);
-    expect(effective.energyAssets).toEqual(assets);
+    const stored = demoLayoutPositions(harbor!.id, harbor!.settings);
+    const effective = effectiveLayoutSettings(stored);
+    expect(effective.energyAssets).toEqual(stored.energyAssets);
   });
 
   it('makes Lakeside Retail Park an office or retail site of AC chargers along the building, no transformers', () => {
@@ -102,7 +113,7 @@ describe('site layout demo plan', () => {
     expect(new Set(free.map((f) => f.placement.rotationDeg)).size).toBe(free.length - 3);
     // A transformer, a battery and a free-standing solar canopy, and one display message.
     expect(willow!.settings.transformers).toHaveLength(1);
-    const assets = energyAssetsOf(willow!.settings);
+    const assets = assetsOf(willow!.settings);
     // Its back edge (and column line) 2 m behind the pedestals at z -24.
     expect(assets.find((a) => a.type === 'solar')).toMatchObject({ x: 4.5, z: -23 });
     expect(willow!.stations.filter((s) => s.message != null)).toHaveLength(1);
@@ -133,7 +144,9 @@ describe('site layout demo plan', () => {
   it('makes Northgate Fleet Depot a depot of bus bays and truck pull-through lanes, one station each', () => {
     expect(depot!.name).toBe('Northgate Fleet Depot');
     expect(siteTypeOf(depot!.settings)).toBe('depot');
-    expect(siteLayoutSettingsSchema.safeParse(depot!.settings).success).toBe(true);
+    expect(
+      siteLayoutSettingsSchema.safeParse(demoLayoutPositions(depot!.id, depot!.settings)).success,
+    ).toBe(true);
     // Six bus bays (one free) and three truck lanes.
     expect(layoutRowLengths(depot!.settings)).toEqual([6, 3]);
     const inRow = (row: number) => depot!.stations.filter((s) => s.row === row);
@@ -179,13 +192,14 @@ describe('site layout demo plan', () => {
       'Truck Charging Transformer',
     ]);
     expect(depot!.settings.transformers.every(outside)).toBe(true);
-    const assets = energyAssetsOf(depot!.settings);
+    const assets = assetsOf(depot!.settings);
     expect(assets.map((a) => a.type)).toEqual(['battery']);
     expect(assets.every((a) => a.type === 'battery' && outside(a))).toBe(true);
     // Stored on the grass already: the effective settings do not move them.
-    const effective = effectiveLayoutSettings(depot!.settings);
-    expect(effective.transformers).toEqual(depot!.settings.transformers);
-    expect(effective.energyAssets).toEqual(assets);
+    const stored = demoLayoutPositions(depot!.id, depot!.settings);
+    const effective = effectiveLayoutSettings(stored);
+    expect(effective.transformers).toEqual(stored.transformers);
+    expect(effective.energyAssets).toEqual(stored.energyAssets);
     expect(depot!.panels).toHaveLength(2);
     expect(depot!.stations.filter((s) => s.message != null)).toHaveLength(1);
     // A rerun converts the custom site an earlier plan seeded, the depot with one
@@ -197,7 +211,12 @@ describe('site layout demo plan', () => {
       'depot',
       'depot',
     ]);
-    expect(depot!.settings.transformers.map((t) => t.ratedKva)).toEqual([2500, 3750]);
+    // Two standard pad-mount units (2000 and 3000 kVA, 2500 and 3750 kVA before), each feeding its group's switchboard.
+    expect(depot!.settings.transformers.map((t) => t.ratedKva)).toEqual([2000, 3000]);
+    expect(depot!.settings.transformers.map((t) => t.feeds)).toEqual([
+      'pnl_demolayout08',
+      'pnl_demolayout09',
+    ]);
   });
 
   it('gives the depot fleet one bus, semi truck or box truck per driver, charging at the depot', () => {
@@ -235,9 +254,55 @@ describe('site layout demo plan', () => {
     }
   });
 
+  it('gives every depot vehicle its battery data and a weekday departure, one of them tight', () => {
+    const fleet = LAYOUT_DEMO.fleet;
+    expect(fleet.loadStrategy).toBe('departure_aware');
+    const times = (bodyType: string) =>
+      new Set(
+        fleet.drivers
+          .filter((d) => d.vehicle.bodyType === bodyType)
+          .map((d) => d.departure.departureTime),
+      );
+    expect(times('bus')).toEqual(new Set(['05:30', '06:15']));
+    expect(times('semi_truck')).toEqual(new Set(['04:00']));
+    expect(times('box_truck')).toEqual(new Set(['07:00']));
+    const BUFFER_HOURS = 0.5;
+    const hoursNeeded: number[] = [];
+    for (const d of fleet.drivers) {
+      const v = d.vehicle;
+      // Within the database CHECKs of vehicles and of departure schedules.
+      expect(v.batteryCapacityKwh).toBeGreaterThanOrEqual(1);
+      expect(v.batteryCapacityKwh).toBeLessThanOrEqual(2000);
+      expect(v.maxChargePowerKw).toBeGreaterThanOrEqual(1);
+      expect(v.maxChargePowerKw).toBeLessThanOrEqual(3750);
+      expect(v.batteryCapacityKwh).toBe(DEPOT_BODY_TYPE_BATTERY[v.bodyType]?.batteryCapacityKwh);
+      expect(d.departure.daysOfWeek).toEqual([1, 2, 3, 4, 5]);
+      expect(d.departure.departureTime).toMatch(/^([01][0-9]|2[0-3]):[0-5][0-9]$/);
+      expect(d.departure.targetEnergyKwh).toBeGreaterThan(0);
+      expect(d.departure.targetEnergyKwh).toBeLessThanOrEqual(v.batteryCapacityKwh);
+      expect(d.departure.priority).toBeGreaterThanOrEqual(1);
+      expect(d.departure.priority).toBeLessThanOrEqual(10);
+      hoursNeeded.push(d.departure.targetEnergyKwh / v.maxChargePowerKw + BUFFER_HOURS);
+    }
+    // One vehicle needs about two hours at its own maximum before departure,
+    // so the demo shows At Risk; every other one is ready in under 1.8.
+    expect(hoursNeeded.filter((h) => h >= 2)).toHaveLength(1);
+    expect(hoursNeeded.filter((h) => h < 1.8)).toHaveLength(fleet.drivers.length - 1);
+    // Bus batteries are New Flyer Xcelsior CHARGE NG options, their day inside
+    // what evaluated transit fleets use (85 to 189 kWh).
+    for (const d of fleet.drivers.filter((x) => x.vehicle.bodyType === 'bus')) {
+      if (d.vehicle.make === 'New Flyer')
+        expect([440, 550, 660]).toContain(d.vehicle.batteryCapacityKwh);
+      expect(d.departure.targetEnergyKwh).toBeGreaterThanOrEqual(85);
+      expect(d.departure.targetEnergyKwh).toBeLessThanOrEqual(189);
+    }
+  });
+
   it('has valid settings, every station on its own spot inside the lot, on a circuit of its site', () => {
     for (const site of LAYOUT_DEMO.sites) {
-      expect(siteLayoutSettingsSchema.safeParse(site.settings).success).toBe(true);
+      expect(
+        siteLayoutSettingsSchema.safeParse(demoLayoutPositions(site.id, site.settings)).success,
+      ).toBe(true);
       expect(site.stations.length).toBeLessThanOrEqual(layoutCapacity(site.settings));
       const spots = new Set(site.stations.map((s) => `${String(s.col)}:${String(s.row)}`));
       expect(spots.size).toBe(site.stations.length);
@@ -279,7 +344,7 @@ describe('site layout demo plan', () => {
         if (s.movedFrom != null) expect(s.movedFrom.siteId).not.toBe(site.id);
       }
       const previous = LAYOUT_DEMO_PREVIOUS_SETTINGS[site.id] ?? [];
-      for (const p of previous) expect(sameLayoutSettings(p, site.settings)).toBe(false);
+      for (const p of previous) expect(same(site.id, p, site.settings)).toBe(false);
     }
     // The two sites of the earlier plans have their earlier settings listed.
     expect(LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id]?.length).toBeGreaterThan(0);
@@ -295,69 +360,67 @@ describe('site layout demo plan', () => {
       facingDeg: 90,
       transformers: [],
       energyAssets: [],
-    } as unknown as SiteLayoutSettings;
+    } as unknown as DemoLayoutSettings;
     expect(
       (LAYOUT_DEMO_PREVIOUS_SETTINGS[lakeside!.id] ?? []).some((p) =>
-        sameLayoutSettings(p, storedBefore),
+        same(lakeside!.id, p, storedBefore),
       ),
     ).toBe(true);
     // Harbor Point's plans before the battery and the solar canopy and before
     // Lot Edge (a 2 by 6 lot with every row charging) are replaced too.
     // The equipment 14 m out on the grass, before the pad moved to the lot edge.
-    const farEquipment: SiteLayoutSettings = {
+    const farEquipment: DemoLayoutSettings = {
       ...harbor!.settings,
       transformers: [
         { id: 'tx-1', name: 'Utility Transformer', ratedKva: 2500, x: -14, z: 2.5 },
         { id: 'tx-2', name: 'Solar Carport Tie-In', ratedKva: 750, x: -14, z: 16 },
       ],
-      energyAssets: energyAssetsOf(harbor!.settings).map((a) =>
+      energyAssets: assetsOf(harbor!.settings).map((a) =>
         a.type === 'battery' ? { ...a, x: 25, z: 4 } : a,
       ),
     };
     expect(
       (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
-        sameLayoutSettings(p, farEquipment),
+        same(harbor!.id, p, farEquipment),
       ),
     ).toBe(true);
-    const middleCarport: SiteLayoutSettings = {
+    const middleCarport: DemoLayoutSettings = {
       ...farEquipment,
-      energyAssets: energyAssetsOf(farEquipment).map((a) =>
-        a.type === 'solar' ? { ...a, row: 1 } : a,
-      ),
+      energyAssets: assetsOf(farEquipment).map((a) => (a.type === 'solar' ? { ...a, row: 1 } : a)),
     };
     // The Lot Edge plan with the solar carport over the middle row.
     expect(
       (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
-        sameLayoutSettings(p, middleCarport),
+        same(harbor!.id, p, middleCarport),
       ),
     ).toBe(true);
-    const beforeEdge: SiteLayoutSettings = { ...middleCarport, rows: 2 };
+    const beforeEdge: DemoLayoutSettings = { ...middleCarport, rows: 2 };
     delete beforeEdge.chargerPlacement;
     expect(
       (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
-        sameLayoutSettings(p, beforeEdge),
+        same(harbor!.id, p, beforeEdge),
       ),
     ).toBe(true);
     const beforeAssets = { ...beforeEdge };
     delete beforeAssets.energyAssets;
     expect(
       (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
-        sameLayoutSettings(p, beforeAssets),
+        same(harbor!.id, p, beforeAssets),
       ),
     ).toBe(true);
     // Willow Creek's canopy with its column line inside the head of the spots.
     // (and the battery at the far end of the stations, before it moved onto the equipment pad).
     // (and the transformer far from the DC group, before it moved next to it).
-    const willowBefore: SiteLayoutSettings = {
+    const willowBefore: DemoLayoutSettings = {
       ...willow!.settings,
       transformers: willow!.settings.transformers.map((t) => ({ ...t, x: -30, z: -26 })),
-      energyAssets: energyAssetsOf(willow!.settings).map((a) =>
+      energyAssets: assetsOf(willow!.settings).map((a) =>
         a.type === 'solar' ? { ...a, z: -22 } : { ...a, x: 30, z: -24 },
       ),
     };
     expect(
       (LAYOUT_DEMO_PREVIOUS_SETTINGS[willow!.id] ?? []).some((p) =>
-        sameLayoutSettings(p, willowBefore),
+        same(willow!.id, p, willowBefore),
       ),
     ).toBe(true);
   });
@@ -365,7 +428,9 @@ describe('site layout demo plan', () => {
   it('makes Patroon Creek a parking lot with islands, DC next to the transformer and AC in the far rows', () => {
     const s = patroon!.settings;
     expect(patroon!.name).toBe('Patroon Creek Charging Plaza');
-    expect(siteLayoutSettingsSchema.safeParse(s).success).toBe(true);
+    expect(siteLayoutSettingsSchema.safeParse(demoLayoutPositions(patroon!.id, s)).success).toBe(
+      true,
+    );
     expect(s).toMatchObject({ siteType: 'parking_lot', rows: 4, chargerPlacement: 'islands' });
     const dc = patroon!.stations.filter((st) => st.kind === 'dc');
     const ac = patroon!.stations.filter((st) => st.kind === 'ac');
@@ -479,6 +544,16 @@ describe('site layout demo plan', () => {
     const loadAmps = (site: LayoutDemoSite, stationId: string): number => {
       const st = site.stations.find((s) => s.id === stationId)!;
       if (st.kind === 'ac') return LEVEL_2_AMPS;
+      // The depot bus cabinets use their datasheet input (ABB HVC 450PD and HVC-C 150).
+      const datasheet: Record<string, number> = {
+        sta_demolayout42: HVC_450PD_INPUT_AMPS,
+        sta_demolayout43: HVC_450PD_INPUT_AMPS,
+        sta_demolayout44: HVC_450PD_INPUT_AMPS,
+        sta_demolayout45: HVC_C_150_INPUT_AMPS,
+        sta_demolayout46: HVC_C_150_INPUT_AMPS,
+      };
+      const own = datasheet[stationId];
+      if (own != null) return own;
       // The demo DC chargers without their own power are ABB Terra 184 (datasheet input).
       return st.maxPowerKw == null ? TERRA_184_INPUT_AMPS : dcInputAmps(st.maxPowerKw);
     };
@@ -488,6 +563,11 @@ describe('site layout demo plan', () => {
         .find((x) => x.circuit.id === circuitId)!;
 
     it('gives every charger its own circuit, sized at 125 percent of its load', () => {
+      // The depot bus cabinets: 510 kVA is 613.4 A (800 A), 170 kVA 204.5 A (300 A).
+      expect(HVC_450PD_INPUT_AMPS).toBeCloseTo(613.4, 1);
+      expect(HVC_C_150_INPUT_AMPS).toBeCloseTo(204.5, 1);
+      expect(evseBreakerAmps(HVC_450PD_INPUT_AMPS)).toBe(800);
+      expect(evseBreakerAmps(HVC_C_150_INPUT_AMPS)).toBe(300);
       expect(evseBreakerAmps(32)).toBe(40);
       expect(evseBreakerAmps(48)).toBe(60);
       expect(evseBreakerAmps(230)).toBe(300);
@@ -628,5 +708,27 @@ describe('site layout demo plan', () => {
     it('pairs every reader to the whole dispenser, so no EVSE of it lacks card payment', () => {
       for (const t of LAYOUT_DEMO.terminals) expect(t.evseNumber, t.providerDeviceId).toBeNull();
     });
+  });
+});
+
+describe('demo layout positions', () => {
+  it('stores each demo transformer and energy asset by the id the migration gives its row, with its position only', () => {
+    const stored = demoLayoutPositions(harbor!.id, harbor!.settings);
+    const md5 = (text: string) => createHash('md5').update(text).digest('hex').slice(0, 12);
+    expect(stored.transformers).toEqual(
+      harbor!.settings.transformers.map((t) => ({
+        id: `tfm_${md5(`${harbor!.id}:${t.id}`)}`,
+        x: t.x,
+        z: t.z,
+      })),
+    );
+    expect(stored.transformers[0]?.id).toBe(layoutEquipmentRowId('tfm', harbor!.id, 'tx-1'));
+    for (const a of stored.energyAssets ?? []) {
+      expect(a.id).toMatch(/^ena_[0-9a-f]{12}$/);
+      expect(Object.keys(a).every((k) => ['id', 'x', 'z', 'row', 'rotationDeg'].includes(k))).toBe(
+        true,
+      );
+    }
+    expect(siteLayoutSettingsSchema.safeParse(stored).success).toBe(true);
   });
 });

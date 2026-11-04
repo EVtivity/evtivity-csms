@@ -4,14 +4,13 @@
 // The door details of a 3D layout car: the panel gaps of the doors (and the
 // van's sliding door, the tailgate or trunk lid), flush door handles in their
 // pockets, the bright belt molding and the dark window surround of the side
-// glass, and the open charge port door with its outline. Built in the car's
+// glass. Built in the car's
 // frame (nose at z = 0, body along +z, left side at -x) and merged per
 // material slot; the car kit adds `kit.build(materials)` to its assembly.
 
-import type { CarPort, Point3 } from './site-layout-cable';
 import type { CarBodyType, CarProfile, ProfilePoint } from './site-layout-car';
 import type { CarMaterials } from './site-layout-car-geometry';
-import { ModelParts, boxG, frontProfileG, roundBoxG, type ModelKit } from './site-layout-model-kit';
+import { ModelParts, boxG, roundBoxG, type ModelKit } from './site-layout-model-kit';
 
 type Slot = keyof CarMaterials;
 
@@ -19,8 +18,7 @@ type Slot = keyof CarMaterials;
  * Sizes after common passenger car practice (no one maker): panel gaps
  * 4 to 6 mm (we draw 8 mm so they read at 3 m), a flush or pull handle
  * about 160 by 30 mm in a 190 by 50 mm pocket, its top about 90 mm below the
- * beltline; a charge port door about 200 mm square (Tesla Model 3 and
- * Y owner's manuals show a port door of about 190 by 170 mm on the rear left).
+ * beltline. The charge port door and inlet: site-layout-model-vehicle-inlet.ts.
  */
 export const CAR_DOOR_DETAIL = {
   gapM: 0.008,
@@ -28,7 +26,6 @@ export const CAR_DOOR_DETAIL = {
   handle: { lengthM: 0.16, heightM: 0.032, standM: 0.022, belowBeltM: 0.09 },
   pocket: { lengthM: 0.19, heightM: 0.05 },
   beltMolding: { widthM: 0.02, heightM: 0.018 },
-  portDoor: { sizeM: 0.2, thicknessM: 0.012, outlineOuterM: 0.26, outlineInnerM: 0.22 },
 } as const;
 
 export interface CarDoorDetailInput {
@@ -38,8 +35,6 @@ export interface CarDoorDetailInput {
   edgeAt: (v: number) => number;
   /** Where along the car the B pillar stands. */
   bPillarU: number;
-  chargePort: CarPort;
-  port: Point3;
 }
 
 /** The top of the lower body at u: the highest profile segment over it. */
@@ -129,7 +124,6 @@ export function createCarDoorDetailKit(input: CarDoorDetailInput): ModelKit<Slot
   }
   addWindowTrim(parts, input);
   addTailSeams(parts, input);
-  addPortDoor(parts, input);
   return parts.kit();
 }
 
@@ -205,45 +199,4 @@ function addTailSeams(parts: ModelParts<Slot>, input: CarDoorDetailInput): void 
     const bottom = p.tail[1] - 0.12;
     parts.add('trim', boxG(d.gapM, top - bottom, d.gapDepthM), { at: [0, (top + bottom) / 2, z] });
   }
-}
-
-/** The charge port: a dark outline around the socket and the open door on its hinge. */
-function addPortDoor(parts: ModelParts<Slot>, input: CarDoorDetailInput): void {
-  const d = CAR_DOOR_DETAIL.portDoor;
-  const o = d.outlineOuterM / 2;
-  const i = d.outlineInnerM / 2;
-  const square = (r: number, c: number) =>
-    [
-      [-r + c, -r],
-      [r - c, -r],
-      [r, -r + c],
-      [r, r - c],
-      [r - c, r],
-      [-r + c, r],
-      [-r, r - c],
-      [-r, -r + c],
-    ] as const;
-  const outline = (): ReturnType<typeof frontProfileG> =>
-    frontProfileG(square(o, 0.03), 0.008, 0, [[...square(i, 0.025)].reverse()]);
-  const { port } = input;
-  if (input.chargePort === 'front_center') {
-    parts.add('trim', outline(), { at: [port.x, port.y + 0.02, port.z - 0.006] });
-    parts.add('paint', roundBoxG(d.sizeM, d.thicknessM, d.sizeM, 0.03), {
-      at: [port.x, port.y + 0.02 + o + 0.01, port.z - d.sizeM / 2 - 0.006],
-    });
-    return;
-  }
-  const side = Math.sign(port.x) || -1;
-  // The door swings away from the charger: a front port opens toward the rear.
-  const away = input.chargePort.startsWith('front') ? 1 : -1;
-  parts.add('trim', outline(), {
-    at: [port.x + side * 0.002, port.y + 0.02, port.z],
-    rot: [0, Math.PI / 2, 0],
-  });
-  parts.add('paint', roundBoxG(d.sizeM, d.sizeM, d.thicknessM, 0.03), {
-    at: [port.x + side * (d.sizeM / 2 + 0.01), port.y + 0.02, port.z + away * (o + 0.006)],
-  });
-  parts.add('trim', boxG(0.02, 0.06, 0.012), {
-    at: [port.x + side * 0.008, port.y + 0.02, port.z + away * o],
-  });
 }

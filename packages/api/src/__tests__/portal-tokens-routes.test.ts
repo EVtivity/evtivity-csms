@@ -312,10 +312,18 @@ describe('Portal token routes', () => {
       const updatedToken = { ...ownRow, isActive: false, deactivatedBy: 'driver' };
       // 1) Route's ownership check
       // 2) tokenService.updateToken: select current row (locked)
-      // 3) tokenService.updateToken: update returning
-      // 4) stations holding the token (none)
-      // 5) Route re-reads the token for the response
-      setupDbResults([ownRow], [ownRow], [updatedToken], [], [updatedToken]);
+      // 3) tokenService.updateToken: the driver row (FOR SHARE)
+      // 4) tokenService.updateToken: update returning
+      // 5) stations holding the token (none)
+      // 6) Route re-reads the token for the response
+      setupDbResults(
+        [ownRow],
+        [ownRow],
+        [{ isActive: true, erasedAt: null }],
+        [updatedToken],
+        [],
+        [updatedToken],
+      );
       const response = await app.inject({
         method: 'PATCH',
         url: `/portal/tokens/${TOKEN_ID}`,
@@ -324,6 +332,30 @@ describe('Portal token routes', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().isActive).toBe(false);
+    });
+
+    it('answers 404 when the card moved to another driver after the ownership read (PP-L1)', async () => {
+      const ownRow = {
+        id: TOKEN_ID,
+        driverId: DRIVER_ID,
+        idToken: 'ABCD1234',
+        tokenType: 'ISO14443',
+        isActive: true,
+        expiresAt: null,
+        label: null,
+        deactivatedBy: null,
+        createdAt: new Date(),
+      };
+      // The route's read sees the driver's card, the locked row another driver's.
+      setupDbResults([ownRow], [{ ...ownRow, driverId: 'drv_other' }]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { label: 'Mine' },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('TOKEN_NOT_FOUND');
     });
   });
 });

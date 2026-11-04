@@ -142,7 +142,7 @@
   {
     "path": "/docs/csms/load-management",
     "title": "Load Management",
-    "description": "Distribute available power across charging stations using hierarchical panel and circuit modeling with automatic 10-second control loops."
+    "description": "Distribute available power across charging stations within the limits of the site's transformers, panels and circuits, with battery and solar supply and an automatic 10-second control loop."
   },
   {
     "path": "/docs/csms/local-auth-list",
@@ -188,6 +188,11 @@
     "path": "/docs/csms/roaming",
     "title": "Roaming",
     "description": "Connect your charging network to roaming partners using OCPI 2.2.1 and 2.3.0 for cross-network EV charging."
+  },
+  {
+    "path": "/docs/csms/route-aware-charging",
+    "title": "Route Aware Charging",
+    "description": "Charge every fleet vehicle at a Depot by its departure time with the energy its next route needs, within the site power limits and in the cheapest hours."
   },
   {
     "path": "/docs/csms/sessions",
@@ -393,6 +398,11 @@
     "path": "/docs/integrations/adyen",
     "title": "Adyen",
     "description": "Set up and use Adyen step by step. Merchant account, API credential roles, client key and allowed origins, the Adyen settings, the webhook, Adyen Support enablements, local testing, selecting Adyen, 3D Secure, guest checkout, captures and refunds confirmed by webhook, the mobile app, and the Content Security Policy."
+  },
+  {
+    "path": "/docs/integrations/bus-depot-systems",
+    "title": "Bus Depot Systems",
+    "description": "Connect a bus depot management system or ITCS to EVtivity. It sends the charging requests of its buses and gets the charging information of its depots back."
   },
   {
     "path": "/docs/integrations/energy-management",

@@ -75,7 +75,7 @@ describe('custom site framing and links', () => {
     );
     expect(box.minX).toBe(-12);
     expect(box.maxX).toBeCloseTo(4.6);
-    expect(box.maxZ).toBeCloseTo(8.1);
+    expect(box.maxZ).toBeCloseTo(8.08);
   });
 
   it('ends a load management link behind the charger and stands the panels left of the stations', () => {
@@ -202,7 +202,7 @@ describe('custom site editing', () => {
   });
 
   it('stands the rotation handle 1.6 m past the back of the spots of every type', () => {
-    expect(rotationHandleZ(2)).toBe(7.7);
+    expect(rotationHandleZ(2)).toBeCloseTo(7.68);
     expect(rotationHandleZ(2, 'bus_bay')).toBe(14.7);
     expect(rotationHandleZ(2, 'truck_pull_through')).toBe(14.6);
   });

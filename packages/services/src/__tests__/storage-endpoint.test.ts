@@ -10,6 +10,7 @@ import { BlockedDestinationError } from '@evtivity/lib';
 import {
   createStorageRequestHandler,
   parseStorageAllowedPrivateHosts,
+  r2EndpointBucket,
   validateR2Endpoint,
   validateStorageEndpoint,
 } from '../storage/index.js';
@@ -116,6 +117,14 @@ describe('validateR2Endpoint', () => {
     // The S3 API URL Cloudflare shows on a bucket ends in the bucket name.
     [`${ORIGIN}/my-bucket`, ORIGIN],
     [`${ORIGIN}/my-bucket/`, ORIGIN],
+    // A trailing dot of the host is dropped, so the stored origin matches the
+    // signed Host and the STORAGE_IMG_SRC origin.
+    [`https://${ACCOUNT}.r2.cloudflarestorage.com.`, ORIGIN],
+    [`https://${ACCOUNT}.r2.cloudflarestorage.com./my-bucket`, ORIGIN],
+    [
+      `https://${ACCOUNT}.eu.r2.cloudflarestorage.com.`,
+      `https://${ACCOUNT}.eu.r2.cloudflarestorage.com`,
+    ],
   ])('accepts %s', (value, origin) => {
     expect(validateR2Endpoint(value)).toBe(origin);
   });
@@ -147,6 +156,24 @@ describe('validateR2Endpoint', () => {
     'https://169.254.169.254',
   ])('refuses %s', (value) => {
     expect(validateR2Endpoint(value)).toBeNull();
+  });
+});
+
+describe('r2EndpointBucket', () => {
+  const ORIGIN = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+
+  it.each([
+    [`${ORIGIN}/my-bucket`, 'my-bucket'],
+    [`${ORIGIN}/my-bucket/`, 'my-bucket'],
+    [` ${ORIGIN}/my-bucket `, 'my-bucket'],
+    [ORIGIN, null],
+    [`${ORIGIN}/`, null],
+    // Not a valid R2 endpoint: no bucket is read from it.
+    ['https://files.example.com/my-bucket', null],
+    [`${ORIGIN}/my-bucket/key`, null],
+    [undefined, null],
+  ])('reads %s as %s', (value, bucket) => {
+    expect(r2EndpointBucket(value)).toBe(bucket);
   });
 });
 

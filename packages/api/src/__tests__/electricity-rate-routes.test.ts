@@ -74,6 +74,7 @@ vi.mock('../middleware/rbac.js', () => ({
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
+  ...(await import('./helpers/departure-schema-mocks.js')).departureSchemaMocks(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -99,6 +100,7 @@ vi.mock('@evtivity/database', async () => ({
   pricingAssignmentAuditLog: {},
   siteElectricityRatePeriods: { id: {}, siteId: {}, priority: {} },
   writeAudit: vi.fn().mockResolvedValue(undefined),
+  markSitePlanStale: vi.fn().mockResolvedValue(true),
   siteAuditLog: {},
   configTemplateAuditLog: {},
   clearFreeVendCache: vi.fn(),
@@ -141,7 +143,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { siteRoutes } from '../routes/sites.js';
-import { db, clearElectricityRateCache, writeAudit } from '@evtivity/database';
+import { db, clearElectricityRateCache, markSitePlanStale, writeAudit } from '@evtivity/database';
 import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
 import { getUserSiteIds } from '../lib/site-access.js';
 
@@ -257,6 +259,15 @@ describe('Electricity rate routes', () => {
       after: { electricityRate: { name: 'Flat' } },
       notes: 'electricity rate created: Flat',
     });
+    // A departure-aware site replans with the new prices.
+    await vi.waitFor(() => {
+      expect(markSitePlanStale).toHaveBeenCalledWith(
+        VALID_SITE_ID,
+        'electricity_rate_changed',
+        expect.anything(),
+        { departureAwareOnly: true },
+      );
+    });
   });
 
   it('POST derives priority 10 for a time-only TOU period', async () => {
@@ -337,6 +348,8 @@ describe('Electricity rate routes', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('ELECTRICITY_RATE_NOT_FOUND');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(markSitePlanStale).not.toHaveBeenCalled();
   });
 
   it('DELETE removes the period', async () => {

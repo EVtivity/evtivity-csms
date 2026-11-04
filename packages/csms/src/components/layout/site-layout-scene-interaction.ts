@@ -13,7 +13,7 @@ import {
   type Point,
 } from './site-layout-grid';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { pickChargerScreen } from './site-layout-scene-screen-text';
 import { type PickKind, type StationObject } from './site-layout-scene-types';
 
@@ -26,7 +26,30 @@ export function distanceToSegment(p: Point, a: Point, b: Point): number {
   return Math.hypot(p.x - (a.x + t * dx), p.z - (a.z + t * dz));
 }
 
-export function installInteraction(scn: SceneCtx): void {
+type InteractionCtx = SceneSlice<
+  | 'applySelection'
+  | 'batteryObjects'
+  | 'callbacks'
+  | 'camera'
+  | 'controls'
+  | 'editing'
+  | 'energyLabels'
+  | 'layout'
+  | 'linkLabels'
+  | 'lotPoint'
+  | 'objects'
+  | 'poseOf'
+  | 'renderer'
+  | 'showGuides'
+  | 'site'
+  | 'solarObjects'
+  | 'theme'
+  | 'transformerObjects'
+  | 'virtualSprites',
+  'canvas' | 'drag' | 'onPointerDown' | 'onPointerLeave' | 'onPointerMove' | 'onPointerUp'
+>;
+
+export function installInteraction(scn: InteractionCtx): void {
   // Picking and dragging.
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -43,13 +66,24 @@ export function installInteraction(scn: SceneCtx): void {
     );
     ray.setFromCamera(ndc, scn.camera);
   }
+  /** The switchboards standing at transformer `id` (top-level groups, `dragTransformerId`). */
+  function switchboardsAt(id: string | null): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    for (const o of scn.site.children) {
+      const at: unknown = o.userData['dragTransformerId'];
+      if (typeof at === 'string' && (id == null || at === id)) out.push(o);
+    }
+    return out;
+  }
   function pick(e: PointerEvent): { kind: PickKind; id: string } | null {
     setRay(e);
-    const groups = [...scn.objects.values()].map((o) => o.group);
+    const groups: THREE.Object3D[] = [...scn.objects.values()].map((o) => o.group);
     groups.push(
       ...scn.transformerObjects.values(),
       ...scn.batteryObjects.values(),
       ...scn.solarObjects.values(),
+      // A switchboard at a transformer moves with it (Edit Layout).
+      ...(scn.editing ? switchboardsAt(null) : []),
     );
     const hits = ray
       .intersectObjects(groups, true)
@@ -72,8 +106,11 @@ export function installInteraction(scn: SceneCtx): void {
     if (hit == null) return null;
     const stationId: unknown = hit.object.userData['stationId'];
     if (typeof stationId === 'string') return { kind: 'station', id: stationId };
-    const transformerId: unknown = hit.object.userData['transformerId'];
-    if (typeof transformerId === 'string') return { kind: 'transformer', id: transformerId };
+    const transformerId: unknown =
+      hit.object.userData['transformerId'] ?? hit.object.userData['dragTransformerId'];
+    if (typeof transformerId === 'string' && scn.transformerObjects.has(transformerId)) {
+      return { kind: 'transformer', id: transformerId };
+    }
     const batteryId: unknown = hit.object.userData['batteryId'];
     if (typeof batteryId === 'string') return { kind: 'battery', id: batteryId };
     const solarId: unknown = hit.object.userData['solarId'];
@@ -201,7 +238,9 @@ export function installInteraction(scn: SceneCtx): void {
         ? scn.objects.get(hit.id)?.group
         : hit.kind === 'solar'
           ? scn.solarObjects.get(hit.id)
-          : undefined;
+          : hit.kind === 'transformer'
+            ? scn.transformerObjects.get(hit.id)
+            : scn.batteryObjects.get(hit.id);
     if (p != null && g != null) grab = { x: p.x - g.position.x, z: p.z - g.position.z };
     scn.drag = {
       ...hit,
@@ -271,7 +310,20 @@ export function installInteraction(scn: SceneCtx): void {
         scn.drag.id,
       );
       if (g == null) return;
-      const snapped = scn.callbacks.snapTransformer({ x: p.x, z: p.z });
+      // Where it was grabbed stays under the pointer (a switchboard beside it too).
+      const snapped = scn.callbacks.snapTransformer({
+        x: p.x - scn.drag.grab.x,
+        z: p.z - scn.drag.grab.z,
+      });
+      // The switchboards at a transformer move with it; the drop places them anew.
+      if (scn.drag.kind === 'transformer') {
+        const dx = snapped.x - g.position.x;
+        const dz = snapped.z - g.position.z;
+        for (const board of switchboardsAt(scn.drag.id)) {
+          board.position.x += dx;
+          board.position.z += dz;
+        }
+      }
       g.position.set(snapped.x, 0, snapped.z);
       return;
     }

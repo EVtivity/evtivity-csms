@@ -24,7 +24,11 @@ type TableName =
   | 'loadAllocationLog'
   | 'evChargingNeeds'
   | 'stationConfigurations'
-  | 'chargingProfiles';
+  | 'chargingProfiles'
+  | 'transformers'
+  | 'siteEnergyAssets'
+  | 'energyAssetReadings'
+  | 'sites';
 
 // vi.hoisted so the mutable state is constructed before the vi.mock factories run
 // and is referenceable from both the factory and the test bodies.
@@ -46,6 +50,10 @@ const dbState = vi.hoisted(() => {
     'evChargingNeeds',
     'stationConfigurations',
     'chargingProfiles',
+    'transformers',
+    'siteEnergyAssets',
+    'energyAssetReadings',
+    'sites',
   ]) {
     tables[name] = { __table: name };
   }
@@ -83,10 +91,17 @@ const dbState = vi.hoisted(() => {
     chain['orderBy'] = () => chain;
     chain['limit'] = () => chain;
     // Make the chain awaitable: `await db.select(...).from(...).where(...)`.
+    // A table whose read fails: results holds an Error for it.
     chain['then'] = (
       onFulfilled: (v: unknown[]) => unknown,
       onRejected?: (e: unknown) => unknown,
-    ) => Promise.resolve(resolve()).then(onFulfilled, onRejected);
+    ) => {
+      const failure = results.get(fromTable ?? '');
+      return (failure instanceof Error ? Promise.reject(failure) : Promise.resolve(resolve())).then(
+        onFulfilled,
+        onRejected,
+      );
+    };
     return chain;
   }
 
@@ -140,6 +155,10 @@ vi.mock('@evtivity/database', () => ({
   evChargingNeeds: dbState.tables['evChargingNeeds'],
   stationConfigurations: dbState.tables['stationConfigurations'],
   chargingProfiles: dbState.tables['chargingProfiles'],
+  transformers: dbState.tables['transformers'],
+  siteEnergyAssets: dbState.tables['siteEnergyAssets'],
+  energyAssetReadings: dbState.tables['energyAssetReadings'],
+  sites: dbState.tables['sites'],
   isOperatorStation: vi.fn(() => 'OPERATOR_STATION'),
 }));
 
@@ -149,6 +168,7 @@ vi.mock('drizzle-orm', () => ({
   gte: vi.fn(),
   inArray: vi.fn(),
   sql: Object.assign(vi.fn(), { raw: vi.fn(), join: vi.fn() }),
+  asc: vi.fn(),
   desc: vi.fn(),
   isNotNull: vi.fn(),
 }));
@@ -205,10 +225,28 @@ import {
   lastAcceptedLimitsKw,
   orderLimitChanges,
   stationRates,
+  stepDownPrimaryPhases,
+  nodeCapacityKw,
+  fixedPhaseLoad,
+  fixedLoadKw,
+  localGenerationKw,
+  clearRememberedEnergyAssets,
+  forgetRememberedEnergyAssets,
+  pruneRememberedEnergyAssets,
+  rememberedEnergyAssetSiteIds,
+  REMEMBERED_ENERGY_ASSETS_MAX_AGE_MS,
+  withoutRaises,
+  withoutAssetReadings,
+  splitCreditLimits,
+  limitCommands,
+  orderLimitCommands,
+  LOAD_MANAGEMENT_CREDIT_STACK_LEVEL,
+  LOAD_MANAGEMENT_CREDIT_RESEND_MS,
   type HierarchyNode,
   type StationPowerInfo,
   type AllocationResult,
 } from '../load-management.service.js';
+import { buildPlanNodes, phaseNodeId } from '../charging-plan.service.js';
 
 function setResult(table: TableName, rows: unknown[]): void {
   dbState.results.set(table, rows);
@@ -244,6 +282,7 @@ function makeLogger(): ServiceLogger {
 
 beforeEach(() => {
   dbState.reset();
+  clearRememberedEnergyAssets();
   // Restore the default routing select factory in case a test replaced it.
   dbState.db.select.mockReset();
   dbState.db.select.mockImplementation(() => dbState.makeSelectFactory()());
@@ -1041,6 +1080,7 @@ describe('computeHierarchicalAllocation', () => {
     expect(summarizeSiteCapacity([panel], new Map())).toEqual({
       siteLimitKw: 90,
       availableKw: 65,
+      supplyCreditKw: 0,
     });
   });
 
@@ -1655,7 +1695,7 @@ describe('dispatchAllocations', () => {
 });
 
 describe('clearLoadManagementProfiles', () => {
-  it('clears the load management profile by its id, once per station', async () => {
+  it('clears the load management profile and its credit profile by id, once per station', async () => {
     const log = makeLogger();
 
     await expect(clearLoadManagementProfiles(['CS-001', 'CS-001', 'CS-002'], log)).resolves.toBe(
@@ -1664,13 +1704,16 @@ describe('clearLoadManagementProfiles', () => {
 
     const clears = pubsubState.publish.mock.calls
       .filter((c) => c[0] === 'ocpp_commands')
-      .map((c) => JSON.parse(c[1]));
-    expect(clears).toHaveLength(2);
-    expect(clears[0]).toMatchObject({
-      stationId: 'CS-001',
-      action: 'ClearChargingProfile',
-      payload: { chargingProfileId: LOAD_MANAGEMENT_PROFILE_ID },
-    });
+      .map(
+        (c) => JSON.parse(c[1]) as { stationId: string; payload: { chargingProfileId: number } },
+      );
+    expect(clears.map((c) => `${c.stationId}:${String(c.payload.chargingProfileId)}`)).toEqual([
+      `CS-001:${String(LOAD_MANAGEMENT_PROFILE_ID)}`,
+      `CS-001:${String(LOAD_MANAGEMENT_PROFILE_ID + 1)}`,
+      `CS-002:${String(LOAD_MANAGEMENT_PROFILE_ID)}`,
+      `CS-002:${String(LOAD_MANAGEMENT_PROFILE_ID + 1)}`,
+    ]);
+    expect(clears[0]).toMatchObject({ stationId: 'CS-001', action: 'ClearChargingProfile' });
   });
 });
 
@@ -1887,11 +1930,15 @@ describe('runLoadManagementCycle', () => {
     await runLoadManagementCycle(makeLogger(), 'site-moved');
 
     const clears = ocppPublishes().filter((c) => c.action === 'ClearChargingProfile');
-    expect(clears).toHaveLength(1);
+    expect(clears).toHaveLength(2);
     expect(clears[0]).toMatchObject({
       stationId: 'CS-OLD',
       action: 'ClearChargingProfile',
       payload: { chargingProfileId: LOAD_MANAGEMENT_PROFILE_ID },
+    });
+    expect(clears[1]).toMatchObject({
+      stationId: 'CS-OLD',
+      payload: { chargingProfileId: LOAD_MANAGEMENT_PROFILE_ID + 1 },
     });
   });
 
@@ -2013,7 +2060,11 @@ describe('runLoadManagementCycle', () => {
     await runLoadManagementCycle(makeLogger(), 'site-raced');
 
     const actions = ocppPublishes().map((c) => `${c.action}:${c.stationId}`);
-    expect(actions).toEqual(['SetChargingProfile:CS-001', 'ClearChargingProfile:CS-001']);
+    expect(actions).toEqual([
+      'SetChargingProfile:CS-001',
+      'ClearChargingProfile:CS-001',
+      'ClearChargingProfile:CS-001',
+    ]);
   });
 
   it('treats a station with an unconfirmed limit as a fixed load and retries in the other unit', async () => {
@@ -2842,5 +2893,1658 @@ describe('circuit voltage, sub-panel phases and send order', () => {
       { siteId: 'site-1', raiseCount: 1 },
       'Load management limit raises held back after a failed cut',
     );
+  });
+});
+
+describe('transformers and battery and solar supply', () => {
+  function node(overrides: Partial<HierarchyNode>): HierarchyNode {
+    return {
+      type: 'panel',
+      id: 'p',
+      name: 'Node',
+      maxContinuousKw: 100,
+      safetyMarginKw: 0,
+      unmanagedLoadKw: 0,
+      currentDrawKw: 0,
+      stations: [],
+      children: [],
+      phases: 1,
+      breakerRatingAmps: 100,
+      voltageV: 240,
+      oversubscriptionRatio: 1,
+      phaseConnections: null,
+      phaseLoad: null,
+      perPhaseCapacityKw: null,
+      ...overrides,
+    };
+  }
+  const circuitWith = (id: string, maxKw: number, stationKw: number): HierarchyNode =>
+    node({
+      type: 'circuit',
+      id: `c-${id}`,
+      maxContinuousKw: maxKw,
+      stations: [makeStation({ id, stationId: id, maxPowerKw: stationKw })],
+    });
+  const board = (id: string, maxKw: number, children: HierarchyNode[]): HierarchyNode =>
+    node({ id, maxContinuousKw: maxKw, children });
+  const transformerNode = (overrides: Partial<HierarchyNode>): HierarchyNode =>
+    node({ type: 'transformer', transformerKind: 'service', breakerRatingAmps: 0, ...overrides });
+  const total = (results: AllocationResult[]): number =>
+    results.reduce((sum, r) => sum + r.allocatedKw, 0);
+
+  it('scales two switchboards to the transformer above them', () => {
+    const tx = transformerNode({
+      id: 'tfm_1',
+      maxContinuousKw: 300,
+      children: [
+        board('b1', 200, [circuitWith('a', 200, 180)]),
+        board('b2', 200, [circuitWith('b', 200, 180)]),
+      ],
+    });
+    const out = computeHierarchicalAllocation([tx], 'equal_share');
+    expect(total(out)).toBeCloseTo(300, 6);
+    for (const r of out) expect(r.allocatedKw).toBeCloseTo(150, 6);
+  });
+
+  it('keeps a lower node within its own limit when the node above has a credit', () => {
+    // Solar of 50 kW load-side on b1: b1 itself gets no credit (D8), so a
+    // single station below it stays at 100; two boards share 150 under it.
+    const single = transformerNode({
+      maxContinuousKw: 100,
+      supplyCreditKw: 50,
+      children: [board('b1', 100, [circuitWith('a', 200, 200)])],
+    });
+    expect(total(computeHierarchicalAllocation([single], 'equal_share'))).toBeCloseTo(100, 6);
+
+    const two = transformerNode({
+      maxContinuousKw: 100,
+      supplyCreditKw: 50,
+      children: [
+        board('b1', 100, [circuitWith('a', 200, 200)]),
+        board('b2', 100, [circuitWith('b', 200, 200)]),
+      ],
+    });
+    expect(total(computeHierarchicalAllocation([two], 'equal_share'))).toBeCloseTo(150, 6);
+  });
+
+  it('never raises a node above what its children can carry', () => {
+    const tx = transformerNode({
+      maxContinuousKw: 100,
+      supplyCreditKw: 500,
+      children: [board('b1', 120, [circuitWith('a', 200, 200)])],
+    });
+    expect(nodeCapacityKw(tx)).toBe(120);
+    // Without a credit the capacity is unchanged, even above the children.
+    expect(
+      nodeCapacityKw(transformerNode({ maxContinuousKw: 400, children: [board('b', 50, [])] })),
+    ).toBe(400);
+  });
+
+  it('counts a battery load at its node and every node above it', () => {
+    const b1 = board('b1', 100, [circuitWith('a', 200, 200)]);
+    b1.supplyLoadKw = 30;
+    const tx = transformerNode({
+      maxContinuousKw: 120,
+      children: [b1, board('b2', 100, [circuitWith('b', 200, 200)])],
+    });
+    const out = computeHierarchicalAllocation([tx], 'equal_share');
+    // b1: 100 - 30 = 70 for its station; the transformer: 120 - 30 = 90 for both.
+    expect(total(out)).toBeCloseTo(90, 6);
+    expect(out.find((r) => r.stationDbId === 'a')?.allocatedKw).toBeLessThanOrEqual(70 + 1e-9);
+  });
+
+  it('maps a step-down secondary phase onto two primary phases at 1/sqrt(3)', () => {
+    const primary = stepDownPrimaryPhases({ L1: 30, L2: 0, L3: 0 });
+    expect(primary.L1).toBeCloseTo(30 / Math.sqrt(3), 9);
+    expect(primary.L2).toBeCloseTo(30 / Math.sqrt(3), 9);
+    expect(primary.L3).toBe(0);
+    const balanced = stepDownPrimaryPhases({ L1: 10, L2: 10, L3: 10 });
+    expect(balanced.L1).toBeCloseTo(20 / Math.sqrt(3), 9);
+  });
+
+  it('cuts a balanced load below a step-down transformer by the primary phase mapping (D16)', () => {
+    const circuit = node({
+      type: 'circuit',
+      id: 'c3',
+      maxContinuousKw: 1000,
+      phases: 3,
+      phaseConnections: 'L1L2L3',
+      stations: [makeStation({ id: 's3', stationId: 's3', maxPowerKw: 54 })],
+    });
+    const sub = node({
+      id: 'sub',
+      maxContinuousKw: 1000,
+      phases: 3,
+      voltageV: 120,
+      perPhaseCapacityKw: 333,
+      phaseLoad: { L1: 0, L2: 0, L3: 0 },
+      children: [circuit],
+    });
+    const stepDown = node({
+      type: 'transformer',
+      transformerKind: 'step_down',
+      id: 'tfm_sd',
+      maxContinuousKw: 1000,
+      phases: 3,
+      perPhaseCapacityKw: 333,
+      phaseLoad: { L1: 0, L2: 0, L3: 0 },
+      children: [sub],
+    });
+    const main = node({
+      id: 'main',
+      maxContinuousKw: 60,
+      phases: 3,
+      voltageV: 277,
+      perPhaseCapacityKw: 20,
+      phaseLoad: { L1: 0, L2: 0, L3: 0 },
+      children: [stepDown],
+    });
+    // Secondary 18 kW a phase counts 36 / sqrt(3) = 20.78 kW on each primary
+    // phase, so the station is cut to 54 x 20 / 20.78.
+    const out = computeHierarchicalAllocation([main], 'equal_share');
+    expect(out[0]?.allocatedKw).toBeCloseTo((54 * 20) / (36 / Math.sqrt(3)), 6);
+
+    // The same sub-panel directly below the main panel keeps 1:1 (18 <= 20).
+    const direct = node({
+      ...main,
+      children: [node({ ...sub, children: [node({ ...circuit })] })],
+    });
+    expect(computeHierarchicalAllocation([direct], 'equal_share')[0]?.allocatedKw).toBeCloseTo(
+      54,
+      6,
+    );
+  });
+
+  it('adds the per-phase credit of a three-phase asset to the phase limits', () => {
+    const circuit = node({
+      type: 'circuit',
+      id: 'c1',
+      maxContinuousKw: 1000,
+      phases: 3,
+      phaseConnections: 'L1',
+      stations: [makeStation({ id: 's1', stationId: 's1', maxPowerKw: 30 })],
+    });
+    const main = node({
+      maxContinuousKw: 1000,
+      phases: 3,
+      perPhaseCapacityKw: 20,
+      phaseLoad: { L1: 0, L2: 0, L3: 0 },
+      supplyCreditKw: 15,
+      supplyPhaseCreditKw: { L1: 5, L2: 5, L3: 5 },
+      children: [node({ maxContinuousKw: 1000, phases: 3, children: [circuit] })],
+    });
+    expect(computeHierarchicalAllocation([main], 'equal_share')[0]?.allocatedKw).toBeCloseTo(25, 6);
+  });
+
+  it('summarizes the transformer capacity plus the credit it used', () => {
+    const b1 = board('b1', 100, [circuitWith('a', 200, 200)]);
+    b1.energyAssets = [
+      {
+        id: 'ena_1',
+        name: 'Solar',
+        type: 'solar',
+        phases: 3,
+        telemetry: 'api',
+        connection: 'panel',
+        state: 'fresh',
+        creditKw: 40,
+        loadKw: 0,
+        creditApplied: true,
+        readingReceivedAt: new Date(),
+        socPercent: null,
+        freshUntil: null,
+      },
+    ];
+    const tx = transformerNode({
+      maxContinuousKw: 100,
+      safetyMarginKw: 10,
+      supplyCreditKw: 40,
+      children: [b1, board('b2', 100, [circuitWith('b', 200, 200)])],
+    });
+    expect(summarizeSiteCapacity([tx], new Map())).toEqual({
+      siteLimitKw: 130,
+      availableKw: 130,
+      supplyCreditKw: 40,
+    });
+  });
+
+  describe('buildSiteHierarchy', () => {
+    const NOW = Date.UTC(2026, 10, 3, 12, 0, 0);
+    const panelRow = (
+      overrides: Record<string, unknown> & { id: string },
+    ): Record<string, unknown> => ({
+      parentPanelId: null,
+      name: overrides.id,
+      breakerRatingAmps: 400,
+      voltageV: 277,
+      phases: 3,
+      maxContinuousKw: '200',
+      safetyMarginKw: '0',
+      oversubscriptionRatio: '1.0',
+      phaseConnections: null,
+      transformerId: null,
+      ...overrides,
+    });
+    const transformerRow = (
+      overrides: Record<string, unknown> & { id: string },
+    ): Record<string, unknown> => ({
+      kind: 'service',
+      name: overrides.id,
+      phases: 3,
+      secondaryVoltageV: 277,
+      safetyMarginKw: '0',
+      fedFromPanelId: null,
+      maxContinuousKw: '285',
+      ...overrides,
+    });
+    const asset = (
+      overrides: Record<string, unknown> & { id: string },
+    ): Record<string, unknown> => ({
+      type: 'solar',
+      name: overrides.id,
+      peakKwp: 100,
+      inverterKw: '60',
+      maxDischargeKw: null,
+      maxChargeKw: null,
+      phases: 3,
+      connectionTransformerId: null,
+      connectionPanelId: null,
+      gridCharging: 'never',
+      reservePercent: 10,
+      telemetry: 'api',
+      readingTtlSeconds: 60,
+      ...overrides,
+    });
+    const reading = (assetId: string, ageS: number, powerKw: string): Record<string, unknown> => ({
+      assetId,
+      reportedAt: new Date(NOW - ageS * 1000),
+      receivedAt: new Date(NOW - ageS * 1000),
+      powerKw,
+      availableKw: null,
+      socPercent: null,
+      source: 'api',
+    });
+
+    function tree(): void {
+      setResult('panels', [
+        panelRow({ id: 'main', transformerId: 'tfm_svc' }),
+        panelRow({ id: 'sub', parentPanelId: 'main', voltageV: 120, transformerId: 'tfm_sd' }),
+        panelRow({ id: 'other' }),
+      ]);
+      setResult('circuits', []);
+      setResult('unmanagedLoads', []);
+      setResult('transformers', [
+        transformerRow({ id: 'tfm_svc' }),
+        transformerRow({
+          id: 'tfm_sd',
+          kind: 'step_down',
+          fedFromPanelId: 'main',
+          secondaryVoltageV: 120,
+          maxContinuousKw: '71.25',
+        }),
+        transformerRow({ id: 'tfm_unlinked' }),
+      ]);
+    }
+
+    it('puts a service transformer above its panels and a step-down one between panel and sub-panel', async () => {
+      tree();
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      expect(roots.map((r) => [r.type, r.id])).toEqual([
+        ['transformer', 'tfm_svc'],
+        ['panel', 'other'],
+      ]);
+      const svc = roots[0];
+      expect(svc?.maxContinuousKw).toBe(285);
+      expect(svc?.perPhaseCapacityKw).toBe(95);
+      const main = svc?.children[0];
+      expect(main?.id).toBe('main');
+      const stepDown = main?.children.find((c) => c.type === 'transformer');
+      expect(stepDown?.id).toBe('tfm_sd');
+      expect(stepDown?.transformerKind).toBe('step_down');
+      expect(stepDown?.children.map((c) => c.id)).toEqual(['sub']);
+    });
+
+    it('ignores unrated transformers and a step-down unit not fed from the parent', async () => {
+      setResult('panels', [
+        panelRow({ id: 'main', transformerId: 'tfm_unrated' }),
+        panelRow({ id: 'sub', parentPanelId: 'main', transformerId: 'tfm_wrong' }),
+      ]);
+      setResult('circuits', []);
+      setResult('unmanagedLoads', []);
+      setResult('transformers', [
+        transformerRow({ id: 'tfm_unrated', maxContinuousKw: null }),
+        transformerRow({ id: 'tfm_wrong', kind: 'step_down', fedFromPanelId: 'elsewhere' }),
+      ]);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      expect(roots.map((r) => r.id)).toEqual(['main']);
+      expect(roots[0]?.children.map((c) => [c.type, c.id])).toEqual([['panel', 'sub']]);
+    });
+
+    it('credits load-side solar on every strict ancestor, not on its own panel (D8)', async () => {
+      tree();
+      setResult('siteEnergyAssets', [asset({ id: 'ena_pv', connectionPanelId: 'sub' })]);
+      setResult('energyAssetReadings', [reading('ena_pv', 5, '40')]);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      const svc = roots[0];
+      const main = svc?.children[0];
+      const stepDown = main?.children.find((c) => c.type === 'transformer');
+      const sub = stepDown?.children[0];
+      expect(sub?.supplyCreditKw ?? 0).toBe(0);
+      expect(stepDown?.supplyCreditKw).toBe(40);
+      expect(main?.supplyCreditKw).toBe(40);
+      expect(svc?.supplyCreditKw).toBe(40);
+      expect(svc?.supplyPhaseCreditKw?.L1).toBeCloseTo(40 / 3, 9);
+      expect(sub?.energyAssets?.[0]).toMatchObject({
+        state: 'fresh',
+        creditKw: 40,
+        creditApplied: true,
+      });
+      expect(roots[1]?.supplyCreditKw ?? 0).toBe(0);
+    });
+
+    it('ages a reading from when it was measured, not when it arrived (case 333)', async () => {
+      tree();
+      setResult('siteEnergyAssets', [asset({ id: 'ena_pv', connectionPanelId: 'sub' })]);
+      // Received 5 s ago, measured 70 s ago: past its 60 s lifetime.
+      setResult('energyAssetReadings', [
+        { ...reading('ena_pv', 5, '40'), reportedAt: new Date(NOW - 70_000) },
+      ]);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+      const stepDown = roots[0]?.children[0]?.children.find((c) => c.type === 'transformer');
+      expect(stepDown?.children[0]?.energyAssets?.[0]).toMatchObject({ state: 'stale' });
+    });
+
+    describe('a three-phase asset on a single-phase sub-panel raises no phase above it', () => {
+      // A 3-phase 277 V main (88.64 kW per phase) with a single-phase L1
+      // sub-panel and a 500 kW single-phase circuit on L3 of the main; 60 kW
+      // of three-phase solar sits on the sub-panel.
+      function phaseTree(subChildren: Array<Record<string, unknown>> = []): void {
+        setResult('panels', [
+          panelRow({ id: 'main', maxContinuousKw: '500' }),
+          panelRow({ id: 'sub', parentPanelId: 'main', phases: 1, phaseConnections: 'L1' }),
+          ...subChildren,
+        ]);
+        setResult('circuits', [
+          {
+            id: 'c3',
+            panelId: 'main',
+            name: 'L3 circuit',
+            breakerRatingAmps: 800,
+            maxContinuousKw: '500',
+            phaseConnections: 'L3',
+            voltageV: null,
+          },
+        ]);
+        setResult('unmanagedLoads', []);
+        setResult('transformers', []);
+      }
+      const l3Station = makeStation({
+        id: 'sta_3',
+        stationId: 'CS-003',
+        circuitId: 'c3',
+        maxPowerKw: 300,
+      });
+
+      it('gives the asset no credit at a single-phase connection point (allocation and plan)', async () => {
+        phaseTree();
+        setResult('siteEnergyAssets', [asset({ id: 'ena_pv', connectionPanelId: 'sub' })]);
+        setResult('energyAssetReadings', [reading('ena_pv', 5, '60')]);
+        const roots = await buildSiteHierarchy('site-1', [l3Station], { nowMs: NOW });
+        const main = roots[0];
+        expect(main?.id).toBe('main');
+        expect(main?.supplyCreditKw ?? 0).toBe(0);
+        expect(main?.supplyPhaseCreditKw ?? null).toBeNull();
+        const sub = main?.children.find((c) => c.id === 'sub');
+        expect(sub?.energyAssets?.[0]).toMatchObject({ creditKw: 60, creditApplied: false });
+
+        const perPhase = (400 * 277 * 0.8) / 1000;
+        const allocation = computeHierarchicalAllocation(roots, 'equal_share');
+        expect(allocation.find((a) => a.stationDbId === 'sta_3')?.allocatedKw).toBeCloseTo(
+          perPhase,
+          6,
+        );
+        const plan = buildPlanNodes(roots, new Map());
+        const l3 = phaseNodeId('main', 'L3');
+        expect(plan.liveHeadroomKw.get(l3)).toBeCloseTo(plan.headroomKw.get(l3) ?? -1, 9);
+      });
+
+      it('gives no per-phase credit above a single-phase node on the path', async () => {
+        phaseTree([panelRow({ id: 'subsub', parentPanelId: 'sub' })]);
+        setResult('siteEnergyAssets', [asset({ id: 'ena_pv', connectionPanelId: 'subsub' })]);
+        setResult('energyAssetReadings', [reading('ena_pv', 5, '60')]);
+        const roots = await buildSiteHierarchy('site-1', [l3Station], { nowMs: NOW });
+        const main = roots[0];
+        const sub = main?.children.find((c) => c.id === 'sub');
+        expect(sub?.supplyCreditKw).toBe(60);
+        expect(main?.supplyCreditKw).toBe(60);
+        expect(main?.supplyPhaseCreditKw ?? null).toBeNull();
+        const perPhase = (400 * 277 * 0.8) / 1000;
+        const allocation = computeHierarchicalAllocation(roots, 'equal_share');
+        expect(allocation.find((a) => a.stationDbId === 'sta_3')?.allocatedKw).toBeCloseTo(
+          perPhase,
+          6,
+        );
+        const plan = buildPlanNodes(roots, new Map());
+        const l3 = phaseNodeId('main', 'L3');
+        expect(plan.liveHeadroomKw.get(l3)).toBeCloseTo(plan.headroomKw.get(l3) ?? -1, 9);
+      });
+
+      it('still credits every phase of a three-phase path', async () => {
+        phaseTree();
+        setResult('siteEnergyAssets', [
+          asset({ id: 'ena_pv', connectionPanelId: 'sub', phases: 1 }),
+        ]);
+        setResult('energyAssetReadings', [reading('ena_pv', 5, '60')]);
+        // A single-phase asset on the single-phase sub-panel: total credit only.
+        const single = await buildSiteHierarchy('site-1', [l3Station], { nowMs: NOW });
+        expect(single[0]?.supplyCreditKw).toBe(60);
+        expect(single[0]?.supplyPhaseCreditKw ?? null).toBeNull();
+
+        phaseTree([panelRow({ id: 'three', parentPanelId: 'main' })]);
+        setResult('siteEnergyAssets', [asset({ id: 'ena_pv', connectionPanelId: 'three' })]);
+        setResult('energyAssetReadings', [reading('ena_pv', 5, '60')]);
+        const roots = await buildSiteHierarchy('site-1', [l3Station], { nowMs: NOW });
+        expect(roots[0]?.supplyPhaseCreditKw).toEqual({ L1: 20, L2: 20, L3: 20 });
+      });
+    });
+
+    it('credits a supply-side asset on its transformer only', async () => {
+      tree();
+      setResult('siteEnergyAssets', [asset({ id: 'ena_pv', connectionTransformerId: 'tfm_sd' })]);
+      setResult('energyAssetReadings', [reading('ena_pv', 5, '30')]);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      const main = roots[0]?.children[0];
+      const stepDown = main?.children.find((c) => c.type === 'transformer');
+      expect(stepDown?.supplyCreditKw).toBe(30);
+      expect(main?.supplyCreditKw ?? 0).toBe(0);
+      expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+    });
+
+    it('counts a supply-side asset on a transformer outside the tree nowhere', async () => {
+      tree();
+      setResult('siteEnergyAssets', [
+        asset({
+          id: 'ena_bat',
+          type: 'battery',
+          peakKwp: null,
+          maxChargeKw: '50',
+          gridCharging: 'possible',
+          connectionTransformerId: 'tfm_unlinked',
+        }),
+      ]);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      const all: HierarchyNode[] = [];
+      const walk = (list: HierarchyNode[]): void => {
+        for (const n of list) {
+          all.push(n);
+          walk(n.children);
+        }
+      };
+      walk(roots);
+      expect(all.some((n) => (n.supplyLoadKw ?? 0) > 0 || n.energyAssets != null)).toBe(false);
+    });
+
+    it('gives no credit for a stale reading and counts a battery as load (D9)', async () => {
+      tree();
+      setResult('siteEnergyAssets', [
+        asset({ id: 'ena_pv', connectionPanelId: 'sub' }),
+        asset({
+          id: 'ena_bat',
+          type: 'battery',
+          peakKwp: null,
+          inverterKw: '60',
+          maxDischargeKw: '60',
+          maxChargeKw: '50',
+          gridCharging: 'possible',
+          phases: 1,
+          connectionPanelId: 'main',
+        }),
+      ]);
+      setResult('energyAssetReadings', [
+        reading('ena_pv', 61, '40'),
+        reading('ena_bat', 120, '60'),
+      ]);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      const svc = roots[0];
+      const main = svc?.children[0];
+      expect(svc?.supplyCreditKw ?? 0).toBe(0);
+      expect(main?.supplyLoadKw).toBe(50);
+      expect(main?.supplySinglePhaseLoadKw).toBe(50);
+      expect(main?.currentDrawKw).toBe(50);
+      expect(svc?.currentDrawKw).toBe(50);
+      expect(main?.energyAssets?.[0]).toMatchObject({ state: 'stale', creditKw: 0, loadKw: 50 });
+    });
+
+    it('counts an unrated grid-charging battery as a load of its whole connection point, never 0 (D9)', async () => {
+      tree();
+      const log = makeLogger();
+      setResult('siteEnergyAssets', [
+        asset({
+          id: 'ena_bat',
+          type: 'battery',
+          peakKwp: null,
+          inverterKw: null,
+          maxChargeKw: null,
+          gridCharging: 'possible',
+          connectionPanelId: 'main',
+        }),
+      ]);
+      setResult('energyAssetReadings', []);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW, log });
+      const main = roots[0]?.children[0];
+      expect(main?.supplyLoadKw).toBe(200);
+      expect(roots[0]?.currentDrawKw).toBe(200);
+      expect(main?.energyAssets?.[0]).toMatchObject({ state: 'none', loadKw: 200 });
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ energyAssetId: 'ena_bat' }),
+        'Battery without a charge or inverter rating, it counts as a load of its whole connection point',
+      );
+    });
+
+    it('ignores the readings of an asset without api telemetry', async () => {
+      tree();
+      setResult('siteEnergyAssets', [
+        asset({ id: 'ena_pv', connectionPanelId: 'sub', telemetry: 'none' }),
+        asset({ id: 'ena_sim', connectionPanelId: 'sub', telemetry: 'simulated' }),
+      ]);
+      setResult('energyAssetReadings', [reading('ena_pv', 1, '40'), reading('ena_sim', 1, '40')]);
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW });
+      expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+    });
+
+    it('fails closed when the readings cannot be read', async () => {
+      tree();
+      setResult('siteEnergyAssets', [
+        asset({ id: 'ena_pv', connectionPanelId: 'sub' }),
+        asset({
+          id: 'ena_bat',
+          type: 'battery',
+          peakKwp: null,
+          maxChargeKw: '25',
+          gridCharging: 'possible',
+          connectionTransformerId: 'tfm_svc',
+        }),
+      ]);
+      dbState.results.set('energyAssetReadings', new Error('read failed') as unknown as unknown[]);
+      const log = makeLogger();
+      const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOW, log });
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ siteId: 'site-1' }),
+        'Energy asset readings not read, batteries and solar give no supply this cycle',
+      );
+      expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+      expect(roots[0]?.supplyLoadKw).toBe(25);
+    });
+
+    it('spreads a three-phase battery load over the phases and a single-phase one on every phase', () => {
+      const three = node({ phases: 3, supplyLoadKw: 30, children: [] });
+      const into = { L1: 0, L2: 0, L3: 0 };
+      fixedPhaseLoad(three, new Map(), into);
+      expect(into).toEqual({ L1: 10, L2: 10, L3: 10 });
+      const single = node({ phases: 3, supplyLoadKw: 30, supplySinglePhaseLoadKw: 30 });
+      const intoSingle = { L1: 0, L2: 0, L3: 0 };
+      fixedPhaseLoad(single, new Map(), intoSingle);
+      expect(intoSingle).toEqual({ L1: 30, L2: 30, L3: 30 });
+    });
+  });
+});
+
+describe('logAllocations supply credit', () => {
+  it('stores the supply credit of the allocation', async () => {
+    await logAllocations('site-1', [], { strategy: 'equal_share' }, 0, {
+      siteLimitKw: 140,
+      availableKw: 140,
+      supplyCreditKw: 40,
+    });
+    const row = dbState.insertCalls.find((c) => c.table === 'loadAllocationLog')?.values as
+      | Record<string, unknown>
+      | undefined;
+    expect(row?.['supplyCreditKw']).toBe('40');
+  });
+});
+
+describe('simulated battery and solar readings', () => {
+  // 2026-06-21 12:00 UTC: local solar noon at Greenwich, the sun at about 62 degrees.
+  const NOON = Date.UTC(2026, 5, 21, 12, 0, 0);
+  function tree(): void {
+    setResult('panels', [
+      {
+        id: 'main',
+        parentPanelId: null,
+        name: 'Main',
+        breakerRatingAmps: 400,
+        voltageV: 277,
+        phases: 3,
+        maxContinuousKw: '200',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+        phaseConnections: null,
+        transformerId: 'tfm_svc',
+      },
+    ]);
+    setResult('circuits', []);
+    setResult('unmanagedLoads', []);
+    setResult('transformers', [
+      {
+        id: 'tfm_svc',
+        kind: 'service',
+        name: 'Service',
+        phases: 3,
+        secondaryVoltageV: 277,
+        safetyMarginKw: '0',
+        fedFromPanelId: null,
+        maxContinuousKw: '285',
+      },
+    ]);
+    setResult('siteEnergyAssets', [
+      {
+        id: 'ena_pv',
+        type: 'solar',
+        name: 'Solar',
+        capacityKwh: null,
+        peakKwp: 100,
+        inverterKw: '90',
+        maxDischargeKw: null,
+        maxChargeKw: null,
+        phases: 3,
+        connectionTransformerId: null,
+        connectionPanelId: 'main',
+        gridCharging: 'never',
+        reservePercent: 10,
+        telemetry: 'simulated',
+        readingTtlSeconds: 60,
+      },
+    ]);
+  }
+
+  it('computes a clear-sky solar reading where the process allows it', async () => {
+    tree();
+    setResult('sites', [{ latitude: '51.4769', longitude: '0' }]);
+    const roots = await buildSiteHierarchy('site-1', [], {
+      nowMs: NOON,
+      allowSimulatedEnergyAssets: true,
+    });
+    // Haurwitz clear sky at about 62 degrees, PVWatts losses and inverter efficiency.
+    const cosZ = Math.sin((62 * Math.PI) / 180);
+    const ghi = 1098 * cosZ * Math.exp(-0.057 / cosZ);
+    const expected = (100 * ghi * (1 - 0.1408) * 0.96) / 1000;
+    expect(roots[0]?.supplyCreditKw).toBeCloseTo(expected, 0);
+    expect(roots[0]?.children[0]?.energyAssets?.[0]).toMatchObject({ state: 'fresh' });
+  });
+
+  it('credits a simulated battery on peak in the site time zone', async () => {
+    tree();
+    setResult('siteEnergyAssets', [
+      {
+        id: 'ena_bat',
+        type: 'battery',
+        name: 'Battery',
+        capacityKwh: 200,
+        peakKwp: null,
+        inverterKw: '60',
+        maxDischargeKw: '50',
+        maxChargeKw: '50',
+        phases: 3,
+        connectionTransformerId: 'tfm_svc',
+        connectionPanelId: null,
+        gridCharging: 'possible',
+        reservePercent: 10,
+        telemetry: 'simulated',
+        readingTtlSeconds: 60,
+      },
+    ]);
+    setResult('sites', [{ latitude: '51.4769', longitude: '0', timezone: 'UTC' }]);
+    const peak = await buildSiteHierarchy('site-1', [], {
+      nowMs: Date.UTC(2026, 5, 21, 17, 0, 0),
+      allowSimulatedEnergyAssets: true,
+    });
+    // Its usable 160 kWh spread over the five peak hours.
+    expect(peak[0]?.supplyCreditKw).toBeCloseTo((160 * Math.sqrt(0.85)) / 5, 6);
+    // Overnight it charges from the grid: a load, no credit.
+    const night = await buildSiteHierarchy('site-1', [], {
+      nowMs: Date.UTC(2026, 5, 21, 2, 0, 0),
+      allowSimulatedEnergyAssets: true,
+    });
+    expect(night[0]?.supplyCreditKw ?? 0).toBe(0);
+    expect(night[0]?.supplyLoadKw).toBe(50);
+  });
+
+  it('dispatches a depot battery overnight and charges it at midday', async () => {
+    tree();
+    setResult('siteEnergyAssets', [
+      {
+        id: 'ena_bat',
+        type: 'battery',
+        name: 'Battery',
+        capacityKwh: 200,
+        peakKwp: null,
+        inverterKw: '60',
+        maxDischargeKw: '50',
+        maxChargeKw: '50',
+        phases: 3,
+        connectionTransformerId: 'tfm_svc',
+        connectionPanelId: null,
+        gridCharging: 'possible',
+        reservePercent: 10,
+        telemetry: 'simulated',
+        readingTtlSeconds: 60,
+      },
+    ]);
+    setResult('sites', [
+      {
+        latitude: '51.4769',
+        longitude: '0',
+        timezone: 'UTC',
+        layoutSettings: { siteType: 'depot' },
+      },
+    ]);
+    // 02:00, while the buses charge: it discharges, its usable energy over nine hours.
+    const night = await buildSiteHierarchy('site-1', [], {
+      nowMs: Date.UTC(2026, 5, 21, 2, 0, 0),
+      allowSimulatedEnergyAssets: true,
+    });
+    expect(night[0]?.supplyCreditKw).toBeCloseTo((160 * Math.sqrt(0.85)) / 9, 6);
+    expect(night[0]?.supplyLoadKw ?? 0).toBe(0);
+    // Midday: it charges, a load and no credit.
+    const midday = await buildSiteHierarchy('site-1', [], {
+      nowMs: Date.UTC(2026, 5, 21, 12, 0, 0),
+      allowSimulatedEnergyAssets: true,
+    });
+    expect(midday[0]?.supplyCreditKw ?? 0).toBe(0);
+    expect(midday[0]?.supplyLoadKw).toBe(50);
+  });
+
+  it('gives no reading where the process does not allow simulated readings', async () => {
+    tree();
+    setResult('sites', [{ latitude: '51.4769', longitude: '0' }]);
+    const roots = await buildSiteHierarchy('site-1', [], { nowMs: NOON });
+    expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+    expect(roots[0]?.children[0]?.energyAssets?.[0]).toMatchObject({ state: 'none' });
+  });
+
+  it('gives no reading for a site without a position', async () => {
+    tree();
+    setResult('sites', [{ latitude: null, longitude: 'east' }]);
+    const roots = await buildSiteHierarchy('site-1', [], {
+      nowMs: NOON,
+      allowSimulatedEnergyAssets: true,
+    });
+    expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+  });
+
+  it('gives no solar credit at night', async () => {
+    tree();
+    setResult('sites', [{ latitude: '51.4769', longitude: '0' }]);
+    const roots = await buildSiteHierarchy('site-1', [], {
+      nowMs: Date.UTC(2026, 5, 21, 0, 0, 0),
+      allowSimulatedEnergyAssets: true,
+    });
+    expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+  });
+
+  it('passes the gate from the cycle to the hierarchy', async () => {
+    tree();
+    setResult('sites', [{ latitude: '51.4769', longitude: '0' }]);
+    setResult('siteLoadManagement', [
+      { siteId: 'site-1', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+    ]);
+    setResult('chargingStations', []);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOON);
+    try {
+      await runLoadManagementCycle(makeLogger(), 'site-1', { allowSimulatedEnergyAssets: true });
+    } finally {
+      vi.useRealTimers();
+    }
+    const row = dbState.insertCalls.find((c) => c.table === 'loadAllocationLog')?.values as
+      | Record<string, unknown>
+      | undefined;
+    expect(Number(row?.['supplyCreditKw'])).toBeGreaterThan(60);
+  });
+});
+
+describe('energy assets that cannot be read', () => {
+  // A 60 kW transformer over a 100 kW panel with two 40 kW circuits: the
+  // grid-only capacity is 60 kW. The previous cycle sent 45 + 20 = 65 kW
+  // with a solar credit.
+  function site(): void {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-1',
+        strategy: 'equal_share',
+        appliedAllocations: [
+          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 45 },
+          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20 },
+        ],
+        appliedAt: new Date(),
+      },
+    ]);
+    setResult('chargingStations', [
+      { id: 'sta_1', stationId: 'CS-001', isOnline: true, loadPriority: 5, circuitId: 'c1' },
+      { id: 'sta_2', stationId: 'CS-002', isOnline: true, loadPriority: 5, circuitId: 'c2' },
+    ]);
+    setResult('connectors', [
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '100' },
+      { stationId: 'sta_2', evseDbId: 'evse_2', maxPowerKw: '100' },
+    ]);
+    setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
+    setResult('meterValues', []);
+    setResult('evChargingNeeds', []);
+    setResult('panels', [
+      {
+        id: 'p1',
+        parentPanelId: null,
+        name: 'Main',
+        breakerRatingAmps: 400,
+        voltageV: 240,
+        phases: 1,
+        maxContinuousKw: '100',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+        phaseConnections: null,
+        transformerId: 'tfm_1',
+      },
+    ]);
+    setResult('transformers', [
+      {
+        id: 'tfm_1',
+        kind: 'service',
+        name: 'Service',
+        phases: 1,
+        secondaryVoltageV: 240,
+        safetyMarginKw: '0',
+        fedFromPanelId: null,
+        maxContinuousKw: '60',
+      },
+    ]);
+    setResult('circuits', [
+      {
+        id: 'c1',
+        panelId: 'p1',
+        name: 'A',
+        breakerRatingAmps: 100,
+        maxContinuousKw: '40',
+        phaseConnections: null,
+      },
+      {
+        id: 'c2',
+        panelId: 'p1',
+        name: 'B',
+        breakerRatingAmps: 100,
+        maxContinuousKw: '40',
+        phaseConnections: null,
+      },
+    ]);
+    setResult('unmanagedLoads', []);
+  }
+
+  // A battery at the service transformer that may charge from the grid, its
+  // fresh reading discharging 20 kW (a 20 kW credit while it is read).
+  function battery(): void {
+    setResult('siteEnergyAssets', [
+      {
+        id: 'ena_bat',
+        type: 'battery',
+        name: 'Battery',
+        capacityKwh: 100,
+        peakKwp: null,
+        inverterKw: '30',
+        maxDischargeKw: '20',
+        maxChargeKw: '20',
+        phases: 1,
+        connectionTransformerId: 'tfm_1',
+        connectionPanelId: null,
+        gridCharging: 'possible',
+        reservePercent: 10,
+        telemetry: 'api',
+        readingTtlSeconds: 60,
+      },
+    ]);
+    setResult('energyAssetReadings', [
+      {
+        assetId: 'ena_bat',
+        reportedAt: new Date(),
+        receivedAt: new Date(),
+        powerKw: '20',
+        availableKw: '20',
+        socPercent: '80',
+        source: 'api',
+      },
+    ]);
+  }
+
+  function sentLimits(): Array<[string, number | undefined]> {
+    return pubsubState.publish.mock.calls
+      .filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => {
+        const command = JSON.parse(c[1]) as {
+          stationId: string;
+          payload: {
+            chargingProfile: {
+              chargingSchedule: Array<{ chargingSchedulePeriod: Array<{ limit: number }> }>;
+            };
+          };
+        };
+        return [
+          command.stationId,
+          command.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod[0]?.limit,
+        ];
+      });
+  }
+
+  it('with no earlier read, sends grid-only limits capped at the held limits and no credit', async () => {
+    site();
+    dbState.results.set('siteEnergyAssets', new Error('read failed') as unknown as unknown[]);
+    const log = makeLogger();
+
+    await runLoadManagementCycle(log, 'site-1');
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 'site-1' }),
+      'Energy assets not read and not known, no limit is raised this cycle',
+    );
+    // Grid-only 30 + 30 kW, each capped at the limit held: CS-001 is cut from
+    // 45 to 30, CS-002 keeps 20 (no raise without a known battery load).
+    expect(new Map(sentLimits())).toEqual(
+      new Map([
+        ['CS-001', 30000],
+        ['CS-002', 20000],
+      ]),
+    );
+    const row = dbState.insertCalls.find((c) => c.table === 'loadAllocationLog')?.values as
+      | Record<string, unknown>
+      | undefined;
+    expect(Number(row?.['supplyCreditKw'])).toBe(0);
+  });
+
+  it('with no earlier read, builds the tree without any battery or solar supply', async () => {
+    site();
+    dbState.results.set('siteEnergyAssets', new Error('read failed') as unknown as unknown[]);
+    const roots = await buildSiteHierarchy('site-1', [], { log: makeLogger() });
+    expect(roots[0]?.type).toBe('transformer');
+    expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+    expect(roots[0]?.supplyLoadKw ?? 0).toBe(0);
+  });
+
+  it('gives no credit on a failed read after a read that credited the battery', async () => {
+    site();
+    battery();
+    const read = await buildSiteHierarchy('site-1', [], { log: makeLogger() });
+    expect(read[0]?.supplyCreditKw).toBe(20);
+
+    dbState.results.set('siteEnergyAssets', new Error('read failed') as unknown as unknown[]);
+    const log = makeLogger();
+    const roots = await buildSiteHierarchy('site-1', [], { log });
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 'site-1' }),
+      'Energy assets not read, the allocation uses the grid limits and the last known battery loads this cycle',
+    );
+    expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+    // The remembered battery counts at its rated charge power, no reading.
+    expect(roots[0]?.supplyLoadKw).toBe(20);
+    expect(roots[0]?.energyAssets?.[0]).toMatchObject({
+      id: 'ena_bat',
+      state: 'none',
+      creditKw: 0,
+    });
+  });
+
+  it('subtracts the remembered battery grid load from the grid-only capacity', async () => {
+    site();
+    battery();
+    await buildSiteHierarchy('site-1', [], { log: makeLogger() });
+
+    dbState.results.set('siteEnergyAssets', new Error('read failed') as unknown as unknown[]);
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    // 60 kW grid-only minus the 20 kW battery load: 20 + 20 = 40 kW.
+    const limits = sentLimits();
+    expect(new Map(limits)).toEqual(
+      new Map([
+        ['CS-001', 20000],
+        ['CS-002', 20000],
+      ]),
+    );
+    expect(limits.reduce((sum, [, limit]) => sum + (limit ?? 0), 0)).toBe(40000);
+    const row = dbState.insertCalls.find((c) => c.table === 'loadAllocationLog')?.values as
+      | Record<string, unknown>
+      | undefined;
+    expect(Number(row?.['supplyCreditKw'])).toBe(0);
+  });
+});
+
+describe('withoutRaises', () => {
+  it('caps a raise at the held limit and keeps cuts and stations without a limit', () => {
+    const result = withoutRaises(
+      [
+        { stationId: 'A', stationDbId: 'a', allocatedKw: 30, currentDrawKw: 0 },
+        { stationId: 'B', stationDbId: 'b', allocatedKw: 10, currentDrawKw: 0 },
+        { stationId: 'C', stationDbId: 'c', allocatedKw: 50, currentDrawKw: 0 },
+      ],
+      [
+        { stationId: 'A', stationDbId: 'a', allocatedKw: 20 },
+        { stationId: 'B', stationDbId: 'b', allocatedKw: 40 },
+      ],
+    );
+    expect(result.map((r) => r.allocatedKw)).toEqual([20, 10, 50]);
+  });
+});
+
+describe('station local generation (OCPP 2.1 K27)', () => {
+  const NOW = Date.UTC(2026, 10, 3, 12, 0, 0);
+  const rate = { voltageV: 230, phases: 3 };
+  const notified = (schedule: Record<string, unknown> | null, agoS = 60): unknown[] => [
+    {
+      chargingProfilePurpose: 'LocalGeneration',
+      notifiedChargingLimit: true,
+      notifiedAt: new Date(NOW - agoS * 1000).toISOString(),
+      chargingLimit: { chargingLimitSource: 'EMS', isLocalGeneration: true },
+      chargingSchedule: schedule == null ? [] : [schedule],
+    },
+  ];
+
+  it('reads the active period of a notified schedule from the notification time', () => {
+    const schedule = {
+      chargingRateUnit: 'W',
+      chargingSchedulePeriod: [
+        { startPeriod: 0, limit: 2000 },
+        { startPeriod: 3600, limit: 1000 },
+      ],
+    };
+    expect(localGenerationKw(notified(schedule, 60), null, NOW, rate)).toBe(2);
+    expect(localGenerationKw(notified(schedule, 3700), null, NOW, rate)).toBe(1);
+  });
+
+  it('ends a schedule after its duration and before its start', () => {
+    const ended = {
+      chargingRateUnit: 'W',
+      duration: 30,
+      chargingSchedulePeriod: [{ startPeriod: 0, limit: 2000 }],
+    };
+    expect(localGenerationKw(notified(ended, 60), null, NOW, rate)).toBe(0);
+    const later = {
+      chargingRateUnit: 'W',
+      startSchedule: new Date(NOW + 60_000).toISOString(),
+      chargingSchedulePeriod: [{ startPeriod: 0, limit: 2000 }],
+    };
+    expect(localGenerationKw(notified(later), null, NOW, rate)).toBe(0);
+  });
+
+  it('converts a limit in A with the circuit and sums per-phase W limits', () => {
+    const amps = { chargingRateUnit: 'A', chargingSchedulePeriod: [{ startPeriod: 0, limit: 10 }] };
+    expect(localGenerationKw(notified(amps), null, NOW, rate)).toBeCloseTo(6.9, 9);
+    const perPhase = {
+      chargingRateUnit: 'W',
+      chargingSchedulePeriod: [{ startPeriod: 0, limit: 1000, limit_L2: 1000, limit_L3: 500 }],
+    };
+    expect(localGenerationKw(notified(perPhase), null, NOW, rate)).toBe(2.5);
+  });
+
+  it('reads a LocalGeneration profile of a station report and ignores other purposes', () => {
+    const report = [
+      {
+        id: 7,
+        chargingProfilePurpose: 'LocalGeneration',
+        chargingProfileKind: 'Dynamic',
+        chargingSchedule: [
+          { chargingRateUnit: 'W', chargingSchedulePeriod: [{ startPeriod: 0, limit: 3000 }] },
+        ],
+      },
+      {
+        id: 8,
+        chargingProfilePurpose: 'ChargingStationExternalConstraints',
+        chargingSchedule: [
+          { chargingRateUnit: 'W', chargingSchedulePeriod: [{ startPeriod: 0, limit: 9000 }] },
+        ],
+      },
+    ];
+    expect(localGenerationKw(report, NOW - 1000, NOW, rate)).toBe(3);
+    expect(localGenerationKw([report[1]], NOW, NOW, rate)).toBe(0);
+  });
+
+  it('reports an unreadable local generation as unknown', () => {
+    expect(localGenerationKw(notified(null), null, NOW, rate)).toBeNull();
+  });
+
+  it('reserves local generation on the circuit and every node above it', async () => {
+    setResult('panels', [
+      {
+        id: 'p1',
+        parentPanelId: null,
+        name: 'Main',
+        breakerRatingAmps: 100,
+        voltageV: 240,
+        phases: 1,
+        maxContinuousKw: '30',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+        phaseConnections: null,
+        transformerId: null,
+      },
+    ]);
+    setResult('circuits', [
+      {
+        id: 'c1',
+        panelId: 'p1',
+        name: 'A',
+        breakerRatingAmps: 100,
+        maxContinuousKw: '30',
+        phaseConnections: null,
+        voltageV: null,
+      },
+      {
+        id: 'c2',
+        panelId: 'p1',
+        name: 'B',
+        breakerRatingAmps: 100,
+        maxContinuousKw: '30',
+        phaseConnections: null,
+        voltageV: null,
+      },
+    ]);
+    setResult('unmanagedLoads', []);
+    setResult('chargingProfiles', [
+      {
+        stationId: 'gen',
+        evseId: 1,
+        reportedAt: new Date(NOW - 60_000),
+        profileData: notified(
+          { chargingRateUnit: 'W', chargingSchedulePeriod: [{ startPeriod: 0, limit: 6000 }] },
+          60,
+        ),
+      },
+    ]);
+    const gen = makeStation({ id: 'gen', stationId: 'GEN', circuitId: 'c1', maxPowerKw: 22 });
+    const other = makeStation({ id: 'other', stationId: 'OTHER', circuitId: 'c2', maxPowerKw: 22 });
+    const roots = await buildSiteHierarchy('site-1', [gen, other], { nowMs: NOW });
+    const c1 = roots[0]?.children.find((c) => c.id === 'c1');
+    expect(c1?.localGenerationKw).toBe(6);
+    expect(gen.localGenerationKw).toBe(6);
+    expect(fixedLoadKw(roots[0] as HierarchyNode, new Map())).toBe(6);
+    // Panel 30 - 6 reserved: the two stations share 24.
+    const out = computeHierarchicalAllocation(roots, 'equal_share');
+    expect(out.reduce((s, r) => s + r.allocatedKw, 0)).toBeCloseTo(24, 6);
+  });
+
+  it('counts an unreadable local generation at the station maximum (fail closed)', async () => {
+    setResult('panels', [
+      {
+        id: 'p1',
+        parentPanelId: null,
+        name: 'Main',
+        breakerRatingAmps: 100,
+        voltageV: 240,
+        phases: 1,
+        maxContinuousKw: '80',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+        phaseConnections: null,
+        transformerId: null,
+      },
+    ]);
+    setResult('circuits', [
+      {
+        id: 'c1',
+        panelId: 'p1',
+        name: 'A',
+        breakerRatingAmps: 100,
+        maxContinuousKw: '80',
+        phaseConnections: null,
+        voltageV: null,
+      },
+    ]);
+    setResult('unmanagedLoads', []);
+    setResult('chargingProfiles', [
+      { stationId: 'gen', evseId: null, reportedAt: new Date(NOW), profileData: notified(null) },
+    ]);
+    const gen = makeStation({ id: 'gen', stationId: 'GEN', circuitId: 'c1', maxPowerKw: 22 });
+    const roots = await buildSiteHierarchy('site-1', [gen], { nowMs: NOW });
+    expect(roots[0]?.children[0]?.localGenerationKw).toBe(22);
+  });
+});
+
+describe('credit profiles that end with their readings (security case 334)', () => {
+  // A 60 kW transformer over a 100 kW switchboard with two 40 kW circuits.
+  // A battery at the transformer that may charge from the grid (20 kW
+  // rating) reads 20 kW of discharge: with the reading each station gets 40
+  // kW; once it is stale the battery is a 20 kW load and each gets 20 kW.
+  const TTL_S = 60;
+
+  function site(applied: unknown[] | null, appliedAt: Date | null = new Date()): void {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-1',
+        strategy: 'equal_share',
+        appliedAllocations: applied,
+        appliedAt,
+      },
+    ]);
+    setResult('chargingStations', [
+      { id: 'sta_1', stationId: 'CS-001', isOnline: true, loadPriority: 5, circuitId: 'c1' },
+      { id: 'sta_2', stationId: 'CS-002', isOnline: true, loadPriority: 5, circuitId: 'c2' },
+    ]);
+    setResult('connectors', [
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '100' },
+      { stationId: 'sta_2', evseDbId: 'evse_2', maxPowerKw: '100' },
+    ]);
+    setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
+    setResult('meterValues', []);
+    setResult('evChargingNeeds', []);
+    setResult('panels', [
+      {
+        id: 'p1',
+        parentPanelId: null,
+        name: 'Main',
+        breakerRatingAmps: 400,
+        voltageV: 240,
+        phases: 1,
+        maxContinuousKw: '100',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+        phaseConnections: null,
+        transformerId: 'tfm_1',
+      },
+    ]);
+    setResult('transformers', [
+      {
+        id: 'tfm_1',
+        kind: 'service',
+        name: 'Service',
+        phases: 1,
+        secondaryVoltageV: 240,
+        safetyMarginKw: '0',
+        fedFromPanelId: null,
+        maxContinuousKw: '60',
+      },
+    ]);
+    setResult('circuits', [
+      {
+        id: 'c1',
+        panelId: 'p1',
+        name: 'A',
+        breakerRatingAmps: 100,
+        maxContinuousKw: '40',
+        phaseConnections: null,
+      },
+      {
+        id: 'c2',
+        panelId: 'p1',
+        name: 'B',
+        breakerRatingAmps: 100,
+        maxContinuousKw: '40',
+        phaseConnections: null,
+      },
+    ]);
+    setResult('unmanagedLoads', []);
+    setResult('siteEnergyAssets', [
+      {
+        id: 'ena_bat',
+        type: 'battery',
+        name: 'Battery',
+        capacityKwh: 100,
+        peakKwp: null,
+        inverterKw: '30',
+        maxDischargeKw: '20',
+        maxChargeKw: '20',
+        phases: 1,
+        connectionTransformerId: 'tfm_1',
+        connectionPanelId: null,
+        gridCharging: 'possible',
+        reservePercent: 10,
+        telemetry: 'api',
+        readingTtlSeconds: TTL_S,
+      },
+    ]);
+  }
+
+  function reading(measuredAt: Date | null): void {
+    setResult(
+      'energyAssetReadings',
+      measuredAt == null
+        ? []
+        : [
+            {
+              assetId: 'ena_bat',
+              reportedAt: measuredAt,
+              receivedAt: measuredAt,
+              powerKw: '20',
+              availableKw: '20',
+              socPercent: '80',
+              source: 'api',
+            },
+          ],
+    );
+  }
+
+  interface Profile {
+    stationId: string;
+    id: number;
+    stackLevel: number;
+    validTo?: string;
+    limit: number;
+  }
+
+  function sentProfiles(): Profile[] {
+    return pubsubState.publish.mock.calls
+      .filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => JSON.parse(c[1]) as Record<string, unknown>)
+      .filter((c) => c['action'] === 'SetChargingProfile')
+      .map((c) => {
+        const payload = c['payload'] as Record<string, unknown>;
+        const profile = payload['chargingProfile'] as Record<string, unknown>;
+        const schedule = (profile['chargingSchedule'] as Array<Record<string, unknown>>)[0];
+        const period = (schedule?.['chargingSchedulePeriod'] as Array<{ limit: number }>)[0];
+        return {
+          stationId: c['stationId'] as string,
+          id: profile['id'] as number,
+          stackLevel: profile['stackLevel'] as number,
+          ...(typeof profile['validTo'] === 'string' ? { validTo: profile['validTo'] } : {}),
+          limit: period?.limit ?? -1,
+        };
+      });
+  }
+
+  function storedApplied(): Array<Record<string, unknown>> {
+    const call = [...dbState.updateCalls]
+      .reverse()
+      .find((c) => c.table === 'siteLoadManagement' && c.values['appliedAllocations'] != null);
+    return (call?.values['appliedAllocations'] ?? []) as Array<Record<string, unknown>>;
+  }
+
+  function held(allocatedKw: number, creditUntil: string): Array<Record<string, unknown>> {
+    return ['1', '2'].map((n) => ({
+      stationId: `CS-00${n}`,
+      stationDbId: `sta_${n}`,
+      allocatedKw,
+      baseKw: 20,
+      creditUntil,
+    }));
+  }
+
+  it('builds the credit profile one stack level up, with its own id and an end', () => {
+    const validTo = new Date('2026-11-04T12:00:30.000Z');
+    const credit = buildLoadManagementProfile(
+      40_000,
+      new Date('2026-11-04T12:00:00Z'),
+      undefined,
+      validTo,
+    )['chargingProfile'] as Record<string, unknown>;
+    expect(credit).toMatchObject({
+      id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+      stackLevel: LOAD_MANAGEMENT_CREDIT_STACK_LEVEL,
+      chargingProfilePurpose: 'ChargingStationMaxProfile',
+      validTo: '2026-11-04T12:00:30.000Z',
+    });
+    const base = buildLoadManagementProfile(20_000, new Date())['chargingProfile'] as Record<
+      string,
+      unknown
+    >;
+    expect(base['stackLevel']).toBe(1);
+    expect(base['validTo']).toBeUndefined();
+    expect(isLoadManagementProfile(base)).toBe(true);
+    // A reply to the credit profile is not the reply to the station limit:
+    // a station that refuses it keeps the lower limit and is no fixed load.
+    expect(isLoadManagementProfile(credit)).toBe(false);
+  });
+
+  it('keeps the credit id within the int32 range above a high MaxExternalConstraintsId', () => {
+    expect(loadManagementProfileId('2147483647') + 1).toBeLessThanOrEqual(2_147_483_647);
+  });
+
+  it('sends the limit without readings at stack level 1 and the credited limit until the reading ends', async () => {
+    const measuredAt = new Date(Date.now() - 5_000);
+    site([
+      { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 30 },
+      { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 30 },
+    ]);
+    reading(measuredAt);
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    const validTo = new Date(measuredAt.getTime() + TTL_S * 1000).toISOString();
+    const profiles = sentProfiles();
+    expect(profiles).toEqual(
+      expect.arrayContaining([
+        { stationId: 'CS-001', id: LOAD_MANAGEMENT_PROFILE_ID, stackLevel: 1, limit: 20_000 },
+        { stationId: 'CS-002', id: LOAD_MANAGEMENT_PROFILE_ID, stackLevel: 1, limit: 20_000 },
+        {
+          stationId: 'CS-001',
+          id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+          stackLevel: 2,
+          validTo,
+          limit: 40_000,
+        },
+        {
+          stationId: 'CS-002',
+          id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+          stackLevel: 2,
+          validTo,
+          limit: 40_000,
+        },
+      ]),
+    );
+    expect(profiles).toHaveLength(4);
+    // The stack level 1 cuts go out before the credit raises.
+    const firstRaise = profiles.findIndex((p) => p.stackLevel === 2);
+    expect(profiles.slice(firstRaise).every((p) => p.stackLevel === 2)).toBe(true);
+    // Without the credit the stations hold 40 kW: the 60 kW transformer less
+    // the 20 kW the battery may draw from the grid once its reading is stale.
+    const base = profiles.filter((p) => p.stackLevel === 1).reduce((sum, p) => sum + p.limit, 0);
+    expect(base).toBe(40_000);
+    expect(storedApplied()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stationDbId: 'sta_1',
+          allocatedKw: 40,
+          baseKw: 20,
+          creditUntil: validTo,
+        }),
+      ]),
+    );
+  });
+
+  it('gives a station that takes no stack level 2 the limit without readings only', async () => {
+    site(null, null);
+    reading(new Date());
+    setResult('stationConfigurations', [
+      { stationId: 'sta_2', variable: 'ChargeProfileMaxStackLevel', value: '1' },
+    ]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    const profiles = sentProfiles();
+    expect(profiles.filter((p) => p.stationId === 'CS-002')).toEqual([
+      { stationId: 'CS-002', id: LOAD_MANAGEMENT_PROFILE_ID, stackLevel: 1, limit: 20_000 },
+    ]);
+    expect(profiles.filter((p) => p.stationId === 'CS-001' && p.stackLevel === 2)).toHaveLength(1);
+  });
+
+  it('sends only the credit profiles again when a newer reading carries the credit past an end that is close', async () => {
+    const heldUntil = new Date(Date.now() + LOAD_MANAGEMENT_CREDIT_RESEND_MS - 5_000).toISOString();
+    site(held(40, heldUntil));
+    const measuredAt = new Date();
+    reading(measuredAt);
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    const validTo = new Date(measuredAt.getTime() + TTL_S * 1000).toISOString();
+    expect(sentProfiles()).toEqual([
+      {
+        stationId: 'CS-001',
+        id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+        stackLevel: 2,
+        validTo,
+        limit: 40_000,
+      },
+      {
+        stationId: 'CS-002',
+        id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+        stackLevel: 2,
+        validTo,
+        limit: 40_000,
+      },
+    ]);
+    expect(dbState.insertCalls.some((c) => c.table === 'loadAllocationLog')).toBe(false);
+    expect(storedApplied().every((e) => e['creditUntil'] === validTo)).toBe(true);
+  });
+
+  it('sends nothing while the reading has not moved on, so the credit ends at the station', async () => {
+    const measuredAt = new Date(Date.now() - (TTL_S - 10) * 1000);
+    site(held(40, new Date(measuredAt.getTime() + TTL_S * 1000).toISOString()));
+    reading(measuredAt);
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    expect(sentProfiles()).toEqual([]);
+  });
+
+  it('replaces a credit profile that still holds with the lower limit once the reading is gone', async () => {
+    const heldUntil = new Date(Date.now() + 20_000).toISOString();
+    site(held(40, heldUntil));
+    reading(null);
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    const profiles = sentProfiles();
+    expect(profiles).toEqual(
+      expect.arrayContaining([
+        {
+          stationId: 'CS-001',
+          id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+          stackLevel: 2,
+          validTo: heldUntil,
+          limit: 20_000,
+        },
+        { stationId: 'CS-001', id: LOAD_MANAGEMENT_PROFILE_ID, stackLevel: 1, limit: 20_000 },
+      ]),
+    );
+    expect(profiles).toHaveLength(4);
+  });
+
+  it('computes the limits without readings from the stale battery load and no credit', () => {
+    const circuit = (id: string): HierarchyNode => ({
+      type: 'circuit',
+      id,
+      name: id,
+      maxContinuousKw: 40,
+      safetyMarginKw: 0,
+      unmanagedLoadKw: 0,
+      currentDrawKw: 0,
+      stations: [makeStation({ id: `sta_${id}`, stationId: `CS-${id}`, maxPowerKw: 100 })],
+      children: [],
+      phases: 1,
+      breakerRatingAmps: 100,
+      voltageV: 240,
+      oversubscriptionRatio: 1,
+      phaseConnections: null,
+      phaseLoad: null,
+      perPhaseCapacityKw: null,
+    });
+    const freshUntil = new Date(Date.now() + 30_000);
+    const root: HierarchyNode = {
+      ...circuit('root'),
+      type: 'transformer',
+      maxContinuousKw: 60,
+      stations: [],
+      supplyCreditKw: 20,
+      supplyLoadKw: 0,
+      fallbackSupplyLoadKw: 20,
+      fallbackSupplySinglePhaseLoadKw: 20,
+      energyAssets: [
+        {
+          id: 'ena_bat',
+          name: 'Battery',
+          type: 'battery',
+          phases: 1,
+          telemetry: 'api',
+          connection: 'transformer',
+          state: 'fresh',
+          creditKw: 20,
+          loadKw: 0,
+          creditApplied: true,
+          readingReceivedAt: new Date(),
+          socPercent: 80,
+          freshUntil,
+        },
+      ],
+      children: [circuit('a'), circuit('b')],
+    };
+    const stripped = withoutAssetReadings([root])[0];
+    expect(stripped?.supplyCreditKw).toBeUndefined();
+    expect(stripped?.supplyLoadKw).toBe(20);
+    // The tree it came from is unchanged.
+    expect(root.supplyCreditKw).toBe(20);
+
+    const allocations = computeHierarchicalAllocation([root], 'equal_share');
+    const split = splitCreditLimits([root], 'equal_share', new Map(), allocations, [
+      makeStation({ id: 'sta_a', stationId: 'CS-a' }),
+      makeStation({ id: 'sta_b', stationId: 'CS-b', maxStackLevel: 1 }),
+    ]);
+    expect(split.baseKw).toEqual(new Map([['sta_a', 20]]));
+    expect(split.allocations.find((a) => a.stationDbId === 'sta_b')?.allocatedKw).toBe(20);
+    expect(split.validToMs).toBe(freshUntil.getTime());
+  });
+
+  it('orders every profile against the limit it replaces', () => {
+    const allocation = {
+      stationId: 'CS-1',
+      stationDbId: 'sta_1',
+      allocatedKw: 40,
+      currentDrawKw: 0,
+    };
+    const commands = limitCommands(
+      [allocation],
+      new Map([['sta_1', 30]]),
+      new Map([['sta_1', { baseKw: 20, previousBaseKw: 25, validTo: new Date() }]]),
+    );
+    const { cuts, raises } = orderLimitCommands(commands);
+    expect(cuts.map((c) => c.kw)).toEqual([20]);
+    expect(raises.map((c) => [c.kw, c.validTo != null])).toEqual([[40, true]]);
+    expect(
+      limitCommands(
+        [allocation],
+        new Map(),
+        new Map([['sta_1', { baseKw: 20, validTo: new Date() }]]),
+        true,
+      ),
+    ).toHaveLength(1);
+  });
+});
+
+describe('remembered energy assets of sites the cycle no longer reads', () => {
+  it('forgets a deleted site and drops sites not read for the maximum age', async () => {
+    setResult('siteEnergyAssets', []);
+    setResult('transformers', []);
+    setResult('panels', [
+      {
+        id: 'p1',
+        parentPanelId: null,
+        name: 'Main',
+        breakerRatingAmps: 200,
+        voltageV: 240,
+        phases: 1,
+        maxContinuousKw: '100',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+        phaseConnections: null,
+        transformerId: null,
+      },
+    ]);
+    setResult('circuits', []);
+    setResult('unmanagedLoads', []);
+    await buildSiteHierarchy('site-a', [], { log: makeLogger() });
+    await buildSiteHierarchy('site-b', [], { log: makeLogger() });
+    expect(rememberedEnergyAssetSiteIds().sort()).toEqual(['site-a', 'site-b']);
+
+    forgetRememberedEnergyAssets('site-a');
+    expect(rememberedEnergyAssetSiteIds()).toEqual(['site-b']);
+
+    pruneRememberedEnergyAssets(Date.now() + REMEMBERED_ENERGY_ASSETS_MAX_AGE_MS - 1_000);
+    expect(rememberedEnergyAssetSiteIds()).toEqual(['site-b']);
+    pruneRememberedEnergyAssets(Date.now() + REMEMBERED_ENERGY_ASSETS_MAX_AGE_MS + 1_000);
+    expect(rememberedEnergyAssetSiteIds()).toEqual([]);
   });
 });

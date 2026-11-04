@@ -94,6 +94,9 @@ const user = (name: string): AclUser => {
   return u;
 };
 const CSS_CHANNELS = ['css_commands', 'css_command_results'];
+// Channels only API processes use: the bus depot interface (VDV 463) tells the
+// other API processes about depot system changes and new connections.
+const API_ONLY_CHANNELS = [...CSS_CHANNELS, 'depot_system_changed'];
 
 describe('docker/redis/acl-rules.conf', () => {
   it('defines exactly the five service users', () => {
@@ -109,10 +112,10 @@ describe('docker/redis/acl-rules.conf', () => {
     }
   });
 
-  it('gives api, ocpp and worker the same core channel set (api adds only the simulator channels)', () => {
+  it('gives api, ocpp and worker the same core channel set (api adds only its own channels)', () => {
     const core = [...user('ocpp').channels].sort();
     expect([...user('worker').channels].sort()).toEqual(core);
-    expect([...user('api').channels].sort()).toEqual([...core, ...CSS_CHANNELS].sort());
+    expect([...user('api').channels].sort()).toEqual([...core, ...API_ONLY_CHANNELS].sort());
   });
 
   it('grants the core set every channel the core packages use', () => {

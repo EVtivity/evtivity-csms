@@ -82,12 +82,17 @@ import {
   replyVehicleServiceError,
   vehicleAppearanceBodyFields,
   vehicleAppearanceItemFields,
+  vehicleBatteryBodyFields,
+  vehicleBatteryItemFields,
+  vehiclePreconditioningBodyFields,
+  vehiclePreconditioningItemFields,
   vehicleAutochargeFields,
   vehicleLastSeen,
 } from '../lib/vehicle-response.js';
 import { avatarItem } from '../lib/avatar-item.js';
 import { driverAvatarColumns } from '../services/driver-avatar.service.js';
 import { withAvatars } from '../services/account-avatar.js';
+import { tokenLabelSchema } from '../lib/token-label.js';
 
 // Company-wide configuration: a site-restricted user gets this 404 before any
 // read or write (requireAllSiteAccess, features/site-access-control.md).
@@ -254,6 +259,7 @@ const driverErasureItem = z
     paymentMethodsRemoved: z.number().int().min(0).describe('Saved payment methods removed'),
     vehiclesRemoved: z.number().int().min(0).describe('Vehicles removed'),
     tokensDeactivated: z.number().int().min(0).describe('Tokens deactivated'),
+    tokenLabelsCleared: z.number().int().min(0).describe('Token labels cleared'),
     avatarRemoved: z
       .boolean()
       .describe('Whether an avatar was removed (an uploaded image is deleted from storage)'),
@@ -346,12 +352,11 @@ const createTokenBody = z.object({
   tokenType: z
     .enum(OCPP_ID_TOKEN_TYPES)
     .describe('OCPP IdToken type (one of the OCPP 2.1 IdTokenEnumType values)'),
-  label: z
-    .string()
-    .max(100)
+  label: tokenLabelSchema(
+    'Free-text label, e.g. "Pool RFID card, fleet 3", shown to the driver in the portal',
+  )
     .nullable()
-    .optional()
-    .describe('Free-text label, e.g. "Pool card fleet 3". Trimmed; empty means no label'),
+    .optional(),
 });
 
 const driverSessionItem = z
@@ -406,6 +411,8 @@ const vehicleItem = z
       .describe('Model year (4-digit)'),
     licensePlate: z.string().max(20).nullable().describe('Vehicle license plate'),
     ...vehicleAppearanceItemFields,
+    ...vehicleBatteryItemFields,
+    ...vehiclePreconditioningItemFields,
     ...vehicleAutochargeFields,
     autochargeBlockedAt: z.coerce
       .date()
@@ -449,6 +456,8 @@ const createVehicleBody = z.object({
     .describe('Model year (4-digit)'),
   licensePlate: z.string().max(20).optional().describe('License plate number'),
   ...vehicleAppearanceBodyFields,
+  ...vehicleBatteryBodyFields,
+  ...vehiclePreconditioningBodyFields,
   ...vehicleIdFields,
 });
 
@@ -468,6 +477,8 @@ const updateVehicleBody = z.object({
     .optional()
     .describe('License plate. Null removes it.'),
   ...vehicleAppearanceBodyFields,
+  ...vehicleBatteryBodyFields,
+  ...vehiclePreconditioningBodyFields,
   ...vehicleIdFields,
 });
 

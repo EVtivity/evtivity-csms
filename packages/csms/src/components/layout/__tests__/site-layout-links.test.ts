@@ -15,8 +15,13 @@ import {
   loadLinks,
   PANEL_FROM_TRANSFORMER_M,
   PANEL_PAD_PITCH_M,
+  assetConnections,
+  linkHierarchy,
+  loadPercent,
   placeFacadePanels,
   placePanels,
+  supplyLinks,
+  transformerLoads,
   type LinkPanel,
 } from '../site-layout-links';
 import { bayToWorld, lotOf, stationBackPoint } from '../site-layout-grid';
@@ -245,6 +250,257 @@ describe('load management panels', () => {
 
   it('places nothing without load management panels', () => {
     expect(placePanels([], ground)).toEqual([]);
+  });
+
+  it('stands each switchboard at the transformer it names, not by its index', () => {
+    const left = { id: 'tfm_left', x: -4, z: 2.75 };
+    const right = { id: 'tfm_right', x: LOT.width + 4, z: 10 };
+    // The first top-level panel names the right transformer, the second the left one,
+    // the third names none: it keeps the index rule (the last transformer takes the rest).
+    const hierarchy = linkHierarchy(
+      [
+        {
+          type: 'transformer',
+          transformerKind: 'service',
+          id: 'tfm_right',
+          name: 'T right',
+          breakerRatingAmps: 0,
+          maxContinuousKw: 712.5,
+          circuits: [],
+          childPanels: [{ ...panel('truck', []), type: 'panel' }],
+        },
+        {
+          type: 'transformer',
+          transformerKind: 'service',
+          id: 'tfm_left',
+          name: 'T left',
+          breakerRatingAmps: 0,
+          maxContinuousKw: 285,
+          circuits: [],
+          childPanels: [{ ...panel('bus', []), type: 'panel' }],
+        },
+        { ...panel('extra', []), type: 'panel' },
+      ],
+      { stepDowns: true },
+    );
+    expect(hierarchy.map((p) => [p.id, p.transformerId ?? null])).toEqual([
+      ['truck', 'tfm_right'],
+      ['bus', 'tfm_left'],
+      ['extra', null],
+    ]);
+    const placed = placePanels(hierarchy, ground, [left, right]);
+    const at = new Map(placed.map((p) => [p.id, p.point]));
+    expect(at.get('truck')).toEqual({ x: LOT.width + 4 + PANEL_FROM_TRANSFORMER_M, z: 10 });
+    expect(at.get('bus')).toEqual({ x: -4 - PANEL_FROM_TRANSFORMER_M, z: 2.75 });
+    expect(at.get('extra')?.z).toBe(10);
+    // Each switchboard of a pad row names the transformer it stands at, so
+    // Edit Layout drags that transformer when the switchboard is grabbed.
+    const atTransformer = new Map(placed.map((p) => [p.id, p.atTransformerId]));
+    expect(atTransformer.get('truck')).toBe('tfm_right');
+    expect(atTransformer.get('bus')).toBe('tfm_left');
+    expect(atTransformer.get('extra')).toBe('tfm_right');
+    const links = loadLinks(hierarchy, placed, new Map(), ground, [left, right]);
+    const feed = (id: string) => links.segments.find((s) => s.id === `feed:${id}`)!.points[0];
+    expect(feed('truck')).toEqual({ x: LOT.width + 4, z: 10 });
+    expect(feed('bus')).toEqual({ x: -4, z: 2.75 });
+  });
+
+  it('draws a step-down transformer next to the panelboard it feeds, fed from its switchboard', () => {
+    const transformer = { id: 'tfm_svc', x: -2.5, z: 2.75 };
+    const points = pointsOf(
+      new Map([
+        ['dc', { x: 1.3, z: 0.45 }],
+        ['ac1', { x: 22.1, z: 17.55 }],
+        ['ac2', { x: 24.7, z: 17.55 }],
+      ]),
+    );
+    const lp = {
+      ...panel('lp', [circuit('1', ['ac1']), circuit('2', ['ac2'])]),
+      type: 'panel' as const,
+    };
+    const hierarchy = linkHierarchy(
+      [
+        {
+          type: 'transformer',
+          id: 'tfm_svc',
+          name: 'Service',
+          breakerRatingAmps: 0,
+          maxContinuousKw: 712.5,
+          circuits: [],
+          childPanels: [
+            {
+              ...panel('main', [circuit('d', ['dc'])]),
+              type: 'panel',
+              childPanels: [
+                {
+                  type: 'transformer',
+                  transformerKind: 'step_down',
+                  id: 'tfm_sd',
+                  name: 'Step-Down',
+                  breakerRatingAmps: 0,
+                  maxContinuousKw: 106.9,
+                  circuits: [],
+                  childPanels: [lp],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      { stepDowns: true, kvaOf: (id) => (id === 'tfm_sd' ? 112.5 : null) },
+    );
+    const ac = new Set(['ac1', 'ac2']);
+    const placed = placePanels(hierarchy, ground, transformer, points, ac);
+    const sd = placed.find((p) => p.id === 'tfm_sd')!;
+    const board = placed.find((p) => p.id === 'lp')!;
+    expect(sd.model).toBe('dry_transformer');
+    expect(sd.kva).toBe(112.5);
+    expect(sd.parentId).toBe('main');
+    expect(board.parentId).toBe('tfm_sd');
+    // On the panelboard's rack line, the next slot toward the lot edge, turned the same way.
+    expect(sd.point.z).toBeCloseTo(board.point.z, 9);
+    expect(Math.abs(sd.point.x - board.point.x)).toBeCloseTo(1.6, 9);
+    expect(sd.turn).toBeCloseTo(board.turn, 9);
+    const links = loadLinks(hierarchy, placed, points, ground, transformer, ac);
+    // The switchboard feeds the step-down transformer by the long feeder; the step-down
+    // feeds the panelboard straight along their row.
+    const feeder = links.segments.find((s) => s.id === 'panel:tfm_sd')!;
+    expect(feeder.points[0]?.x).toBeCloseTo(placed.find((p) => p.id === 'main')!.point.x, 9);
+    const short = links.segments.find((s) => s.id === 'panel:lp')!;
+    expect(short.points).toHaveLength(2);
+    expect(short.points.every((q) => Math.abs(q.z - board.point.z) < 1e-9)).toBe(true);
+    // Its label: name, kVA and capacity, no breaker.
+    const label = links.labels.find((l) => l.id === 'panel:tfm_sd')!;
+    expect(label).toMatchObject({ name: 'Step-Down', amps: null, kva: 112.5, kw: 106.9 });
+    const segs = segmentsOf(links);
+    expect(segs.flatMap((p, i) => segs.slice(i + 1).filter((q) => crosses(p, q)))).toEqual([]);
+  });
+
+  it('leaves the step-down transformers out where the switchboard stands inside', () => {
+    const hierarchy = linkHierarchy(
+      [
+        {
+          ...panel('main', []),
+          type: 'panel',
+          childPanels: [
+            {
+              type: 'transformer',
+              id: 'tfm_sd',
+              name: 'Step-Down',
+              breakerRatingAmps: 0,
+              maxContinuousKw: 70,
+              circuits: [],
+              childPanels: [{ ...panel('lp', []), type: 'panel' }],
+            },
+          ],
+        },
+      ],
+      { stepDowns: false },
+    );
+    expect(hierarchy[0]?.childPanels.map((p) => p.id)).toEqual(['lp']);
+  });
+
+  it('reads each transformer load and each asset connection from the reply', () => {
+    const nodes = [
+      {
+        type: 'transformer' as const,
+        id: 'tfm_svc',
+        name: 'Service',
+        breakerRatingAmps: 0,
+        maxContinuousKw: 200,
+        currentDrawKw: 150,
+        circuits: [],
+        energyAssets: [
+          {
+            id: 'ena_bat',
+            type: 'battery' as const,
+            supply: { state: 'fresh' as const, creditKw: 40 },
+          },
+        ],
+        childPanels: [
+          {
+            ...panel('main', []),
+            energyAssets: [
+              {
+                id: 'ena_pv',
+                type: 'solar' as const,
+                supply: { state: 'stale' as const, creditKw: 0 },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(transformerLoads(nodes).get('tfm_svc')).toEqual({ drawKw: 150, capacityKw: 200 });
+    expect(loadPercent(150, 200)).toBe(75);
+    expect(loadPercent(250, 200)).toBe(125);
+    expect(loadPercent(10, 0)).toBeNull();
+    const conns = assetConnections(nodes);
+    expect(conns.get('ena_bat')).toEqual({ nodeId: 'tfm_svc', state: 'fresh', creditKw: 40 });
+    expect(conns.get('ena_pv')).toEqual({ nodeId: 'main', state: 'stale', creditKw: 0 });
+  });
+});
+
+describe('battery and solar links', () => {
+  const conns = new Map([
+    ['ena_bat', { nodeId: 'main', state: 'fresh' as const, creditKw: 40 }],
+    ['ena_pv', { nodeId: 'main', state: 'stale' as const, creditKw: 0 }],
+    ['ena_svc', { nodeId: 'tfm_svc', state: 'fresh' as const, creditKw: 0 }],
+  ]);
+  const targets = new Map([
+    ['main', { x: -6, z: 2.75 }],
+    ['tfm_svc', { x: -2.5, z: 2.75 }],
+  ]);
+
+  it('runs from each asset to its connection point on the ground, flowing only with supply', () => {
+    const links = supplyLinks(
+      [
+        { id: 'ena_bat', point: { x: -4, z: -4 } },
+        { id: 'ena_pv', rowZ: 13 },
+        { id: 'ena_svc', point: { x: -2.5, z: 12 } },
+        { id: 'ena_none', point: { x: -9, z: 0 } },
+      ],
+      conns,
+      targets,
+      ground,
+    );
+    expect(links.map((l) => [l.id, l.kind, l.flowing])).toEqual([
+      ['supply:ena_bat', 'supply', true],
+      ['supply:ena_pv', 'supply', false],
+      // A fresh reading with no credit gives no supply: no flow.
+      ['supply:ena_svc', 'supply', false],
+    ]);
+    for (const l of links) {
+      // Orthogonal, from the asset to the equipment, never across the lot.
+      for (let i = 1; i < l.points.length; i++) {
+        const a = l.points[i - 1]!;
+        const b = l.points[i]!;
+        expect(Math.abs(a.x - b.x) < 1e-9 || Math.abs(a.z - b.z) < 1e-9).toBe(true);
+        const inLot = (q: Pt) =>
+          q.x > ground.minX && q.x < ground.maxX && q.z > ground.minZ && q.z < ground.maxZ;
+        expect(inLot({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 })).toBe(false);
+      }
+      expect(l.points.at(-1)).toEqual(targets.get(conns.get(l.id.slice(7))!.nodeId));
+    }
+    // A carport canopy's run starts at its row end on the equipment side.
+    expect(links[1]?.points[0]).toEqual({ x: ground.minX - 0.8, z: 13 });
+  });
+
+  it('goes around the lot from an asset on its far side', () => {
+    const [run] = supplyLinks(
+      [{ id: 'ena_bat', point: { x: LOT.width + 4, z: LOT.depth / 2 } }],
+      conns,
+      targets,
+      ground,
+    );
+    expect(run!.points.length).toBe(4);
+    const segs = run!.points.slice(1).map((b, i) => ({ a: run!.points[i]!, b }));
+    for (const s of segs) {
+      const mid = { x: (s.a.x + s.b.x) / 2, z: (s.a.z + s.b.z) / 2 };
+      expect(
+        mid.x > ground.minX && mid.x < ground.maxX && mid.z > ground.minZ && mid.z < ground.maxZ,
+      ).toBe(false);
+    }
   });
 });
 

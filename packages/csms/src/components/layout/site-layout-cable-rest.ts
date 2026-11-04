@@ -165,7 +165,11 @@ export interface PlugRoute {
  *   the port's inset or ahead of the axle);
  * - with `lengthM` (a fixed cable, DC) the rest of the length lies in a bow
  *   in the ground leg, its depth solved on the drawn points; a cable that
- *   cannot reach gets `reaches: false`.
+ *   cannot reach gets `reaches: false`;
+ * - with `bounds` (each stall of a dual-port pedestal) the cable stays inside
+ *   that x range: the slack lies on the side that keeps it there, the ground
+ *   corner and bow stay inside, and any point left outside is moved back in,
+ *   so the cable never crosses the other stall, its cable or its car.
  */
 export function plugRoute(o: {
   from: readonly Vec3[];
@@ -179,16 +183,33 @@ export function plugRoute(o: {
   outsideM?: number;
   /** Whether a point would touch the car, a tire or an obstacle (the air span is refused then). */
   blocked?: (p: Vec3) => boolean;
+  /** The x range the cable keeps to (its stall), in the station frame. */
+  bounds?: { minX: number; maxX: number };
 }): PlugRoute {
   const r = o.radiusM;
   const start = o.from[o.from.length - 1] ?? [0, 1, 0];
   const into = onBootAxis(o.plug.lead, o.plug.end, 0.06);
   // Every point rests on the surface (a curve between two points can dip below a curb edge).
-  const rest = (pts: Vec3[]): Vec3[] => liftOntoSurface(densify(pts), o.surface, r);
+  const lo = o.bounds == null ? -Infinity : o.bounds.minX + r;
+  const hi = o.bounds == null ? Infinity : o.bounds.maxX - r;
+  // The run past the anchor's gland (which stands on the charger, on its own side).
+  const inside = (pts: readonly Vec3[]): boolean =>
+    pts.slice(o.from.length - 1).every((p) => p[0] >= lo - 1e-6 && p[0] <= hi + 1e-6);
+  const keepInside = (pts: Vec3[]): Vec3[] =>
+    o.bounds == null
+      ? pts
+      : pts.map((p, i) =>
+          i < o.from.length - 1 ? p : ([Math.min(hi, Math.max(lo, p[0])), p[1], p[2]] as Vec3),
+        );
+  const rest = (pts: Vec3[]): Vec3[] =>
+    keepInside(liftOntoSurface(densify(keepInside(pts)), o.surface, r));
   const carX = (o.car.minX + o.car.maxX) / 2;
   const outward = Math.sign(o.plug.lead[0] - carX) || -1;
   const out = o.outsideM ?? 0.35;
-  const sideX = outward < 0 ? o.car.minX - out : o.car.maxX + out;
+  const sideX = Math.min(
+    hi - 0.02,
+    Math.max(lo + 0.02, outward < 0 ? o.car.minX - out : o.car.maxX + out),
+  );
   // Down to the ground, toward the port's side of the car.
   const away = Math.sign(start[0]) || outward;
   const y0 = restHeight(o.surface, start[0], start[2], r);
@@ -200,14 +221,14 @@ export function plugRoute(o: {
   const corner: readonly [number, number] = o.nosePort
     ? [into[0], Math.min(into[2] - 0.15, o.car.minZ - 0.2)]
     : [sideX, o.car.minZ - 0.3];
-  const build = (bowM: number): Vec3[] => {
+  const build = (bowM: number, flip = false): Vec3[] => {
     const path: Array<readonly [number, number]> = [touch];
     if (bowM > 0) {
       const len = Math.hypot(corner[0] - touch[0], corner[1] - touch[1]) || 1;
       // Away from the car's end: the bow lies toward the charger side.
       let nx = (corner[1] - touch[1]) / len;
       let nz = -(corner[0] - touch[0]) / len;
-      if (nz > 0) {
+      if (nz > 0 !== flip) {
         nx = -nx;
         nz = -nz;
       }
@@ -247,28 +268,40 @@ export function plugRoute(o: {
       (start[0] + left[0] - carX) * outward > (start[0] - left[0] - carX) * outward
         ? left
         : [-left[0], -left[1]];
-    const air = restingCable({
-      p1: start,
-      p2: into,
-      length: o.lengthM - fixed,
-      surface: o.surface,
-      radiusM: r,
-      out: dir,
-      out2: [-dir[0], -dir[1]],
-      lay: awayFromCar,
-      bendM: o.bendM,
-    });
-    const points = [...o.from.slice(0, -1), ...air.points, o.plug.lead, o.plug.end];
-    const clear = points.slice(0, -3).every((p) => o.blocked == null || !o.blocked(p));
-    // Only a span that has the cable's length: a chord longer than the cable cannot be spanned.
-    const exact = Math.abs(routeLength(points) - o.lengthM) <= 0.01 * o.lengthM;
-    if (clear && exact) return { points: rest(points), reaches: true };
+    // Away from the car first; inside a stall, the other side when that leaves the stall.
+    for (const lay of [awayFromCar, [-awayFromCar[0], -awayFromCar[1]] as const]) {
+      const air = restingCable({
+        p1: start,
+        p2: into,
+        length: o.lengthM - fixed,
+        surface: o.surface,
+        radiusM: r,
+        out: dir,
+        out2: [-dir[0], -dir[1]],
+        lay,
+        bendM: o.bendM,
+      });
+      const points = [...o.from.slice(0, -1), ...air.points, o.plug.lead, o.plug.end];
+      const clear = points.slice(0, -3).every((p) => o.blocked == null || !o.blocked(p));
+      // Only a span that has the cable's length: a chord longer than the cable cannot be spanned.
+      const exact = Math.abs(routeLength(points) - o.lengthM) <= 0.01 * o.lengthM;
+      if (clear && exact && inside(points)) return { points: rest(points), reaches: true };
+      if (o.bounds == null) break;
+    }
   }
   const bare = build(0);
   if (o.lengthM == null) return { points: rest(bare), reaches: true };
+  const length = o.lengthM;
   const len = routeLength(bare);
-  if (len > o.lengthM) return { points: rest(bare), reaches: false };
+  if (len > length) return { points: rest(bare), reaches: false };
   const chord = Math.hypot(corner[0] - touch[0], corner[1] - touch[1]);
-  const bow = solveIncreasing((x) => routeLength(build(x)), 0, Math.max(0.5, chord), o.lengthM);
-  return { points: rest(build(bow)), reaches: true };
+  const bowed = (flip: boolean): Vec3[] =>
+    build(
+      solveIncreasing((x) => routeLength(build(x, flip)), 0, Math.max(0.5, chord), length),
+      flip,
+    );
+  const first = bowed(false);
+  if (o.bounds == null || inside(first)) return { points: rest(first), reaches: true };
+  const second = bowed(true);
+  return { points: rest(inside(second) ? second : first), reaches: true };
 }

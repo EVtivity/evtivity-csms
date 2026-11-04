@@ -247,8 +247,8 @@ describe('category router in every CSMS language', () => {
     de: 'Bitte führen Sie einen Soft-Reset der Station IOCHARGER-002 durch.',
     es: 'Reinicia la estación IOCHARGER-002, por favor.',
     ko: '충전소 IOCHARGER-002를 소프트 리셋해 주세요.',
-    zh: '请对充电站 IOCHARGER-002 执行软重置。',
-    'zh-TW': '請將充電站 IOCHARGER-002 重新啟動。',
+    zh: '请对充电桩 IOCHARGER-002 执行软重置。',
+    'zh-TW': '請將充電樁 IOCHARGER-002 重新啟動。',
   };
   const SESSIONS: Record<string, string> = {
     en: 'Show the charging sessions of yesterday.',
@@ -289,7 +289,7 @@ describe('category router in every CSMS language', () => {
   it('does not take a status question for a station command', () => {
     expect(isStationCommand('How many stations are available right now?')).toBe(false);
     expect(isStationCommand('Wie viele Stationen sind gerade verfügbar?')).toBe(false);
-    expect(isStationCommand('现在有多少充电站可用？')).toBe(false);
+    expect(isStationCommand('现在有多少充电桩可用？')).toBe(false);
     expect(isStationCommand('Reset my password')).toBe(false);
     expect(keywordCategories('Hallo!', known)).toEqual([]);
   });

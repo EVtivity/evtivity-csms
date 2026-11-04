@@ -21,6 +21,7 @@ import { paymentContext } from '../lib/payments.js';
 import { applyDriverDeactivation } from './driver-status.service.js';
 import { deleteRecoveryCodes, deleteWebauthnCredentials } from './mfa-factor.service.js';
 import { clearAvatarInErasure, purgeDriverAvatarStorage } from './driver-avatar.service.js';
+import { clearDriverTokenLabels } from './token.service.js';
 
 interface Logger {
   warn: (obj: unknown, msg?: string) => void;
@@ -34,6 +35,7 @@ export interface DriverErasureResult {
   paymentMethodsRemoved: number;
   vehiclesRemoved: number;
   tokensDeactivated: number;
+  tokenLabelsCleared: number;
   avatarRemoved: boolean;
 }
 
@@ -55,6 +57,8 @@ export function driverErasedError(): AppError {
  *   avatar. After the commit every avatar object of the driver is deleted
  *   from S3 (the current image, images an earlier failed delete left and
  *   unconfirmed uploads), else queued for the worker.
+ * - Clears the labels of the driver's tokens (free text that may hold
+ *   personal data) through the token service.
  * - Detaches and deletes the saved payment methods and provider customers
  *   through the payments methods service.
  * - Deactivates the tokens, revokes the sessions and ends the portal streams
@@ -92,7 +96,7 @@ export async function eraseDriver(
   }
 
   const erasedAt = new Date();
-  const { vehiclesRemoved, avatar } = await db.transaction(async (tx) => {
+  const { vehiclesRemoved, tokenLabelsCleared, avatar } = await db.transaction(async (tx) => {
     // Guarded on erased_at, so of two concurrent erasures one wins.
     const [stub] = await tx
       .update(drivers)
@@ -136,7 +140,12 @@ export async function eraseDriver(
     await deleteRecoveryCodes({ driverId }, tx);
     await deleteWebauthnCredentials({ driverId }, tx);
     await tx.delete(userTokens).where(eq(userTokens.driverId, driverId));
-    return { vehiclesRemoved: removedVehicles.length, avatar: clearedAvatar };
+    const labelsCleared = await clearDriverTokenLabels(tx, driverId);
+    return {
+      vehiclesRemoved: removedVehicles.length,
+      tokenLabelsCleared: labelsCleared,
+      avatar: clearedAvatar,
+    };
   });
 
   // The row no longer points at an image: every object under the driver's
@@ -165,6 +174,7 @@ export async function eraseDriver(
         paymentMethodsRemoved,
         vehiclesRemoved,
         tokensDeactivated,
+        tokenLabelsCleared,
         avatarRemoved,
       },
     },
@@ -172,5 +182,12 @@ export async function eraseDriver(
     ctx.log,
   );
 
-  return { erasedAt, paymentMethodsRemoved, vehiclesRemoved, tokensDeactivated, avatarRemoved };
+  return {
+    erasedAt,
+    paymentMethodsRemoved,
+    vehiclesRemoved,
+    tokensDeactivated,
+    tokenLabelsCleared,
+    avatarRemoved,
+  };
 }

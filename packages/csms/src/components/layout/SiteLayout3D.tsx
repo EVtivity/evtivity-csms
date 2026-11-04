@@ -16,7 +16,6 @@ import {
   assignBays,
   bayToPosition,
   drawnConnectorCounts,
-  energyAssetsOf,
   freeFootprintsOverlap,
   freeSolarPlacement,
   freeSpotTypeOf,
@@ -37,6 +36,8 @@ import {
   usesFreePositions,
   type FreePlacement,
   type LayoutBay,
+  type LayoutPowerEquipment,
+  type PlacedLayoutSettings,
   type SiteLayoutSettings,
 } from '@evtivity/lib/site-layout';
 import {
@@ -65,6 +66,7 @@ import {
   FACADE_Z,
   freeBackPoint,
   isSpot,
+  rowFrontZ,
   lotOf,
   STATION_BACK_OFFSET,
   stationBackPoint,
@@ -82,8 +84,13 @@ import {
 import { carPortOf, evseFlows } from './site-layout-cable';
 import { connectorKindOf } from './site-layout-connectors';
 import {
+  assetConnections,
   loadFlows,
+  loadPercent,
+  linkHierarchy,
   splitDispenserId,
+  supplyLinks,
+  transformerLoads,
   withSplitCabinets,
   loadLevel,
   loadLinks,
@@ -91,14 +98,17 @@ import {
   facadeLinks,
   placeFacadePanels,
   placePanels,
+  type AssetConnection,
   type FlowLoad,
+  type HierarchyLinkNode,
   type LinkLabel,
-  type LinkPanel,
   type LinkStationPoint,
+  type SupplyAsset,
 } from './site-layout-links';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import type { LayoutInsight } from './site-layout-data';
 import { SessionLayoutPopup, splitDriverName } from './SessionLayoutPopup';
+import { departureLabel } from './layout-departure';
 import {
   LayoutStationList,
   LayoutSummaryChip,
@@ -142,8 +152,12 @@ import { ConnectionBadge, StationStateIcon } from './StationStateIcon';
 
 export interface SiteLayout3DProps {
   stations: readonly LayoutStation[];
-  /** The site type, the lot and the transformers (effective settings, pending edits included). */
-  settings: SiteLayoutSettings;
+  /**
+   * The site type, the lot and the power equipment at its positions (effective
+   * settings with the equipment rows joined, pending edits included,
+   * `placePowerEquipment`).
+   */
+  settings: PlacedLayoutSettings;
   /** Payment terminals paired to each station (by internal station ID). */
   terminals: ReadonlyMap<string, readonly LayoutTerminal[]>;
   /**
@@ -151,7 +165,12 @@ export interface SiteLayout3DProps {
    * caller may not read them (no equipment, no links). The equipment shows
    * whether or not load management is on (owner decision 2026-11-01).
    */
-  hierarchy: readonly LinkPanel[] | null;
+  hierarchy: readonly HierarchyLinkNode[] | null;
+  /**
+   * The site's transformers and energy assets (GET /v1/sites/{id}
+   * powerEquipment): the kVA of each step-down transformer on its label.
+   */
+  equipment?: LayoutPowerEquipment | undefined;
   /**
    * Load management is on at the site: the cable runs, their live power glow
    * and flow, and the live draw on the equipment labels show only then. Off,
@@ -329,6 +348,9 @@ export function linkLabelText(label: LinkLabel): string {
   const parts: string[] = [];
   if (label.name != null) parts.push(label.name);
   if (label.amps != null) parts.push(`${formatNumber(label.amps, 0)} A`);
+  if (label.kva != null) {
+    parts.push(`${formatNumber(label.kva, Number.isInteger(label.kva) ? 0 : 1)} kVA`);
+  }
   if (label.kw != null) parts.push(`${formatNumber(label.kw, 1)} kW`);
   return parts.join(' · ');
 }
@@ -471,6 +493,7 @@ export default function SiteLayout3D({
   settings,
   terminals,
   hierarchy,
+  equipment,
   loadManaged,
   logoUrl,
   california = false,
@@ -628,7 +651,7 @@ export default function SiteLayout3D({
   );
   const energyAssets = useMemo(
     () =>
-      energyAssetsOf(settings).filter((a) =>
+      settings.energyAssets.filter((a) =>
         a.type === 'battery' ? showsBatteries(settings) : showsSolar(settings),
       ),
     [settings],
@@ -723,16 +746,38 @@ export default function SiteLayout3D({
   const office = lot.siteType === 'office_retail';
   // The hierarchy as the view routes it: a split system's circuit feeds its
   // power cabinet on the equipment pad, which feeds its dispensers.
-  const routed = useMemo(() => {
+  // The panels as the view routes them: each top-level switchboard at the
+  // service transformer that names it, a step-down transformer between its
+  // switchboard and the panelboard it feeds (inside the building at an
+  // office or retail site, so not drawn there).
+  const linked = useMemo(() => {
     if (hierarchy == null) return null;
-    if (office) return hierarchy;
+    const kva = new Map((equipment?.transformers ?? []).map((tr) => [tr.id, tr.ratedKva]));
+    return linkHierarchy(hierarchy, { stepDowns: !office, kvaOf: (id) => kva.get(id) ?? null });
+  }, [hierarchy, office, equipment]);
+  const routed = useMemo(() => {
+    if (linked == null) return null;
+    if (office) return linked;
     const spans = new Map(splitSpans);
     for (const [id, place] of freePlaces) {
       const xs = customDispenserXs(id, place);
       if (xs != null) spans.set(id, xs.length);
     }
-    return withSplitCabinets(hierarchy, spans);
-  }, [hierarchy, office, splitSpans, freePlaces, customDispenserXs]);
+    return withSplitCabinets(linked, spans);
+  }, [linked, office, splitSpans, freePlaces, customDispenserXs]);
+  // The load of each transformer and the supply of each battery and solar
+  // asset, as the load management reply has them.
+  const transformerLoadsById = useMemo(
+    () =>
+      hierarchy == null
+        ? new Map<string, { drawKw: number; capacityKw: number }>()
+        : transformerLoads(hierarchy),
+    [hierarchy],
+  );
+  const connections = useMemo(
+    () => (hierarchy == null ? new Map<string, AssetConnection>() : assetConnections(hierarchy)),
+    [hierarchy],
+  );
   const panels = useMemo(
     () =>
       routed == null || !drawsPanels
@@ -787,19 +832,51 @@ export default function SiteLayout3D({
     ],
   );
 
+  // The battery and solar runs to their connection points (switchboard,
+  // panelboard or service transformer), with the green flow while the asset
+  // gives supply (a fresh reading).
+  const supply = useMemo(() => {
+    if (!drawsPanels || office) return [];
+    const targets = new Map<string, { x: number; z: number }>([
+      ...panels.map((p): [string, { x: number; z: number }] => [p.id, p.point]),
+      ...transformers.map((tr): [string, { x: number; z: number }] => [tr.id, tr]),
+    ]);
+    const assets: SupplyAsset[] = energyAssets.map((a) => {
+      if (a.type === 'battery') return { id: a.id, point: { x: a.x, z: a.z } };
+      if (custom || depot) {
+        const at = freeSolarPlacement(a, settings);
+        return { id: a.id, point: { x: at.x, z: at.z } };
+      }
+      return { id: a.id, rowZ: rowFrontZ(a.row, lot) + lot.spotD / 2 };
+    });
+    return supplyLinks(assets, connections, targets, linkGround);
+  }, [
+    drawsPanels,
+    office,
+    panels,
+    transformers,
+    energyAssets,
+    custom,
+    depot,
+    settings,
+    lot,
+    connections,
+    linkGround,
+  ]);
+
   // Without load management: no cable runs and no circuit or station labels;
   // each panel keeps a label with its name and breaker rating, no kW limit.
   const links = useMemo(
     () =>
       loadManaged
-        ? routedLinks
+        ? { segments: [...routedLinks.segments, ...supply], labels: routedLinks.labels }
         : {
             segments: [],
             labels: routedLinks.labels
               .filter((l) => l.kind === 'panel')
               .map((l) => ({ ...l, kw: null })),
           },
-    [loadManaged, routedLinks],
+    [loadManaged, routedLinks, supply],
   );
 
   // The live power on the links and the panels' draw against their limits.
@@ -977,6 +1054,8 @@ export default function SiteLayout3D({
         x: p.point.x,
         z: p.point.z,
         model: p.model,
+        ...(p.kva !== undefined ? { kva: p.kva } : {}),
+        ...(p.atTransformerId != null ? { atTransformerId: p.atTransformerId } : {}),
         turn: p.turn,
       })),
       links,
@@ -1113,7 +1192,7 @@ export default function SiteLayout3D({
             moveFreeStation(id, p);
           },
           onSolarDrop: (id, p) => {
-            const asset = energyAssetsOf(stateRef.current.settings).find((a) => a.id === id);
+            const asset = stateRef.current.settings.energyAssets.find((a) => a.id === id);
             if (asset?.type !== 'solar') return;
             const at = freeSolarPlacement(asset, stateRef.current.settings);
             onSolarMoveRef.current?.(id, snapFreePlacement({ ...at, x: p.x, z: p.z }));
@@ -1466,7 +1545,7 @@ export default function SiteLayout3D({
       return;
     }
     if (selectedSolarId != null) {
-      const asset = energyAssetsOf(settings).find((a) => a.id === selectedSolarId);
+      const asset = settings.energyAssets.find((a) => a.id === selectedSolarId);
       if (asset?.type !== 'solar') return;
       e.preventDefault();
       const p = freeSolarPlacement(asset, settings);
@@ -1547,6 +1626,18 @@ export default function SiteLayout3D({
             style={{ left: 0, top: 0, visibility: 'hidden' }}
           >
             {linkLabelText(label)}
+            {loadManaged &&
+              label.kva !== undefined &&
+              (() => {
+                // A step-down transformer: its load against its capacity.
+                const load = transformerLoadsById.get(label.id.slice('panel:'.length));
+                const percent = load != null ? loadPercent(load.drawKw, load.capacityKw) : null;
+                return percent != null ? (
+                  <span className="ml-1">
+                    · {t('sites.layoutView.transformerLoad', { percent })}
+                  </span>
+                ) : null;
+              })()}
             {label.kind === 'panel' &&
               (() => {
                 const load = flows?.loads.get(label.id.slice('panel:'.length));
@@ -1565,10 +1656,7 @@ export default function SiteLayout3D({
             className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-semibold shadow-xs"
             style={{ left: 0, top: 0, visibility: 'hidden' }}
           >
-            {a.name ??
-              (a.type === 'battery'
-                ? t('sites.layoutView.battery')
-                : t('sites.layoutView.solarCanopy'))}
+            {a.name}
             {a.type === 'battery' && a.capacityKwh != null && (
               <span className="ml-1 font-normal text-muted-foreground tabular-nums">
                 · {formatNumber(a.capacityKwh, 0)} kWh
@@ -1579,6 +1667,23 @@ export default function SiteLayout3D({
                 · {formatNumber(a.capacityKwp, 0)} kWp
               </span>
             )}
+            {loadManaged &&
+              (() => {
+                // The supply it counts as now: its credit with a fresh reading, none otherwise.
+                const conn = connections.get(a.id);
+                if (conn == null) return null;
+                return (
+                  <span
+                    className="ml-1 font-normal text-muted-foreground tabular-nums"
+                    data-testid={`site-layout-3d-energy-credit-${a.id}`}
+                  >
+                    ·{' '}
+                    {conn.state === 'fresh'
+                      ? t('sites.layoutView.supplyCredit', { kw: formatNumber(conn.creditKw, 1) })
+                      : t('sites.layoutView.supplyNoReading')}
+                  </span>
+                );
+              })()}
           </div>
         ))}
         {stations.map((s) => {
@@ -1617,12 +1722,29 @@ export default function SiteLayout3D({
             className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-semibold shadow-xs"
             style={{ left: 0, top: 0, visibility: 'hidden' }}
           >
-            {tr.name ?? t('sites.layoutView.transformer')}
+            {tr.name}
             {tr.ratedKva != null && (
               <span className="ml-1 font-normal text-muted-foreground tabular-nums">
-                · {formatNumber(tr.ratedKva, 0)} kVA
+                · {formatNumber(tr.ratedKva, Number.isInteger(tr.ratedKva) ? 0 : 1)} kVA
               </span>
             )}
+            {loadManaged &&
+              (() => {
+                // Its load against its capacity (kVA times power factor and loading limit).
+                const load = transformerLoadsById.get(tr.id);
+                const percent =
+                  load != null
+                    ? loadPercent(load.drawKw, tr.maxContinuousKw ?? load.capacityKw)
+                    : null;
+                return percent != null ? (
+                  <span
+                    className="ml-1 font-normal text-muted-foreground tabular-nums"
+                    data-testid={`site-layout-3d-transformer-load-${tr.id}`}
+                  >
+                    · {t('sites.layoutView.transformerLoad', { percent })}
+                  </span>
+                ) : null;
+              })()}
           </div>
         ))}
         {stations.map((s) => {
@@ -1736,6 +1858,9 @@ export default function SiteLayout3D({
           const session = s.session ?? null;
           const driver = session?.driver ?? null;
           const names = splitDriverName(driver?.name ?? null);
+          // A depot shows the departure the parked vehicle charges for above it.
+          const departure = depot && session?.departure != null ? session.departure : null;
+          const label = departure != null ? departureLabel(departure, t) : null;
           return (
             <div
               key={`avatar-${s.id}`}
@@ -1744,9 +1869,26 @@ export default function SiteLayout3D({
                 else avatarRefs.current.set(s.id, el);
               }}
               data-testid={`site-layout-3d-avatar-${s.id}`}
-              className="absolute -translate-x-1/2 -translate-y-full"
+              className="absolute flex -translate-x-1/2 -translate-y-full flex-col items-center gap-1"
               style={{ left: 0, top: 0, visibility: 'hidden' }}
             >
+              {label != null && (
+                <span
+                  data-testid={`site-layout-3d-departure-${s.id}`}
+                  className="flex flex-col items-center whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs leading-tight text-card-foreground shadow-xs"
+                >
+                  <span className="font-medium">{label.departs}</span>
+                  {label.state != null && label.color != null && (
+                    <span
+                      className="font-medium"
+                      style={{ color: label.color }}
+                      data-testid={`site-layout-3d-departure-state-${s.id}`}
+                    >
+                      {label.state}
+                    </span>
+                  )}
+                </span>
+              )}
               {session == null ? (
                 // Without sessions:read: a plain marker, no session or driver data.
                 <span

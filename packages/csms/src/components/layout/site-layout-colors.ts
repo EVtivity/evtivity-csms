@@ -20,6 +20,10 @@ export const SCENE_COLORS = {
     signText: '#1f2937',
     transformer: '#5f7a63',
     transformerFin: '#536b57',
+    // A dry-type unit's ANSI 61 gray ("Enclosure Finish: ANSI 61 Grey", Hammond Sentinel G
+    // selection guide), in sRGB by eye: the standard names a Munsell color, no RGB value.
+    dryTransformer: '#a7aca8',
+    dryTransformerVent: '#3b4148',
     switchboard: '#9aa3ad',
     switchboardDoor: '#a9b1ba',
     building: '#d9d3c7',
@@ -46,6 +50,8 @@ export const SCENE_COLORS = {
     signText: '#111827',
     transformer: '#4a6250',
     transformerFin: '#3f5545',
+    dryTransformer: '#7b807c',
+    dryTransformerVent: '#262b31',
     switchboard: '#6b737d',
     switchboardDoor: '#78808a',
     building: '#6e6a63',

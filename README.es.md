@@ -77,6 +77,7 @@ graph TB
 | Asistente de IA                 | Preguntas sobre estaciones, sesiones, ingresos y operaciones en lenguaje natural. Las respuestas se transmiten en streaming y las conversaciones se guardan con búsqueda, cambio de nombre y eliminación                           |
 | Análisis de imágenes y archivos | Adjunta imágenes (como la foto de la pantalla de un cargador) y archivos PDF, CSV, de texto, de registro y JSON                                                                                                                    |
 | Cambios confirmados             | El asistente lee datos mediante herramientas de la API. Un cambio propuesto muestra una tarjeta de confirmación y solo se ejecuta cuando el operador lo confirma                                                                   |
+| Análisis automáticos            | Notas de causa raíz sobre problemas de estaciones, sesiones y autorizaciones, para los sitios y estaciones que elijas                                                                                                              |
 | Asistencia de soporte           | Redacta respuestas a casos de soporte en el idioma del conductor y notas internas en el del operador, con las fuentes consultadas                                                                                                  |
 | Elección de proveedor           | Anthropic, OpenAI, Google Gemini o DeepSeek, por superficie o por usuario, con un nivel de esfuerzo                                                                                                                                |
 | Enmascaramiento y protecciones  | Los secretos y datos personales se enmascaran en los resultados de las herramientas antes de llegar al modelo. La configuración, los secretos, los usuarios, los pagos y la seguridad de las estaciones quedan fuera de su alcance |
@@ -108,40 +109,49 @@ graph TB
 | Horas populares               | Mapa de calor de frecuencia de sesiones por día y hora por estación                                                                                                                                                                                            |
 | Diagnóstico remoto            | Disparar notificaciones de estado, recuperar diagnósticos, limpiar estados de fallo                                                                                                                                                                            |
 | Mantenimiento por sitio       | Programar ventanas de mantenimiento únicas o inmediatas que ponen estaciones fuera de línea, cancelan reservas solapadas, opcionalmente detienen sesiones activas con notificación al conductor y muestran una insignia de Mantenimiento en la lista de sitios |
+| Disposición del sitio         | Una representación 3D y 2D de cada sitio (aparcamiento, oficina o comercio, junto a la acera, depósito o personalizado) con el estado de las estaciones en vivo y una reproducción de cualquier día de los últimos 90 días                                     |
+| Conectividad celular          | Estado de la SIM, sesiones de datos y alertas de SIM de Hologram o 1NCE, el nivel de señal del módem, la causa probable de cada desconexión y un reinicio de la red celular                                                                                    |
+| Inventario de SIM             | Un registro por SIM con importación y exportación CSV, asignaciones a estaciones e historial de asignaciones                                                                                                                                                   |
+| Planes de datos               | Conjuntos de ajustes OCPP para Wi-Fi o cable y para celular por estación o sitio, con compresión WebSocket, para mantener bajo el uso de datos celulares                                                                                                       |
 
 ### Carga inteligente
 
-| Función                  | Descripción                                                                              |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| Gestión de carga         | Presupuesto de potencia por sitio con asignación en partes iguales y por prioridad       |
-| Perfiles de carga        | Entrega de perfiles de carga OCPP con soporte de schedule compuesto                      |
-| Detección de inactividad | Detección multi-señal (chargingState, medidor de potencia, estado) con periodo de gracia |
-| V2G                      | Seguimiento de estado de descarga vehículo-a-red vía chargingState de OCPP 2.1           |
+| Función                           | Descripción                                                                                                                                                                                                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gestión de carga                  | Presupuesto de potencia por sitio con asignación en partes iguales y por prioridad                                                                                                                                                                               |
+| Perfiles de carga                 | Entrega de perfiles de carga OCPP con soporte de schedule compuesto                                                                                                                                                                                              |
+| Carga según la ruta               | Planifica cada vehículo de flota en un sitio de tipo Depósito según su hora de salida y la energía que necesita, dentro de los límites de cuadros, circuitos y fases, con las horas más baratas primero, una vista de Disponibilidad de Flota y avisos de riesgo |
+| Interfaz de depósito de autobuses | Interfaz WebSocket VDV 463 1.1.0 para sistemas de gestión de depósitos de autobuses e ITCS: recibe solicitudes de carga y envía información de carga en vivo y el estado de carga previsto                                                                       |
+| Detección de inactividad          | Detección multi-señal (chargingState, medidor de potencia, estado) con periodo de gracia                                                                                                                                                                         |
+| V2G                               | Seguimiento de estado de descarga vehículo-a-red vía chargingState de OCPP 2.1                                                                                                                                                                                   |
 
 ### Facturación y pagos
 
-| Función                          | Descripción                                                                                      |
-| -------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Motor de tarifas                 | Tarifas planas, por horario, día de la semana, estación, festivo y umbral de energía             |
-| Asignación de precios            | Asignación de grupos de tarifa a conductor, flota, estación y sitio con resolución por prioridad |
-| Split billing                    | Seguimiento de coste por segmento cuando la tarifa cambia durante una sesión                     |
-| Tarifas de inactividad y reserva | Tarifa por minuto de inactividad con periodo de gracia y tarifa por minuto de reserva            |
-| Multi-moneda                     | 10 monedas con formato Intl.NumberFormat                                                         |
-| Procesamiento de pagos           | Preautorización Stripe, captura, devoluciones parciales y completas                              |
-| Carga de invitados               | Pago con tarjeta para conductores no autenticados vía código QR                                  |
-| Facturación                      | Recibos de sesión, extractos mensuales y reconciliación de ingresos                              |
+| Función                          | Descripción                                                                                                                                                                   |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Motor de tarifas                 | Tarifas planas, por horario, día de la semana, estación, festivo y umbral de energía                                                                                          |
+| Asignación de precios            | Asignación de grupos de tarifa a conductor, flota, estación y sitio con resolución por prioridad                                                                              |
+| Split billing                    | Seguimiento de coste por segmento cuando la tarifa cambia durante una sesión                                                                                                  |
+| Tarifas de inactividad y reserva | Tarifa por minuto de inactividad con periodo de gracia y tarifa por minuto de reserva                                                                                         |
+| Multi-moneda                     | 10 monedas con formato Intl.NumberFormat                                                                                                                                      |
+| Procesamiento de pagos           | Preautorización con Stripe y Adyen, captura, devoluciones parciales y completas                                                                                               |
+| Carga de invitados               | Pago con tarjeta para conductores no autenticados vía código QR                                                                                                               |
+| Terminales de pago               | Lectores de tarjetas en el cargador, controlados a través de la nube del proveedor del terminal. Proveedores simulado e ID TECH. ID TECH aún no está disponible en producción |
+| Facturación                      | Recibos de sesión, extractos mensuales y reconciliación de ingresos                                                                                                           |
+| Datos de pago en facturas        | Datos bancarios, una referencia de pago y un código QR EPC en las facturas en EUR                                                                                             |
 
 ### Roaming
 
-| Función                        | Descripción                                                                               |
-| ------------------------------ | ----------------------------------------------------------------------------------------- |
-| OCPI 2.2.1 / 2.3.0             | Roles CPO y eMSP con soporte de doble versión                                             |
-| Gestión de partners            | Intercambio de credenciales, registro de endpoints y monitorización de estado de conexión |
-| Publicación de ubicaciones     | Control de publicación por sitio con ajustes de visibilidad a nivel de partner            |
-| Generación de CDR              | Creación automática de registros de detalle de carga y push a partners eMSP               |
-| Autorización de tokens         | Autorización en tiempo real y offline de tokens externos de conductores                   |
-| Comandos remotos               | Receptor de comandos CPO (START_SESSION, STOP_SESSION, RESERVE_NOW, UNLOCK_CONNECTOR)     |
-| Búsqueda de estaciones roaming | Navegación y búsqueda de estaciones de red partner desde el portal del conductor          |
+| Función                         | Descripción                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
+| OCPI 2.2.1 / 2.3.0              | Roles CPO y eMSP con soporte de doble versión                                             |
+| Gestión de partners             | Intercambio de credenciales, registro de endpoints y monitorización de estado de conexión |
+| Publicación de ubicaciones      | Control de publicación por sitio con ajustes de visibilidad a nivel de partner            |
+| Aprobación de roles de partners | Un partner OCPI nuevo no recibe ningún rol hasta que el operador apruebe uno              |
+| Generación de CDR               | Creación automática de registros de detalle de carga y push a partners eMSP               |
+| Autorización de tokens          | Autorización en tiempo real y offline de tokens externos de conductores                   |
+| Comandos remotos                | Receptor de comandos CPO (START_SESSION, STOP_SESSION, RESERVE_NOW, UNLOCK_CONNECTOR)     |
+| Búsqueda de estaciones roaming  | Navegación y búsqueda de estaciones de red partner desde el portal del conductor          |
 
 ### Experiencia del conductor
 
@@ -156,6 +166,7 @@ graph TB
 | Gestión de flotas     | Agrupación en flotas con precios específicos y asignación de tokens a conductores        |
 | Gestión de vehículos  | Perfiles de vehículo para estimación de energía-a-millas según eficiencia real           |
 | Autoservicio RFID     | Los conductores añaden y gestionan sus tarjetas RFID desde el portal                     |
+| Avatares              | Conductores y operadores crean un avatar generado o suben una foto                       |
 | Notificaciones in-app | Campana de notificaciones en tiempo real con cajón de historial y preferencias por canal |
 | Casos de soporte      | Tickets de soporte con enlace a sesiones, acciones de reembolso y adjuntos en S3         |
 | Notificaciones        | Email y SMS para eventos de sesión, estado de pago, reservas y casos de soporte          |
@@ -173,51 +184,59 @@ graph TB
 
 ### Seguridad y acceso
 
-| Función                    | Descripción                                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------------------ |
-| Autenticación              | Auth basada en JWT con control de acceso por rol para operadores y conductores                   |
-| SAML SSO                   | Inicio de sesión único SAML 2.0 con IdP configurable, autoaprovisionamiento y mapeo de atributos |
-| Claves de API              | Claves API de larga duración para acceso programático que heredan el acceso a sitios del creador |
-| Auth multifactor           | App TOTP, código por email y código por SMS                                                      |
-| Control de acceso a sitios | Asignación por operador con denegación por defecto                                               |
-| Verificación de email      | Verificación de cuenta en el autorregistro del conductor antes del acceso al portal              |
-| Protección anti-bots       | Google reCAPTCHA v3 en el inicio de sesión de operadores y conductores                           |
-| Audit logs                 | Registro de acciones del operador para cumplimiento y revisión de seguridad                      |
+| Función                    | Descripción                                                                                                                                                |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Autenticación              | Auth basada en JWT con control de acceso por rol para operadores y conductores                                                                             |
+| SAML SSO                   | Inicio de sesión único SAML 2.0 con IdP configurable, autoaprovisionamiento y mapeo de atributos                                                           |
+| Claves de API              | Claves API de larga duración para acceso programático que heredan el acceso a sitios del creador                                                           |
+| Auth multifactor           | Opciones de app TOTP, código por email y código por SMS, códigos de recuperación y MFA obligatoria para todos los operadores, roles elegidos o conductores |
+| Llaves de acceso           | Llaves de acceso y llaves de seguridad FIDO2 como segundo factor, con inicio de sesión opcional sin contraseña                                             |
+| Política de contraseñas    | Una política de contraseñas para operadores y conductores, con duraciones de sesión separadas                                                              |
+| Avisos de seguridad        | Un aviso por email o SMS cuando cambia un factor de inicio de sesión, el número de teléfono o el email, o se crea una clave de API                         |
+| Control de acceso a sitios | Asignación por operador con denegación por defecto                                                                                                         |
+| Verificación de email      | Verificación de cuenta en el autorregistro del conductor antes del acceso al portal                                                                        |
+| Protección anti-bots       | Google reCAPTCHA v3 en el inicio de sesión de operadores y conductores                                                                                     |
+| Audit logs                 | Registro de acciones del operador para cumplimiento y revisión de seguridad                                                                                |
 
 ### Informes y analítica
 
-| Función            | Descripción                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------- |
-| Dashboards         | Gráficos en tiempo real de ingresos, energía, sesiones y estado de conectores                |
-| Informes           | 9 tipos de informe, incluidos consumo de energía, ingresos, utilización y fallos             |
-| Cumplimiento NEVI  | Seguimiento de uptime de estaciones y gestión de tiempos de inactividad excluidos según NEVI |
-| Entrega programada | Entrega automatizada de informes por email o FTP en horarios configurables                   |
+| Función                  | Descripción                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| Dashboards               | Gráficos en tiempo real de ingresos, energía, sesiones y estado de conectores                |
+| Dashboard personalizable | Cada usuario ordena y oculta los gráficos en vivo del dashboard                              |
+| Informes                 | 9 tipos de informe, incluidos consumo de energía, ingresos, utilización y fallos             |
+| Cumplimiento NEVI        | Seguimiento de uptime de estaciones y gestión de tiempos de inactividad excluidos según NEVI |
+| Entrega programada       | Entrega automatizada de informes por email o FTP en horarios configurables                   |
 
 ### Notificaciones y mensajería
 
-| Función                     | Descripción                                                                                        |
-| --------------------------- | -------------------------------------------------------------------------------------------------- |
-| Alertas basadas en eventos  | 41 tipos de evento OCPP configurables con destinatario, canal y plantilla por evento               |
-| Notificaciones al conductor | Notificaciones de sesión, pago, reservas y soporte por conductor                                   |
-| Canales                     | Email (SMTP), SMS (Twilio), webhook y entrega in-app                                               |
-| Editor de plantillas        | Editor WYSIWYG para email con inserción de variables por arrastrar-y-soltar y vista previa en vivo |
-| Layout de email             | Plantilla envolvente HTML configurable aplicada a todos los correos salientes                      |
-| Historial de notificaciones | Registro de entrega con vista previa de email y expansión inline para SMS/push                     |
+| Función                     | Descripción                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Alertas basadas en eventos  | 41 tipos de evento OCPP configurables con destinatario, canal y plantilla por evento                      |
+| Notificaciones al conductor | Notificaciones de sesión, pago, reservas y soporte por conductor                                          |
+| Canales                     | Email (SMTP), SMS (Twilio), webhook y entrega in-app                                                      |
+| Webhooks firmados           | Los webhooks salientes llevan una cabecera `X-EVtivity-Signature` creada con un secreto de firma generado |
+| Editor de plantillas        | Editor WYSIWYG para email con inserción de variables por arrastrar-y-soltar y vista previa en vivo        |
+| Layout de email             | Plantilla envolvente HTML configurable aplicada a todos los correos salientes                             |
+| Historial de notificaciones | Registro de entrega con vista previa de email y expansión inline para SMS/push                            |
 
 ### Despliegue y operación
 
-| Función                  | Descripción                                                                                                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Opciones de despliegue   | Docker Compose, Helm chart de Kubernetes (Istio/Envoy Gateway) y AWS CDK (ECS)                                                                 |
-| Escalado horizontal      | Servicios sin estado con registro de conexiones OCPP en Redis entre pods                                                                       |
-| Auto-scaling             | HPA de Kubernetes para API y OCPP con estabilización de scale-down consciente de WebSocket                                                     |
-| Rate limiting            | Rate limiting global y por endpoint configurable con límites separados para auth                                                               |
-| Observabilidad           | Métricas Prometheus, dashboards Grafana, agregación de logs con Loki                                                                           |
-| Pruebas de conformidad   | Runner OCTT integrado para SUT de CSMS (OCPP 2.1, 2.0.1 y 1.6) y de estación (OCPP 2.1 y 1.6) con informe en dashboard y resultados por módulo |
-| UI multi-idioma          | 6 idiomas: inglés, alemán, español, coreano, chino simplificado y tradicional                                                                  |
-| Filtros responsivos      | Los controles de filtro colapsan en un dropdown en tablet y móvil en todas las listas                                                          |
-| Página de servidor caído | Página de error amigable con reintento cuando la API no responde, en CSMS y Portal                                                             |
-| Gestión de releases      | Canales stable, alpha y beta. Cada release stable sube el Helm chart y la app de AWS CDK a su versión                                          |
+| Función                    | Descripción                                                                                                                                    |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Opciones de despliegue     | Docker Compose, Helm chart de Kubernetes (Istio/Envoy Gateway) y AWS CDK (ECS)                                                                 |
+| Escalado horizontal        | Servicios sin estado con registro de conexiones OCPP en Redis entre pods                                                                       |
+| Auto-scaling               | HPA de Kubernetes para API y OCPP con estabilización de scale-down consciente de WebSocket                                                     |
+| Rate limiting              | Rate limiting global y por endpoint configurable con límites separados para auth                                                               |
+| Observabilidad             | Métricas Prometheus, dashboards Grafana, agregación de logs con Loki                                                                           |
+| Almacenamiento de archivos | Amazon S3 o un proveedor compatible con S3 como MinIO o Wasabi                                                                                 |
+| Retención de datos         | Retención de logs, valores de medición, historial de auditoría y datos de IA, configurada en el dashboard                                      |
+| Información del sistema    | Versión y ajustes de cada proceso, con búsqueda y un filtro por sección                                                                        |
+| Pruebas de conformidad     | Runner OCTT integrado para SUT de CSMS (OCPP 2.1, 2.0.1 y 1.6) y de estación (OCPP 2.1 y 1.6) con informe en dashboard y resultados por módulo |
+| UI multi-idioma            | 6 idiomas: inglés, alemán, español, coreano, chino simplificado y tradicional                                                                  |
+| Filtros responsivos        | Los controles de filtro colapsan en un dropdown en tablet y móvil en todas las listas                                                          |
+| Página de servidor caído   | Página de error amigable con reintento cuando la API no responde, en CSMS y Portal                                                             |
+| Gestión de releases        | Canales stable, alpha y beta. Cada release stable sube el Helm chart y la app de AWS CDK a su versión                                          |
 
 ## Despliegue
 

@@ -70,6 +70,72 @@ export const vehicleAppearanceBodyFields = {
     .describe('Vehicle body type. Null removes it.'),
 };
 
+/** Battery size and accepted power in an operator vehicle item (route-aware charging). */
+export const vehicleBatteryItemFields = {
+  batteryCapacityKwh: z
+    .number()
+    .nullable()
+    .describe('Usable battery size in kWh; needed for state of charge departure targets'),
+  maxChargePowerKw: z
+    .number()
+    .nullable()
+    .describe('Power the vehicle accepts in kW; null means the charger maximum'),
+};
+
+/** Battery size and accepted power in an operator create or update body. Null removes a value. */
+export const vehicleBatteryBodyFields = {
+  batteryCapacityKwh: z
+    .number()
+    .min(1)
+    .max(2000)
+    .nullable()
+    .optional()
+    .describe('Usable battery size in kWh (1 to 2000). Null removes it.'),
+  maxChargePowerKw: z
+    .number()
+    .min(1)
+    .max(3750)
+    .nullable()
+    .optional()
+    .describe(
+      'Power the vehicle accepts in kW (1 to 3750). Null removes it (the charger maximum).',
+    ),
+};
+
+/** What the vehicle draws while it preconditions, in an operator vehicle item (bus depot interface). */
+export const vehiclePreconditioningItemFields = {
+  preconditioningPowerKw: z
+    .number()
+    .nullable()
+    .describe(
+      'Power in kW the vehicle draws while it preconditions (heating, cooling, battery conditioning); the charging plan reserves it. Null reserves nothing.',
+    ),
+  preconditioningMinutes: z
+    .number()
+    .int()
+    .describe('Length in minutes of a preconditioning window that names no start time'),
+};
+
+/** The preconditioning values in an operator create or update body. */
+export const vehiclePreconditioningBodyFields = {
+  preconditioningPowerKw: z
+    .number()
+    .min(0.5)
+    .max(500)
+    .nullable()
+    .optional()
+    .describe(
+      'Power in kW the vehicle draws while it preconditions (0.5 to 500). Null removes it.',
+    ),
+  preconditioningMinutes: z
+    .number()
+    .int()
+    .min(5)
+    .max(240)
+    .optional()
+    .describe('Length in minutes of a preconditioning window that names no start time (5 to 240)'),
+};
+
 /** The vehicle fields of Autocharge, shared by the operator and portal vehicle items. */
 export const vehicleAutochargeFields = {
   vin: z

@@ -37,6 +37,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'DELETE /config-templates/:id': { audited: 'config_template' },
   'DELETE /css/stations/:stationId': { audited: 'station' },
+  'DELETE /departure-schedules/:id': {
+    audited: 'vehicle_departure',
+    service: 'services/src/departure.service.ts',
+  },
   'DELETE /drivers/:id': { audited: 'driver' },
   'DELETE /drivers/:id/payment-methods/:pmId': {
     audited: 'driver',
@@ -92,11 +96,19 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'DELETE /sites/:id/electricity-rates/:periodId': { audited: 'site' },
   'DELETE /sites/:id/payment-config': { audited: 'site' },
   'DELETE /sites/:id/pricing-groups/:pricingGroupId': { audited: 'pricing_assignment' },
+  'DELETE /sites/:siteId/energy-assets/:assetId': {
+    audited: 'site',
+    service: 'database/src/lib/site-energy-assets.ts',
+  },
   'DELETE /sites/:siteId/panels/:panelId': {
     audited: 'site',
     service: 'database/src/lib/load-management-tree.ts',
   },
   'DELETE /sites/:siteId/panels/:panelId/circuits/:circuitId': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
+  'DELETE /sites/:siteId/transformers/:transformerId': {
     audited: 'site',
     service: 'database/src/lib/load-management-tree.ts',
   },
@@ -140,6 +152,14 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'PATCH /config-templates/:id': { audited: 'config_template' },
   'PATCH /css/stations/:stationId': { audited: 'station' },
+  'PATCH /departure-schedules/:id': {
+    audited: 'vehicle_departure',
+    service: 'services/src/departure.service.ts',
+  },
+  'PATCH /departures/:id': {
+    audited: 'vehicle_departure',
+    service: 'services/src/departure.service.ts',
+  },
   'PATCH /drivers/:id': { audited: 'driver' },
   'PATCH /drivers/:id/billing-address': {
     audited: 'driver',
@@ -198,11 +218,19 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'maintenance_event',
     service: 'services/src/maintenance.service.ts',
   },
+  'PATCH /sites/:siteId/energy-assets/:assetId': {
+    audited: 'site',
+    service: 'database/src/lib/site-energy-assets.ts',
+  },
   'PATCH /sites/:siteId/panels/:panelId': {
     audited: 'site',
     service: 'database/src/lib/load-management-tree.ts',
   },
   'PATCH /sites/:siteId/panels/:panelId/circuits/:circuitId': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
+  'PATCH /sites/:siteId/transformers/:transformerId': {
     audited: 'site',
     service: 'database/src/lib/load-management-tree.ts',
   },
@@ -251,7 +279,27 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /webhooks/payment-terminals/idtech': {
     allow: 'provider-signed webhook, no operator (see section 3)',
   },
+  'PUT /sessions/:id/vehicle': {
+    audited: ['session', 'vehicle'],
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'PUT /settings/payment-terminals': { audited: 'setting' },
+  'POST /depot-systems': {
+    audited: 'depot_system',
+    service: 'api/src/services/depot-system.service.ts',
+  },
+  'PATCH /depot-systems/:id': {
+    audited: 'depot_system',
+    service: 'api/src/services/depot-system.service.ts',
+  },
+  'POST /depot-systems/:id/password': {
+    audited: 'depot_system',
+    service: 'api/src/services/depot-system.service.ts',
+  },
+  'DELETE /depot-systems/:id': {
+    audited: 'depot_system',
+    service: 'api/src/services/depot-system.service.ts',
+  },
   'PUT /users/me/avatar': { audited: 'user', service: 'api/src/services/user-avatar.service.ts' },
   'DELETE /users/me/avatar': {
     audited: 'user',
@@ -349,6 +397,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /css/stations': { audited: 'station' },
   'POST /css/stations/:stationId/disable': { audited: 'station' },
   'POST /css/stations/:stationId/enable': { audited: 'station' },
+  'POST /departures/:id/cancel': {
+    audited: 'vehicle_departure',
+    service: 'services/src/departure.service.ts',
+  },
   'POST /drivers': { audited: 'driver' },
   'POST /drivers/:id/erase': {
     audited: 'driver',
@@ -400,6 +452,18 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /fleets/:fleetId/reservations': {
     audited: 'reservation',
     service: 'services/src/reservation.service.ts',
+  },
+  'POST /fleets/:id/departure-schedules': {
+    audited: 'vehicle_departure',
+    service: 'services/src/departure.service.ts',
+  },
+  'POST /fleets/:id/departures': {
+    audited: 'vehicle_departure',
+    service: 'services/src/departure.service.ts',
+  },
+  'POST /fleets/:id/departures/import': {
+    audited: 'vehicle_departure',
+    service: 'services/src/departure.service.ts',
   },
   'POST /fleets/:id/drivers': { audited: 'fleet' },
   'POST /fleets/:id/invoices': { audited: 'invoice' },
@@ -538,6 +602,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'services/src/sim-inventory.service.ts',
   },
   'POST /sites': { audited: 'site' },
+  'POST /sites/:id/charging-plan/recalculate': { audited: 'site' },
   'POST /sites/:id/electricity-cost/recalculate': { audited: 'site' },
   'POST /sites/:id/electricity-rates': { audited: 'site' },
   'POST /sites/:id/ai-insights/suppress': {
@@ -578,11 +643,19 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'maintenance_event',
     service: 'services/src/maintenance.service.ts',
   },
+  'POST /sites/:siteId/energy-assets': {
+    audited: 'site',
+    service: 'database/src/lib/site-energy-assets.ts',
+  },
   'POST /sites/:siteId/panels': {
     audited: 'site',
     service: 'database/src/lib/load-management-tree.ts',
   },
   'POST /sites/:siteId/panels/:panelId/circuits': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
+  'POST /sites/:siteId/transformers': {
     audited: 'site',
     service: 'database/src/lib/load-management-tree.ts',
   },
@@ -775,6 +848,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PUT /sites/:id/layout': { audited: 'site' },
   'PUT /sites/:id/load-management': { audited: 'site' },
   'PUT /sites/:id/payment-config': { audited: 'site' },
+  'PUT /sites/:siteId/energy-assets/:assetId/reading': {
+    allow:
+      'the latest battery or solar reading an EMS sends every few seconds replaces the earlier one (no history, no audit row); access_logs records each request with its body and the API key, and the asset audit notes a telemetry change',
+  },
   'PUT /sso/settings': { audited: 'setting' },
   'PUT /station-message-templates/:state': { audited: 'station_message_template' },
   'PUT /stations/:id/web-payments': {
@@ -831,7 +908,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'driver',
     service: 'payments/src/methods.ts',
   },
-  'PATCH /portal/sessions/:id/vehicle': { audited: 'session' },
+  'PATCH /portal/sessions/:id/vehicle': {
+    audited: 'session',
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'PATCH /portal/tokens/:id': { audited: 'token', service: 'api/src/services/token.service.ts' },
   'PATCH /portal/vehicles/:id': {
     audited: 'vehicle',

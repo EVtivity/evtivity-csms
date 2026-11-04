@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { MeterValueGenerator } from '../meter-value-generator.js';
+import {
+  DEFAULT_BATTERY_KWH,
+  MeterValueGenerator,
+  batteryKwhFor,
+} from '../meter-value-generator.js';
 
 describe('MeterValueGenerator', () => {
   it('generates values for requested measurands only', () => {
@@ -251,6 +255,76 @@ describe('MeterValueGenerator', () => {
       // Should be close to profile voltage (120V) when idle
       expect(Number(voltage[0]!.value)).toBeGreaterThanOrEqual(118);
       expect(Number(voltage[0]!.value)).toBeLessThanOrEqual(122);
+    });
+  });
+  describe('battery size and state of charge', () => {
+    const dc = { connectorType: 'dc_ccs1' as const, maxPowerW: 150000, phases: 1, voltage: 400 };
+
+    it('raises SoC by the delivered energy over the battery size', () => {
+      const gen = new MeterValueGenerator(dc);
+      gen.resetSession({ capacityKwh: 400, startSocPercent: 20 });
+      const before = gen.energyWh;
+      gen.tick(false, 100_000);
+      const delivered = gen.energyWh - before;
+      // 100 kW for 10 s is 277 Wh; on 400 kWh that is 0.069 %.
+      expect(delivered).toBe(277);
+      expect(gen.socPercent).toBeCloseTo(20 + (100_000 * 10) / 3600 / (400 * 10), 6);
+    });
+
+    it('carries the fraction of a Wh to the next tick, so low power still counts', () => {
+      const gen = new MeterValueGenerator();
+      gen.resetSession({ capacityKwh: 60, startSocPercent: 20 });
+      const before = gen.energyWh;
+      // 300 W for 10 s is 0.83 Wh per tick: 13 ticks make 10.8 Wh.
+      for (let i = 0; i < 13; i++) gen.tick(false, 300);
+      expect(gen.energyWh - before).toBe(10);
+      expect(gen.socPercent).toBeGreaterThan(20);
+    });
+
+    it('fills a small battery faster than a large one at the same power', () => {
+      const small = new MeterValueGenerator(dc);
+      const large = new MeterValueGenerator(dc);
+      small.resetSession({ capacityKwh: 60, startSocPercent: 20 });
+      large.resetSession({ capacityKwh: 500, startSocPercent: 20 });
+      for (let i = 0; i < 30; i++) {
+        small.tick(false, 50_000);
+        large.tick(false, 50_000);
+      }
+      expect(small.socPercent - 20).toBeGreaterThan((large.socPercent - 20) * 8);
+    });
+
+    it('starts at the given SoC and uses 60 kWh without a size', () => {
+      const gen = new MeterValueGenerator(dc);
+      gen.resetSession({ startSocPercent: 7 });
+      expect(gen.socPercent).toBe(7);
+      expect(gen.batteryKwh).toBe(DEFAULT_BATTERY_KWH);
+    });
+
+    it('ignores a battery size or SoC out of range', () => {
+      const gen = new MeterValueGenerator(dc);
+      gen.resetSession({ capacityKwh: -5, startSocPercent: 140 });
+      expect(gen.batteryKwh).toBe(DEFAULT_BATTERY_KWH);
+      expect(gen.socPercent).toBeGreaterThanOrEqual(15);
+      expect(gen.socPercent).toBeLessThanOrEqual(30);
+    });
+
+    it('tapers above 80 % SoC and draws nothing once the battery is full', () => {
+      const gen = new MeterValueGenerator(dc);
+      gen.resetSession({ capacityKwh: 60, startSocPercent: 90 });
+      gen.tick(false, null);
+      expect(gen.currentPowerW).toBeLessThan(150000 * 0.6);
+      gen.resetSession({ capacityKwh: 60, startSocPercent: 100 });
+      gen.tick(false, null);
+      expect(gen.currentPowerW).toBe(0);
+      expect(gen.socPercent).toBe(100);
+    });
+
+    it('picks a battery size per vehicle body type', () => {
+      expect(batteryKwhFor('bus')).toBe(400);
+      expect(batteryKwhFor('semi_truck')).toBe(500);
+      expect(batteryKwhFor('box_truck')).toBe(200);
+      expect(batteryKwhFor('sedan')).toBe(60);
+      expect(batteryKwhFor(undefined)).toBe(60);
     });
   });
 });

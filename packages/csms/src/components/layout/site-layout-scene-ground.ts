@@ -23,10 +23,34 @@ import { createFacadeCorniceKit } from './site-layout-model-facade-cornice';
 import { createFacadeDoorKit, facadeDoorSize } from './site-layout-model-facade-door';
 import { createFacadeWindowKit } from './site-layout-model-facade-window';
 
-import type { SceneCtx } from './site-layout-scene-context';
+import type { SceneSlice } from './site-layout-scene-context';
 import { TEXTURE_PX_PER_M, type Palette } from './site-layout-scene-types';
 
-export function installGround(scn: SceneCtx): void {
+type GroundCtx = SceneSlice<
+  | 'M'
+  | 'arrowGeometry'
+  | 'box'
+  | 'layout'
+  | 'modelKit'
+  | 'modelOf'
+  | 'pipeBollard'
+  | 'renderer'
+  | 'site'
+  | 'theme'
+  | 'track',
+  | 'addAccessibleSpace'
+  | 'buildBuilding'
+  | 'buildDepotYard'
+  | 'buildParkingRows'
+  | 'buildStreet'
+  | 'flowTexture'
+  | 'glowTexture'
+  | 'grassTexture'
+  | 'haloTexture'
+  | 'spotTexture'
+>;
+
+export function installGround(scn: GroundCtx): void {
   // One spot of asphalt with its painted line on each side edge (half on each
   // side of the tile, so repeated tiles share one line) from the front gap to
   // the back gap, then the lane with a dashed center line.

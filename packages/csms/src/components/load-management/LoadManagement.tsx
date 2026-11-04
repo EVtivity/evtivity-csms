@@ -4,7 +4,7 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { LoadAllocationStrategy } from '@evtivity/lib/load-allocation';
@@ -13,26 +13,28 @@ import { Button } from '@/components/ui/button';
 import { CreateButton } from '@/components/create-button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { DecimalInput } from '@/components/ui/decimal-input';
 import { SaveButton } from '@/components/save-button';
-import { Pagination } from '@/components/ui/pagination';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Select } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { api } from '@/lib/api';
-import { PowerBar } from './PowerBar';
 import { PanelTree } from './PanelTree';
 import { PanelForm } from './PanelForm';
+import { TransformerForm } from './TransformerForm';
+import { EnergyAssetsCard } from './EnergyAssetsCard';
+import {
+  asList,
+  energyAssetsQueryKey,
+  transformersQueryKey,
+  type EnergyAssetItem,
+  type TransformerItem,
+} from './load-management-types';
+import { useHasPermission } from '@/lib/auth';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { EmptyState } from '@/components/ui/content-state';
 import { formatNumber } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface CircuitStation {
   id: string;
@@ -68,6 +70,9 @@ interface PhaseLoadData {
 }
 
 interface PanelStatus {
+  type?: 'panel' | 'circuit' | 'transformer';
+  transformerKind?: 'service' | 'step_down';
+  supplyCreditKw?: number;
   id: string;
   name: string;
   breakerRatingAmps: number;
@@ -96,6 +101,8 @@ interface StationStatus {
   loadPriority: number;
   loadMinPowerKw: number | null;
   rateUnit: 'A' | 'W';
+  /** The allocated value is power kept for the station as a fixed load, not a limit sent to it. */
+  limitReserved?: boolean;
   isOnline: boolean;
   hasActiveSession: boolean;
 }
@@ -103,12 +110,27 @@ interface StationStatus {
 interface LoadManagementConfig {
   strategy: LoadAllocationStrategy;
   isEnabled: boolean;
+  /** Minutes before a departure the depot plan aims to finish (0 to 180). */
+  departureBufferMinutes?: number;
+}
+
+const BUFFER_MAX_MINUTES = 180;
+const DEFAULT_BUFFER_MINUTES = 30;
+
+/** The validation error of the Finish Buffer field, or null. */
+export function finishBufferError(value: string): 'required' | 'range' | null {
+  if (value.trim() === '') return 'required';
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > BUFFER_MAX_MINUTES) return 'range';
+  return null;
 }
 
 interface LoadManagementData {
   config: LoadManagementConfig | null;
   hierarchy: PanelStatus[];
   stations: StationStatus[];
+  /** The installation accepts simulated battery and solar readings. */
+  simulatedEnergyAssetsAllowed?: boolean;
 }
 
 interface AllocationLogEntry {
@@ -131,12 +153,31 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   const queryClient = useQueryClient();
   const [strategy, setStrategy] = useState<LoadAllocationStrategy>('equal_share');
   const [isEnabled, setIsEnabled] = useState(false);
+  const [bufferMinutes, setBufferMinutes] = useState(String(DEFAULT_BUFFER_MINUTES));
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const {
+    flags: { fleetChargingEnabled },
+  } = useFeatureFlags();
   const [showHistory, setShowHistory] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
+  const [addTransformerOpen, setAddTransformerOpen] = useState(false);
+  const canWrite = useHasPermission('loadManagement:write');
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['sites', siteId, 'load-management'],
     queryFn: () => api.get<LoadManagementData>(`/v1/sites/${siteId}/load-management`),
+    refetchInterval: 5000,
+  });
+
+  const transformersQuery = useQuery({
+    queryKey: transformersQueryKey(siteId),
+    queryFn: () => api.get<TransformerItem[]>(`/v1/sites/${siteId}/transformers`),
+    refetchInterval: 5000,
+  });
+
+  const energyAssetsQuery = useQuery({
+    queryKey: energyAssetsQueryKey(siteId),
+    queryFn: () => api.get<EnergyAssetItem[]>(`/v1/sites/${siteId}/energy-assets`),
     refetchInterval: 5000,
   });
 
@@ -151,13 +192,19 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   // 5 seconds with a new config object, which reset unsaved edits.
   const savedStrategy = data?.config?.strategy;
   const savedIsEnabled = data?.config?.isEnabled;
+  const savedBuffer = data?.config?.departureBufferMinutes;
   useEffect(() => {
     if (savedStrategy != null) setStrategy(savedStrategy);
     if (savedIsEnabled != null) setIsEnabled(savedIsEnabled);
-  }, [savedStrategy, savedIsEnabled]);
+    if (savedBuffer != null) setBufferMinutes(String(savedBuffer));
+  }, [savedStrategy, savedIsEnabled, savedBuffer]);
 
   const saveMutation = useMutation({
-    mutationFn: async (body: { strategy: string; isEnabled: boolean }) => {
+    mutationFn: async (body: {
+      strategy: string;
+      isEnabled: boolean;
+      departureBufferMinutes?: number;
+    }) => {
       const [result] = await Promise.all([
         api.put(`/v1/sites/${siteId}/load-management`, body),
         new Promise((r) => setTimeout(r, 500)),
@@ -169,30 +216,15 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
     },
   });
 
-  const priorityMutation = useMutation({
-    mutationFn: ({ stationId, loadPriority }: { stationId: string; loadPriority: number }) =>
-      api.patch(`/v1/sites/${siteId}/stations/${stationId}/load-priority`, { loadPriority }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites', siteId, 'load-management'] });
-    },
-  });
-
-  const minPowerMutation = useMutation({
-    mutationFn: ({
-      stationId,
-      loadMinPowerKw,
-    }: {
-      stationId: string;
-      loadMinPowerKw: number | null;
-    }) => api.patch(`/v1/sites/${siteId}/stations/${stationId}/load-min-power`, { loadMinPowerKw }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites', siteId, 'load-management'] });
-    },
-  });
-
   function handleSave(e: React.SyntheticEvent): void {
     e.preventDefault();
-    saveMutation.mutate({ strategy, isEnabled });
+    setHasSubmitted(true);
+    if (strategy === 'departure_aware' && finishBufferError(bufferMinutes) != null) return;
+    saveMutation.mutate({
+      strategy,
+      isEnabled,
+      ...(strategy === 'departure_aware' ? { departureBufferMinutes: Number(bufferMinutes) } : {}),
+    });
   }
 
   function handleRefresh(): void {
@@ -214,12 +246,14 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
 
   const hierarchy = data?.hierarchy ?? [];
   const stations = data?.stations ?? [];
+  const transformers = asList<TransformerItem>(transformersQuery.data);
+  const energyAssets = asList<EnergyAssetItem>(energyAssetsQuery.data);
 
   return (
     <div className="space-y-6">
       {/* Configuration Card */}
       <TabPanel title={t('sites.loadManagement')}>
-        <form onSubmit={handleSave} className="space-y-4">
+        <form onSubmit={handleSave} noValidate className="space-y-4">
           <div className="grid gap-2">
             <Label htmlFor="strategy">{t('loadManagement.allocationStrategy')}</Label>
             <Select
@@ -231,8 +265,46 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
             >
               <option value="equal_share">{t('loadManagement.equalShare')}</option>
               <option value="priority_based">{t('loadManagement.priorityBased')}</option>
+              {(fleetChargingEnabled || savedStrategy === 'departure_aware') && (
+                <option value="departure_aware">{t('loadManagement.departureAware')}</option>
+              )}
             </Select>
+            {strategy === 'departure_aware' && (
+              <p className="text-xs text-muted-foreground">
+                {t('loadManagement.departureAwareHelp')}
+              </p>
+            )}
           </div>
+          {strategy === 'departure_aware' && (
+            <div className="grid gap-2">
+              <Label htmlFor="lm-finish-buffer">{t('loadManagement.finishBuffer')}</Label>
+              <Input
+                id="lm-finish-buffer"
+                type="number"
+                inputMode="numeric"
+                value={bufferMinutes}
+                onChange={(e) => {
+                  setBufferMinutes(e.target.value);
+                  saveMutation.reset();
+                }}
+                className={
+                  hasSubmitted && finishBufferError(bufferMinutes) != null
+                    ? 'border-destructive'
+                    : ''
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('loadManagement.finishBufferHelp')}
+              </p>
+              {hasSubmitted && finishBufferError(bufferMinutes) != null && (
+                <p className="text-sm text-destructive">
+                  {finishBufferError(bufferMinutes) === 'required'
+                    ? t('validation.required')
+                    : t('loadManagement.finishBufferRange')}
+                </p>
+              )}
+            </div>
+          )}
           <div className="flex justify-end items-center gap-2">
             <Checkbox
               id="lm-enabled"
@@ -253,6 +325,11 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
             </Alert>
           )}
           <SaveButton isPending={saveMutation.isPending} />
+          {saveMutation.isError && (
+            <p className="text-sm text-destructive">
+              {getErrorMessage(saveMutation.error, t, 'loadManagement.saveFailed')}
+            </p>
+          )}
         </form>
       </TabPanel>
 
@@ -260,31 +337,52 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
       <TabPanel
         title={t('loadManagement.electricalInfrastructure')}
         actions={
-          <CreateButton
-            label={t('loadManagement.addPanel')}
-            onClick={() => {
-              setAddPanelOpen(true);
-            }}
-          />
+          canWrite ? (
+            <div className="flex flex-wrap gap-2">
+              <CreateButton
+                label={t('loadManagement.addTransformer')}
+                variant="outline"
+                onClick={() => {
+                  setAddTransformerOpen(true);
+                }}
+              />
+              <CreateButton
+                label={t('loadManagement.addPanel')}
+                onClick={() => {
+                  setAddPanelOpen(true);
+                }}
+              />
+            </div>
+          ) : undefined
         }
       >
         <PanelTree
           siteId={siteId}
           hierarchy={hierarchy}
           stations={stations}
+          transformers={transformers}
+          canWrite={canWrite}
+          strategy={savedStrategy}
           onRefresh={handleRefresh}
         />
+        {hierarchy.length > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">{t('loadManagement.minPowerHint')}</p>
+        )}
       </TabPanel>
 
-      {/* Station Allocations Card */}
-      {stations.length > 0 && (
-        <StationAllocationsTable
-          stations={stations}
-          strategy={strategy}
-          priorityMutation={priorityMutation}
-          minPowerMutation={minPowerMutation}
-        />
-      )}
+      <EnergyAssetsCard
+        siteId={siteId}
+        assets={energyAssets}
+        transformers={transformers}
+        panels={hierarchy}
+        simulatedAllowed={data?.simulatedEnergyAssetsAllowed === true}
+        canWrite={canWrite}
+        isLoading={energyAssetsQuery.isLoading}
+        isError={energyAssetsQuery.isError}
+        onRetry={() => {
+          void energyAssetsQuery.refetch();
+        }}
+      />
 
       {/* Allocations Card */}
       <Card>
@@ -313,7 +411,9 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
                       <Badge variant="outline">
                         {entry.strategy === 'priority_based'
                           ? t('loadManagement.priorityBased')
-                          : t('loadManagement.equalShare')}
+                          : entry.strategy === 'departure_aware'
+                            ? t('loadManagement.departureAware')
+                            : t('loadManagement.equalShare')}
                       </Badge>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -348,156 +448,31 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
         )}
       </Card>
 
-      <PanelForm
-        siteId={siteId}
-        panels={hierarchy}
-        open={addPanelOpen}
-        onClose={() => {
-          setAddPanelOpen(false);
-        }}
-        onSaved={handleRefresh}
-      />
-    </div>
-  );
-}
-
-function StationAllocationsTable({
-  stations,
-  strategy,
-  priorityMutation,
-  minPowerMutation,
-}: {
-  stations: StationStatus[];
-  strategy: string;
-  priorityMutation: { mutate: (data: { stationId: string; loadPriority: number }) => void };
-  minPowerMutation: {
-    mutate: (data: { stationId: string; loadMinPowerKw: number | null }) => void;
-  };
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const [page, setPage] = useState(1);
-  const limit = 10;
-
-  const totalPages = Math.max(1, Math.ceil(stations.length / limit));
-  const paginatedStations = useMemo(
-    () => stations.slice((page - 1) * limit, page * limit),
-    [stations, page],
-  );
-
-  return (
-    <TabPanel title={t('loadManagement.stationAllocations')}>
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('loadManagement.station')}</TableHead>
-              <TableHead>{t('loadManagement.priority')}</TableHead>
-              <TableHead>{t('loadManagement.minPower')}</TableHead>
-              <TableHead>{t('loadManagement.limitUnit')}</TableHead>
-              <TableHead>{t('common.status')}</TableHead>
-              <TableHead>{t('loadManagement.session')}</TableHead>
-              <TableHead className="min-w-[200px]">{t('loadManagement.powerDraw')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginatedStations.map((station) => (
-              <TableRow key={station.id}>
-                <TableCell className="font-medium">{station.stationId}</TableCell>
-                <TableCell>
-                  <Select
-                    aria-label={t('loadManagement.priorityFor', { stationId: station.stationId })}
-                    value={station.loadPriority}
-                    onChange={(e) => {
-                      priorityMutation.mutate({
-                        stationId: station.id,
-                        loadPriority: Number(e.target.value),
-                      });
-                    }}
-                    className="w-20"
-                    disabled={strategy !== 'priority_based'}
-                  >
-                    {Array.from({ length: 10 }, (_, i) => i + 1).map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </Select>
-                </TableCell>
-                <TableCell>
-                  <MinPowerInput station={station} onSave={minPowerMutation.mutate} />
-                </TableCell>
-                <TableCell>{station.rateUnit}</TableCell>
-                <TableCell>
-                  <Badge variant={station.isOnline ? 'success' : 'outline'}>
-                    {station.isOnline ? t('status.online') : t('status.offline')}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  {station.hasActiveSession ? (
-                    <Badge variant="success">{t('common.active')}</Badge>
-                  ) : (
-                    <span className="text-muted-foreground">{t('common.na')}</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <PowerBar
-                    currentKw={station.currentDrawKw}
-                    limitKw={station.allocatedLimitKw ?? 0}
-                    maxKw={
-                      station.allocatedLimitKw != null
-                        ? station.allocatedLimitKw
-                        : station.maxPowerKw > 0
-                          ? station.maxPowerKw
-                          : 22
-                    }
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      <p className="mt-3 text-xs text-muted-foreground">{t('loadManagement.minPowerHint')}</p>
-      {totalPages > 1 && (
-        <div className="mt-4">
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-        </div>
+      {canWrite && (
+        <>
+          <PanelForm
+            siteId={siteId}
+            panels={hierarchy}
+            transformers={transformers}
+            open={addPanelOpen}
+            onClose={() => {
+              setAddPanelOpen(false);
+            }}
+            onSaved={handleRefresh}
+          />
+          <TransformerForm
+            siteId={siteId}
+            panels={hierarchy}
+            open={addTransformerOpen}
+            onClose={() => {
+              setAddTransformerOpen(false);
+            }}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ['sites', siteId] });
+            }}
+          />
+        </>
       )}
-    </TabPanel>
-  );
-}
-
-function MinPowerInput({
-  station,
-  onSave,
-}: {
-  station: StationStatus;
-  onSave: (data: { stationId: string; loadMinPowerKw: number | null }) => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const saved = station.loadMinPowerKw != null ? String(station.loadMinPowerKw) : '';
-  const [value, setValue] = useState(saved);
-  useEffect(() => {
-    setValue(saved);
-  }, [saved]);
-
-  function commit(): void {
-    if (value === saved) return;
-    const kw = value.trim() === '' ? null : Number(value);
-    if (kw != null && (!Number.isFinite(kw) || kw < 0 || kw > 1000)) {
-      setValue(saved);
-      return;
-    }
-    onSave({ stationId: station.id, loadMinPowerKw: kw });
-  }
-
-  return (
-    <DecimalInput
-      aria-label={t('loadManagement.minPowerFor', { stationId: station.stationId })}
-      value={value}
-      onChange={setValue}
-      onBlur={commit}
-      className="w-24"
-    />
+    </div>
   );
 }
