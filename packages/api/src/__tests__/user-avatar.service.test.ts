@@ -167,7 +167,7 @@ describe('setUserGeneratedAvatar', () => {
 describe('confirmUserUploadedAvatar', () => {
   it('confirms a key only for the user it was issued to', async () => {
     const target = { kind: 'user', userId: USER_ID } as const;
-    const ticket = await requestAvatarUpload(s3, target, 'image/jpeg');
+    const ticket = await requestAvatarUpload(s3, target, 'image/jpeg', 2048);
     expect(ticket.s3Key).toMatch(
       new RegExp(`^ai-uploads/quarantine/avatars/users/${USER_ID}/[0-9a-f-]{36}/avatar$`),
     );

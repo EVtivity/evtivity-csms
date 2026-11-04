@@ -155,6 +155,7 @@ import {
   clearObjectStorageCache,
   contentDispositionAttachment,
   loadObjectStorage,
+  R2ObjectStorage,
   RETIRED_CLIENT_GRACE_MS,
   S3ObjectStorage,
 } from '../storage/index.js';
@@ -475,6 +476,77 @@ describe('object storage', () => {
     });
   });
 
+  describe('loadObjectStorage with Cloudflare R2', () => {
+    const R2_ENDPOINT = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com';
+
+    function r2Rows(overrides: Record<string, unknown> = {}) {
+      return compatibleRows({
+        's3.provider': 'r2',
+        's3.region': 'auto',
+        's3.endpoint': R2_ENDPOINT,
+        ...overrides,
+      });
+    }
+
+    it('connects to the account endpoint, path-style, with no checksum on uploads', async () => {
+      setupDbResults(r2Rows({ 's3.forcePathStyle': false }));
+      const storage = await getStorage();
+      expect(storage).toBeInstanceOf(R2ObjectStorage);
+      expect(storage!.provider).toBe('r2');
+      expect(storage!.bucket).toBe('my-bucket');
+      expect(mockS3ClientCtor).toHaveBeenLastCalledWith({
+        region: 'auto',
+        endpoint: R2_ENDPOINT,
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: 'decrypted-access-key',
+          secretAccessKey: 'decrypted-access-key',
+        },
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+        responseChecksumValidation: 'WHEN_REQUIRED',
+        requestHandler: expect.any(NodeHttpHandler),
+      });
+    });
+
+    it('needs access keys', async () => {
+      setupDbResults(r2Rows({ 's3.accessKeyIdEnc': '', 's3.secretAccessKeyEnc': '' }));
+      await expect(getStorage()).resolves.toBeNull();
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
+    it('stays off with an endpoint that is not an R2 S3 API URL', async () => {
+      for (const endpoint of [
+        '',
+        'https://storage.example.com',
+        'http://10.0.0.5:9000',
+        'https://my-bucket.0123456789abcdef0123456789abcdef.r2.dev',
+      ]) {
+        clearObjectStorageCache();
+        setupDbResults(r2Rows({ 's3.endpoint': endpoint, 's3.allowedPrivateHosts': ['10.0.0.5'] }));
+        await expect(getStorage(), endpoint).resolves.toBeNull();
+      }
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
+    it('uploads through a PUT, while AWS S3 and S3-compatible keep the POST policy', async () => {
+      mockGetSignedUrl.mockResolvedValueOnce(
+        `${R2_ENDPOINT}/my-bucket/k?X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost`,
+      );
+      setupDbResults(r2Rows());
+      const r2 = await getStorage();
+      const target = await r2!.createUpload('k', 'image/png', { size: 5, maxBytes: 10 });
+      expect(target.method).toBe('PUT');
+
+      for (const rows of [settingsRows(), compatibleRows()]) {
+        clearObjectStorageCache();
+        setupDbResults(rows);
+        const storage = await getStorage();
+        const post = await storage!.createUpload('k', 'image/png', { size: 5, maxBytes: 10 });
+        expect(post.method).toBe('POST');
+      }
+    });
+  });
+
   describe('clearObjectStorageCache', () => {
     it('clears the cached config', async () => {
       setupDbResults(settingsRows());
@@ -585,7 +657,10 @@ describe('object storage', () => {
   describe('S3ObjectStorage.createUpload', () => {
     it('TC-AI-U-06 pins the key, the Content-Type and a 1..maxBytes length range', async () => {
       const storage = makeStorage();
-      const post = await storage.createUpload('ai-uploads/quarantine/x/y.png', 'image/png', 1234);
+      const post = await storage.createUpload('ai-uploads/quarantine/x/y.png', 'image/png', {
+        size: 1000,
+        maxBytes: 1234,
+      });
 
       expect(post.method).toBe('POST');
       expect(post.url).toBe('https://bucket.s3.example.com/');
@@ -604,6 +679,75 @@ describe('object storage', () => {
         Fields: { 'Content-Type': 'image/png' },
         Expires: 300,
       });
+    });
+
+    it.each([0, -1, 1235, 1.5, Number.NaN])(
+      'refuses a declared size of %s outside 1..maxBytes before signing',
+      async (size) => {
+        await expect(
+          makeStorage().createUpload('k', 'image/png', { size, maxBytes: 1234 }),
+        ).rejects.toThrow(RangeError);
+        expect(mockCreatePresignedPost).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('R2ObjectStorage.createUpload', () => {
+    const SIGNED =
+      'https://acct.r2.cloudflarestorage.com/files/k?X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost&X-Amz-Signature=s';
+
+    function makeR2(): R2ObjectStorage {
+      return new R2ObjectStorage({ send: mockS3Send } as unknown as S3Client, 'files');
+    }
+
+    it('presigns a PUT of exactly the declared size and type, signing both headers', async () => {
+      mockGetSignedUrl.mockResolvedValueOnce(SIGNED);
+      const storage = makeR2();
+      expect(storage.provider).toBe('r2');
+      const target = await storage.createUpload('ai-uploads/quarantine/x/y.png', 'image/png', {
+        size: 1000,
+        maxBytes: 1234,
+      });
+      expect(target).toEqual({
+        method: 'PUT',
+        url: SIGNED,
+        headers: { 'Content-Type': 'image/png' },
+      });
+      const [, command, options] = mockGetSignedUrl.mock.calls[0] as [
+        unknown,
+        { input: Record<string, unknown> },
+        { expiresIn: number; signableHeaders: Set<string> },
+      ];
+      expect(command.input).toEqual({
+        Bucket: 'files',
+        Key: 'ai-uploads/quarantine/x/y.png',
+        ContentType: 'image/png',
+        ContentLength: 1000,
+      });
+      expect(options.expiresIn).toBe(300);
+      expect([...options.signableHeaders].sort()).toEqual(['content-length', 'content-type']);
+      expect(mockCreatePresignedPost).not.toHaveBeenCalled();
+    });
+
+    it('refuses a declared size over maxBytes before signing', async () => {
+      await expect(
+        makeR2().createUpload('k', 'image/png', { size: 1235, maxBytes: 1234 }),
+      ).rejects.toThrow(RangeError);
+      expect(mockGetSignedUrl).not.toHaveBeenCalled();
+    });
+
+    it('refuses to hand out a URL that does not sign the length and the type', async () => {
+      for (const url of [
+        'https://acct.r2.cloudflarestorage.com/files/k?X-Amz-SignedHeaders=host',
+        'https://acct.r2.cloudflarestorage.com/files/k?X-Amz-SignedHeaders=content-type%3Bhost',
+        'https://acct.r2.cloudflarestorage.com/files/k',
+      ]) {
+        mockGetSignedUrl.mockResolvedValueOnce(url);
+        await expect(
+          makeR2().createUpload('k', 'image/png', { size: 10, maxBytes: 10 }),
+          url,
+        ).rejects.toThrow('does not sign Content-Length and Content-Type');
+      }
     });
   });
 

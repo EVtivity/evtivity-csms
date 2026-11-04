@@ -10,10 +10,11 @@ import {
 } from './storage.service.js';
 import type { DownloadOptions, ObjectStorage } from './storage.service.js';
 import { displayFileName, finalizeUpload } from './ai/attachments/upload-flow.js';
+import { uploadTargetResponse } from '../lib/upload-target.js';
 
 /**
  * Station image uploads go through the attachment pipeline:
- * a presigned POST into quarantine whose policy S3 enforces (this key, this
+ * a presigned upload into quarantine that storage enforces (this key, this
  * type, at most the declared size), then confirm reads the object, sniffs
  * the bytes against the declared type, re-encodes the image (metadata
  * dropped, long edge at most 2576 px, JPEG or PNG) and stores the clean file
@@ -32,24 +33,31 @@ export type StationImageMime = (typeof STATION_IMAGE_MIME_TYPES)[number];
 export const STATION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface StationImageUploadTicket {
-  /** Form POST target. */
+  /** Form POST or PUT target. */
   uploadUrl: string;
-  /** Form fields to send before the `file` field, unchanged. */
+  /** POST: a form upload. PUT: the file as the body, with `uploadHeaders`. */
+  uploadMethod: 'POST' | 'PUT';
+  /** Form fields to send before the `file` field, unchanged (empty for PUT). */
   fields: Record<string, string>;
+  /** Headers to send with the PUT, unchanged (empty for POST). */
+  uploadHeaders: Record<string, string>;
   /** The quarantine key to name at confirm. */
   s3Key: string;
   s3Bucket: string;
 }
 
-/** Presigned POST into quarantine for one station image of at most `fileSize` bytes. */
+/** Presigned upload into quarantine for one station image of at most `fileSize` bytes. */
 export async function requestStationImageUpload(
   storage: ObjectStorage,
   stationId: string,
   request: { fileName: string; contentType: StationImageMime; fileSize: number },
 ): Promise<StationImageUploadTicket> {
   const key = buildStationImageQuarantineKey(stationId, crypto.randomUUID(), request.fileName);
-  const post = await storage.createUpload(key, request.contentType, request.fileSize);
-  return { uploadUrl: post.url, fields: post.fields, s3Key: key, s3Bucket: storage.bucket };
+  const upload = await storage.createUpload(key, request.contentType, {
+    size: request.fileSize,
+    maxBytes: request.fileSize,
+  });
+  return { ...uploadTargetResponse(upload), s3Key: key, s3Bucket: storage.bucket };
 }
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';

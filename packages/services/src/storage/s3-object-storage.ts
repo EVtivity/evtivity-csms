@@ -17,6 +17,7 @@ import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import {
   DOWNLOAD_URL_EXPIRES_SECONDS,
   UPLOAD_URL_EXPIRES_SECONDS,
+  assertUploadSize,
   contentDispositionAttachment,
   contentDispositionInline,
 } from './object-storage.js';
@@ -25,13 +26,17 @@ import type {
   ObjectStorage,
   ReadObjectResult,
   StorageProvider,
+  UploadSize,
   UploadTarget,
 } from './object-storage.js';
 
 /** Keys of one multi-object delete (the S3 limit). */
 const DELETE_BATCH = 1000;
 
-/** `ObjectStorage` over the S3 API: AWS S3 or an S3-compatible endpoint. */
+/**
+ * `ObjectStorage` over the S3 API: AWS S3 or an S3-compatible endpoint.
+ * Cloudflare R2 uploads differently (R2ObjectStorage).
+ */
 export class S3ObjectStorage implements ObjectStorage {
   constructor(
     readonly client: S3Client,
@@ -42,9 +47,12 @@ export class S3ObjectStorage implements ObjectStorage {
   /**
    * Presigned POST (plan 3.8 step 1). Unlike a presigned PUT, S3 itself
    * enforces the policy: exactly this key, this Content-Type, and a body of
-   * 1 to `maxBytes` bytes.
+   * 1 to `maxBytes` bytes. A declared `size` over `maxBytes` is refused before
+   * anything is signed.
    */
-  async createUpload(key: string, contentType: string, maxBytes: number): Promise<UploadTarget> {
+  async createUpload(key: string, contentType: string, size: UploadSize): Promise<UploadTarget> {
+    assertUploadSize(size);
+    const { maxBytes } = size;
     const post = await createPresignedPost(this.client, {
       Bucket: this.bucket,
       Key: key,

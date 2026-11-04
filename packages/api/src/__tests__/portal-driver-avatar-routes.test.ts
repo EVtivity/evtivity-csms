@@ -142,7 +142,14 @@ describe('Portal driver avatar routes', () => {
   });
 
   it('upload-url issues a POST into the caller prefix', async () => {
-    requestUploadMock.mockResolvedValue({ uploadUrl: 'u', fields: {}, s3Key: 'k', s3Bucket: 'b' });
+    requestUploadMock.mockResolvedValue({
+      uploadUrl: 'u',
+      uploadMethod: 'POST',
+      fields: {},
+      uploadHeaders: {},
+      s3Key: 'k',
+      s3Bucket: 'b',
+    });
     const res = await call('POST', '/v1/portal/driver/avatar/upload-url', {
       fileName: 'me.png',
       contentType: 'image/png',
@@ -153,6 +160,7 @@ describe('Portal driver avatar routes', () => {
       S3,
       { kind: 'driver', driverId: DRIVER_ID },
       'image/png',
+      1024 * 1024 - 1,
     );
   });
 

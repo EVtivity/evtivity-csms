@@ -432,7 +432,9 @@ describe('support case routes', () => {
     mocks.generateDownloadUrl.mockReset().mockResolvedValue('https://s3/download');
     mocks.requestSupportAttachmentUpload.mockReset().mockResolvedValue({
       uploadUrl: 'https://s3/upload',
+      uploadMethod: 'POST',
       fields: { key: 'q', 'Content-Type': 'application/pdf' },
+      uploadHeaders: {},
       s3Key: 'q',
       expiresAt: NOW,
     });
@@ -1394,9 +1396,31 @@ describe('support case routes', () => {
       expect(mocks.requestSupportAttachmentUpload).toHaveBeenCalledWith(CASE_ID, 5, body);
       expect(res.json()).toEqual({
         uploadUrl: 'https://s3/upload',
+        uploadMethod: 'POST',
         fields: { key: 'q', 'Content-Type': 'application/pdf' },
+        uploadHeaders: {},
         s3Key: 'q',
         expiresAt: NOW,
+      });
+    });
+
+    it('returns a presigned PUT with its headers on Cloudflare R2', async () => {
+      mocks.requestSupportAttachmentUpload.mockResolvedValue({
+        uploadUrl: 'https://r2/upload',
+        uploadMethod: 'PUT',
+        fields: {},
+        uploadHeaders: { 'Content-Type': 'application/pdf' },
+        s3Key: 'q',
+        expiresAt: NOW,
+      });
+      queue([{ stationId: null }], [{ id: 5 }]);
+      const res = await inject('POST', url, body);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        uploadUrl: 'https://r2/upload',
+        uploadMethod: 'PUT',
+        fields: {},
+        uploadHeaders: { 'Content-Type': 'application/pdf' },
       });
     });
   });

@@ -34,6 +34,7 @@ import {
   STATION_IMAGE_MAX_BYTES,
   STATION_IMAGE_MIME_TYPES,
 } from '../services/station-image-upload.js';
+import { uploadTargetResponseFields } from '../lib/upload-target.js';
 
 const stationIdParams = z.object({
   id: z.string().min(1).describe('Station ID'),
@@ -61,12 +62,7 @@ const uploadUrlBody = z.object({
 
 const uploadUrlResponse = z
   .object({
-    uploadUrl: z
-      .string()
-      .describe('Presigned S3 POST URL the client sends the form to (the file field last)'),
-    fields: z
-      .record(z.string(), z.string())
-      .describe('Form fields to send unchanged before the file field (the POST policy)'),
+    ...uploadTargetResponseFields,
     s3Key: z.string().describe('Quarantine key of the upload, sent back at confirm'),
     s3Bucket: z.string().describe('S3 bucket the file is uploaded to'),
   })
@@ -173,7 +169,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Get a presigned S3 upload URL for a station image',
         description:
-          'Generates a 5-minute presigned POST (URL and form fields) for uploading a station image into quarantine: S3 enforces the key, the type and at most the declared size (max 10 MB). Raster types only (JPEG, PNG, GIF, WebP). Call the confirm endpoint after the POST succeeds. Returns 400 if S3 is not configured.',
+          'Generates a 5-minute presigned upload (a form POST, or on Cloudflare R2 a PUT of exactly fileSize bytes) for uploading a station image into quarantine: storage enforces the key, the type and at most the declared size (max 10 MB). Raster types only (JPEG, PNG, GIF, WebP). Call the confirm endpoint after the upload succeeds. Returns 400 if S3 is not configured.',
         operationId: 'getStationImageUploadUrl',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -214,7 +210,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
       onRequest: [authorize('stations:write')],
       schema: {
         tags: ['Stations'],
-        summary: 'Confirm a station image upload after the S3 POST',
+        summary: 'Confirm an uploaded station image',
         description:
           'Reads the quarantined upload, checks its bytes against the declared type and size, re-encodes the image (metadata dropped, JPEG or PNG), stores it under stations/{stationId}/ and inserts a station_images row with the stored size and type. A retry of the same key returns the stored row. Computes the next sortOrder. When isMainImage=true, clears the previous main image on this station so only one main image exists at a time.',
         operationId: 'confirmStationImageUpload',

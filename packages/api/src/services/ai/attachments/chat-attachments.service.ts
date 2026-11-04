@@ -24,6 +24,7 @@ import {
   displayFileName,
   finalizeUpload,
 } from './upload-flow.js';
+import { uploadTargetResponse } from '../../../lib/upload-target.js';
 
 /**
  * The only writer of `ai_attachments` (P3). Chat attachments belong to the
@@ -107,12 +108,14 @@ export interface ChatUploadRequest {
 export interface ChatUploadTicket {
   attachmentId: string;
   uploadUrl: string;
+  uploadMethod: 'POST' | 'PUT';
   fields: Record<string, string>;
+  uploadHeaders: Record<string, string>;
   expiresAt: Date;
 }
 
 /**
- * Issue a presigned POST into quarantine and record a `pending` attachment.
+ * Issue a presigned upload into quarantine and record a `pending` attachment.
  * 400 `AI_ATTACHMENT_TYPE_NOT_ALLOWED`, `AI_ATTACHMENT_TOO_LARGE` or
  * `STORAGE_NOT_CONFIGURED`.
  */
@@ -132,7 +135,10 @@ export async function requestChatAttachmentUpload(
   const fileName = sanitizeFileName(request.fileName);
   const quarantineKey = `${QUARANTINE_PREFIX}chat/${userKeySegment(userId)}/${id}/${fileName}`;
 
-  const post = await storage.createUpload(quarantineKey, declaredType, maxBytes);
+  const upload = await storage.createUpload(quarantineKey, declaredType, {
+    size: request.fileSize,
+    maxBytes,
+  });
   await db.insert(aiAttachments).values({
     id,
     userId,
@@ -145,8 +151,7 @@ export async function requestChatAttachmentUpload(
   });
   return {
     attachmentId: id,
-    uploadUrl: post.url,
-    fields: post.fields,
+    ...uploadTargetResponse(upload),
     expiresAt: new Date(Date.now() + UPLOAD_URL_EXPIRES_SECONDS * 1000),
   };
 }
