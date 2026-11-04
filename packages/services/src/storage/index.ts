@@ -3,12 +3,13 @@
 
 /**
  * Object storage (`@evtivity/services/storage`): the provider-neutral
- * `ObjectStorage` contract, its S3 implementation, the endpoint guard of
- * S3-compatible providers, and the loader that builds the configured one from
- * settings.
+ * `ObjectStorage` contract, its S3 and Cloudflare R2 implementations, the
+ * endpoint checks of S3-compatible providers and R2, and the loader that
+ * builds the configured one from settings.
  */
 
 export * from './object-storage.js';
 export * from './s3-object-storage.js';
+export * from './r2-object-storage.js';
 export * from './storage-endpoint.js';
 export * from './load-object-storage.js';

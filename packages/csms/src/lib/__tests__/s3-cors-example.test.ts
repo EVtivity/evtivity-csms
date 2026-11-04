@@ -32,6 +32,18 @@ describe('buildS3CorsExample', () => {
     ]);
   });
 
+  it('allows PUT with the Content-Type header and GET for Cloudflare R2', () => {
+    const [rule] = parse(
+      buildS3CorsExample('https://csms.example.com', 'https://portal.example.com', 'PUT'),
+    ) as Array<CorsRule & { AllowedHeaders: string[] }>;
+    expect(rule?.AllowedMethods).toEqual(['PUT', 'GET']);
+    expect(rule?.AllowedHeaders).toEqual(['content-type']);
+    expect(rule?.AllowedOrigins).toEqual([
+      'https://csms.example.com',
+      'https://portal.example.com',
+    ]);
+  });
+
   it('keeps the port of each origin', () => {
     const [rule] = parse(buildS3CorsExample('http://localhost:7100', 'http://localhost:7101'));
     expect(rule?.AllowedOrigins).toEqual(['http://localhost:7100', 'http://localhost:7101']);

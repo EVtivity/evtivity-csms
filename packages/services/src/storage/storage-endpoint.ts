@@ -80,6 +80,34 @@ export function validateStorageEndpoint(
 }
 
 /**
+ * The S3 API host of a Cloudflare R2 account: the 32 hex character account ID,
+ * then the jurisdiction (none, `eu` or `fedramp`). Presigned URLs work only on
+ * this host, not on a bucket's custom domain or r2.dev address.
+ */
+const R2_HOST = /^[0-9a-f]{32}\.(?:(?:eu|fedramp)\.)?r2\.cloudflarestorage\.com$/;
+/** The bucket name Cloudflare appends to the S3 API URL it shows, if pasted with it. */
+const R2_BUCKET_PATH = /^\/[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\/?$/;
+
+/**
+ * A Cloudflare R2 endpoint as it may be stored: the origin of
+ * `https://<account id>.r2.cloudflarestorage.com` (or its `eu` or `fedramp`
+ * jurisdiction), as Cloudflare shows it as the bucket's S3 API URL. A bucket
+ * name after the host is dropped. Any other host is refused, so R2 needs no
+ * private hosts list. Null when the value is refused.
+ */
+export function validateR2Endpoint(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const url = URL.parse(value.trim());
+  if (url == null) return null;
+  if (url.protocol !== 'https:' || url.port !== '') return null;
+  if (url.username !== '' || url.password !== '') return null;
+  if (url.search !== '' || url.hash !== '') return null;
+  if (url.pathname !== '/' && !R2_BUCKET_PATH.test(url.pathname)) return null;
+  if (!R2_HOST.test(hostOf(url))) return null;
+  return url.origin;
+}
+
+/**
  * Refuses an IP address host before NodeHttpHandler sends: an unroutable one
  * always, a private one unless allowed.
  */

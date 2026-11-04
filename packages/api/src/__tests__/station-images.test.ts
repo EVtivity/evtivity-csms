@@ -196,6 +196,7 @@ describe('Station image routes', () => {
     vi.clearAllMocks();
     mockGetObjectStorage.mockResolvedValue(null);
     mockGenerateUploadPost.mockResolvedValue({
+      method: 'POST',
       url: 'https://s3.example.com/upload',
       fields: { key: 'k', Policy: 'p' },
     });
@@ -280,10 +281,43 @@ describe('Station image routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.uploadUrl).toBe('https://s3.example.com/upload');
+      expect(body.uploadMethod).toBe('POST');
       expect(body.fields).toEqual({ key: 'k', Policy: 'p' });
+      expect(body.uploadHeaders).toEqual({});
       expect(body.s3Key).toMatch(/^ai-uploads\/quarantine\/stations\/sta_000000000001\//);
-      expect(mockGenerateUploadPost).toHaveBeenCalledWith(body.s3Key, 'image/jpeg', 12345);
+      expect(mockGenerateUploadPost).toHaveBeenCalledWith(body.s3Key, 'image/jpeg', {
+        size: 12345,
+        maxBytes: 12345,
+      });
       expect(body.s3Bucket).toBe('my-bucket');
+    });
+
+    it('returns a presigned PUT with its headers on Cloudflare R2', async () => {
+      mockGetObjectStorage.mockResolvedValue(fakeStorage('my-bucket'));
+      mockGenerateUploadPost.mockResolvedValueOnce({
+        method: 'PUT',
+        url: 'https://acct.r2.cloudflarestorage.com/my-bucket/k?X-Amz-Signature=s',
+        headers: { 'Content-Type': 'image/png' },
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/images/upload-url`,
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ fileName: 'photo.png', contentType: 'image/png', fileSize: 2048 }),
+      });
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({
+        uploadUrl: 'https://acct.r2.cloudflarestorage.com/my-bucket/k?X-Amz-Signature=s',
+        uploadMethod: 'PUT',
+        fields: {},
+        uploadHeaders: { 'Content-Type': 'image/png' },
+      });
+      expect(mockGenerateUploadPost).toHaveBeenCalledWith(body.s3Key, 'image/png', {
+        size: 2048,
+        maxBytes: 2048,
+      });
     });
 
     it('returns 400 when S3 not configured', async () => {

@@ -124,7 +124,7 @@ export function portalDriverAvatarRoutes(app: FastifyInstance): void {
         tags: ['Portal Driver'],
         summary: 'Get a presigned upload for an avatar image',
         description:
-          'Generates a 5-minute presigned POST (URL and form fields) into quarantine: S3 enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Call POST /v1/portal/driver/avatar/image after the upload succeeds. 400 STORAGE_NOT_CONFIGURED when file storage is off (GET /v1/portal/features avatarUploadEnabled).',
+          'Generates a 5-minute presigned upload (a form POST, or on Cloudflare R2 a PUT of exactly fileSize bytes) into quarantine: storage enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Call POST /v1/portal/driver/avatar/image after the upload succeeds. 400 STORAGE_NOT_CONFIGURED when file storage is off (GET /v1/portal/features avatarUploadEnabled).',
         operationId: 'portalCreateAvatarUploadUrl',
         security: [{ bearerAuth: [] }],
         body: zodSchema(uploadUrlBody),
@@ -153,7 +153,12 @@ export function portalDriverAvatarRoutes(app: FastifyInstance): void {
         await reply.status(400).send(STORAGE_NOT_CONFIGURED);
         return;
       }
-      return requestAvatarUpload(storage, { kind: 'driver', driverId }, body.contentType);
+      return requestAvatarUpload(
+        storage,
+        { kind: 'driver', driverId },
+        body.contentType,
+        body.fileSize,
+      );
     },
   );
 

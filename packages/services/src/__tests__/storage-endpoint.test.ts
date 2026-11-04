@@ -10,6 +10,7 @@ import { BlockedDestinationError } from '@evtivity/lib';
 import {
   createStorageRequestHandler,
   parseStorageAllowedPrivateHosts,
+  validateR2Endpoint,
   validateStorageEndpoint,
 } from '../storage/index.js';
 
@@ -93,6 +94,59 @@ describe('validateStorageEndpoint', () => {
         expect(validateStorageEndpoint(`${scheme}://${literal}`, [host]), host).toBeNull();
       }
     }
+  });
+});
+
+describe('validateR2Endpoint', () => {
+  const ACCOUNT = '0123456789abcdef0123456789abcdef';
+  const ORIGIN = `https://${ACCOUNT}.r2.cloudflarestorage.com`;
+
+  it.each([
+    [ORIGIN, ORIGIN],
+    [`${ORIGIN}/`, ORIGIN],
+    [`  https://${ACCOUNT}.R2.CloudflareStorage.com  `, ORIGIN],
+    [
+      `https://${ACCOUNT}.eu.r2.cloudflarestorage.com`,
+      `https://${ACCOUNT}.eu.r2.cloudflarestorage.com`,
+    ],
+    [
+      `https://${ACCOUNT}.fedramp.r2.cloudflarestorage.com`,
+      `https://${ACCOUNT}.fedramp.r2.cloudflarestorage.com`,
+    ],
+    // The S3 API URL Cloudflare shows on a bucket ends in the bucket name.
+    [`${ORIGIN}/my-bucket`, ORIGIN],
+    [`${ORIGIN}/my-bucket/`, ORIGIN],
+  ])('accepts %s', (value, origin) => {
+    expect(validateR2Endpoint(value)).toBe(origin);
+  });
+
+  it.each([
+    undefined,
+    42,
+    '',
+    'not a url',
+    // Not https, a port, or credentials.
+    `http://${ACCOUNT}.r2.cloudflarestorage.com`,
+    `${ORIGIN}:8443`,
+    `https://user:pass@${ACCOUNT}.r2.cloudflarestorage.com`,
+    // A query, a fragment, a deeper path or a bucket name R2 does not allow.
+    `${ORIGIN}/?x=1`,
+    `${ORIGIN}/#x`,
+    `${ORIGIN}/my-bucket/key`,
+    `${ORIGIN}/My_Bucket`,
+    // Not an account's S3 API host: presigned URLs work only there.
+    'https://r2.cloudflarestorage.com',
+    'https://abc.r2.cloudflarestorage.com',
+    `https://${ACCOUNT}0.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.asia.r2.cloudflarestorage.com`,
+    `https://x.${ACCOUNT}.r2.cloudflarestorage.com`,
+    `${ORIGIN}.evil.example`,
+    'https://pub-0123456789abcdef0123456789abcdef.r2.dev',
+    'https://files.example.com',
+    'https://10.0.0.5',
+    'https://169.254.169.254',
+  ])('refuses %s', (value) => {
+    expect(validateR2Endpoint(value)).toBeNull();
   });
 });
 

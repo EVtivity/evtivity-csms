@@ -3,9 +3,10 @@
 
 import { AI_LIMIT_SETTINGS } from '@evtivity/lib/ai-config';
 import { api } from '@/lib/api';
+import { sendStorageUpload, type StorageUploadTicket } from '@evtivity/lib/storage-upload';
 
 /**
- * Chat attachments (plan 3.8): the API returns a presigned POST to a
+ * Chat attachments (plan 3.8): the API returns a presigned upload to a
  * quarantine key, the browser uploads the file there, and the confirm call
  * sniffs, sanitizes and stores it. The message then names the attachment ids.
  * The server enforces every limit again; the checks here only fail fast.
@@ -71,10 +72,8 @@ export function checkAttachment(file: File, alreadySelected: number): Attachment
   return null;
 }
 
-interface UploadTarget {
+interface UploadTarget extends StorageUploadTicket {
   attachmentId: string;
-  uploadUrl: string;
-  fields: Record<string, string>;
   expiresAt: string;
 }
 
@@ -91,7 +90,7 @@ const BASE = '/v1/assistant/attachments';
 const attachmentPath = (id: string): string => `${BASE}/${encodeURIComponent(id)}`;
 
 /**
- * Uploads one file: presigned POST to quarantine, then the confirm call that
+ * Uploads one file: presigned upload to quarantine, then the confirm call that
  * sniffs and sanitizes it. The attachment belongs to the user until a message
  * names it in `attachmentIds`.
  */
@@ -101,11 +100,7 @@ export async function uploadAiAttachment(file: File): Promise<UploadedAttachment
     contentType: attachmentMimeType(file) ?? file.type,
     fileSize: file.size,
   });
-  const form = new FormData();
-  for (const [key, value] of Object.entries(target.fields)) form.append(key, value);
-  // S3 ignores every form field after the file.
-  form.append('file', file);
-  const res = await fetch(target.uploadUrl, { method: 'POST', body: form });
+  const res = await sendStorageUpload(target, file);
   if (!res.ok) throw new Error(`upload failed with HTTP ${String(res.status)}`);
   return api.post<UploadedAttachment>(`${attachmentPath(target.attachmentId)}/confirm`, {});
 }

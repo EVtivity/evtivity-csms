@@ -22,6 +22,7 @@ import {
   displayFileName,
   finalizeUpload,
 } from './upload-flow.js';
+import { uploadTargetResponse } from '../../../lib/upload-target.js';
 
 /**
  * Support case attachments (operator and portal routes). The routes check
@@ -41,13 +42,15 @@ async function requireStorage(): Promise<ObjectStorage> {
 
 export interface SupportUploadTicket {
   uploadUrl: string;
+  uploadMethod: 'POST' | 'PUT';
   fields: Record<string, string>;
+  uploadHeaders: Record<string, string>;
   s3Key: string;
   expiresAt: Date;
 }
 
 /**
- * Presigned POST into quarantine for a message attachment. 400
+ * Presigned upload into quarantine for a message attachment. 400
  * `AI_ATTACHMENT_TYPE_NOT_ALLOWED`, `AI_ATTACHMENT_TOO_LARGE` or
  * `STORAGE_NOT_CONFIGURED`.
  */
@@ -65,10 +68,12 @@ export async function requestSupportAttachmentUpload(
   );
   const storage = await requireStorage();
   const key = buildSupportQuarantineKey(caseId, messageId, crypto.randomUUID(), request.fileName);
-  const post = await storage.createUpload(key, declaredType, maxBytes);
+  const upload = await storage.createUpload(key, declaredType, {
+    size: request.fileSize,
+    maxBytes,
+  });
   return {
-    uploadUrl: post.url,
-    fields: post.fields,
+    ...uploadTargetResponse(upload),
     s3Key: key,
     expiresAt: new Date(Date.now() + UPLOAD_URL_EXPIRES_SECONDS * 1000),
   };

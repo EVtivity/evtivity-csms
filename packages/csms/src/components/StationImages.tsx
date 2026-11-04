@@ -18,6 +18,7 @@ import { useStorageGuard } from '@/components/StorageUnavailableDialog';
 import { FileViewerDialog, type ViewerFile } from '@/components/FileViewerDialog';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { sendStorageUpload, type StorageUploadTicket } from '@evtivity/lib/storage-upload';
 
 interface StationImage {
   id: number;
@@ -170,24 +171,20 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
         if (file == null) continue;
         setUploadProgress({ current: i + 1, total: files.length });
 
-        const { uploadUrl, fields, s3Key, s3Bucket } = await api.post<{
-          uploadUrl: string;
-          fields: Record<string, string>;
-          s3Key: string;
-          s3Bucket: string;
-        }>(`/v1/stations/${stationId}/images/upload-url`, {
+        const ticket = await api.post<
+          StorageUploadTicket & {
+            s3Key: string;
+            s3Bucket: string;
+          }
+        >(`/v1/stations/${stationId}/images/upload-url`, {
           fileName: file.name,
           contentType: file.type || 'image/jpeg',
           fileSize: file.size,
         });
 
-        // S3 enforces the presigned POST policy: this key, this type, at most this size.
-        const form = new FormData();
-        for (const [name, value] of Object.entries(fields)) {
-          form.append(name, value);
-        }
-        form.append('file', file);
-        const uploadRes = await fetch(uploadUrl, { method: 'POST', body: form });
+        // Storage enforces the presigned upload: this key, this type, at most this size.
+        const { s3Key, s3Bucket } = ticket;
+        const uploadRes = await sendStorageUpload(ticket, file);
         if (!uploadRes.ok) {
           throw new Error(t('stations.uploadFailed'));
         }

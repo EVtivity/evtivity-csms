@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { AVATAR_OPTIONS_MAX_JSON, AVATAR_MIME_TYPES } from '@evtivity/lib/account-avatar';
+import { uploadTargetResponseFields } from './upload-target.js';
 
 /** The avatar of a driver or CSMS user in replies (`avatarView`). */
 export const avatarItem = z
@@ -65,12 +66,7 @@ export const avatarUploadUrlBody = z.object({
 
 export const avatarUploadUrlResponse = z
   .object({
-    uploadUrl: z
-      .string()
-      .describe('Presigned S3 POST URL the client sends the form to (the file field last)'),
-    fields: z
-      .record(z.string(), z.string())
-      .describe('Form fields to send unchanged before the file field (the POST policy)'),
+    ...uploadTargetResponseFields,
     s3Key: z.string().describe('Quarantine key of the upload, sent back at confirm'),
     s3Bucket: z.string().describe('S3 bucket the file is uploaded to'),
   })

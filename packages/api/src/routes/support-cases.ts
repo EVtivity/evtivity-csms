@@ -199,18 +199,11 @@ const supportCaseDetail = supportCaseItem
 
 const uploadUrlResponse = z
   .object({
-    uploadUrl: z
-      .string()
-      .describe(
-        'Presigned S3 POST URL. Send a multipart/form-data POST with every entry of fields, then the file as the last field named file. S3 enforces the size limit and the Content-Type.',
-      ),
-    fields: z
-      .record(z.string(), z.string())
-      .describe('Form fields to send unchanged before the file field'),
+    ...uploadTargetResponseFields,
     s3Key: z
       .string()
-      .describe('Quarantine key of the upload. Pass it to the confirm endpoint after the POST.'),
-    expiresAt: z.coerce.date().describe('Time after which S3 refuses the POST'),
+      .describe('Quarantine key of the upload. Pass it to the confirm endpoint after the upload.'),
+    expiresAt: z.coerce.date().describe('Time after which the storage provider refuses the upload'),
   })
   .loose();
 
@@ -256,6 +249,7 @@ import { refundPaymentRecord } from '@evtivity/payments';
 import { paymentContext } from '../lib/payments.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { uploadTargetResponseFields } from '../lib/upload-target.js';
 
 const caseIdParams = z.object({ id: ID_PARAMS.supportCaseId.describe('Support case ID') });
 const messageIdParams = z.object({
@@ -1194,7 +1188,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         summary: 'Get a presigned S3 upload URL for an attachment',
         operationId: 'getSupportCaseAttachmentUploadUrl',
         description:
-          'Returns a presigned S3 POST into quarantine. The type must be allowlisted and the size within ai.attachments.maxBytes; S3 enforces both. Confirm the upload afterwards.',
+          'Returns a presigned upload (a form POST, or a PUT on Cloudflare R2) into quarantine. The type must be allowlisted and the size within ai.attachments.maxBytes; the storage provider enforces both. Confirm the upload afterwards.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(messageIdParams),
         body: zodSchema(requestUploadUrlBody),

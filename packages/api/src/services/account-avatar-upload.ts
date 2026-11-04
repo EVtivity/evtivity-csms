@@ -13,10 +13,11 @@ import { AVATAR_MAX_BYTES, AVATAR_MIME_TYPES } from '@evtivity/lib/account-avata
 import type { AvatarMime } from '@evtivity/lib/account-avatar';
 import type { ObjectStorage } from './storage.service.js';
 import { finalizeUpload } from './ai/attachments/upload-flow.js';
+import { uploadTargetResponse } from '../lib/upload-target.js';
 
 /**
  * Avatar uploads (drivers and CSMS users) go through the attachment pipeline,
- * like station images: a presigned POST into quarantine whose policy S3
+ * like station images: a presigned upload into quarantine that storage
  * enforces (this key, this type, 1 byte to `AVATAR_MAX_BYTES`), then confirm
  * reads the object, sniffs the bytes against the declared type and re-encodes
  * the image to a centered square of at most 512 px (metadata dropped, JPEG or
@@ -75,29 +76,37 @@ function cleanPrefix(target: AvatarUploadTarget): string {
 }
 
 export interface AvatarUploadTicket {
-  /** Form POST target. */
+  /** Form POST or PUT target. */
   uploadUrl: string;
-  /** Form fields to send before the `file` field, unchanged. */
+  /** POST: a form upload. PUT: the file as the body, with `uploadHeaders`. */
+  uploadMethod: 'POST' | 'PUT';
+  /** Form fields to send before the `file` field, unchanged (empty for PUT). */
   fields: Record<string, string>;
+  /** Headers to send with the PUT, unchanged (empty for POST). */
+  uploadHeaders: Record<string, string>;
   /** The quarantine key to name at confirm. */
   s3Key: string;
   s3Bucket: string;
 }
 
 /**
- * Presigned POST into the uploader's quarantine prefix of the target. The
- * policy allows 1 to `AVATAR_MAX_BYTES` bytes of the declared type; the file
- * name is not part of the key.
+ * Presigned upload into the uploader's quarantine prefix of the target: 1 to
+ * `AVATAR_MAX_BYTES` bytes of the declared type (exactly `fileSize` bytes on
+ * Cloudflare R2). The file name is not part of the key.
  */
 export async function requestAvatarUpload(
   storage: ObjectStorage,
   target: AvatarUploadTarget,
   contentType: AvatarMime,
+  fileSize: number,
   uploader: AvatarUploader = SELF,
 ): Promise<AvatarUploadTicket> {
   const key = `${quarantinePrefix(target, uploader)}${crypto.randomUUID()}/avatar`;
-  const post = await storage.createUpload(key, contentType, AVATAR_MAX_BYTES);
-  return { uploadUrl: post.url, fields: post.fields, s3Key: key, s3Bucket: storage.bucket };
+  const upload = await storage.createUpload(key, contentType, {
+    size: fileSize,
+    maxBytes: AVATAR_MAX_BYTES,
+  });
+  return { ...uploadTargetResponse(upload), s3Key: key, s3Bucket: storage.bucket };
 }
 
 /**

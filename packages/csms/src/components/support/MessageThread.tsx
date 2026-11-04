@@ -21,6 +21,7 @@ import type { AiToolStepView } from '@/components/ai/ai-turn';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { formatNumber } from '@/lib/formatting';
+import { sendStorageUpload, type StorageUploadTicket } from '@evtivity/lib/storage-upload';
 
 // The attachment allowlist of the API upload pipeline (images, PDF, text).
 const ATTACHMENT_ACCEPT =
@@ -105,23 +106,18 @@ export function MessageThread({
         setUploadProgress({ current: fileIdx + 1, total: pendingFiles.length });
 
         // The server picks the type (the browser gives none for .log and
-        // .jsonl) and S3 enforces the size and type of the presigned POST.
-        const { uploadUrl, fields, s3Key } = await api.post<{
-          uploadUrl: string;
-          fields: Record<string, string>;
-          s3Key: string;
-        }>(`/v1/support-cases/${caseId}/messages/${String(message.id)}/attachments/upload-url`, {
-          fileName: file.name,
-          contentType: file.type,
-          fileSize: file.size,
-        });
+        // .jsonl) and storage enforces the size and type of the presigned upload.
+        const ticket = await api.post<StorageUploadTicket & { s3Key: string }>(
+          `/v1/support-cases/${caseId}/messages/${String(message.id)}/attachments/upload-url`,
+          {
+            fileName: file.name,
+            contentType: file.type,
+            fileSize: file.size,
+          },
+        );
 
-        const form = new FormData();
-        for (const [name, value] of Object.entries(fields)) {
-          form.append(name, value);
-        }
-        form.append('file', file);
-        const uploadRes = await fetch(uploadUrl, { method: 'POST', body: form });
+        const { s3Key } = ticket;
+        const uploadRes = await sendStorageUpload(ticket, file);
         if (!uploadRes.ok) {
           throw new Error(t('supportCases.attachmentUploadFailed'));
         }

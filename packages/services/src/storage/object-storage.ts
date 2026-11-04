@@ -3,29 +3,69 @@
 
 /**
  * The object storage contract the API and the worker use for attachments,
- * station images and avatars. A provider (AWS S3, or an S3-compatible
- * service) implements it; callers never talk to a provider SDK.
+ * station images and avatars. A provider (AWS S3, an S3-compatible service
+ * or Cloudflare R2) implements it; callers never talk to a provider SDK.
  */
 
 /**
  * Which storage integration backs an `ObjectStorage` (setting `s3.provider`):
- * AWS S3, or an S3-compatible service at a custom endpoint (`s3.endpoint`).
+ * AWS S3, an S3-compatible service at a custom endpoint (`s3.endpoint`), or
+ * Cloudflare R2 at its account's S3 API endpoint (`s3.endpoint`).
  */
-export const STORAGE_PROVIDERS = ['s3', 's3-compatible'] as const;
+export const STORAGE_PROVIDERS = ['s3', 's3-compatible', 'r2'] as const;
 export type StorageProvider = (typeof STORAGE_PROVIDERS)[number];
 
 /** Presigned upload and download URLs expire after these many seconds. */
 export const UPLOAD_URL_EXPIRES_SECONDS = 300;
 export const DOWNLOAD_URL_EXPIRES_SECONDS = 3600;
 
-/** Where and how a browser uploads one object. */
-export interface UploadTarget {
-  /** A form POST: the provider enforces the key, the type and the size. */
-  method: 'POST';
-  /** Form POST target. */
-  url: string;
-  /** Form fields to send before the `file` field, unchanged. */
-  fields: Record<string, string>;
+/**
+ * Where and how a browser uploads one object. Either way the provider enforces
+ * the key, the type and the size.
+ */
+export type UploadTarget =
+  | {
+      /** A form POST whose policy allows 1 to `maxBytes` bytes. */
+      method: 'POST';
+      /** Form POST target. */
+      url: string;
+      /** Form fields to send before the `file` field, unchanged. */
+      fields: Record<string, string>;
+    }
+  | {
+      /**
+       * A presigned PUT (Cloudflare R2, which has no form POST) with the
+       * Content-Type and the exact Content-Length signed: the provider refuses
+       * any other type or size.
+       */
+      method: 'PUT';
+      /** PUT target. */
+      url: string;
+      /** Headers to send unchanged; the browser sets Content-Length from the body. */
+      headers: Record<string, string>;
+    };
+
+/** The size of one upload: what the client declared, and the most it may be. */
+export interface UploadSize {
+  /** The declared file size in bytes. A PUT is signed for exactly this size. */
+  size: number;
+  /** The largest object the caller accepts. */
+  maxBytes: number;
+}
+
+/**
+ * Throws a RangeError unless `size` is a whole number of bytes from 1 to
+ * `maxBytes`: no upload is signed for more than the caller accepts.
+ */
+export function assertUploadSize({ size, maxBytes }: UploadSize): void {
+  if (
+    !Number.isSafeInteger(size) ||
+    !Number.isSafeInteger(maxBytes) ||
+    size < 1 ||
+    size > maxBytes
+  ) {
+    throw new RangeError(`Upload size ${String(size)} is outside 1 to ${String(maxBytes)} bytes`);
+  }
 }
 
 export interface DownloadOptions {
@@ -57,9 +97,11 @@ export interface ObjectStorage {
   readonly bucket: string;
   /**
    * Presigned upload of one object into `bucket`: exactly `key`, of
-   * `contentType`, 1 to `maxBytes` bytes.
+   * `contentType`. A POST allows 1 to `maxBytes` bytes; a PUT exactly the
+   * declared `size`. Throws a RangeError when `size` is outside 1 to
+   * `maxBytes`.
    */
-  createUpload(key: string, contentType: string, maxBytes: number): Promise<UploadTarget>;
+  createUpload(key: string, contentType: string, size: UploadSize): Promise<UploadTarget>;
   /**
    * Presigned GET. With `options`, the provider answers with the given type
    * and `Content-Disposition` (attachment unless `inline` is asked for), so a

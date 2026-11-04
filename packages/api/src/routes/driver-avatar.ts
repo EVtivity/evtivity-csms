@@ -111,7 +111,7 @@ export function driverAvatarRoutes(app: FastifyInstance): void {
         tags: ['Drivers'],
         summary: 'Get a presigned upload for a driver avatar image',
         description:
-          'Generates a 5-minute presigned POST (URL and form fields) into quarantine under the driver: S3 enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Only the caller that asked for it can confirm the key (POST /v1/drivers/:id/avatar/image). 10 a minute per caller and driver.',
+          'Generates a 5-minute presigned upload (a form POST, or on Cloudflare R2 a PUT of exactly fileSize bytes) into quarantine under the driver: storage enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Only the caller that asked for it can confirm the key (POST /v1/drivers/:id/avatar/image). 10 a minute per caller and driver.',
         operationId: 'createDriverAvatarUploadUrl',
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
@@ -148,6 +148,7 @@ export function driverAvatarRoutes(app: FastifyInstance): void {
         storage,
         { kind: 'driver', driverId: id },
         body.contentType,
+        body.fileSize,
         operatorUploader(request),
       );
     },

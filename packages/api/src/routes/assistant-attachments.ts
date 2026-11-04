@@ -15,6 +15,7 @@ import {
   getChatAttachmentDownloadUrl,
   requestChatAttachmentUpload,
 } from '../services/ai/attachments/chat-attachments.service.js';
+import { uploadTargetResponseFields } from '../lib/upload-target.js';
 
 // Chat attachments follow the assistant permission (migration 0373): reads
 // need aiAssistant:read, uploads and deletes aiAssistant:write.
@@ -43,15 +44,8 @@ const uploadUrlBody = z.object({
 const uploadUrlResponse = z
   .object({
     attachmentId: z.string().describe('Attachment ID to confirm after the upload'),
-    uploadUrl: z
-      .string()
-      .describe(
-        'Presigned S3 POST URL. Send a multipart/form-data POST with every entry of fields, then the file as the last field named file. S3 enforces the size limit and the Content-Type.',
-      ),
-    fields: z
-      .record(z.string(), z.string())
-      .describe('Form fields to send unchanged before the file field'),
-    expiresAt: z.coerce.date().describe('Time after which S3 refuses the POST'),
+    ...uploadTargetResponseFields,
+    expiresAt: z.coerce.date().describe('Time after which the storage provider refuses the upload'),
   })
   .loose();
 
@@ -100,7 +94,7 @@ export function assistantAttachmentRoutes(app: FastifyInstance): void {
         tags: ['AI Assistant'],
         summary: 'Request an upload URL for an AI chat attachment',
         description:
-          'Returns a presigned S3 POST into quarantine. The type must be allowlisted and the size within ai.attachments.maxBytes; S3 enforces both. Confirm the upload afterwards.',
+          'Returns a presigned upload (a form POST, or a PUT on Cloudflare R2) into quarantine. The type must be allowlisted and the size within ai.attachments.maxBytes; the storage provider enforces both. Confirm the upload afterwards.',
         operationId: 'requestAssistantAttachmentUpload',
         security: [{ bearerAuth: [] }],
         body: zodSchema(uploadUrlBody),

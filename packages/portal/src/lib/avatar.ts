@@ -30,8 +30,8 @@ export function useDriverAvatar(enabled = true) {
 }
 
 /**
- * Uploads an avatar image: an upload URL, the browser POST of the policy fields
- * and the file to S3 (`postAvatarUpload`, shared with the CSMS), then the
+ * Uploads an avatar image: an upload URL, the browser upload of the file to
+ * storage (`postAvatarUpload`, shared with the CSMS), then the
  * confirm that crops and stores it. The caller checks the file first
  * (`avatarFileProblem` of `@evtivity/lib/account-avatar`).
  */
@@ -42,7 +42,7 @@ export async function uploadAvatarImage(file: File): Promise<DriverAvatar | null
     contentType: file.type,
     fileSize: file.size,
   });
-  // S3 enforces the presigned POST policy: this key, this type, smaller than 1 MB.
+  // Storage enforces the presigned upload: this key, this type, smaller than 1 MB.
   await postAvatarUpload(ticket, file);
   const confirmed = await api.post<{ avatar: DriverAvatar | null }>(
     '/v1/portal/driver/avatar/image',

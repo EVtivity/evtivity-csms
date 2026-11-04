@@ -357,7 +357,12 @@ describe('confirmUploadedAvatar', () => {
 
   it("refuses a user avatar key, even one naming the driver's id", async () => {
     createUploadMock.mockResolvedValue({ method: 'POST', url: 'https://s3.test', fields: {} });
-    const ticket = await requestAvatarUpload(s3, { kind: 'user', userId: DRIVER_ID }, 'image/jpeg');
+    const ticket = await requestAvatarUpload(
+      s3,
+      { kind: 'user', userId: DRIVER_ID },
+      'image/jpeg',
+      2048,
+    );
     expect(ticket.s3Key).toMatch(
       new RegExp(`^ai-uploads/quarantine/avatars/users/${DRIVER_ID}/[0-9a-f-]{36}/avatar$`),
     );
@@ -380,6 +385,7 @@ describe('confirmUploadedAvatar', () => {
       s3,
       { kind: 'driver', driverId: DRIVER_ID },
       'image/jpeg',
+      2048,
       operatorA,
     );
     expect(ticket.s3Key).toMatch(

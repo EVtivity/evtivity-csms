@@ -16,7 +16,7 @@ import type { ImageShape, ProcessedAttachment } from './process.js';
 
 /**
  * The upload pipeline shared by AI chat and support case attachments
- * (plan 3.8): presigned POST into quarantine, then confirm reads the object,
+ * (plan 3.8): presigned upload into quarantine, then confirm reads the object,
  * sniffs and sanitizes it, writes the clean file and deletes the quarantine
  * object.
  */
@@ -74,14 +74,14 @@ export interface FinalizeInput {
   cleanKey: string | ((contentType: AttachmentMime) => string);
   /**
    * The type the upload URL was issued for. Omitted for support uploads,
-   * whose request is not stored: the type the POST policy pinned on the
+   * whose request is not stored: the type the upload URL pinned on the
    * object is used, and it must be allowlisted.
    */
   declaredType?: AttachmentMime;
   maxBytes: number;
   /**
    * The only stored types accepted (driver avatars: raster images). Checked
-   * before the bytes are processed, on top of the type the POST policy pinned.
+   * before the bytes are processed, on top of the type the upload URL pinned.
    */
   acceptTypes?: readonly AttachmentMime[];
   /** How an image is re-encoded; the default keeps its aspect within the attachment edge limit. */
@@ -118,8 +118,9 @@ export async function finalizeUpload(
     await removeQuarantine();
     throw attachmentTooLarge(`${String(read.size)} bytes, the limit is ${String(maxBytes)}`);
   }
-  // The POST policy pins Content-Type; a different stored type means the
-  // object did not come through the issued form.
+  // The upload URL pins Content-Type (the POST policy, or the signed header
+  // of an R2 PUT); a different stored type means the object did not come
+  // through the issued upload.
   const storedType = read.contentType ?? '';
   const declaredType =
     input.declaredType ?? (isAllowedAttachmentMime(storedType) ? storedType : null);

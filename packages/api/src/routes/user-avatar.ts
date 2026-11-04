@@ -124,7 +124,7 @@ async function otherUserAllowed(
 const SET_DESCRIPTION =
   'Stores a DiceBear Avataaars avatar built from the allow-listed options. Replaces an uploaded image (its file is deleted). The same avatar again changes nothing. 20 a minute per user.';
 const UPLOAD_URL_DESCRIPTION =
-  'Generates a 5-minute presigned POST (URL and form fields) into quarantine: S3 enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Confirmed with POST /v1/users/me/avatar/image. 10 a minute per user.';
+  'Generates a 5-minute presigned upload (a form POST, or on Cloudflare R2 a PUT of exactly fileSize bytes) into quarantine: storage enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Confirmed with POST /v1/users/me/avatar/image. 10 a minute per user.';
 const CONFIRM_DESCRIPTION =
   'Reads the quarantined upload, checks its bytes against its type and the 1 MB limit, crops it to a centered square of at most 512 x 512 px and re-encodes it (metadata dropped, JPEG or PNG). Replaces a generated avatar or an earlier image (its file is deleted). A key issued for another user answers 400 VALIDATION_ERROR. A retry of a confirmed key returns the current avatar.';
 const REMOVE_DESCRIPTION =
@@ -202,7 +202,12 @@ export function userAvatarRoutes(app: FastifyInstance): void {
         await reply.status(400).send(STORAGE_NOT_CONFIGURED);
         return;
       }
-      return requestAvatarUpload(storage, { kind: 'user', userId }, body.contentType);
+      return requestAvatarUpload(
+        storage,
+        { kind: 'user', userId },
+        body.contentType,
+        body.fileSize,
+      );
     },
   );
 
@@ -316,7 +321,7 @@ export function userAvatarRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Get a presigned upload for the avatar image of another user',
         description:
-          'Generates a 5-minute presigned POST (URL and form fields) into quarantine under the user: S3 enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Only the caller that asked for it can confirm the key (POST /v1/users/:id/avatar/image). Your own account answers 403 SELF_EDIT_FORBIDDEN. 10 a minute per caller and user.',
+          'Generates a 5-minute presigned upload (a form POST, or on Cloudflare R2 a PUT of exactly fileSize bytes) into quarantine under the user: storage enforces the key, the type and a size of 1 to 1,048,575 bytes (smaller than 1 MB). JPEG, PNG or WebP only. Only the caller that asked for it can confirm the key (POST /v1/users/:id/avatar/image). Your own account answers 403 SELF_EDIT_FORBIDDEN. 10 a minute per caller and user.',
         operationId: 'createUserAvatarUploadUrl',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
@@ -354,6 +359,7 @@ export function userAvatarRoutes(app: FastifyInstance): void {
         storage,
         { kind: 'user', userId: id },
         body.contentType,
+        body.fileSize,
         operatorUploader(request),
       );
     },

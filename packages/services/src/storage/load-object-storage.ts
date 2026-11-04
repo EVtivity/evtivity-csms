@@ -7,10 +7,12 @@ import { db, settings } from '@evtivity/database';
 import { decryptSettingOrNull } from '@evtivity/lib';
 import { effectiveStorageRegion } from '@evtivity/lib/object-storage-region';
 import type { ObjectStorage } from './object-storage.js';
+import { R2ObjectStorage, createR2Client } from './r2-object-storage.js';
 import { S3ObjectStorage } from './s3-object-storage.js';
 import {
   createStorageRequestHandler,
   parseStorageAllowedPrivateHosts,
+  validateR2Endpoint,
   validateStorageEndpoint,
 } from './storage-endpoint.js';
 
@@ -18,9 +20,10 @@ import {
  * The configured object storage, shared by the API and the worker (the
  * worker deletes expired AI attachments and avatars). Settings: `s3.provider`
  * (`s3` when unset), `s3.bucket`, `s3.region` (optional for `s3-compatible`,
- * `us-east-1` when empty), `s3.accessKeyIdEnc`,
- * `s3.secretAccessKeyEnc`, and for `s3-compatible` also `s3.endpoint`,
- * `s3.forcePathStyle` and `s3.allowedPrivateHosts`.
+ * `us-east-1` when empty; always `auto` for `r2`), `s3.accessKeyIdEnc`,
+ * `s3.secretAccessKeyEnc`, for `s3-compatible` also `s3.endpoint`,
+ * `s3.forcePathStyle` and `s3.allowedPrivateHosts`, and for `r2` also
+ * `s3.endpoint` (the account's S3 API URL).
  */
 
 interface CachedStorage {
@@ -117,6 +120,13 @@ export async function loadObjectStorage(encryptionKey: string): Promise<ObjectSt
       requestHandler: createStorageRequestHandler(bucket, allowedPrivateHosts),
     });
     storage = new S3ObjectStorage(client, bucket, 's3-compatible');
+  } else if (provider === 'r2') {
+    const endpoint = validateR2Endpoint(map.get('s3.endpoint'));
+    if (accessKeyId == null || secretAccessKey == null || endpoint == null) {
+      return null;
+    }
+    client = createR2Client({ endpoint, bucket, accessKeyId, secretAccessKey });
+    storage = new R2ObjectStorage(client, bucket);
   } else {
     return null;
   }
