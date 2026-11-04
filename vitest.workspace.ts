@@ -36,11 +36,19 @@ const aiAliases = Object.entries(aiPackage.exports).map(([subpath, target]) => (
 }));
 const workspaceAliases = [...packageAliases, ...aiAliases];
 
+// Coverage instrumentation slows code several times over, so CPU time budgets
+// measured in a coverage run say nothing about real speed.
+const coverageRun = process.argv.some(
+  (arg) =>
+    arg === '--coverage' || arg === '--coverage.enabled' || arg === '--coverage.enabled=true',
+);
+
 export default defineConfig({
   resolve: {
     alias: workspaceAliases,
   },
   test: {
+    provide: { coverageRun },
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'html', 'json-summary'],
