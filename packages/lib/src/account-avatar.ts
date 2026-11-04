@@ -3,6 +3,8 @@
 
 import { Avatar, OptionsDescriptor, Style } from '@dicebear/core';
 import avataaars from '@dicebear/styles/avataaars.json' with { type: 'json' };
+import { sendStorageUpload } from './storage-upload.js';
+import type { StorageUploadTicket } from './storage-upload.js';
 
 /**
  * Generated driver avatars (DiceBear Avataaars). A driver either builds one of
@@ -318,7 +320,8 @@ export function humanizeAvatarValue(value: string): string {
 /**
  * Avatar image uploads: JPEG, PNG or WebP (no SVG, no GIF), smaller than 1 MB.
  * Clients check a picked file before any request, the API checks the declared
- * size, the S3 POST policy enforces it and confirm checks the bytes.
+ * size, storage enforces it (the POST policy or the signed PUT) and confirm
+ * checks the bytes.
  */
 export const AVATAR_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export type AvatarMime = (typeof AVATAR_MIME_TYPES)[number];
@@ -336,27 +339,23 @@ export function avatarFileProblem(file: {
   return null;
 }
 
-/** The presigned POST an avatar upload-url route returns. */
-export interface AvatarUploadTicket {
-  uploadUrl: string;
-  fields: Record<string, string>;
+/** The presigned upload an avatar upload-url route returns. */
+export interface AvatarUploadTicket extends StorageUploadTicket {
   s3Key: string;
   s3Bucket: string;
 }
 
 /**
- * Sends a picked file to storage with the presigned POST: the policy fields
- * first, unchanged, the file last (S3 enforces the key, the type and the
- * size). Throws when storage refuses the upload.
+ * Sends a picked file to storage with the presigned upload (`sendStorageUpload`:
+ * the policy fields and the file for a POST, the signed headers for a PUT).
+ * Storage enforces the key, the type and the size. Throws when storage refuses
+ * the upload.
  */
 export async function postAvatarUpload(
   ticket: AvatarUploadTicket,
   file: Blob,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
-  const form = new FormData();
-  for (const [name, value] of Object.entries(ticket.fields)) form.append(name, value);
-  form.append('file', file);
-  const uploaded = await fetchImpl(ticket.uploadUrl, { method: 'POST', body: form });
+  const uploaded = await sendStorageUpload(ticket, file, fetchImpl);
   if (!uploaded.ok) throw new Error(`avatar upload failed with ${String(uploaded.status)}`);
 }

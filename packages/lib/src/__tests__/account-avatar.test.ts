@@ -290,4 +290,24 @@ describe('postAvatarUpload', () => {
       Promise.resolve(new Response(null, { status: 403 }))) as unknown as typeof fetch;
     await expect(postAvatarUpload(ticket, new Blob(['x']), fetchImpl)).rejects.toThrow('403');
   });
+
+  it('puts the file with the signed headers on Cloudflare R2', async () => {
+    let sent: { method?: string; headers?: unknown; body?: unknown } = {};
+    const fetchImpl = ((_url: string, init: typeof sent) => {
+      sent = init;
+      return Promise.resolve(new Response(null, { status: 200 }));
+    }) as unknown as typeof fetch;
+    const file = new Blob(['x'], { type: 'image/png' });
+    await postAvatarUpload(
+      {
+        ...ticket,
+        uploadMethod: 'PUT',
+        fields: {},
+        uploadHeaders: { 'Content-Type': 'image/png' },
+      },
+      file,
+      fetchImpl,
+    );
+    expect(sent).toEqual({ method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: file });
+  });
 });

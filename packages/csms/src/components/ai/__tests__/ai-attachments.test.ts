@@ -88,6 +88,30 @@ describe('ai-attachments', () => {
     expect(stored.id).toBe('att1');
   });
 
+  it('uploads through the presigned PUT on Cloudflare R2 and confirms', async () => {
+    postMock
+      .mockResolvedValueOnce({
+        attachmentId: 'att1',
+        uploadUrl: 'https://acct.r2.cloudflarestorage.com/files/q?X-Amz-Signature=s',
+        uploadMethod: 'PUT',
+        fields: {},
+        uploadHeaders: { 'Content-Type': 'image/png' },
+        expiresAt: '2026-10-10T00:05:00Z',
+      })
+      .mockResolvedValueOnce({ id: 'att1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const picked = file('a.png', 'image/png');
+
+    await uploadAiAttachment(picked);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://acct.r2.cloudflarestorage.com/files/q?X-Amz-Signature=s',
+      { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: picked },
+    );
+    expect(postMock).toHaveBeenNthCalledWith(2, '/v1/assistant/attachments/att1/confirm', {});
+  });
+
   it('throws when the storage refuses the upload and never confirms', async () => {
     postMock.mockResolvedValueOnce({
       attachmentId: 'att1',

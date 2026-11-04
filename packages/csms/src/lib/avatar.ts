@@ -46,7 +46,7 @@ export function pendingAvatarPreview(
 
 /**
  * Stores an avatar choice through the avatar routes at `basePath`: PUT for a
- * generated avatar, the upload URL, the storage POST and the confirm for an
+ * generated avatar, the upload URL, the storage upload and the confirm for an
  * image, DELETE for a removal. Returns the stored avatar (null after a
  * removal). The caller checks an image file first (`avatarFileProblem`).
  */
@@ -69,7 +69,7 @@ export async function applyAvatarChoice(
     contentType: file.type,
     fileSize: file.size,
   });
-  // S3 enforces the presigned POST policy: this key, this type, smaller than 1 MB.
+  // Storage enforces the presigned upload: this key, this type, smaller than 1 MB.
   const { postAvatarUpload } = await import('@evtivity/lib/account-avatar');
   await postAvatarUpload(ticket, file);
   const res = await api.post<{ avatar: AvatarData | null }>(`${basePath}/image`, {
