@@ -10,7 +10,7 @@ import {
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AI_INSIGHT_SCOPE_SETTING_KEY } from '@evtivity/lib/ai-insights';
-import { effectiveStorageRegion } from '@evtivity/lib/object-storage-region';
+import { R2_REGION, effectiveStorageRegion } from '@evtivity/lib/object-storage-region';
 import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
 import { eq, like, or, inArray } from 'drizzle-orm';
 import {
@@ -137,6 +137,7 @@ import { requestStationMessageRepush } from '@evtivity/services/station-message.
 import {
   STORAGE_PROVIDERS,
   parseStorageAllowedPrivateHosts,
+  validateR2Endpoint,
   validateStorageEndpoint,
 } from '@evtivity/services/storage';
 import { factorProof } from '../lib/mfa-factor-proof.js';
@@ -685,7 +686,7 @@ const s3StatusResponse = z
     configured: z
       .boolean()
       .describe(
-        'Whether storage is fully configured (bucket, region and credentials present, and for an S3-compatible provider the endpoint)',
+        'Whether storage is fully configured (bucket, region and credentials present, and for an S3-compatible provider or Cloudflare R2 the endpoint)',
       ),
   })
   .loose();
@@ -1373,8 +1374,9 @@ export function settingsRoutes(app: FastifyInstance): void {
       const accessKeyIdEnc = map.get('s3.accessKeyIdEnc') as string | undefined;
       const secretAccessKeyEnc = map.get('s3.secretAccessKeyEnc') as string | undefined;
       const endpoint = map.get('s3.endpoint') as string | undefined;
+      const needsEndpoint = provider === 's3-compatible' || provider === 'r2';
       const configured =
-        (provider !== 's3-compatible' || (endpoint != null && endpoint !== '')) &&
+        (!needsEndpoint || (endpoint != null && endpoint !== '')) &&
         bucket != null &&
         bucket !== '' &&
         effectiveStorageRegion(provider, map.get('s3.region')) != null &&
@@ -1390,14 +1392,16 @@ export function settingsRoutes(app: FastifyInstance): void {
     provider: z
       .enum(STORAGE_PROVIDERS)
       .optional()
-      .describe('Storage provider: s3 (AWS S3, the default) or s3-compatible (a custom endpoint)'),
+      .describe(
+        'Storage provider: s3 (AWS S3, the default), s3-compatible (a custom endpoint) or r2 (Cloudflare R2)',
+      ),
     bucket: z.string().min(1),
     region: z
       .string()
       .max(64)
       .optional()
       .describe(
-        'Region of the bucket. Required for s3. Optional for s3-compatible: empty or missing signs with us-east-1',
+        'Region of the bucket. Required for s3. Optional for s3-compatible: empty or missing signs with us-east-1. Ignored for r2, which always uses auto',
       ),
     accessKeyId: z
       .string()
@@ -1418,7 +1422,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       .max(2048)
       .optional()
       .describe(
-        'S3-compatible endpoint URL without a path, required for s3-compatible. https on a public host, or a host in allowedPrivateHosts (which may use http)',
+        'Endpoint URL, required for s3-compatible and r2. s3-compatible: without a path, https on a public host, or a host in allowedPrivateHosts (which may use http). r2: the S3 API URL of the account, https://<account id>.r2.cloudflarestorage.com (or its eu or fedramp jurisdiction); a bucket name after it is dropped',
       ),
     forcePathStyle: z
       .boolean()
@@ -1441,6 +1445,13 @@ export function settingsRoutes(app: FastifyInstance): void {
     error:
       'The endpoint must be an https URL without credentials or path on a public host, or name a host in allowedPrivateHosts',
     code: 'PRIVATE_URL',
+  };
+
+  const invalidR2EndpointError = {
+    error:
+      'The endpoint must be the S3 API URL of a Cloudflare R2 account: https://<account id>.r2.cloudflarestorage.com',
+    code: 'VALIDATION_ERROR',
+    field: 'endpoint',
   };
 
   const invalidStorageAllowedHostsError = {
@@ -1476,10 +1487,16 @@ export function settingsRoutes(app: FastifyInstance): void {
             {
               ...sessionProofErrorFields,
               field: z
-                .enum(['allowedPrivateHosts', 'region', 'accessKeyId', 'secretAccessKey'])
+                .enum([
+                  'allowedPrivateHosts',
+                  'endpoint',
+                  'region',
+                  'accessKeyId',
+                  'secretAccessKey',
+                ])
                 .optional()
                 .describe(
-                  'The refused field: the private hosts list, a missing region for AWS S3, or a missing credential',
+                  'The refused field: the private hosts list, an R2 endpoint, a missing region for AWS S3, or a missing credential',
                 ),
             },
           ),
@@ -1506,15 +1523,24 @@ export function settingsRoutes(app: FastifyInstance): void {
       // AWS S3 clears the endpoint settings, so a later switch starts empty.
       const provider = body.provider ?? 's3';
       // An S3-compatible provider may leave the region empty (stored empty,
-      // signed with us-east-1 by the storage loader); AWS S3 needs one.
-      const region = (body.region ?? '').trim();
+      // signed with us-east-1 by the storage loader); AWS S3 needs one, and
+      // Cloudflare R2 always uses auto.
+      const region = provider === 'r2' ? R2_REGION : (body.region ?? '').trim();
       if (effectiveStorageRegion(provider, region) == null) {
         await reply.status(400).send(missingStorageRegionError);
         return;
       }
       let endpoint = '';
       let allowedPrivateHosts: string[] = [];
-      if (provider === 's3-compatible') {
+      if (provider === 'r2') {
+        // One public host per account, so no private hosts list applies.
+        const validEndpoint = validateR2Endpoint(body.endpoint);
+        if (validEndpoint == null) {
+          await reply.status(400).send(invalidR2EndpointError);
+          return;
+        }
+        endpoint = validEndpoint;
+      } else if (provider === 's3-compatible') {
         const hosts = parseStorageAllowedPrivateHosts(body.allowedPrivateHosts ?? []);
         if (hosts == null) {
           await reply.status(400).send(invalidStorageAllowedHostsError);

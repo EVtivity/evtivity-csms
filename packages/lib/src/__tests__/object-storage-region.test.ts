@@ -17,6 +17,12 @@ describe('effectiveStorageRegion', () => {
     expect(effectiveStorageRegion('s3-compatible', undefined)).toBe('us-east-1');
   });
 
+  it('always uses auto for Cloudflare R2', () => {
+    expect(effectiveStorageRegion('r2', '')).toBe('auto');
+    expect(effectiveStorageRegion('r2', undefined)).toBe('auto');
+    expect(effectiveStorageRegion('r2', 'eu-west-1')).toBe('auto');
+  });
+
   it('gives no region for AWS S3 or an unset provider without one', () => {
     expect(effectiveStorageRegion('s3', '')).toBeNull();
     expect(effectiveStorageRegion(undefined, undefined)).toBeNull();
