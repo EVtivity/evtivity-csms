@@ -204,6 +204,7 @@ const driverTokenItem = z
       .string()
       .max(20)
       .describe('OCPP IdToken type (e.g. ISO14443, ISO15693, Central, eMAID)'),
+    label: z.string().nullable().describe('Free-text label of the token, null if none'),
     isActive: z.boolean().describe('Whether the token is currently usable for authorization'),
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
@@ -345,6 +346,12 @@ const createTokenBody = z.object({
   tokenType: z
     .enum(OCPP_ID_TOKEN_TYPES)
     .describe('OCPP IdToken type (one of the OCPP 2.1 IdTokenEnumType values)'),
+  label: z
+    .string()
+    .max(100)
+    .nullable()
+    .optional()
+    .describe('Free-text label, e.g. "Pool card fleet 3". Trimmed; empty means no label'),
 });
 
 const driverSessionItem = z
@@ -1029,7 +1036,7 @@ export function driverRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof createTokenBody>;
       try {
         const token = await tokenService.createToken(
-          { driverId: id, idToken: body.idToken, tokenType: body.tokenType },
+          { driverId: id, idToken: body.idToken, tokenType: body.tokenType, label: body.label },
           tokenService.tokenActorOf(getAuditActor(request)),
         );
         await reply.status(201).send(token);

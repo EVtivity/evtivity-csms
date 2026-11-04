@@ -4,7 +4,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Nfc } from 'lucide-react';
+import { Nfc, Pencil } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { CreateButton } from '@/components/create-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,7 @@ interface DriverToken {
   id: string;
   idToken: string;
   tokenType: string;
+  label?: string | null;
   isActive: boolean;
   expiresAt?: string | null;
   /** The operator deactivated the card: only the operator can reactivate it. */
@@ -45,8 +47,11 @@ export function AccountRfidCards(): React.JSX.Element {
   const [addOpen, setAddOpen] = useState(false);
   const [newToken, setNewToken] = useState('');
   const [newTokenType, setNewTokenType] = useState<PortalIdTokenType>('ISO14443');
+  const [newLabel, setNewLabel] = useState('');
   const [addError, setAddError] = useState('');
   const [confirmDeactivate, setConfirmDeactivate] = useState<DriverToken | null>(null);
+  const [renameToken, setRenameToken] = useState<DriverToken | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   const {
     data: tokens,
@@ -59,12 +64,13 @@ export function AccountRfidCards(): React.JSX.Element {
   });
 
   const addMutation = useMutation({
-    mutationFn: (body: { idToken: string; tokenType: PortalIdTokenType }) =>
+    mutationFn: (body: { idToken: string; tokenType: PortalIdTokenType; label?: string }) =>
       api.post<DriverToken>('/v1/portal/tokens', body),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
       setNewToken('');
       setNewTokenType('ISO14443');
+      setNewLabel('');
       setAddError('');
       setAddOpen(false);
     },
@@ -83,6 +89,18 @@ export function AccountRfidCards(): React.JSX.Element {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal-tokens'] }),
     onError: (error) => {
       toast({ variant: 'destructive', title: getErrorMessage(error, t, 'rfid.toggleFailed') });
+    },
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string | null }) =>
+      api.patch<DriverToken>(`/v1/portal/tokens/${id}`, { label }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
+      setRenameToken(null);
+    },
+    onError: (error) => {
+      toast({ variant: 'destructive', title: getErrorMessage(error, t, 'rfid.renameFailed') });
     },
   });
 
@@ -131,22 +149,46 @@ export function AccountRfidCards(): React.JSX.Element {
           <Card key={token.id}>
             <CardContent className="flex items-center justify-between gap-3 p-4">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{maskToken(token.idToken)}</p>
-                <p className="text-xs text-muted-foreground">{token.tokenType}</p>
+                {token.label != null && token.label !== '' ? (
+                  <>
+                    <p className="truncate text-sm font-medium">{token.label}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {maskToken(token.idToken)} · {token.tokenType}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-medium">{maskToken(token.idToken)}</p>
+                    <p className="text-xs text-muted-foreground">{token.tokenType}</p>
+                  </>
+                )}
                 {token.blockedByOperator === true ? (
                   <p className="text-xs text-destructive">{t('rfid.blockedByOperator')}</p>
                 ) : token.isActive && isExpired(token) ? (
                   <p className="text-xs text-destructive">{t('rfid.expired')}</p>
                 ) : null}
               </div>
-              <Toggle
-                checked={token.isActive}
-                onCheckedChange={(next) => {
-                  onToggle(token, next);
-                }}
-                disabled={toggleMutation.isPending || token.blockedByOperator === true}
-                aria-label={token.isActive ? t('rfid.removeCard') : t('rfid.reactivateCard')}
-              />
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setRenameValue(token.label ?? '');
+                    setRenameToken(token);
+                  }}
+                  aria-label={t('rfid.renameCard')}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Toggle
+                  checked={token.isActive}
+                  onCheckedChange={(next) => {
+                    onToggle(token, next);
+                  }}
+                  disabled={toggleMutation.isPending || token.blockedByOperator === true}
+                  aria-label={token.isActive ? t('rfid.removeCard') : t('rfid.reactivateCard')}
+                />
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -164,7 +206,11 @@ export function AccountRfidCards(): React.JSX.Element {
         isPending={addMutation.isPending}
         onConfirm={() => {
           if (newToken.trim() === '') return false;
-          addMutation.mutate({ idToken: newToken.trim(), tokenType: newTokenType });
+          addMutation.mutate({
+            idToken: newToken.trim(),
+            tokenType: newTokenType,
+            ...(newLabel.trim() !== '' ? { label: newLabel.trim() } : {}),
+          });
           return false;
         }}
       >
@@ -192,8 +238,47 @@ export function AccountRfidCards(): React.JSX.Element {
               </option>
             ))}
           </Select>
+          <Input
+            value={newLabel}
+            onChange={(e) => {
+              setNewLabel(e.target.value);
+            }}
+            placeholder={t('rfid.labelPlaceholder')}
+            aria-label={t('rfid.label')}
+            maxLength={100}
+          />
           {addError !== '' && <p className="text-sm text-destructive">{addError}</p>}
         </div>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={renameToken != null}
+        onOpenChange={(open) => {
+          if (!open) setRenameToken(null);
+        }}
+        title={t('rfid.renameCard')}
+        description={t('rfid.labelHint')}
+        confirmLabel={t('common.save')}
+        variant="default"
+        isPending={renameMutation.isPending}
+        onConfirm={() => {
+          if (renameToken != null) {
+            const label = renameValue.trim();
+            renameMutation.mutate({ id: renameToken.id, label: label === '' ? null : label });
+          }
+          return false;
+        }}
+      >
+        <Input
+          value={renameValue}
+          onChange={(e) => {
+            setRenameValue(e.target.value);
+          }}
+          placeholder={t('rfid.labelPlaceholder')}
+          aria-label={t('rfid.label')}
+          maxLength={100}
+          autoFocus
+        />
       </ConfirmDialog>
 
       <ConfirmDialog

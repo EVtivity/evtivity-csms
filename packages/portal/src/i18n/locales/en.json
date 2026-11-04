@@ -1128,7 +1128,12 @@
     "tokenType": "Token type",
     "blockedByOperator": "Deactivated by the operator",
     "expired": "Expired",
-    "toggleFailed": "Could not change the card. Try again."
+    "toggleFailed": "Could not change the card. Try again.",
+    "label": "Label",
+    "labelPlaceholder": "Label (optional), e.g. Company card",
+    "labelHint": "A name that helps you tell your cards apart. Leave empty to show the card number.",
+    "renameCard": "Rename RFID Card",
+    "renameFailed": "Could not rename the card. Try again."
   },
   "vehicles": {
     "addVehicle": "Add Vehicle",

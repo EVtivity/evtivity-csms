@@ -1127,7 +1127,12 @@
     "tokenType": "令牌类型",
     "blockedByOperator": "已被运营商停用",
     "expired": "已过期",
-    "toggleFailed": "无法更改此卡。请重试。"
+    "toggleFailed": "无法更改此卡。请重试。",
+    "label": "标签",
+    "labelPlaceholder": "标签（可选），例如：公司卡",
+    "labelHint": "用于区分您的卡片的名称。留空则显示卡号。",
+    "renameCard": "重命名 RFID 卡",
+    "renameFailed": "无法重命名该卡。请重试。"
   },
   "vehicles": {
     "addVehicle": "添加车辆",

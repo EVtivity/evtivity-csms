@@ -196,6 +196,7 @@ describe('Token routes - handler logic', () => {
           expiresAt: null,
           revokedAt: null,
           revokedReason: null,
+          label: null,
           deactivatedBy: null,
           prepaidBalanceCents: null,
           createdAt: '2024-01-01T00:00:00.000Z',
@@ -285,7 +286,7 @@ describe('Token routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['content-type']).toBe('text/csv');
       const csv = response.body;
-      expect(csv).toBe('idToken,tokenType,driverEmail,isActive,expiresAt');
+      expect(csv).toBe('idToken,tokenType,driverEmail,isActive,expiresAt,label');
     });
 
     it('passes search to export service', async () => {
@@ -543,6 +544,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -595,6 +597,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -624,6 +627,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -685,6 +689,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -714,6 +719,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: 2500,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -776,6 +782,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -808,6 +815,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -843,6 +851,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        label: null,
         deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',

@@ -119,6 +119,7 @@ function token(overrides: Record<string, unknown> = {}): Record<string, unknown>
     expiresAt: null,
     revokedAt: null,
     revokedReason: null,
+    label: null,
     deactivatedBy: null,
     prepaidBalanceCents: null,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -201,6 +202,22 @@ describe('token routes (cov2)', () => {
     expect(res.statusCode).toBe(500);
   });
 
+  it('POST /tokens passes the label to the token service', async () => {
+    svc.createToken.mockResolvedValueOnce(token({ label: 'Spare card' }));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tokens',
+      headers: auth,
+      payload: { idToken: 'RFID-1', tokenType: 'ISO14443', label: 'Spare card' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().label).toBe('Spare card');
+    expect(svc.createToken).toHaveBeenCalledWith(
+      expect.objectContaining({ idToken: 'RFID-1', label: 'Spare card' }),
+      expect.anything(),
+    );
+  });
+
   it('GET /tokens/export applies the same search and filters as the list', async () => {
     svc.exportTokensCsv.mockResolvedValue('idToken,tokenType,driverEmail,isActive,expiresAt');
     const res = await app.inject({
@@ -263,6 +280,32 @@ describe('token routes (cov2)', () => {
       });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('DRIVER_NOT_FOUND');
+    });
+
+    it('sets and clears the label', async () => {
+      for (const label of ['Pool card fleet 3', null]) {
+        svc.updateToken.mockResolvedValueOnce(token({ label }));
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/tokens/${TOKEN_ID}`,
+          headers: auth,
+          payload: { label },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().label).toBe(label);
+        expect(svc.updateToken).toHaveBeenLastCalledWith(TOKEN_ID, { label }, expect.anything());
+      }
+    });
+
+    it('refuses a label longer than 100 characters', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: 'x'.repeat(101) },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(svc.updateToken).not.toHaveBeenCalled();
     });
 
     it('answers 409 TOKEN_DUPLICATE when the new idToken is taken', async () => {

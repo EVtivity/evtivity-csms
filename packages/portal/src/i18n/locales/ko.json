@@ -1127,7 +1127,12 @@
     "tokenType": "토큰 유형",
     "blockedByOperator": "운영자가 비활성화함",
     "expired": "만료됨",
-    "toggleFailed": "카드를 변경할 수 없습니다. 다시 시도하세요."
+    "toggleFailed": "카드를 변경할 수 없습니다. 다시 시도하세요.",
+    "label": "라벨",
+    "labelPlaceholder": "라벨(선택 사항), 예: 회사 카드",
+    "labelHint": "카드를 구분하는 데 도움이 되는 이름입니다. 비워 두면 카드 번호가 표시됩니다.",
+    "renameCard": "RFID 카드 이름 변경",
+    "renameFailed": "카드 이름을 변경할 수 없습니다. 다시 시도하세요."
   },
   "vehicles": {
     "addVehicle": "차량 추가",

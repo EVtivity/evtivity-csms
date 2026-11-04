@@ -157,6 +157,7 @@ describe('Portal token routes', () => {
           tokenType: 'ISO14443',
           isActive: true,
           expiresAt: null,
+          label: null,
           deactivatedBy: null,
           createdAt: new Date(),
         },
@@ -182,6 +183,7 @@ describe('Portal token routes', () => {
         tokenType: 'ISO14443',
         isActive: true,
         expiresAt: null,
+        label: null,
         deactivatedBy: null,
         createdAt: new Date(),
       };
@@ -303,6 +305,7 @@ describe('Portal token routes', () => {
         tokenType: 'ISO14443',
         isActive: true,
         expiresAt: null,
+        label: null,
         deactivatedBy: null,
         createdAt: new Date(),
       };

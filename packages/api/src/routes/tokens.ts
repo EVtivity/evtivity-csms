@@ -46,6 +46,7 @@ const tokenItem = z
     driverId: z.string().nullable().describe('Assigned driver ID, null if unassigned'),
     idToken: z.string().describe('Token identifier (e.g. RFID UID)'),
     tokenType: z.string().describe('OCPP IdToken type (ISO14443, ISO15693, Central, eMAID, etc.)'),
+    label: z.string().nullable().describe('Free-text label of the token, null if none'),
     isActive: z.boolean().describe('Whether the token can be used to authorize charging'),
     expiresAt: z.coerce.date().nullable().describe('Optional expiration timestamp'),
     revokedAt: z.coerce.date().nullable().describe('Timestamp the token was last deactivated'),
@@ -80,6 +81,7 @@ const tokenCreated = z
     driverId: z.string().nullable().describe('Assigned driver ID, null if unassigned'),
     idToken: z.string().describe('Token identifier (e.g. RFID UID)'),
     tokenType: z.string().describe('OCPP IdToken type'),
+    label: z.string().nullable().describe('Free-text label of the token, null if none'),
     isActive: z.boolean().describe('Whether the token can be used to authorize charging'),
     expiresAt: z.coerce.date().nullable().describe('Optional expiration timestamp'),
     revokedAt: z.coerce.date().nullable().describe('Timestamp the token was last deactivated'),
@@ -125,6 +127,11 @@ const tokenSessionItem = z
   })
   .loose();
 
+const labelSchema = z
+  .string()
+  .max(100)
+  .describe('Free-text label, e.g. "Pool card fleet 3". Trimmed; empty means no label');
+
 const tokenParams = z.object({
   id: ID_PARAMS.driverTokenId.describe('Token ID'),
 });
@@ -133,6 +140,7 @@ const createTokenBody = z.object({
   driverId: ID_PARAMS.driverId.optional().describe('Driver ID to assign this token to'),
   idToken: z.string().min(1).max(255).describe('Token identifier'),
   tokenType: tokenTypeSchema.describe('OCPP IdToken type'),
+  label: labelSchema.nullable().optional(),
   expiresAt: z.coerce.date().nullable().optional().describe('Optional expiration timestamp'),
   prepaidBalanceCents: prepaidBalanceSchema,
 });
@@ -145,6 +153,7 @@ const updateTokenBody = z
       .nullable()
       .optional()
       .describe('Driver ID to assign this token to, or null to unassign'),
+    label: labelSchema.nullable().optional(),
     isActive: z.boolean().optional().describe('Whether the token is active'),
     expiresAt: z.coerce
       .date()
@@ -188,6 +197,7 @@ const importTokenRow = z.object({
   driverEmail: z.string().max(255).optional().describe('Email of the driver to assign'),
   isActive: z.boolean().optional().describe('Whether the token is active (default true)'),
   expiresAt: z.string().max(50).optional().describe('ISO 8601 expiry, empty for none'),
+  label: z.string().max(1000).optional().describe('Free-text label, at most 100 characters'),
 });
 
 const importTokenBody = z.object({
@@ -265,7 +275,7 @@ export function tokenRoutes(app: FastifyInstance): void {
         tags: ['Tokens'],
         summary: 'Export tokens as CSV',
         description:
-          'Every token matching the same filters as the list (search, tokenType, status), as CSV with the columns idToken, tokenType, driverEmail, isActive and expiresAt. The import reads the same columns.',
+          'Every token matching the same filters as the list (search, tokenType, status), as CSV with the columns idToken, tokenType, driverEmail, isActive, expiresAt and label. The import reads the same columns; label may be left out.',
         operationId: 'exportTokens',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(tokenExportQuery),

@@ -1128,7 +1128,12 @@
     "tokenType": "Token-Typ",
     "blockedByOperator": "Vom Betreiber deaktiviert",
     "expired": "Abgelaufen",
-    "toggleFailed": "Die Karte konnte nicht geändert werden. Versuche es erneut."
+    "toggleFailed": "Die Karte konnte nicht geändert werden. Versuche es erneut.",
+    "label": "Bezeichnung",
+    "labelPlaceholder": "Bezeichnung (optional), z. B. Firmenkarte",
+    "labelHint": "Ein Name, an dem du deine Karten unterscheidest. Leer lassen, um die Kartennummer anzuzeigen.",
+    "renameCard": "RFID-Karte umbenennen",
+    "renameFailed": "Die Karte konnte nicht umbenannt werden. Versuche es erneut."
   },
   "vehicles": {
     "addVehicle": "Fahrzeug hinzufügen",
