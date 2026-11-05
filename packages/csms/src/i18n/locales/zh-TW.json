@@ -1342,6 +1342,11 @@
     "longitude": "經度",
     "reservationsEnabled": "預約",
     "reservationsEnabledHelp": "允許在此充電樁進行預約",
+    "portalListing": {
+      "title": "駕駛員入口網站",
+      "label": "在駕駛員入口網站中顯示",
+      "help": "在駕駛員入口網站的搜尋、地圖和位置頁面中顯示此充電樁。關閉後，駕駛員只能透過其 QR 碼、連結或收藏存取它，並且仍可在此充電。此選項僅隱藏充電樁，不限制誰可以充電。"
+    },
     "freeVend": "免費充電",
     "connectorRegionNorthAmerican": "北美",
     "connectorRegionEuropean": "歐洲",

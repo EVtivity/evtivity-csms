@@ -85,6 +85,7 @@ interface Station {
   latitude: string | null;
   longitude: string | null;
   reservationsEnabled: boolean;
+  portalListed: boolean;
   siteHoursOfOperation: string | null;
   siteTimezone: string | null;
   siteFreeVendEnabled: boolean;
@@ -560,6 +561,7 @@ export function StationDetail(): React.JSX.Element {
             guestChargingEnabled={guestChargingEnabled}
             ocppProtocol={station.ocppProtocol}
             isOnline={station.isOnline}
+            portalListed={station.portalListed}
           />
         </TabsContent>
 

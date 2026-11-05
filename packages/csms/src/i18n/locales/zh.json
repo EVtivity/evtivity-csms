@@ -1342,6 +1342,11 @@
     "longitude": "经度",
     "reservationsEnabled": "预约",
     "reservationsEnabledHelp": "允许在此充电桩进行预约",
+    "portalListing": {
+      "title": "驾驶员门户",
+      "label": "在驾驶员门户中显示",
+      "help": "在驾驶员门户的搜索、地图和位置页面中显示此充电桩。关闭后，驾驶员只能通过其二维码、链接或收藏访问它，并且仍可在此充电。此选项仅隐藏充电桩，不限制谁可以充电。"
+    },
     "freeVend": "免费充电",
     "connectorRegionNorthAmerican": "北美",
     "connectorRegionEuropean": "欧洲",

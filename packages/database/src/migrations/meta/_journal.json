@@ -1688,6 +1688,13 @@
       "when": 1791000050000,
       "tag": "0486_release_0_1_50",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "7",
+      "when": 1791000050500,
+      "tag": "0487_station_portal_listed",
+      "breakpoints": true
     }
   ]
 }

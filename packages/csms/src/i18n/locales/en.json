@@ -1342,6 +1342,11 @@
     "longitude": "Longitude",
     "reservationsEnabled": "Reservations",
     "reservationsEnabledHelp": "Allow reservations at this station",
+    "portalListing": {
+      "title": "Driver Portal",
+      "label": "List in the driver portal",
+      "help": "Show this station in the search, the map and the location pages of the driver portal. When off, drivers reach it only by its QR code, a link or their favorites, and can still charge there. This hides the station; it does not restrict who can charge."
+    },
     "freeVend": "Free Vend",
     "connectorRegionNorthAmerican": "North American",
     "connectorRegionEuropean": "European",

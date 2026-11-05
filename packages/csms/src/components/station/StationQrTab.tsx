@@ -9,6 +9,7 @@ import { QrCodeCard } from '@/components/QrCodeCard';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { api } from '@/lib/api';
+import { StationPortalListingCard } from '@/components/station/StationPortalListingCard';
 import { StationWebPaymentsCard } from '@/components/station/StationWebPaymentsCard';
 
 interface Connector {
@@ -32,6 +33,7 @@ export interface StationQrTabProps {
   guestChargingEnabled: boolean;
   ocppProtocol: string | null;
   isOnline: boolean;
+  portalListed: boolean;
 }
 
 export function StationQrTab({
@@ -40,6 +42,7 @@ export function StationQrTab({
   guestChargingEnabled,
   ocppProtocol,
   isOnline,
+  portalListed,
 }: StationQrTabProps): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -55,6 +58,7 @@ export function StationQrTab({
 
   return (
     <div className="space-y-6">
+      <StationPortalListingCard stationId={stationId} portalListed={portalListed} />
       <TabPanel
         title={t('stations.qrCodes')}
         isLoading={isLoading}

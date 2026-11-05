@@ -508,8 +508,9 @@ export async function validateQrCodeUrl(
     })
     .from(stationWebPaymentConfigs)
     .innerJoin(chargingStations, eq(chargingStations.id, stationWebPaymentConfigs.stationId))
-    // A station the portal does not list answers like an unknown one, so the
-    // check never tells which unlisted stations have dynamic QR. Accepted
+    // A station the portal does not serve (pending or blocked) answers like an
+    // unknown one, so the check never tells which of them have dynamic QR. A
+    // station taken out of the portal listings is checked. Accepted
     // conformance stations are checked too (TC_C_131_CSMS).
     .where(and(eq(chargingStations.stationId, chargingStationId), qrCheckableStation()));
   if (row == null) return { valid: false, reason: 'unknown_station' };

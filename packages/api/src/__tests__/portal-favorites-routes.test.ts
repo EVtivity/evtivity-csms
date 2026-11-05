@@ -71,6 +71,17 @@ vi.mock('@evtivity/database', async () => ({
   connectors: {},
 }));
 
+// Spies on the portal filters: favorites read stations by OCPP id, so a
+// station taken out of the portal listings can be a favorite.
+const { mockPublicStationListed, mockPublicStationServed } = vi.hoisted(() => ({
+  mockPublicStationListed: vi.fn(() => 'PUBLIC_STATION_LISTED'),
+  mockPublicStationServed: vi.fn(() => 'PUBLIC_STATION_SERVED'),
+}));
+vi.mock('../lib/public-station.js', () => ({
+  publicStationListed: mockPublicStationListed,
+  publicStationServed: mockPublicStationServed,
+}));
+
 vi.mock('drizzle-orm', () => {
   const sqlTag = Object.assign((...args: unknown[]) => ({ __brand: 'SQL', args }), {
     raw: mockSqlRaw,
@@ -149,6 +160,18 @@ describe('Portal favorite routes', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(vi.mocked(database.isOperatorStation)).toHaveBeenCalled();
+    });
+
+    it('lists a favorite taken out of the portal listings', async () => {
+      mockPublicStationListed.mockClear();
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/favorites',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockPublicStationListed).not.toHaveBeenCalled();
     });
 
     it('returns favorites with station data', async () => {
@@ -295,6 +318,21 @@ describe('Portal favorite routes', () => {
       });
       expect(response.statusCode).toBe(201);
       expect(response.json().id).toBe(7);
+    });
+
+    it('adds a station taken out of the portal listings (by OCPP id)', async () => {
+      mockPublicStationListed.mockClear();
+      mockPublicStationServed.mockClear();
+      setupDbResults([{ id: STATION_UUID }], [], [{ id: 8 }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/favorites',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { stationId: STATION_OCPP_ID },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(mockPublicStationServed).toHaveBeenCalled();
+      expect(mockPublicStationListed).not.toHaveBeenCalled();
     });
   });
 

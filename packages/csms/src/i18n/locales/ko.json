@@ -1342,6 +1342,11 @@
     "longitude": "경도",
     "reservationsEnabled": "예약",
     "reservationsEnabledHelp": "이 충전소에서 예약 허용",
+    "portalListing": {
+      "title": "운전자 포털",
+      "label": "운전자 포털에 표시",
+      "help": "운전자 포털의 검색, 지도 및 위치 페이지에 이 충전소를 표시합니다. 끄면 운전자는 QR 코드, 링크 또는 즐겨찾기로만 이 충전소에 접근할 수 있으며 계속 충전할 수 있습니다. 충전소를 숨길 뿐이며 충전 가능한 사용자를 제한하지 않습니다."
+    },
     "freeVend": "무료 충전",
     "connectorRegionNorthAmerican": "북미",
     "connectorRegionEuropean": "유럽",

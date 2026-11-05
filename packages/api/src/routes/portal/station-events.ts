@@ -7,7 +7,7 @@ import { createLogger, tryParseJson } from '@evtivity/lib';
 import { db } from '@evtivity/database';
 import { chargingStations } from '@evtivity/database';
 import { and, eq } from 'drizzle-orm';
-import { publicStationListed } from '../../lib/public-station.js';
+import { publicStationServed } from '../../lib/public-station.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { endSseClients, writeSseClient } from '../../lib/sse-broadcast.js';
 import { clientAddressKey } from '@evtivity/lib/ip-address';
@@ -128,7 +128,7 @@ export function portalStationEventRoutes(
       const [station] = await db
         .select({ id: chargingStations.id })
         .from(chargingStations)
-        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()))
+        .where(and(eq(chargingStations.stationId, stationId), publicStationServed()))
         .limit(1);
 
       if (station == null) {

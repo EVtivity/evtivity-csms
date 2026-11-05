@@ -43,7 +43,11 @@ import {
   isOperatorStation,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
-import { publicSiteListed, publicStationListed } from '../../lib/public-station.js';
+import {
+  publicSiteListed,
+  publicStationListed,
+  publicStationServed,
+} from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { optionalDriverId } from '../../lib/optional-driver.js';
 import { requestSessionEnd } from '../../lib/session-end.js';
@@ -128,7 +132,12 @@ const portalConnectorItem = z
 const portalChargerDetail = z
   .object({
     stationId: z.string().max(255).describe('OCPP station identity'),
-    siteId: z.string().nullable().describe('Owning site ID'),
+    siteId: z
+      .string()
+      .nullable()
+      .describe(
+        'Owning site ID; null for an unsited station and for a station taken out of the portal listings (no location page link)',
+      ),
     model: z.string().max(100).nullable().describe('Station hardware model'),
     isOnline: z.boolean().describe('Whether the station is currently online'),
     siteName: z.string().max(255).nullable().describe('Site name'),
@@ -191,7 +200,12 @@ const portalEvseItem = z
 const portalStationDetail = z
   .object({
     stationId: z.string().max(255).describe('OCPP station identity'),
-    siteId: z.string().nullable().describe('Owning site ID'),
+    siteId: z
+      .string()
+      .nullable()
+      .describe(
+        'Owning site ID; null for an unsited station and for a station taken out of the portal listings (no location page link)',
+      ),
     model: z.string().max(100).nullable().describe('Station hardware model'),
     isOnline: z.boolean().describe('Whether the station is currently online'),
     siteName: z.string().max(255).nullable().describe('Site name'),
@@ -627,6 +641,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           id: chargingStations.id,
           stationId: chargingStations.stationId,
           siteId: chargingStations.siteId,
+          portalListed: chargingStations.portalListed,
           model: chargingStations.model,
           isOnline: chargingStations.isOnline,
           disabledReason: chargingStations.disabledReason,
@@ -640,7 +655,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -716,7 +731,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       return {
         stationId: station.stationId,
-        siteId: station.siteId ?? null,
+        // A station taken out of the listings does not link to its location page.
+        siteId: station.portalListed ? (station.siteId ?? null) : null,
         model: station.model,
         isOnline: station.isOnline,
         isSimulator: station.isSimulator,
@@ -765,7 +781,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .select({ id: chargingStations.id, freeVendEnabled: sites.freeVendEnabled })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -1510,6 +1526,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           id: chargingStations.id,
           stationId: chargingStations.stationId,
           siteId: chargingStations.siteId,
+          portalListed: chargingStations.portalListed,
           model: chargingStations.model,
           isOnline: chargingStations.isOnline,
           disabledReason: chargingStations.disabledReason,
@@ -1527,7 +1544,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -1632,7 +1649,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       return {
         stationId: station.stationId,
-        siteId: station.siteId ?? null,
+        // A station taken out of the listings does not link to its location page.
+        siteId: station.portalListed ? (station.siteId ?? null) : null,
         model: station.model,
         isOnline: station.isOnline,
         isSimulator: station.isSimulator,
@@ -1704,7 +1722,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(chargingStations)
-        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -1855,7 +1873,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
         // A pending or blocked station answers like an unknown one.
-        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -2961,7 +2979,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         // A pending or blocked station answers like an unknown one.
-        .where(and(eq(chargingStations.stationId, body.stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, body.stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

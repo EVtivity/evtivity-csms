@@ -29642,6 +29642,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'latitude',
       'longitude',
       'reservationsEnabled',
+      'portalListed',
       'iccid',
       'imsi',
     ],
@@ -29688,6 +29689,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Whether reservations are allowed at this station',
           type: ['boolean', 'null'],
         },
+        portalListed: {
+          description:
+            'Whether the driver portal lists the station in its search, map and location pages. False hides it there only: drivers still reach it by its QR code or a link and can charge.',
+          type: ['boolean', 'null'],
+        },
         iccid: {
           description:
             'SIM card ICCID of a station that does not report one: 19 or 20 digits, a 19-digit ICCID may end in an F; null removes it. A later BootNotification with another ICCID replaces it.',
@@ -29711,6 +29717,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'latitude',
         'longitude',
         'reservationsEnabled',
+        'portalListed',
         'iccid',
         'imsi',
       ],
@@ -29755,6 +29762,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         longitude: { description: 'Station longitude', type: 'string', maxLength: 20 },
         reservationsEnabled: {
           description: 'Whether reservations are allowed at this station',
+          type: 'boolean',
+        },
+        portalListed: {
+          description:
+            'Whether the driver portal lists the station in its search, map and location pages. False hides it there only: drivers still reach it by its QR code or a link and can charge.',
           type: 'boolean',
         },
         iccid: {

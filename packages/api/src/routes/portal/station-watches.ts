@@ -12,7 +12,7 @@ import {
   evses,
   isOperatorStation,
 } from '@evtivity/database';
-import { publicStationListed } from '../../lib/public-station.js';
+import { publicStationServed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import {
   successResponse,
@@ -219,7 +219,7 @@ export function portalStationWatchRoutes(app: FastifyInstance): void {
       const [station] = await db
         .select({ id: chargingStations.id })
         .from(chargingStations)
-        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

@@ -417,6 +417,12 @@ const updateStationBody = z.object({
     .boolean()
     .optional()
     .describe('Whether reservations are allowed at this station'),
+  portalListed: z
+    .boolean()
+    .optional()
+    .describe(
+      'Whether the driver portal lists the station in its search, map and location pages. False hides it there only: drivers still reach it by its QR code or a link and can charge.',
+    ),
   iccid: z
     .string()
     .regex(/^([0-9]{19}[Ff]?|[0-9]{20})$/)
@@ -734,6 +740,11 @@ const stationDetail = z
           ),
       })
       .describe('Whether AI insights run for it and why (Settings > AI > Automatic Insights)'),
+    portalListed: z
+      .boolean()
+      .describe(
+        'Whether the driver portal lists the station in its search, map and location pages; drivers reach an unlisted station by its QR code or a link',
+      ),
     dataPlan: z
       .enum(DATA_PLANS)
       .nullable()
@@ -1381,6 +1392,7 @@ export function stationRoutes(app: FastifyInstance): void {
           latitude: chargingStations.latitude,
           longitude: chargingStations.longitude,
           reservationsEnabled: chargingStations.reservationsEnabled,
+          portalListed: chargingStations.portalListed,
           dataPlan: chargingStations.dataPlan,
           effectiveDataPlan: effectiveDataPlanSql,
           dataPlanSource: dataPlanSourceSql,
