@@ -814,9 +814,10 @@ describe('Station routes - handler logic', () => {
       };
       // 1: before SELECT, 2: UPDATE returning
       setupDbResults([station], [{ ...station, portalListed: false }]);
-      const { db, chargingStations } = await import('@evtivity/database');
+      const { db, chargingStations, writeAudit } = await import('@evtivity/database');
       const updateMock = vi.mocked(db.update);
       updateMock.mockClear();
+      vi.mocked(writeAudit).mockClear();
 
       const response = await app.inject({
         method: 'PATCH',
@@ -830,8 +831,21 @@ describe('Station routes - handler logic', () => {
       expect(stationUpdate).toBeGreaterThanOrEqual(0);
       const chain = updateMock.mock.results[stationUpdate]?.value as {
         set: ReturnType<typeof vi.fn>;
+        returning: ReturnType<typeof vi.fn>;
       };
       expect(chain.set).toHaveBeenCalledWith(expect.objectContaining({ portalListed: false }));
+      // The updated row (the response and the audit after-snapshot) carries it.
+      expect(chain.returning).toHaveBeenCalledWith(
+        expect.objectContaining({ portalListed: chargingStations.portalListed }),
+      );
+      expect(response.json().portalListed).toBe(false);
+      // The audit shows the change: before and after both carry the setting.
+      const audit = vi.mocked(writeAudit).mock.calls[0]?.[1] as {
+        before: { portalListed?: boolean };
+        after: { portalListed?: boolean };
+      };
+      expect(audit.before.portalListed).toBe(true);
+      expect(audit.after.portalListed).toBe(false);
     });
 
     it('refuses a portal listing that is not a boolean', async () => {
