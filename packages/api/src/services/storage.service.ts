@@ -4,6 +4,7 @@
 import { loadObjectStorage } from '@evtivity/services/storage';
 import type { ObjectStorage } from '@evtivity/services/storage';
 import { config as apiConfig } from '../lib/config.js';
+import { storageOperationsTotal } from '../plugins/metrics.js';
 
 export { clearObjectStorageCache, UPLOAD_URL_EXPIRES_SECONDS } from '@evtivity/services/storage';
 export type {
@@ -15,7 +16,61 @@ export type {
 
 /** Object storage of this process (5-minute cache), or null when not configured. */
 export async function getObjectStorage(): Promise<ObjectStorage | null> {
-  return loadObjectStorage(apiConfig.SETTINGS_ENCRYPTION_KEY);
+  const storage = await loadObjectStorage(apiConfig.SETTINGS_ENCRYPTION_KEY);
+  return storage == null ? null : measuredStorage(storage);
+}
+
+/** One wrapper per loaded storage, so callers get the same object while it is cached. */
+const measured = new WeakMap<ObjectStorage, ObjectStorage>();
+
+/**
+ * Counts the upload, confirm (read and write) and connection test calls in
+ * storage_operations_total by provider and result, so a dashboard shows the
+ * failures of each provider. Only the outcome is counted: no key, bucket or
+ * error text becomes a label.
+ */
+export function measuredStorage(storage: ObjectStorage): ObjectStorage {
+  const known = measured.get(storage);
+  if (known != null) return known;
+  const count = async <T>(
+    operation: string,
+    call: () => Promise<T>,
+    resultOf: (value: T) => string = () => 'ok',
+  ): Promise<T> => {
+    try {
+      const value = await call();
+      storageOperationsTotal.inc({
+        operation,
+        provider: storage.provider,
+        result: resultOf(value),
+      });
+      return value;
+    } catch (err) {
+      storageOperationsTotal.inc({ operation, provider: storage.provider, result: 'error' });
+      throw err;
+    }
+  };
+  const wrapper: ObjectStorage = {
+    provider: storage.provider,
+    bucket: storage.bucket,
+    createUpload: (key, contentType, size) =>
+      count('create_upload', () => storage.createUpload(key, contentType, size)),
+    getDownloadUrl: (bucket, key, options) => storage.getDownloadUrl(bucket, key, options),
+    readObject: (bucket, key, maxBytes) =>
+      count(
+        'read_object',
+        () => storage.readObject(bucket, key, maxBytes),
+        (r) => r.status,
+      ),
+    putObject: (bucket, key, body, contentType) =>
+      count('put_object', () => storage.putObject(bucket, key, body, contentType)),
+    deleteObject: (bucket, key) => count('delete_object', () => storage.deleteObject(bucket, key)),
+    deleteObjectsUnderPrefix: (bucket, prefix) =>
+      count('delete_prefix', () => storage.deleteObjectsUnderPrefix(bucket, prefix)),
+    testConnection: () => count('test_connection', () => storage.testConnection()),
+  };
+  measured.set(storage, wrapper);
+  return wrapper;
 }
 
 /**

@@ -7,7 +7,9 @@ import { Registry, collectDefaultMetrics, Histogram, Counter, Gauge } from 'prom
 import type { FastifyInstance } from 'fastify';
 import { createLogger } from '@evtivity/lib';
 
-const logger = createLogger('metrics');
+// Created with the server: modules that count (storage, the depot interface) import this file,
+// and their tests mock @evtivity/lib without a logger.
+let logger: ReturnType<typeof createLogger> | null = null;
 
 const register = new Registry();
 
@@ -57,10 +59,26 @@ export const httpResponseSizeBytes = new Histogram({
 
 export const authFailuresTotal = new Counter({
   name: 'auth_failures_total',
-  help: 'Total authentication failures',
-  labelNames: ['reason'] as const,
+  help: 'Failed sign-ins: operator and driver password, MFA, passkey and SSO steps, and API keys',
+  labelNames: ['realm', 'method', 'reason'] as const,
   registers: [register],
 });
+
+/** Who failed to sign in: an operator (CSMS user or API key) or a driver (portal or app). */
+export type AuthFailureRealm = 'operator' | 'driver';
+
+/**
+ * Counts one failed sign-in. `method` and `reason` come from fixed sets in the routes
+ * (the auth audit method and reason, `api_key` for an API key), never from the request,
+ * so the label values stay bounded. Fail-open: a metrics error never fails a sign-in.
+ */
+export function countAuthFailure(realm: AuthFailureRealm, method: string, reason: string): void {
+  try {
+    authFailuresTotal.inc({ realm, method, reason });
+  } catch (err) {
+    logger?.warn({ err }, 'auth failure metric failed');
+  }
+}
 
 // --- Business metric gauges ---
 
@@ -239,6 +257,192 @@ export const ocppHeartbeatsTotal = new Gauge({
   registers: [register],
 });
 
+// --- Worker jobs and crons (from worker_job_logs and cronjobs) ---
+// The worker exposes no metrics endpoint; every queue job and cron writes a
+// worker_job_logs row, so the API collector reads them. Same value on every
+// API task: aggregate with max().
+
+export const workerJobsLastHour = new Gauge({
+  name: 'worker_jobs_last_hour',
+  help: 'Worker queue jobs and crons started in the last hour, by queue and status',
+  labelNames: ['queue', 'status'] as const,
+  registers: [register],
+});
+
+export const workerJobDurationAvgMs = new Gauge({
+  name: 'worker_job_duration_avg_ms',
+  help: 'Average duration of the worker jobs that ended in the last 15 minutes, by queue',
+  labelNames: ['queue'] as const,
+  registers: [register],
+});
+
+export const workerJobDurationMaxMs = new Gauge({
+  name: 'worker_job_duration_max_ms',
+  help: 'Longest worker job that ended in the last 15 minutes, by queue',
+  labelNames: ['queue'] as const,
+  registers: [register],
+});
+
+export const cronJobLastFailed = new Gauge({
+  name: 'cron_job_last_failed',
+  help: '1 when the last run of the cron job failed, else 0',
+  labelNames: ['name'] as const,
+  registers: [register],
+});
+
+// --- Load management (from site_load_management and load_allocation_log) ---
+
+export const loadManagementSitesEnabled = new Gauge({
+  name: 'load_management_sites_enabled',
+  help: 'Sites with load management on',
+  registers: [register],
+});
+
+export const loadManagementSitesOverCapacity = new Gauge({
+  name: 'load_management_sites_over_capacity',
+  help: 'Sites with load management on whose last allocation measured a draw above the site capacity',
+  registers: [register],
+});
+
+export const loadManagementAppliedAgeMaxSeconds = new Gauge({
+  name: 'load_management_applied_age_max_seconds',
+  help: 'Oldest time since a site with load management on last sent its limits (a cycle sends at least every 5 minutes)',
+  registers: [register],
+});
+
+export const loadManagementSitesSendFailed = new Gauge({
+  name: 'load_management_sites_send_failed',
+  help: 'Sites with load management on whose last limit send failed (sent again by the next cycle)',
+  registers: [register],
+});
+
+export const loadManagementSupplyCreditKw = new Gauge({
+  name: 'load_management_supply_credit_kw',
+  help: 'Battery and solar supply credited in the last allocation of every site with load management on, kW',
+  registers: [register],
+});
+
+// --- Route-aware charging (from vehicle_departures and site_charging_plans) ---
+
+export const departuresScheduled = new Gauge({
+  name: 'departures_scheduled',
+  help: 'Scheduled departures by readiness (unplanned when the planner has not rated it)',
+  labelNames: ['readiness'] as const,
+  registers: [register],
+});
+
+export const departureNoticesLastHour = new Gauge({
+  name: 'departure_notices_last_hour',
+  help: 'Departure at risk and missed notices sent in the last hour',
+  labelNames: ['kind'] as const,
+  registers: [register],
+});
+
+export const departuresCompletedLast24h = new Gauge({
+  name: 'departures_completed_last_24h',
+  help: 'Departures completed in the last 24 hours by outcome',
+  labelNames: ['outcome'] as const,
+  registers: [register],
+});
+
+export const chargingPlansStale = new Gauge({
+  name: 'charging_plans_stale',
+  help: 'Depot charging plans marked stale more than a minute ago and not planned again',
+  registers: [register],
+});
+
+export const chargingPlanStalenessMaxSeconds = new Gauge({
+  name: 'charging_plan_staleness_max_seconds',
+  help: 'Longest time a depot charging plan has been waiting to be planned again',
+  registers: [register],
+});
+
+export const chargingPlanRuntimeMaxMs = new Gauge({
+  name: 'charging_plan_runtime_max_ms',
+  help: 'Longest depot charging plan run of the plans computed in the last hour',
+  registers: [register],
+});
+
+// --- Batteries and solar (from site_energy_assets and energy_asset_readings) ---
+
+export const energyAssetsTotal = new Gauge({
+  name: 'energy_assets_total',
+  help: 'Site batteries and solar arrays by type',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const energyAssetsReadingStale = new Gauge({
+  name: 'energy_assets_reading_stale',
+  help: 'Connected batteries and solar arrays with API telemetry whose reading is missing or past its lifetime (no supply credit; simulated readings are computed in each cycle and never stale)',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+// --- Bus depot interface (VDV 463) ---
+
+export const depotInterfaceEnabled = new Gauge({
+  name: 'depot_interface_enabled',
+  help: '1 while the bus depot interface switch (vdv463.enabled) is on, else 0',
+  registers: [register],
+});
+
+export const depotSystemsEnabled = new Gauge({
+  name: 'depot_systems_enabled',
+  help: 'Bus depot systems turned on',
+  registers: [register],
+});
+
+export const depotSystemsAuthLocked = new Gauge({
+  name: 'depot_systems_auth_locked',
+  help: 'Bus depot systems whose sign-in is locked after too many wrong passwords',
+  registers: [register],
+});
+
+export const depotSystemRefusedRequests = new Gauge({
+  name: 'depot_system_refused_requests',
+  help: 'Charging requests of the last lists of every bus depot system that were refused, by reason',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+/** Live connections on this API process; sum over the API tasks. */
+export const depotSystemConnections = new Gauge({
+  name: 'depot_system_connections',
+  help: 'Bus depot system WebSocket connections on this API process',
+  registers: [register],
+});
+
+export const depotSystemSignInsTotal = new Counter({
+  name: 'depot_system_sign_ins_total',
+  help: 'Bus depot system sign-in attempts on this API process by result',
+  labelNames: ['result'] as const,
+  registers: [register],
+});
+
+export const depotSystemAuthLocksTotal = new Counter({
+  name: 'depot_system_auth_locks_total',
+  help: 'Bus depot system sign-in locks on this API process (scope address or system)',
+  labelNames: ['scope'] as const,
+  registers: [register],
+});
+
+export const depotSystemRequestListsTotal = new Counter({
+  name: 'depot_system_request_lists_total',
+  help: 'Bus depot system charging request lists on this API process by result (applied, failed, recheck_failed)',
+  labelNames: ['result'] as const,
+  registers: [register],
+});
+
+// --- Object storage ---
+
+export const storageOperationsTotal = new Counter({
+  name: 'storage_operations_total',
+  help: 'Object storage calls on this API process by operation, provider and result',
+  labelNames: ['operation', 'provider', 'result'] as const,
+  registers: [register],
+});
+
 export { register };
 
 // --- HTTP metrics Fastify hooks ---
@@ -288,6 +492,7 @@ export function registerHttpMetrics(app: FastifyInstance): void {
 let metricsServer: Server | null = null;
 
 export function startMetricsServer(port: number): void {
+  logger ??= createLogger('metrics');
   metricsServer = createServer((_req, res) => {
     register
       .metrics()
@@ -298,12 +503,12 @@ export function startMetricsServer(port: number): void {
       .catch((err: unknown) => {
         res.writeHead(500);
         res.end('Error collecting metrics');
-        logger.error(err, 'Failed to collect metrics');
+        logger?.error(err, 'Failed to collect metrics');
       });
   });
 
   metricsServer.listen(port, '0.0.0.0', () => {
-    logger.info('Metrics server listening on port %d', port);
+    logger?.info('Metrics server listening on port %d', port);
   });
 }
 

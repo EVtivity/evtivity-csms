@@ -45,6 +45,7 @@ const NOT_DETAIL_TABS: Record<string, string> = {
   'components/settings/OcppDataPlanSettings.tsx': 'settings sub-tabs',
   'components/settings/ApiKeysSettings.tsx': 'settings sub-tabs',
   'components/settings/AiSettings.tsx': 'settings sub-tabs',
+  'components/settings/StorageSettings.tsx': 'settings sub-tabs',
   'components/reports/NeviComplianceTab.tsx': 'reports page sub-tabs',
   'components/certificates/StationCertificatesTab.tsx': 'certificates page tab',
   'components/certificates/CsrRequestsTab.tsx': 'certificates page tab',

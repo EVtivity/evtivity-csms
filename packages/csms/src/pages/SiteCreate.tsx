@@ -136,7 +136,7 @@ export function SiteCreate(): React.JSX.Element {
                 }}
               />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="site-city" className="leading-6">
                   {t('sites.city')}
@@ -162,7 +162,7 @@ export function SiteCreate(): React.JSX.Element {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="site-postal" className="leading-6">
                   {t('sites.postalCode')}
@@ -188,7 +188,7 @@ export function SiteCreate(): React.JSX.Element {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="site-latitude" className="leading-6">
                   {t('sites.latitude')}
@@ -269,7 +269,7 @@ export function SiteCreate(): React.JSX.Element {
                   }}
                 />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                 <div className="space-y-2">
                   <Label htmlFor="site-contact-email" className="leading-6">
                     {t('sites.contactEmail')}

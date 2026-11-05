@@ -23,7 +23,7 @@ import {
 
 /**
  * Typical of the class, for example the ID TECH VP6825 datasheet (June
- * 2025) and the Nayax Onyx and UX430 readers: 132 by 88 mm front, 4.3 in color
+ * 2025): 132 by 88 mm front, 4.3 in color
  * touch display (16:9 active area 95 by 54 mm). Derived, not in the sheet:
  * depth 40 mm = bezel 4 + display stack 6 + card path 4 + contact head and
  * board 16 + back wall and connector 10; the contactless zone fills the

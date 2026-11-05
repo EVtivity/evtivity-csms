@@ -430,7 +430,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
               <form onSubmit={handleStripeSubmit} noValidate className="space-y-4">
                 <p className="text-sm text-muted-foreground">{t('settings.stripeDescription')}</p>
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2 items-start">
                   <div className="space-y-2">
                     <Label htmlFor="stripe-secret-key" className="leading-6">
                       {t('settings.stripeSecretKey')}
@@ -657,7 +657,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                         {t('settings.siteConfigsDescription')}
                       </p>
 
-                      <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-2 items-start">
                         <div className="space-y-2">
                           <Label htmlFor="site-connected-account" className="leading-6">
                             {t('payments.connectedAccountId')}

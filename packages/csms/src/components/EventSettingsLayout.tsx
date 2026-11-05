@@ -293,7 +293,7 @@ export function EventSettingsLayout({
                 </div>
                 <Card>
                   <CardContent className="p-6 space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-3 items-start">
                       {eventSwitch != null &&
                         (() => {
                           const required = eventSwitch.isRequired(selectedEvent);

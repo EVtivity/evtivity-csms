@@ -570,3 +570,652 @@ groups:
           severity: warning
         noDataState: OK
         execErrState: Error
+
+  - orgId: 1
+    name: feature-alerts
+    folder: EVtivity Alerts
+    interval: 1m
+    rules:
+      - uid: feat-depot-system-offline
+        title: Depot System Offline
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: '(max(depot_systems_enabled) - sum(depot_system_connections)) * max(depot_interface_enabled)'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 10m
+        annotations:
+          summary: 'A bus depot system that is turned on has had no connection for 10 minutes'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-depot-sign-in-locked
+        title: Depot System Sign-In Locked
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(depot_systems_auth_locked)'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 1m
+        annotations:
+          summary: 'A bus depot system sign-in is locked after too many wrong passwords'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-depot-requests-not-applied
+        title: Depot Charging Requests Not Applied
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(increase(depot_system_request_lists_total{result=~"failed|recheck_failed"}[15m]))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 0m
+        annotations:
+          summary: 'Bus depot charging request lists failed to apply in the last 15 minutes'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-depot-requests-refused
+        title: Depot Charging Requests Refused
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(max by (reason) (depot_system_refused_requests))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 15m
+        annotations:
+          summary: 'Bus depot charging requests have been refused for 15 minutes (see the depot system page)'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-load-management-cycle-failed
+        title: Load Management Cycle Failed
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(worker_jobs_last_hour{queue="load-management",status="failed"})'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 0m
+        annotations:
+          summary: 'A load management cycle failed in the last hour (worker log: Load management cycle failed)'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-load-management-limits-stale
+        title: Load Management Limits Not Sent
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(load_management_applied_age_max_seconds)'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 900
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'A site with load management has not had its limits sent for 15 minutes'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-site-over-capacity
+        title: Site Over Capacity
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(load_management_sites_over_capacity)'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'A site draws more than its capacity'
+        labels:
+          severity: critical
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-departure-missed
+        title: Departure Missed
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(departure_notices_last_hour{kind="missed"})'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 0m
+        annotations:
+          summary: 'A departure was missed in the last hour'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-departures-at-risk
+        title: Departures At Risk
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(max by (readiness) (departures_scheduled{readiness=~"at_risk|cannot_meet"}))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 15m
+        annotations:
+          summary: 'Scheduled departures have been at risk for 15 minutes'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-charging-plan-stale
+        title: Depot Charging Plan Stale
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(charging_plan_staleness_max_seconds)'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 300
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'A depot charging plan has waited more than 5 minutes to be planned again'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-energy-reading-stale
+        title: Battery or Solar Reading Stale
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(max by (type) (energy_assets_reading_stale))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 10m
+        annotations:
+          summary: 'A connected battery or solar array has had no fresh reading for 10 minutes (no supply credit)'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-storage-failures
+        title: Storage Calls Failing
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(increase(storage_operations_total{result="error"}[15m]))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 0m
+        annotations:
+          summary: 'Object storage calls failed in the last 15 minutes'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-cron-job-failed
+        title: Cron Job Failed
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(max by (name) (cron_job_last_failed))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'The last run of a cron job failed'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-worker-jobs-failing
+        title: Worker Jobs Failing
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(max by (queue) (worker_jobs_last_hour{status="failed"}))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 10
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'More than 10 worker jobs failed in the last hour'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error

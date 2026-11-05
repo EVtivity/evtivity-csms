@@ -126,7 +126,7 @@ export function TargetFields({
 }: TargetFieldsProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 items-start">
       <div className="grid gap-2">
         <Label htmlFor={`${idPrefix}-target-kind`}>{t('fleets.departures.targetKind')}</Label>
         <Select
@@ -315,7 +315,7 @@ function ScheduleForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate className="grid gap-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
         <div className="grid gap-2">
           <Label htmlFor="schedule-vehicle">{t('fleets.departures.vehicle')}</Label>
           <Select
@@ -364,7 +364,7 @@ function ScheduleForm({
 
       <fieldset className="grid gap-2">
         <legend className="mb-2 text-sm font-medium">{t('fleets.departures.days')}</legend>
-        <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-wrap sm:gap-4">
+        <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-wrap sm:gap-4 items-start">
           {weekdays.map((name, index) => {
             const day = index + 1;
             return (
@@ -407,7 +407,7 @@ function ScheduleForm({
         maxError={shown('targetMax')}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
         <div className="grid gap-2">
           <Label htmlFor="schedule-valid-from">{t('fleets.departures.validFrom')}</Label>
           <Input

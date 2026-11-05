@@ -119,7 +119,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
           {reportTypesError ? (
             <ReportTypesLoadError onRetry={refetchReportTypes} />
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 items-start">
               <div className="space-y-2">
                 <Label htmlFor="report-type" className="leading-6">
                   {t('reports.reportType')}
@@ -185,7 +185,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="report-site" className="leading-6">
                 {t('reports.site')}

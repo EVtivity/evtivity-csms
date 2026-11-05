@@ -55,7 +55,7 @@ vi.mock('../job-logger.js', () => ({
   logJobFailed: (...args: unknown[]) => mockLogJobFailed(...args),
 }));
 
-const mockRunLoadManagementCycle = vi.fn().mockResolvedValue(undefined);
+const mockRunLoadManagementCycle = vi.fn().mockResolvedValue({ failedSites: 0 });
 vi.mock('@evtivity/services/load-management.service', () => ({
   runLoadManagementCycle: (...args: unknown[]) => mockRunLoadManagementCycle(...args),
 }));
@@ -88,7 +88,7 @@ beforeEach(() => {
   mockLogJobFailed.mockClear();
   mockLogJobFailed.mockResolvedValue(undefined);
   mockRunLoadManagementCycle.mockClear();
-  mockRunLoadManagementCycle.mockResolvedValue(undefined);
+  mockRunLoadManagementCycle.mockResolvedValue({ failedSites: 0 });
 });
 
 describe('enqueueLoadManagementJobs', () => {
@@ -198,6 +198,18 @@ describe('createLoadManagementWorker', () => {
     expect(mockRunLoadManagementCycle).toHaveBeenCalledWith(mockLog, 'site-43', {
       allowSimulatedEnergyAssets: true,
     });
+  });
+
+  it('records the job as failed when the cycle reports a failed site, without rethrowing', async () => {
+    mockRunLoadManagementCycle.mockResolvedValueOnce({ failedSites: 1 });
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
+    createLoadManagementWorker({}, { add: vi.fn() } as never);
+
+    await capturedProcessor?.(makeJob('load-management', { siteId: 'site-8' }));
+
+    expect(mockLogJobFailed).toHaveBeenCalledTimes(1);
+    expect(mockLogJobFailed.mock.calls[0]?.[2]).toBe('Load management cycle failed');
+    expect(mockLogJobCompleted).not.toHaveBeenCalled();
   });
 
   it('per-site job logs failure and rethrows when the cycle throws', async () => {

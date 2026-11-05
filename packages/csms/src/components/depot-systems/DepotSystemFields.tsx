@@ -147,7 +147,7 @@ export function DepotSystemFields({
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
         <div className="grid gap-2">
           <Label htmlFor={`${idPrefix}-name`}>{t('depotSystems.name')}</Label>
           <Input
@@ -205,7 +205,7 @@ export function DepotSystemFields({
         ) : shownSites.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('depotSystems.noDepotSites')}</p>
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 items-start">
             {shownSites.map((site) => (
               <div key={site.id} className="flex items-center gap-2">
                 <Checkbox
@@ -233,7 +233,7 @@ export function DepotSystemFields({
         {error('siteIds')}
       </fieldset>
       <Collapsible title={t('depotSystems.connectionTimings')}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
           {DEPOT_TIMING_FIELDS.map((f) => (
             <div key={f.key} className="grid gap-2">
               <Label htmlFor={`${idPrefix}-${f.key}`}>{t(`depotSystems.timings.${f.key}`)}</Label>

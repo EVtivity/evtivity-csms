@@ -966,7 +966,7 @@ export function ConnectorStatus({
                 <p className="text-sm font-medium">
                   {t('charts.connector', { id: c.connectorId })}
                 </p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2 items-start">
                   <div className="space-y-1">
                     <Label htmlFor={`edit-type-${String(i)}`} className="leading-6">
                       {t('stations.connectorType')}

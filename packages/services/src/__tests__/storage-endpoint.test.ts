@@ -114,6 +114,14 @@ describe('validateR2Endpoint', () => {
       `https://${ACCOUNT}.fedramp.r2.cloudflarestorage.com`,
       `https://${ACCOUNT}.fedramp.r2.cloudflarestorage.com`,
     ],
+    [
+      `https://${ACCOUNT}.us.r2.cloudflarestorage.com`,
+      `https://${ACCOUNT}.us.r2.cloudflarestorage.com`,
+    ],
+    [
+      `https://${ACCOUNT}.us.r2.cloudflarestorage.com/my-bucket`,
+      `https://${ACCOUNT}.us.r2.cloudflarestorage.com`,
+    ],
     // The S3 API URL Cloudflare shows on a bucket ends in the bucket name.
     [`${ORIGIN}/my-bucket`, ORIGIN],
     [`${ORIGIN}/my-bucket/`, ORIGIN],

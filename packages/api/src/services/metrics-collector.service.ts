@@ -43,6 +43,7 @@ import {
 } from '../plugins/metrics.js';
 import { queryRevenueTotal } from '@evtivity/services/session-revenue';
 import { paymentRecordsOfOperatorStations } from '../lib/payment-site-scope.js';
+import { collectFeatureMetrics } from './feature-metrics-collector.js';
 
 const logger = createLogger('metrics-collector');
 
@@ -417,10 +418,13 @@ function asNum(row: Record<string, unknown>, key: string): number {
 }
 
 export function startMetricsCollector(intervalMs = 60_000): void {
-  collectBusinessMetrics().catch(() => {});
-  intervalHandle = setInterval(() => {
+  const tick = (): void => {
     collectBusinessMetrics().catch(() => {});
-  }, intervalMs);
+    // Its own guard and error log, so one set of queries never holds the other.
+    collectFeatureMetrics().catch(() => {});
+  };
+  tick();
+  intervalHandle = setInterval(tick, intervalMs);
 }
 
 export function stopMetricsCollector(): void {

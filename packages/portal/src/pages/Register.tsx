@@ -126,7 +126,7 @@ export function Register(): React.JSX.Element {
       <CardContent>
         <form onSubmit={(e) => void handleSubmit(e)} noValidate className="space-y-4">
           {error !== '' && <p className="text-sm text-destructive">{error}</p>}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
             <div className="space-y-2">
               <label htmlFor="firstName" className="block text-sm font-medium leading-6">
                 {t('auth.firstName')}

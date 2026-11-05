@@ -319,7 +319,7 @@ export function StationDisplayMessages({
             <DialogTitle>{t('stations.sendMessage')}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreate} noValidate className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="display-msg-priority" className="leading-6">
                   {t('stations.messagePriority')}
@@ -377,7 +377,7 @@ export function StationDisplayMessages({
                 <p className="text-sm text-destructive">{errors.content}</p>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="msg-language" className="leading-6">
                   {t('stations.messageLanguage')}
@@ -414,7 +414,7 @@ export function StationDisplayMessages({
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="msg-start-time" className="leading-6">
                   {t('stations.messageStartTime')}
@@ -440,7 +440,7 @@ export function StationDisplayMessages({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="msg-transaction-id" className="leading-6">
                   {t('stations.messageTransactionId')}

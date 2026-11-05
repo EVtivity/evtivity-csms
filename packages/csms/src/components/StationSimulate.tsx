@@ -103,7 +103,7 @@ export function StationSimulate({
 
   return (
     <TabPanel title={t('simulate.tab')} bodyClassName="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
         <div className="grid gap-2">
           <Label htmlFor="sim-evse">{t('simulate.evseId')}</Label>
           <Input

@@ -131,7 +131,7 @@ export function FleetCreditLimitCard({ fleetId }: FleetCreditLimitCardProps): Re
     >
       {data != null && editing && (
         <form onSubmit={save} className="space-y-4" noValidate>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="fleet-credit-limit">
                 {t('fleets.creditLimit.limit')}

@@ -196,7 +196,7 @@ function AiKeysCard({
           </p>
         )}
         {intro}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
           {basicFields.map((f) => {
             const id = `ai-setting-${f.key.replace(/\./g, '-')}`;
             const showError = hasSubmitted && invalid.has(f.key);
@@ -591,7 +591,7 @@ function AiOpsSurfaceCard({
             {getErrorMessage(toggle.error, t, 'settings.aiSaveFailed')}
           </p>
         )}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
           <div className="space-y-2">
             <Label htmlFor="opsAi-provider" className="leading-6">
               {t('settings.aiProvider')}

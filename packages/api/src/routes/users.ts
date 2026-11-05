@@ -186,6 +186,7 @@ import {
 } from '../lib/password-validation.js';
 import { config as apiConfig } from '../lib/config.js';
 import { recordAuthAudit } from '../lib/auth-audit.js';
+import { countAuthFailure } from '../plugins/metrics.js';
 import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 import type { AiSurface } from '../services/ai/tools/policy.js';
 
@@ -654,6 +655,8 @@ export function userRoutes(app: FastifyInstance): void {
         await takeUnknownSignInAttempt('user');
         await verifyAgainstDummyHash(password);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+        // No audit row names an unknown email; the metric still counts the try.
+        countAuthFailure('operator', 'password', 'unknown_account');
         return;
       }
 

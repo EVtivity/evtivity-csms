@@ -7,12 +7,10 @@ import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
 import { AutochargeSettings } from '@/components/settings/AutochargeSettings';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, ChevronDown } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
 import { Spinner } from '@/components/ui/spinner';
 import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
@@ -21,20 +19,9 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage } from '@/lib/error-message';
-import { PORTAL_BASE_URL } from '@/lib/config';
-import {
-  R2_SETUP_DOCS_URL,
-  S3_COMPATIBLE_SETUP_DOCS_URL,
-  STORAGE_ACCESS_ACTIONS,
-  buildS3CorsExample,
-  storageBrowserOrigins,
-} from '@/lib/s3-cors-example';
-import { S3_COMPATIBLE_DEFAULT_REGION } from '@evtivity/lib/object-storage-region';
-import { Collapsible } from '@/components/ui/collapsible';
-import { CopyButton } from '@/components/ui/copy-button';
 import { ReservationSettings } from '@/components/settings/ReservationSettings';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
@@ -43,36 +30,11 @@ import { FleetCreditReservationSettings } from '@/components/settings/FleetCredi
 import { BusDepotSystemsSettings } from './BusDepotSystemsSettings';
 import { SimProvidersSettings } from '@/components/settings/SimProvidersSettings';
 import { OcppDataPlanSettings } from '@/components/settings/OcppDataPlanSettings';
-import {
-  FactorProofField,
-  proofRejection,
-  type FactorProof,
-  type ProofRejection,
-} from '@/components/FactorProofField';
-import { useMfaStatus } from '@/components/profile/mfa-status';
+import { StorageSettings, STORAGE_TAB_PARAM } from '@/components/settings/StorageSettings';
 import { isEditedField, useLoadedValues } from '@/hooks/use-loaded-values';
 
-/** The endpoint as the API stores it (the origin), to tell whether it changed. */
 // A bus depot system opened in place belongs to its sub tab; another sub tab drops it.
-const SUB_TAB_CLEARS = ['depotSystem', 'depotTab'];
-
-function storedEndpointForm(value: string): string {
-  return URL.parse(value.trim())?.origin ?? value.trim();
-}
-
-type StorageProvider = 's3' | 's3-compatible' | 'r2';
-
-/** A stored or picked provider; anything else is AWS S3, the default. */
-function storageProviderOf(value: unknown): StorageProvider {
-  return value === 's3-compatible' || value === 'r2' ? value : 's3';
-}
-
-/** The field a failed S3 save refused with VALIDATION_ERROR, if any. */
-function s3RefusedField(err: unknown): unknown {
-  if (!(err instanceof ApiError)) return undefined;
-  const body = err.body as { code?: unknown; field?: unknown } | null;
-  return body?.code === 'VALIDATION_ERROR' ? body.field : undefined;
-}
+const SUB_TAB_CLEARS = ['depotSystem', 'depotTab', STORAGE_TAB_PARAM];
 
 /** A setter for one field of a card's values. */
 function field<T extends object, K extends keyof T>(
@@ -93,7 +55,12 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const [integrationsSubTab, setIntegrationsSubTab] = useTab('ocppDefaults', 'sub', SUB_TAB_CLEARS);
+  const [subTabParam, setIntegrationsSubTab] = useTab('ocppDefaults', 'sub', SUB_TAB_CLEARS);
+  // The Storage tab had the id s3 (S3 Bucket); old links still open it.
+  const integrationsSubTab = subTabParam === 's3' ? 'storage' : subTabParam;
+  // Once opened, the Storage tab stays mounted, so its unsaved edits survive a sub tab switch.
+  const [storageVisited, setStorageVisited] = useState(integrationsSubTab === 'storage');
+  if (integrationsSubTab === 'storage' && !storageVisited) setStorageVisited(true);
 
   const str = (key: string): string => {
     const v = settings?.[key];
@@ -133,64 +100,6 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const setFtpUsername = field(setFtp, 'username');
   const setFtpPassword = field(setFtp, 'password');
   const setFtpPath = field(setFtp, 'path');
-
-  // S3 state
-  const storedS3Provider = storageProviderOf(settings?.['s3.provider']);
-  const storedS3Endpoint =
-    typeof settings?.['s3.endpoint'] === 'string' ? settings['s3.endpoint'] : '';
-  const [s3, setS3, takeS3Load, s3Taken] = useLoadedValues({
-    provider: storedS3Provider,
-    endpoint: str('s3.endpoint'),
-    forcePathStyle: settings?.['s3.forcePathStyle'] === true,
-    allowedHosts: hostList(settings?.['s3.allowedPrivateHosts']),
-    bucket: str('s3.bucket'),
-    region: str('s3.region'),
-    accessKeyId: str('s3.accessKeyIdEnc'),
-    secretAccessKey: str('s3.secretAccessKeyEnc'),
-  });
-  const {
-    provider: s3Provider,
-    endpoint: s3Endpoint,
-    forcePathStyle: s3ForcePathStyle,
-    allowedHosts: s3AllowedHosts,
-    bucket: s3Bucket,
-    region: s3Region,
-    accessKeyId: s3AccessKeyId,
-    secretAccessKey: s3SecretAccessKey,
-  } = s3;
-  const setS3Provider = field(setS3, 'provider');
-  const setS3Endpoint = field(setS3, 'endpoint');
-  const setS3ForcePathStyle = field(setS3, 'forcePathStyle');
-  const setS3AllowedHosts = field(setS3, 'allowedHosts');
-  const setS3Bucket = field(setS3, 'bucket');
-  const setS3Region = field(setS3, 'region');
-  const setS3AccessKeyId = field(setS3, 'accessKeyId');
-  const setS3SecretAccessKey = field(setS3, 'secretAccessKey');
-  const [s3PolicyOpen, setS3PolicyOpen] = useState(false);
-  // Changing the provider or the endpoint takes a fresh proof (the server asks for it).
-  const { data: mfaStatus } = useMfaStatus();
-  const s3ProofKinds = mfaStatus?.factorProofKinds ?? [];
-  const [s3Proof, setS3Proof] = useState<FactorProof | null>(null);
-  const [s3ProofFailure, setS3ProofFailure] = useState<ProofRejection | null>(null);
-  const [s3ProofAsked, setS3ProofAsked] = useState(false);
-  const [s3ProofRound, setS3ProofRound] = useState(0);
-  // An S3-compatible service and Cloudflare R2 are reached at s3.endpoint.
-  const s3HasEndpoint = s3Provider !== 's3';
-  const s3DestinationChanged =
-    s3Provider !== storedS3Provider ||
-    (s3HasEndpoint && storedEndpointForm(s3Endpoint) !== storedS3Endpoint);
-  const s3NeedsProof = s3ProofKinds.length > 0 && s3DestinationChanged;
-  const [s3CorsOpen, setS3CorsOpen] = useState(false);
-  // The closed Advanced section still says what is set in it.
-  const s3PrivateHostCount = s3AllowedHosts.split(/[\s,]+/).filter((h) => h.trim() !== '').length;
-  const s3AdvancedParts = [
-    ...(s3ForcePathStyle ? [t('settings.s3AdvancedPathStyle')] : []),
-    ...(s3PrivateHostCount > 0
-      ? [t('settings.s3AdvancedPrivateHosts', { count: s3PrivateHostCount })]
-      : []),
-  ];
-  const s3AdvancedSummary =
-    s3AdvancedParts.length > 0 ? s3AdvancedParts.join(', ') : t('settings.s3AdvancedNone');
 
   // Feature toggles: each saves at once, and shows the new state while its save runs.
   const [features, setFeatures] = useLoadedValues({
@@ -363,35 +272,6 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
     },
-  });
-
-  const s3Mutation = useMutation({
-    mutationFn: (vals: {
-      provider: StorageProvider;
-      bucket: string;
-      region?: string;
-      accessKeyId?: string;
-      secretAccessKey?: string;
-      endpoint?: string;
-      forcePathStyle?: boolean;
-      allowedPrivateHosts?: string[];
-      proof?: FactorProof;
-    }) => api.put('/v1/settings/s3', vals),
-    onError: (err: unknown) => {
-      setS3ProofFailure(proofRejection(err));
-    },
-    onSuccess: () => {
-      setS3Proof(null);
-      setS3ProofAsked(false);
-      setS3ProofFailure(null);
-      setS3ProofRound((n) => n + 1);
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
-      void queryClient.invalidateQueries({ queryKey: ['s3-status'] });
-    },
-  });
-
-  const s3TestMutation = useMutation({
-    mutationFn: () => api.post('/v1/settings/s3/test', {}),
   });
 
   const roamingMutation = useMutation({
@@ -587,7 +467,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
         <TabsTrigger value="pricing">{t('settings.pricingSettings')}</TabsTrigger>
         <TabsTrigger value="messages">{t('settings.messagesTab')}</TabsTrigger>
         <TabsTrigger value="simProviders">{t('settings.sim.tab')}</TabsTrigger>
-        <TabsTrigger value="s3">{t('settings.s3')}</TabsTrigger>
+        <TabsTrigger value="storage">{t('settings.storage.title')}</TabsTrigger>
         <TabsTrigger value="ftp">{t('settings.ftpServer')}</TabsTrigger>
         <TabsTrigger value="googleMaps">{t('settings.googleMaps')}</TabsTrigger>
         <TabsTrigger value="sentry">{t('settings.sentry')}</TabsTrigger>
@@ -739,7 +619,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             {pncEnabled && (
               <>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2 items-start">
                   <div className="space-y-2">
                     <Label htmlFor="pnc-provider" className="leading-6">
                       {t('settings.pncProvider')}
@@ -818,7 +698,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 )}
 
                 {pncProvider === 'hubject' && (
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-4 sm:grid-cols-2 items-start">
                     <div className="space-y-2">
                       <Label htmlFor="pnc-hubject-base-url" className="leading-6">
                         {t('settings.pncHubjectBaseUrl')}
@@ -1088,7 +968,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <p className="text-sm text-muted-foreground">
                 {t('settings.guestLimitsDescription')}
               </p>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2 items-start">
                 <div className="grid gap-2">
                   <Label htmlFor="guest-starts-per-ip">
                     {t('settings.guestStartsPerIpPerHour')}
@@ -1350,7 +1230,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                   <div className="grid gap-2">
                     <Label htmlFor="google-maps-lat">{t('settings.googleMapsDefaultLat')}</Label>
                     <DecimalInput
@@ -1432,420 +1312,8 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           </CardContent>
         </Card>
       </TabsContent>
-      <TabsContent value="s3" className="mt-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('settings.s3')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t('settings.s3Description')}</p>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="s3-provider" className="leading-6">
-                  {t('settings.s3Provider')}
-                </Label>
-                <Select
-                  id="s3-provider"
-                  value={s3Provider}
-                  onChange={(e) => {
-                    const next = storageProviderOf(e.target.value);
-                    setS3Provider(next);
-                    // R2 stores the region auto, which means nothing elsewhere.
-                    if (next !== 'r2' && s3Region === 'auto') setS3Region('');
-                  }}
-                >
-                  <option value="s3">{t('settings.s3ProviderAws')}</option>
-                  <option value="s3-compatible">{t('settings.s3ProviderCompatible')}</option>
-                  <option value="r2">{t('settings.s3ProviderR2')}</option>
-                </Select>
-              </div>
-
-              {s3Provider === 'r2' && (
-                <div className="space-y-2">
-                  <Label htmlFor="s3-endpoint" className="leading-6">
-                    {t('settings.s3R2Endpoint')}
-                  </Label>
-                  <Input
-                    id="s3-endpoint"
-                    value={s3Endpoint}
-                    onChange={(e) => {
-                      setS3Endpoint(e.target.value);
-                    }}
-                    placeholder="https://<account id>.r2.cloudflarestorage.com"
-                  />
-                  <p className="text-xs text-muted-foreground">{t('settings.s3R2EndpointHint')}</p>
-                </div>
-              )}
-
-              {s3Provider === 's3-compatible' && (
-                <div className="space-y-2">
-                  <Label htmlFor="s3-endpoint" className="leading-6">
-                    {t('settings.s3Endpoint')}
-                  </Label>
-                  <Input
-                    id="s3-endpoint"
-                    value={s3Endpoint}
-                    onChange={(e) => {
-                      setS3Endpoint(e.target.value);
-                    }}
-                    placeholder="https://s3.example.com"
-                  />
-                  <p className="text-xs text-muted-foreground">{t('settings.s3EndpointHint')}</p>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="s3-bucket" className="leading-6">
-                  {t('settings.s3Bucket')}
-                </Label>
-                <Input
-                  id="s3-bucket"
-                  value={s3Bucket}
-                  onChange={(e) => {
-                    setS3Bucket(e.target.value);
-                  }}
-                  placeholder="my-csms-attachments"
-                />
-              </div>
-
-              {s3Provider !== 'r2' && (
-                <div className="space-y-2">
-                  <Label htmlFor="s3-region" className="leading-6">
-                    {t('settings.s3Region')}
-                  </Label>
-                  <Input
-                    id="s3-region"
-                    value={s3Region}
-                    onChange={(e) => {
-                      setS3Region(e.target.value);
-                    }}
-                    placeholder={S3_COMPATIBLE_DEFAULT_REGION}
-                  />
-                  {s3Provider === 's3-compatible' && (
-                    <p className="text-xs text-muted-foreground">
-                      {t('settings.s3RegionCompatibleHint', {
-                        region: S3_COMPATIBLE_DEFAULT_REGION,
-                      })}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="s3-access-key" className="leading-6">
-                  {t('settings.s3AccessKeyId')}
-                </Label>
-                <Input
-                  id="s3-access-key"
-                  value={s3AccessKeyId}
-                  onChange={(e) => {
-                    setS3AccessKeyId(e.target.value);
-                  }}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="s3-secret-key" className="leading-6">
-                  {t('settings.s3SecretAccessKey')}
-                </Label>
-                <PasswordInput
-                  id="s3-secret-key"
-                  value={s3SecretAccessKey}
-                  onChange={(e) => {
-                    setS3SecretAccessKey(e.target.value);
-                  }}
-                  placeholder={
-                    settings != null &&
-                    typeof settings['s3.secretAccessKeyEnc'] === 'string' &&
-                    settings['s3.secretAccessKeyEnc'] !== ''
-                      ? '********'
-                      : ''
-                  }
-                />
-              </div>
-            </div>
-
-            {s3Provider === 's3-compatible' && (
-              <Collapsible
-                title={t('settings.s3Advanced')}
-                summary={s3AdvancedSummary}
-                data-testid="s3-advanced"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="s3-force-path-style"
-                      checked={s3ForcePathStyle}
-                      onChange={(e) => {
-                        setS3ForcePathStyle(e.target.checked);
-                      }}
-                    />
-                    <Label htmlFor="s3-force-path-style" className="font-normal">
-                      {t('settings.s3ForcePathStyle')}
-                    </Label>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="s3-allowed-hosts" className="leading-6">
-                      {t('settings.s3AllowedPrivateHosts')}
-                    </Label>
-                    <Textarea
-                      id="s3-allowed-hosts"
-                      rows={3}
-                      value={s3AllowedHosts}
-                      onChange={(e) => {
-                        setS3AllowedHosts(e.target.value);
-                      }}
-                      placeholder="minio.internal.example"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t('settings.s3AllowedPrivateHostsHint')}
-                    </p>
-                  </div>
-                </div>
-              </Collapsible>
-            )}
-
-            {s3NeedsProof && (
-              <FactorProofField
-                key={`s3-${String(s3ProofRound)}`}
-                idPrefix="s3-proof"
-                kinds={s3ProofKinds}
-                codeMethod={mfaStatus?.mfaMethod ?? null}
-                description={t('settings.s3ProofHint')}
-                onChange={setS3Proof}
-                rejection={s3ProofFailure}
-                showMissing={s3ProofAsked}
-              />
-            )}
-
-            <div className="flex justify-end gap-2">
-              <SaveButton
-                isPending={s3Mutation.isPending}
-                type="button"
-                disabled={
-                  s3Bucket === '' ||
-                  (s3Provider === 's3' && s3Region.trim() === '') ||
-                  s3AccessKeyId === '' ||
-                  s3SecretAccessKey === '' ||
-                  (s3HasEndpoint && s3Endpoint.trim() === '')
-                }
-                onClick={() => {
-                  if (s3NeedsProof && s3Proof == null) {
-                    setS3ProofAsked(true);
-                    return;
-                  }
-                  s3Mutation.mutate(
-                    {
-                      ...(s3NeedsProof && s3Proof != null ? { proof: s3Proof } : {}),
-                      provider: s3Provider,
-                      bucket: s3Bucket,
-                      // R2 has a single region (auto), which the server sets.
-                      ...(s3Provider !== 'r2' ? { region: s3Region.trim() } : {}),
-                      // The keys go only when edited, or with a new provider or
-                      // endpoint (stored keys never follow a new destination);
-                      // otherwise the server keeps the stored keys, so keys
-                      // another user rotated since this form loaded stay.
-                      ...(s3DestinationChanged || isEditedField(s3, s3Taken, 'accessKeyId')
-                        ? { accessKeyId: s3AccessKeyId }
-                        : {}),
-                      ...(s3DestinationChanged || isEditedField(s3, s3Taken, 'secretAccessKey')
-                        ? { secretAccessKey: s3SecretAccessKey }
-                        : {}),
-                      ...(s3Provider === 'r2' ? { endpoint: s3Endpoint.trim() } : {}),
-                      ...(s3Provider === 's3-compatible'
-                        ? {
-                            endpoint: s3Endpoint.trim(),
-                            forcePathStyle: s3ForcePathStyle,
-                            allowedPrivateHosts: s3AllowedHosts
-                              .split(/[\s,]+/)
-                              .map((h) => h.trim())
-                              .filter((h) => h !== ''),
-                          }
-                        : {}),
-                    },
-                    {
-                      onSuccess: () => {
-                        takeS3Load(s3);
-                      },
-                    },
-                  );
-                }}
-              />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  s3TestMutation.mutate();
-                }}
-                disabled={s3TestMutation.isPending}
-              >
-                <Send className="h-4 w-4" />
-                {t('settings.s3Test')}
-              </Button>
-            </div>
-            {s3Mutation.isSuccess && (
-              <p className="text-sm text-success text-right">{t('settings.s3Saved')}</p>
-            )}
-            {s3Mutation.isError && (
-              <p className="text-sm text-destructive text-right">
-                {s3Mutation.error instanceof ApiError &&
-                (s3Mutation.error.body as { code?: unknown } | null)?.code === 'PRIVATE_URL'
-                  ? t('settings.s3EndpointRefused')
-                  : s3RefusedField(s3Mutation.error) === 'allowedPrivateHosts'
-                    ? t('settings.s3AllowedHostsRefused')
-                    : s3RefusedField(s3Mutation.error) === 'endpoint'
-                      ? t('settings.s3R2EndpointRefused')
-                      : s3RefusedField(s3Mutation.error) === 'bucket'
-                        ? t('settings.s3R2BucketMismatch')
-                        : t('settings.s3SaveFailed')}
-              </p>
-            )}
-            {s3TestMutation.isSuccess && (
-              <p className="text-sm text-success text-right">{t('settings.s3TestSuccess')}</p>
-            )}
-            {s3TestMutation.isError && (
-              <p className="text-sm text-destructive text-right">{t('settings.s3TestFailed')}</p>
-            )}
-
-            {s3Provider === 's3-compatible' ? (
-              <div className="space-y-3 border-t pt-4" data-testid="s3-compatible-setup">
-                <h3 className="text-sm font-medium">{t('settings.s3SetupTitle')}</h3>
-                <p className="text-sm text-muted-foreground">{t('settings.s3SetupPermissions')}</p>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  {STORAGE_ACCESS_ACTIONS.map(({ id, action }) => (
-                    <li key={id}>
-                      {t(`settings.s3Permission.${id}`)}{' '}
-                      <code className="rounded bg-muted px-1 py-0.5 text-xs">{action}</code>
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-sm text-muted-foreground">{t('settings.s3SetupCors')}</p>
-                <ul className="space-y-1" data-testid="s3-cors-origins">
-                  {storageBrowserOrigins(window.location.origin, PORTAL_BASE_URL).map(
-                    ({ origin, placeholder }) => (
-                      <li key={origin} className="flex min-w-0 items-center gap-2">
-                        <code className="min-w-0 rounded bg-muted px-1 py-0.5 text-xs wrap-anywhere">
-                          {origin}
-                        </code>
-                        {!placeholder && <CopyButton value={origin} />}
-                      </li>
-                    ),
-                  )}
-                </ul>
-                <p className="text-sm text-muted-foreground">{t('settings.s3BucketPrivateNote')}</p>
-                <p className="text-sm text-muted-foreground">{t('settings.s3ImageOriginHint')}</p>
-                <a
-                  href={S3_COMPATIBLE_SETUP_DOCS_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block text-sm text-link hover:underline"
-                >
-                  {t('settings.s3SetupDocsLink')}
-                </a>
-              </div>
-            ) : s3Provider === 'r2' ? (
-              <div className="space-y-3 border-t pt-4" data-testid="s3-r2-setup">
-                <h3 className="text-sm font-medium">{t('settings.s3R2TokenTitle')}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.s3R2TokenDescription')}
-                </p>
-                <p className="text-sm text-muted-foreground">{t('settings.s3R2CorsDescription')}</p>
-                <pre
-                  className="overflow-x-auto rounded-md bg-muted p-4 text-xs"
-                  data-testid="s3-cors-example"
-                >
-                  {buildS3CorsExample(window.location.origin, PORTAL_BASE_URL, 'PUT')}
-                </pre>
-                <p className="text-sm text-muted-foreground">{t('settings.s3BucketPrivateNote')}</p>
-                <p className="text-sm text-muted-foreground">{t('settings.s3R2ImageOriginHint')}</p>
-                <a
-                  href={R2_SETUP_DOCS_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block text-sm text-link hover:underline"
-                >
-                  {t('settings.s3R2SetupDocsLink')}
-                </a>
-              </div>
-            ) : (
-              <>
-                <div className="border-t pt-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setS3PolicyOpen((prev) => !prev);
-                    }}
-                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <ChevronDown
-                      className={`h-4 w-4 transition-transform ${s3PolicyOpen ? 'rotate-180' : ''}`}
-                    />
-                    {t('settings.s3PolicyTitle')}
-                  </button>
-                  {s3PolicyOpen && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-sm text-muted-foreground">
-                        {t('settings.s3PolicyDescription')}
-                      </p>
-                      <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
-                        {`{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject"
-      ],
-      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
-    }
-  ]
-}`}
-                      </pre>
-                      <p className="text-sm text-muted-foreground">
-                        {t('settings.s3BucketPrivateNote')}
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <div className="border-t pt-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setS3CorsOpen((prev) => !prev);
-                    }}
-                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <ChevronDown
-                      className={`h-4 w-4 transition-transform ${s3CorsOpen ? 'rotate-180' : ''}`}
-                    />
-                    {t('settings.s3CorsTitle')}
-                  </button>
-                  {s3CorsOpen && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-sm text-muted-foreground">
-                        {t('settings.s3CorsDescription')}
-                      </p>
-                      <pre
-                        className="overflow-x-auto rounded-md bg-muted p-4 text-xs"
-                        data-testid="s3-cors-example"
-                      >
-                        {buildS3CorsExample(window.location.origin, PORTAL_BASE_URL)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      <TabsContent value="storage" className="mt-4" keepMounted={storageVisited}>
+        <StorageSettings settings={settings} />
       </TabsContent>
       <TabsContent value="ftp" className="mt-4">
         <Card>
@@ -1855,7 +1323,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">{t('settings.ftpServerDescription')}</p>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 items-start">
               <div className="space-y-2">
                 <Label htmlFor="ftp-host" className="leading-6">
                   {t('settings.ftpHost')}

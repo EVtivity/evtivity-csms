@@ -158,7 +158,7 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
         />
         {editing ? (
           <form onSubmit={handleSave} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="edit-firstName" className="leading-6">
                   {t('users.firstName')}
@@ -207,7 +207,7 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                 />
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="edit-language" className="leading-6">
                   {t('profile.language')}

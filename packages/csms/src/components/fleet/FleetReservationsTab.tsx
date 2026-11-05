@@ -410,7 +410,7 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="fleet-reservation-starts">{t('reservations.startsAt')}</Label>
                 <DateTimeInput

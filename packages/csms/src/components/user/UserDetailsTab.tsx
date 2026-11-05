@@ -272,7 +272,7 @@ export function UserDetailsTab({
               <Input id="edit-email" value={user.email} disabled />
             )}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             <div className="space-y-2">
               <Label htmlFor="edit-first" className="leading-6">
                 {t('users.firstName')}

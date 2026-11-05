@@ -81,17 +81,19 @@ export function validateStorageEndpoint(
 
 /**
  * The S3 API host of a Cloudflare R2 account: the 32 hex character account ID,
- * then the jurisdiction (none, `eu` or `fedramp`). Presigned URLs work only on
- * this host, not on a bucket's custom domain or r2.dev address.
+ * then the jurisdiction (none, `eu`, `fedramp` or `us`; Cloudflare R2 docs, "Data
+ * location": `https://<ACCOUNT_ID>.<JURISDICTION>.r2.cloudflarestorage.com`,
+ * https://developers.cloudflare.com/r2/reference/data-location/). Presigned URLs
+ * work only on this host, not on a bucket's custom domain or r2.dev address.
  */
-const R2_HOST = /^[0-9a-f]{32}\.(?:(?:eu|fedramp)\.)?r2\.cloudflarestorage\.com$/;
+const R2_HOST = /^[0-9a-f]{32}\.(?:(?:eu|fedramp|us)\.)?r2\.cloudflarestorage\.com$/;
 /** The bucket name Cloudflare appends to the S3 API URL it shows, if pasted with it. */
 const R2_BUCKET_PATH = /^\/[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\/?$/;
 
 /**
  * A Cloudflare R2 endpoint as it may be stored: the origin of
- * `https://<account id>.r2.cloudflarestorage.com` (or its `eu` or `fedramp`
- * jurisdiction), as Cloudflare shows it as the bucket's S3 API URL. A bucket
+ * `https://<account id>.r2.cloudflarestorage.com` (or its `eu`, `fedramp` or
+ * `us` jurisdiction), as Cloudflare shows it as the bucket's S3 API URL. A bucket
  * name after the host is dropped, and so is a trailing dot of the host, so the
  * stored origin matches the host the client signs for and the origin listed in
  * STORAGE_IMG_SRC. Any other host is refused, so R2 needs no private hosts

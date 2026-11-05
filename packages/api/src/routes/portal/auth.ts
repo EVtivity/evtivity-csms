@@ -70,6 +70,7 @@ import {
 import { config as apiConfig } from '../../lib/config.js';
 import { driverBillingSchema, toDriverBilling } from '../../lib/portal-billing.js';
 import { recordAuthAudit } from '../../lib/auth-audit.js';
+import { countAuthFailure } from '../../plugins/metrics.js';
 import { activateDriverPortal } from '../../services/driver-portal-access.service.js';
 import { verifyAgainstDummyHash } from '../../lib/dummy-password-hash.js';
 import { verifyPassword } from '../../lib/password-verify.js';
@@ -241,7 +242,11 @@ async function recordRefusedDriverLogin(request: FastifyRequest, email: string):
       .from(drivers)
       .where(emailEquals(drivers.email, email))
       .limit(1);
-    if (existing == null) return;
+    if (existing == null) {
+      // No audit row names an unknown email; the metric still counts the try.
+      countAuthFailure('driver', 'password', 'unknown_account');
+      return;
+    }
     await recordAuthAudit(request, {
       kind: 'driver',
       accountId: existing.id,

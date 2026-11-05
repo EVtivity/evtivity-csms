@@ -170,6 +170,14 @@ describe('EnergyAssetsCard', () => {
     expect(screen.getByText('loadManagement.noEnergyAssets')).toBeTruthy();
   });
 
+  it('opens the form to add the first asset of a site without any', () => {
+    renderCard({ assets: [] });
+    fireEvent.click(screen.getByRole('button', { name: /loadManagement.addEnergyAsset/ }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('loadManagement.addEnergyAsset')).toBeTruthy();
+    expect(document.getElementById('asset-name')).toBeTruthy();
+  });
+
   it('is read only without loadManagement:write', () => {
     renderCard({ canWrite: false });
     expect(screen.queryByRole('button', { name: /loadManagement.addEnergyAsset/ })).toBeNull();

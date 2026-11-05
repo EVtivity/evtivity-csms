@@ -95,7 +95,7 @@ export function BulkReservationSlotRow({
   return (
     <div className="rounded-md border p-3 space-y-3">
       <div className="flex items-start gap-2">
-        <div className="grid gap-3 flex-1 md:grid-cols-3">
+        <div className="grid gap-3 flex-1 md:grid-cols-3 items-start">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground leading-6">
               {t('reservations.stationId')}

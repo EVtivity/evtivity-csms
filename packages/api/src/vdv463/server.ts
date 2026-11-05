@@ -41,6 +41,11 @@ import { verifyDepotSystemPassword } from '../lib/depot-system-password.js';
 import { DEPOT_SYSTEM_CHANGED_CHANNEL } from '../lib/depot-system-channel.js';
 import { auditDepotSystemAuthLock } from '../services/depot-system-requests.js';
 import {
+  depotSystemAuthLocksTotal,
+  depotSystemConnections,
+  depotSystemSignInsTotal,
+} from '../plugins/metrics.js';
+import {
   VDV463_ADDRESS_LOCK_FAILURES,
   addressWaiting,
   failureKey,
@@ -214,6 +219,7 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
     ...timers,
     onClosed: (c) => {
       if (live.get(c.systemId) === c) live.delete(c.systemId);
+      depotSystemConnections.set(live.size);
     },
   });
 
@@ -222,6 +228,7 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
     lock: Parameters<typeof auditDepotSystemAuthLock>[1],
   ): void => {
     deps.log.warn({ depotSystemId: system.id, ...lock }, 'Depot system sign-in locked');
+    depotSystemAuthLocksTotal.inc({ scope: lock.scope });
     void auditLock(system, lock, deps.log).catch((err: unknown) => {
       deps.log.warn({ err, depotSystemId: system.id }, 'Depot system sign-in lock not audited');
     });
@@ -233,7 +240,10 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
   // so a correct password from a clean address still signs in.
   const authenticate = async (req: IncomingMessage, ip: string): Promise<DepotSystem | null> => {
     const credentials = basicCredentials(req.headers.authorization);
-    if (credentials == null) return null;
+    if (credentials == null) {
+      depotSystemSignInsTotal.inc({ result: 'no_credentials' });
+      return null;
+    }
     const system = await getDepotSystemByPresystemId(credentials.user);
     const nowMs = now().getTime();
     const key = system != null ? failureKey(system.id, ip) : null;
@@ -245,8 +255,16 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
       system != null && !held ? system.passwordHash : null,
       credentials.password,
     );
-    if (system == null || key == null || held) return null;
+    if (system == null || key == null) {
+      depotSystemSignInsTotal.inc({ result: 'unknown_system' });
+      return null;
+    }
+    if (held) {
+      depotSystemSignInsTotal.inc({ result: 'waiting' });
+      return null;
+    }
     if (!ok) {
+      depotSystemSignInsTotal.inc({ result: 'wrong_password' });
       const count = await failures.fail(key, nowMs);
       if (count === VDV463_ADDRESS_LOCK_FAILURES) {
         lockAudited(system, {
@@ -272,9 +290,13 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
     // A disabled system answers like a wrong password, after the same check, so
     // the timing does not tell them apart. No counter is cleared and no
     // connection is recorded (security review AUTH-L2).
-    if (!system.isEnabled) return null;
+    if (!system.isEnabled) {
+      depotSystemSignInsTotal.inc({ result: 'disabled' });
+      return null;
+    }
     await failures.clear(key);
     await recordDepotSystemConnected(system.id);
+    depotSystemSignInsTotal.inc({ result: 'ok' });
     return system;
   };
 
@@ -284,19 +306,23 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
     const ip = clientIp(req);
     if (!secure(req)) {
       deps.log.warn({ ip }, 'Depot system connection over plain HTTP refused');
+      depotSystemSignInsTotal.inc({ result: 'plain_http' });
       reject(socket, 403, 'Forbidden');
       return;
     }
     if (overAddressLimit(ip)) {
+      depotSystemSignInsTotal.inc({ result: 'rate_limited' });
       reject(socket, 429, 'Too Many Requests');
       return;
     }
     if (!(await isVdv463Enabled())) {
+      depotSystemSignInsTotal.inc({ result: 'interface_off' });
       reject(socket, 503, 'Service Unavailable');
       return;
     }
     // Every check runs one argon2 verify: a bounded number at once per process.
     if (pendingSignIns >= VDV463_MAX_PENDING_SIGN_INS) {
+      depotSystemSignInsTotal.inc({ result: 'busy' });
       reject(socket, 503, 'Service Unavailable');
       return;
     }
@@ -326,6 +352,7 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
       if (previous != null) previous.close(VDV463_CLOSE_REPLACED, 'Replaced by a newer connection');
       const connection = new Vdv463Connection(ws, system, connectionDeps());
       live.set(system.id, connection);
+      depotSystemConnections.set(live.size);
       deps.log.info({ depotSystemId: system.id, ip }, 'Depot system connected');
       void deps.pubsub
         .publish(
@@ -432,6 +459,7 @@ export function attachVdv463Server(server: Server, deps: Vdv463ServerDeps): Vdv4
       server.off('upgrade', listener);
       for (const c of [...live.values()]) c.close(1001, 'Server shutting down');
       live.clear();
+      depotSystemConnections.set(0);
       wss.close();
       if (subscription != null) await subscription.unsubscribe();
     },

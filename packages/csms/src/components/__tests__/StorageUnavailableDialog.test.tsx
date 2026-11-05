@@ -79,7 +79,7 @@ describe('StorageUnavailableDialog', () => {
     const { onOpenChange } = renderDialog();
     const dialog = screen.getByRole('dialog', { name: 'storageUnavailable.title' });
     expect(dialog.textContent).toContain(
-      'storageUnavailable.description(nav.settings > settings.integrations > settings.s3)',
+      'storageUnavailable.description(nav.settings > settings.integrations > settings.storage.title)',
     );
     expect(screen.queryByRole('button', { name: 'storageUnavailable.openSettings' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'common.ok' }));

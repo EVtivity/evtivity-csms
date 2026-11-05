@@ -71,8 +71,14 @@ export function createLoadManagementWorker(
       const startTime = Date.now();
       try {
         log.info({ siteId }, 'Processing load management for site');
-        await runLoadManagementCycle(log, siteId, cycleOptions);
-        await logJobCompleted(logId, Date.now() - startTime);
+        const { failedSites } = await runLoadManagementCycle(log, siteId, cycleOptions);
+        // The cycle logs a site failure and goes on; the job row records it as
+        // failed, so worker_jobs_last_hour counts it (the job is not retried).
+        if (failedSites > 0) {
+          await logJobFailed(logId, Date.now() - startTime, 'Load management cycle failed');
+        } else {
+          await logJobCompleted(logId, Date.now() - startTime);
+        }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
         await logJobFailed(logId, Date.now() - startTime, errorMsg).catch(() => {});

@@ -171,9 +171,9 @@ const CASES: CardCase[] = [
     other: { 'googleMaps.defaultLat': '10' },
   },
   {
-    name: 'S3',
-    sub: 's3',
-    id: 's3-bucket',
+    name: 'Storage',
+    sub: 'storage',
+    id: 'storage-aws-bucket',
     key: 's3.bucket',
     stored: 'bucket',
     edited: 'new-bucket ',
@@ -244,13 +244,12 @@ describe.each(CASES)('IntegrationsSettings $name card on a settings reload', (c)
   });
 });
 
-describe('IntegrationsSettings S3 provider on a settings reload', () => {
-  it('keeps a provider switched to S3-compatible when another setting reloads', () => {
-    const { reload } = setup('s3', S3_BASE);
-    type('s3-provider', 's3-compatible');
+describe('IntegrationsSettings storage provider tabs on a settings reload', () => {
+  it('keeps the edits of another provider tab when another setting reloads', () => {
+    const { reload } = setup('storage', S3_BASE);
+    type('storage-compatible-endpoint', 'https://storage.example.com');
     reload({ ...S3_BASE, 'ocpp.connectionTimeout': 60 });
-    expect(input('s3-provider').value).toBe('s3-compatible');
-    expect(input('s3-endpoint')).toBeTruthy();
+    expect(input('storage-compatible-endpoint').value).toBe('https://storage.example.com');
   });
 });
 
@@ -340,9 +339,9 @@ describe('IntegrationsSettings secrets after a reload of a dirty card', () => {
     });
   });
 
-  it('leaves out S3 keys the user did not edit, and sends an edited one', async () => {
-    const { reload } = setup('s3', S3_BASE);
-    type('s3-bucket', 'new-bucket');
+  it('leaves out storage keys the user did not edit, and sends an edited one', async () => {
+    const { reload } = setup('storage', S3_BASE);
+    type('storage-aws-bucket', 'new-bucket');
     reload({ ...S3_BASE, 's3.secretAccessKeyEnc': 'rotated-secret' });
     fireEvent.click(screen.getAllByRole('button', { name: /save/i })[0] as HTMLElement);
     await saved();
@@ -352,7 +351,7 @@ describe('IntegrationsSettings secrets after a reload of a dirty card', () => {
     expect(body).not.toHaveProperty('secretAccessKey');
 
     apiMock.put.mockClear();
-    type('s3-secret-key', 'typed-secret');
+    type('storage-aws-secret-key', 'typed-secret');
     fireEvent.click(screen.getAllByRole('button', { name: /save/i })[0] as HTMLElement);
     await saved();
     const second = apiMock.put.mock.calls[0]?.[1] as Record<string, unknown>;
@@ -360,15 +359,10 @@ describe('IntegrationsSettings secrets after a reload of a dirty card', () => {
     expect(second).not.toHaveProperty('accessKeyId');
   });
 
-  it('sends both S3 keys with a new provider', async () => {
-    setup('s3', S3_BASE);
-    type('s3-provider', 's3-compatible');
-    type('s3-endpoint', 'https://storage.example.com');
-    fireEvent.click(screen.getAllByRole('button', { name: /save/i })[0] as HTMLElement);
-    await saved();
-    const body = apiMock.put.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(body.accessKeyId).toBe('AKIA');
-    expect(body.secretAccessKey).toBe('secret');
+  it('shows another provider tab without the stored keys, so they never follow it', () => {
+    setup('storage', S3_BASE);
+    expect(input('storage-compatible-access-key').value).toBe('');
+    expect(input('storage-compatible-secret-key').value).toBe('');
   });
 
   it('leaves out a Hubject client secret the user did not edit', async () => {

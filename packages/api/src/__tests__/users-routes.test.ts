@@ -315,6 +315,7 @@ import { registerAuth } from '../plugins/auth.js';
 import { userRoutes } from '../routes/users.js';
 import * as argon2Module from 'argon2';
 import { writeAudit } from '@evtivity/database';
+import { authFailuresTotal } from '../plugins/metrics.js';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -506,6 +507,7 @@ describe('User routes', () => {
 
   it('POST /v1/auth/login returns 401 when user not found', async () => {
     setupDbResults([]);
+    authFailuresTotal.reset();
     const response = await app.inject({
       method: 'POST',
       url: '/auth/login',
@@ -515,7 +517,14 @@ describe('User routes', () => {
     const body = JSON.parse(response.body);
     expect(body.code).toBe('INVALID_CREDENTIALS');
     // No account to key on: access_logs holds the attempt.
-    expect(vi.mocked(writeAudit)).not.toHaveBeenCalled();
+    expect(vi.mocked(writeAudit)).not.toHaveBeenCalled(); // The metric still counts the try.
+    const { values } = await authFailuresTotal.get();
+    expect(values).toEqual([
+      expect.objectContaining({
+        value: 1,
+        labels: { realm: 'operator', method: 'password', reason: 'unknown_account' },
+      }),
+    ]);
   });
 
   it('GET /v1/users/me returns current user profile', async () => {

@@ -314,7 +314,7 @@ export function StationInfoTab({
               />
               <Label htmlFor="edit-simulator">{t('stations.isSimulator')}</Label>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="edit-latitude">{t('stations.latitude')}</Label>
                 <DecimalInput
@@ -337,7 +337,7 @@ export function StationInfoTab({
               </div>
             </div>
             {canEditSim && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                 <div className="grid gap-2">
                   <Label htmlFor="edit-iccid">{t('stations.iccid')}</Label>
                   <Input

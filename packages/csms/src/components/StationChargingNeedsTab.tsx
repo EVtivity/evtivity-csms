@@ -466,7 +466,7 @@ export function StationChargingNeedsTab({
             <DialogTitle>{t('stationChargingNeeds.addMonitor')}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreate} noValidate className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="monitor-component" className="leading-6">
                   {t('stationChargingNeeds.component')}
@@ -504,7 +504,7 @@ export function StationChargingNeedsTab({
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="monitor-type" className="leading-6">
                   {t('stationChargingNeeds.monitorType')}

@@ -263,7 +263,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">{t('settings.smtpDescription')}</p>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 items-start">
               <div className="space-y-2">
                 <Label htmlFor="smtp-host" className="leading-6">
                   {t('settings.smtpHost')}
@@ -397,7 +397,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">{t('settings.twilioDescription')}</p>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 items-start">
               <div className="space-y-2">
                 <Label htmlFor="twilio-sid" className="leading-6">
                   {t('settings.twilioAccountSid')}
@@ -583,7 +583,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2 items-start">
               <div className="space-y-3">
                 <Label htmlFor="email-wrapper-template" className="leading-6">
                   HTML Template

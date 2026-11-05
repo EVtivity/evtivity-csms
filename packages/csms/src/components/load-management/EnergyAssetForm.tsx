@@ -288,7 +288,7 @@ export function EnergyAssetForm({
         </DialogHeader>
         <DialogForm onSubmit={handleSubmit} noValidate>
           <DialogBody className="grid gap-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="asset-type">{t('loadManagement.assetType')}</Label>
                 <Select
@@ -385,7 +385,7 @@ export function EnergyAssetForm({
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="asset-phases">{t('loadManagement.phases')}</Label>
                 <Select
@@ -436,7 +436,7 @@ export function EnergyAssetForm({
             </p>
 
             {type === 'battery' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                 <div className="grid gap-2">
                   <Label htmlFor="asset-grid-charging">{t('loadManagement.gridCharging')}</Label>
                   <Select
@@ -476,7 +476,7 @@ export function EnergyAssetForm({
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="asset-telemetry">{t('loadManagement.telemetry')}</Label>
                 <Select

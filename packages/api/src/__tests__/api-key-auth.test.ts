@@ -110,6 +110,14 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import * as databaseModule from '@evtivity/database';
+import { authFailuresTotal } from '../plugins/metrics.js';
+
+async function apiKeyFailures(reason: string): Promise<number> {
+  const { values } = await authFailuresTotal.get();
+  return values
+    .filter((v) => v.labels['method'] === 'api_key' && v.labels['reason'] === reason)
+    .reduce((sum, v) => sum + v.value, 0);
+}
 
 // Generate a valid 64-char hex token for testing
 const RAW_TOKEN = 'a'.repeat(64);
@@ -138,6 +146,7 @@ describe('API key authentication in authenticate decorator', () => {
     dbResults = [];
     dbCallIndex = 0;
     vi.clearAllMocks();
+    authFailuresTotal.reset();
   });
 
   it('authenticates with a valid API key and sets request.user', async () => {
@@ -243,6 +252,7 @@ describe('API key authentication in authenticate decorator', () => {
     expect(res.statusCode).toBe(401);
     const body: Record<string, unknown> = res.json();
     expect(body['code']).toBe('API_KEY_EXPIRED');
+    expect(await apiKeyFailures('api_key_expired')).toBe(1);
   });
 
   it('returns 401 for revoked API key (not found in DB)', async () => {
@@ -258,6 +268,7 @@ describe('API key authentication in authenticate decorator', () => {
     expect(res.statusCode).toBe(401);
     const body: Record<string, unknown> = res.json();
     expect(body['error']).toBe('Unauthorized');
+    expect(await apiKeyFailures('api_key_invalid')).toBe(1);
   });
 
   it('does not trigger API key path for non-hex Bearer tokens (JWT-like)', async () => {
@@ -275,6 +286,8 @@ describe('API key authentication in authenticate decorator', () => {
     // DB should NOT have been called since the token is not 64-char hex
     const { db } = databaseModule;
     expect(db.select).not.toHaveBeenCalled();
+    // An expired or bad session token is no API key sign-in failure.
+    expect((await authFailuresTotal.get()).values).toHaveLength(0);
   });
 
   it('returns 401 for inactive user with valid API key', async () => {
@@ -293,6 +306,7 @@ describe('API key authentication in authenticate decorator', () => {
     expect(res.statusCode).toBe(401);
     const body: Record<string, unknown> = res.json();
     expect(body['error']).toBe('Unauthorized');
+    expect(await apiKeyFailures('inactive')).toBe(1);
   });
 
   it('attaches apiKeyPermissions to request.user when API key has scoped permissions', async () => {

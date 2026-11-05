@@ -157,7 +157,7 @@ export function SupportCaseCreate(): React.JSX.Element {
                 <p className="text-sm text-destructive">{errors.description}</p>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <Label htmlFor="case-category-select" className="leading-6">
                   {t('supportCases.category')}

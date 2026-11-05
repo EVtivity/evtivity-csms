@@ -22,8 +22,8 @@ import {
 } from './site-layout-model-reader-parts';
 
 /**
- * Typical of the class, for example the ID TECH VP7200 datasheet (v01.23)
- * and the Nayax VPOS Touch module: module 68 by 68 by 11.5 mm, no display.
+ * Typical of the class, for example the ID TECH VP7200 datasheet (v01.23):
+ * module 68 by 68 by 11.5 mm, no display.
  * Derived: the bezel is the module plus 9 mm a side (an M3 fastener's 6 mm
  * head plus 3 mm edge), 86 mm; the enclosure behind it is the module depth
  * plus 6.5 mm for the cable connector, 18 mm; the indicator a third of the

@@ -30,8 +30,75 @@ describe('storage.service', () => {
     it("loads the storage with this process's settings encryption key", async () => {
       const storage = { provider: 's3', bucket: 'b' };
       mockLoadObjectStorage.mockResolvedValueOnce(storage);
-      await expect(getObjectStorage()).resolves.toBe(storage);
+      const loaded = await getObjectStorage();
+      expect(loaded).toMatchObject({ provider: 's3', bucket: 'b' });
       expect(mockLoadObjectStorage).toHaveBeenCalledWith('test-encryption-key');
+    });
+
+    it('answers null without storage', async () => {
+      mockLoadObjectStorage.mockResolvedValueOnce(null);
+      await expect(getObjectStorage()).resolves.toBeNull();
+    });
+
+    it('returns one wrapper per loaded storage', async () => {
+      const storage = { provider: 'r2', bucket: 'b' };
+      mockLoadObjectStorage.mockResolvedValue(storage);
+      const first = await getObjectStorage();
+      await expect(getObjectStorage()).resolves.toBe(first);
+      mockLoadObjectStorage.mockReset();
+    });
+  });
+
+  describe('storage_operations_total', () => {
+    const counted = async (labels: Record<string, string>): Promise<number> => {
+      const { storageOperationsTotal } = await import('../plugins/metrics.js');
+      const values = (await storageOperationsTotal.get()).values;
+      return (
+        values.find((v) =>
+          Object.entries(labels).every(
+            ([k, val]) => (v.labels as Record<string, unknown>)[k] === val,
+          ),
+        )?.value ?? 0
+      );
+    };
+
+    it('counts each call by operation, provider and result, and rethrows failures', async () => {
+      const { measuredStorage } = await import('../services/storage.service.js');
+      const inner = {
+        provider: 'r2' as const,
+        bucket: 'files',
+        createUpload: vi.fn().mockRejectedValue(new Error('denied')),
+        getDownloadUrl: vi.fn().mockResolvedValue('https://example.com/x'),
+        readObject: vi.fn().mockResolvedValue({ status: 'too_large', size: 9 }),
+        putObject: vi.fn().mockResolvedValue(undefined),
+        deleteObject: vi.fn().mockResolvedValue(undefined),
+        deleteObjectsUnderPrefix: vi.fn().mockResolvedValue(2),
+        testConnection: vi.fn().mockRejectedValue(new Error('no bucket')),
+      };
+      const storage = measuredStorage(inner);
+      await expect(
+        storage.createUpload('k', 'image/png', { size: 1, maxBytes: 10 }),
+      ).rejects.toThrow('denied');
+      await expect(storage.readObject('files', 'k', 10)).resolves.toEqual({
+        status: 'too_large',
+        size: 9,
+      });
+      await storage.putObject('files', 'k', Buffer.from('x'), 'image/png');
+      await expect(storage.deleteObjectsUnderPrefix('files', 'p/')).resolves.toBe(2);
+      await expect(storage.testConnection()).rejects.toThrow('no bucket');
+      await expect(storage.getDownloadUrl('files', 'k')).resolves.toBe('https://example.com/x');
+
+      expect(await counted({ operation: 'create_upload', provider: 'r2', result: 'error' })).toBe(
+        1,
+      );
+      expect(await counted({ operation: 'read_object', provider: 'r2', result: 'too_large' })).toBe(
+        1,
+      );
+      expect(await counted({ operation: 'put_object', provider: 'r2', result: 'ok' })).toBe(1);
+      expect(await counted({ operation: 'delete_prefix', provider: 'r2', result: 'ok' })).toBe(1);
+      expect(await counted({ operation: 'test_connection', provider: 'r2', result: 'error' })).toBe(
+        1,
+      );
     });
   });
 

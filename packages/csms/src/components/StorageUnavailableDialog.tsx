@@ -18,7 +18,7 @@ import { getApiErrorCode } from '@/lib/api';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 
 /** The Settings tab where an administrator sets up file storage (S3). */
-export const FILE_STORAGE_SETTINGS_PATH = '/settings?tab=integrations&sub=s3';
+export const FILE_STORAGE_SETTINGS_PATH = '/settings?tab=integrations&sub=storage';
 
 /** The API error code of an upload route while file storage is not set up. */
 export const STORAGE_NOT_CONFIGURED_CODE = 'STORAGE_NOT_CONFIGURED';
@@ -72,7 +72,9 @@ function OpenStorageUnavailableDialog({
   const canWriteSystem = useHasPermission('settings.system:write');
   const hasAllSiteAccess = useHasAllSiteAccess();
   const canOpenSettings = canReadIntegrations && canWriteSystem && hasAllSiteAccess;
-  const path = [t('nav.settings'), t('settings.integrations'), t('settings.s3')].join(' > ');
+  const path = [t('nav.settings'), t('settings.integrations'), t('settings.storage.title')].join(
+    ' > ',
+  );
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" data-testid="storage-unavailable-dialog">

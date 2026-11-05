@@ -85,7 +85,7 @@ export function TargetFilterFields({
           {helpText ?? t('configTemplates.targetFilterHelp')}
         </p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
         <div className="grid gap-2">
           <Label htmlFor={`${idPrefix}-site`}>{t('configTemplates.site')}</Label>
           <Select

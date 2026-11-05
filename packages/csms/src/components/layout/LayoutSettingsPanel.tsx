@@ -208,7 +208,7 @@ export function LayoutSettingsPanel({
       )}
       <div
         className={cn(
-          'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6',
+          'grid grid-cols-2 items-start gap-3 sm:grid-cols-3 lg:grid-cols-6',
           siteType === 'custom' && 'hidden',
         )}
       >

@@ -402,7 +402,7 @@ export function SchedulesTab(): React.JSX.Element {
               {reportTypesError ? (
                 <ReportTypesLoadError onRetry={refetchReportTypes} />
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2 items-start">
                   <div className="space-y-2">
                     <Label htmlFor="schedule-type" className="leading-6">
                       {t('reports.reportType')}
@@ -443,7 +443,7 @@ export function SchedulesTab(): React.JSX.Element {
                 </div>
               )}
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2 items-start">
                 <div className="space-y-2">
                   <Label htmlFor="schedule-frequency" className="leading-6">
                     {t('reports.frequency')}

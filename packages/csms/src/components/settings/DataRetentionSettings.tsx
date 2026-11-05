@@ -114,7 +114,7 @@ function RetentionGroupCard({
         <CardTitle>{t(`settings.dataRetention.groups.${group}`)}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
           {keys.map((key) => {
             const def: DataRetentionDefinition = DATA_RETENTION_SETTINGS[key];
             const rowId = ROW_IDS[key];

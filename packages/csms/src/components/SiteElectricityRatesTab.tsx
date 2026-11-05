@@ -360,7 +360,7 @@ export function SiteElectricityRatesTab({
             </div>
 
             {(form.type === 'time' || form.type === 'timeDays') && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 items-start">
                 <div className="grid gap-2">
                   <Label htmlFor="rate-start-time">{t('pricing.startTime')}</Label>
                   <TimeInput
@@ -406,7 +406,7 @@ export function SiteElectricityRatesTab({
             )}
 
             {form.type === 'date' && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 items-start">
                 <div className="grid gap-2">
                   <Label htmlFor="rate-start-date">{t('pricing.startDate')}</Label>
                   <Input

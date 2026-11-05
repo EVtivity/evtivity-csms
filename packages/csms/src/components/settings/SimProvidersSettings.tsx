@@ -220,7 +220,7 @@ function HologramCard({
             />
             <Label htmlFor="sim-hologram-enabled">{t('settings.sim.hologramEnabled')}</Label>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="sim-hologram-org-id" className="leading-6">
                 {t('settings.sim.hologramOrgId')}
@@ -420,7 +420,7 @@ function OneNceCard({
             />
             <Label htmlFor="sim-1nce-enabled">{t('settings.sim.oneNceEnabled')}</Label>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="sim-1nce-client-id" className="leading-6">
                 {t('settings.sim.oneNceClientId')}

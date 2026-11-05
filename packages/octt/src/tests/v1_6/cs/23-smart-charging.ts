@@ -321,14 +321,107 @@ export const TC_067_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(SC_HANDLER);
-    const clearResp = await ctx.server.sendCommand('ClearChargingProfile', { id: 1 });
-    steps.push({
-      step: 2,
-      description: 'ClearChargingProfile Accepted',
-      status: (clearResp['status'] as string) === 'Accepted' ? 'passed' : 'failed',
-      expected: 'status = Accepted',
-      actual: `status = ${String(clearResp['status'])}`,
-    });
+    // Before (memory state): ChargingProfile 1 (TxDefaultProfile, stack level 1), 2
+    // (TxDefaultProfile, stack level 0) and 3 (ChargePointMaxProfile on connector 0). A Charge
+    // Point answers Unknown to a clear that matches no profile (1.6 section 5.4), so each clear
+    // needs the profiles it names installed first.
+    const now = Date.now();
+    const iso = (ms: number): string => new Date(ms).toISOString();
+    const before: Array<{ connectorId: number; profile: Record<string, unknown> }> = [
+      {
+        connectorId: 1,
+        profile: {
+          chargingProfileId: 1,
+          stackLevel: 1,
+          chargingProfilePurpose: 'TxDefaultProfile',
+          chargingProfileKind: 'Absolute',
+          chargingSchedule: {
+            duration: 400,
+            startSchedule: iso(now),
+            chargingRateUnit: 'W',
+            chargingSchedulePeriod: [
+              { startPeriod: 0, limit: 6000 },
+              { startPeriod: 60, limit: 8000 },
+              { startPeriod: 200, limit: 10000 },
+            ],
+          },
+        },
+      },
+      {
+        connectorId: 1,
+        profile: {
+          chargingProfileId: 2,
+          stackLevel: 0,
+          chargingProfilePurpose: 'TxDefaultProfile',
+          chargingProfileKind: 'Absolute',
+          validFrom: iso(now),
+          validTo: iso(now + 401_000),
+          chargingSchedule: {
+            duration: 400,
+            startSchedule: iso(now),
+            chargingRateUnit: 'W',
+            chargingSchedulePeriod: [
+              { startPeriod: 0, limit: 7000 },
+              { startPeriod: 100, limit: 9000 },
+            ],
+          },
+        },
+      },
+      {
+        connectorId: 0,
+        profile: {
+          chargingProfileId: 3,
+          stackLevel: 0,
+          chargingProfilePurpose: 'ChargePointMaxProfile',
+          chargingProfileKind: 'Absolute',
+          validFrom: iso(now),
+          validTo: iso(now + 401_000),
+          chargingSchedule: {
+            duration: 86400,
+            startSchedule: iso(now),
+            chargingRateUnit: 'W',
+            chargingSchedulePeriod: [
+              { startPeriod: 0, limit: 11000 },
+              { startPeriod: 200, limit: 12000 },
+            ],
+          },
+        },
+      },
+    ];
+    for (const { connectorId, profile } of before) {
+      const setResp = await ctx.server.sendCommand('SetChargingProfile', {
+        connectorId,
+        csChargingProfiles: profile,
+      });
+      if ((setResp['status'] as string) !== 'Accepted') {
+        steps.push({
+          step: 0,
+          description: `Before: SetChargingProfile ${String(profile['chargingProfileId'])} Accepted`,
+          status: 'failed',
+          expected: 'status = Accepted',
+          actual: `status = ${String(setResp['status'])}`,
+        });
+      }
+    }
+    const clears: Array<{ step: number; payload: Record<string, unknown>; label: string }> = [
+      { step: 2, payload: { id: 1 }, label: 'by the id of ChargingProfile 1' },
+      {
+        step: 6,
+        payload: { chargingProfilePurpose: 'TxDefaultProfile', stackLevel: 0 },
+        label: 'by the purpose and stack level of ChargingProfile 2',
+      },
+      { step: 10, payload: {}, label: 'with all fields omitted' },
+    ];
+    for (const clear of clears) {
+      const clearResp = await ctx.server.sendCommand('ClearChargingProfile', clear.payload);
+      steps.push({
+        step: clear.step,
+        description: `ClearChargingProfile ${clear.label} Accepted`,
+        status: (clearResp['status'] as string) === 'Accepted' ? 'passed' : 'failed',
+        expected: 'status = Accepted',
+        actual: `status = ${String(clearResp['status'])}`,
+      });
+    }
     const allPassed = steps.every((s) => s.status === 'passed');
     return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },

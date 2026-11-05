@@ -125,7 +125,7 @@ export function SupportCases(): React.JSX.Element {
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-1 gap-4 p-4 md:grid-cols-3 lg:grid-cols-4">
+        <CardContent className="grid grid-cols-1 gap-4 p-4 md:grid-cols-3 lg:grid-cols-4 items-start">
           <div className="space-y-2">
             <Label htmlFor="cases-search" className="leading-6">
               {t('supportCases.search')}

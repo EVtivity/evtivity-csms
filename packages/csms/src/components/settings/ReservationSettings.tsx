@@ -138,7 +138,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
           noValidate
           className="space-y-4"
         >
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid gap-6 sm:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="reservation-buffer-minutes" className="leading-6">
                 {t('settings.reservationBufferMinutes')}

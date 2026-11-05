@@ -417,3 +417,31 @@ describe('bus depot interface kill switch', () => {
     expect(frames).toHaveLength(0);
   });
 });
+
+describe('bus depot interface metrics', () => {
+  async function signIns(result: string): Promise<number> {
+    const { depotSystemSignInsTotal } = await import('../plugins/metrics.js');
+    return (
+      (await depotSystemSignInsTotal.get()).values.find((v) => v.labels['result'] === result)
+        ?.value ?? 0
+    );
+  }
+
+  it('counts sign-ins by result and the live connections of the process', async () => {
+    const { depotSystemConnections } = await import('../plugins/metrics.js');
+    const okBefore = await signIns('ok');
+    const wrongBefore = await signIns('wrong_password');
+    await failFrom('203.0.113.50', 1);
+    const ok = await connect('198.51.100.50', PASSWORD);
+    expect(ok.status).toBe(101);
+    expect(await signIns('ok')).toBe(okBefore + 1);
+    expect(await signIns('wrong_password')).toBe(wrongBefore + 1);
+    expect((await depotSystemConnections.get()).values[0]?.value).toBe(1);
+    const closed = new Promise<void>((resolve) => ok.ws?.on('close', () => resolve()));
+    ok.ws?.close();
+    await closed;
+    await vi.waitFor(async () => {
+      expect((await depotSystemConnections.get()).values[0]?.value).toBe(0);
+    });
+  });
+});

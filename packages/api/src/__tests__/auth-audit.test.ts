@@ -15,6 +15,7 @@ vi.mock('@evtivity/database', () => ({
 import { writeAudit, userAuditLog, driverAuditLog, stationAuditLog } from '@evtivity/database';
 import { authRequestOrigin, recordAuthAudit } from '../lib/auth-audit.js';
 import { commandOutcome, recordStationCommandAudit } from '../lib/station-command-audit.js';
+import { authFailuresTotal, countAuthFailure } from '../plugins/metrics.js';
 
 function request(headers: Record<string, string> = {}): FastifyRequest {
   return { ip: '10.0.0.7', headers, log: { warn: vi.fn() } } as unknown as FastifyRequest;
@@ -129,5 +130,67 @@ describe('recordStationCommandAudit', () => {
     expect(commandOutcome({ response: { status: 'Rejected' } })).toBe('Rejected');
     expect(commandOutcome({ error: 'timeout' })).toBe('error');
     expect(commandOutcome({ response: {} })).toBe('Unknown');
+  });
+});
+
+describe('auth_failures_total', () => {
+  async function count(labels: Record<string, string>): Promise<number> {
+    const { values } = await authFailuresTotal.get();
+    return values
+      .filter((v) =>
+        Object.entries(labels).every(
+          ([k, val]) => (v.labels as Record<string, string | number | undefined>)[k] === val,
+        ),
+      )
+      .reduce((sum, v) => sum + v.value, 0);
+  }
+
+  beforeEach(() => {
+    authFailuresTotal.reset();
+  });
+
+  it('counts a failed operator and driver sign-in with its method and reason', async () => {
+    await recordAuthAudit(request(), {
+      kind: 'user',
+      accountId: 'usr_1',
+      action: 'login_failed',
+      method: 'password',
+      reason: 'bad_password',
+    });
+    await recordAuthAudit(request(), {
+      kind: 'driver',
+      accountId: null,
+      action: 'login_failed',
+      method: 'passkey',
+      reason: 'webauthn_unknown_credential',
+    });
+    expect(await count({ realm: 'operator', method: 'password', reason: 'bad_password' })).toBe(1);
+    expect(
+      await count({ realm: 'driver', method: 'passkey', reason: 'webauthn_unknown_credential' }),
+    ).toBe(1);
+  });
+
+  it('counts a failure without a reason as unknown and never counts a success', async () => {
+    await recordAuthAudit(request(), {
+      kind: 'driver',
+      accountId: 'drv_1',
+      action: 'login_failed',
+      method: 'mfa',
+    });
+    await recordAuthAudit(request(), {
+      kind: 'user',
+      accountId: 'usr_1',
+      action: 'login_succeeded',
+      method: 'password',
+    });
+    expect(await count({ realm: 'driver', method: 'mfa', reason: 'unknown' })).toBe(1);
+    expect(await count({})).toBe(1);
+  });
+
+  it('counts directly for failures that write no audit row', async () => {
+    countAuthFailure('operator', 'api_key', 'api_key_invalid');
+    expect(await count({ realm: 'operator', method: 'api_key', reason: 'api_key_invalid' })).toBe(
+      1,
+    );
   });
 });

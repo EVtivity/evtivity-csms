@@ -140,7 +140,7 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
                 <p className="text-sm text-destructive">{errors.name}</p>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-10 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-10 gap-4 items-start">
               <div className="space-y-2 md:col-span-7">
                 <Label htmlFor="campaign-firmware-url" className="leading-6">
                   {t('firmwareCampaigns.firmwareUrl')}

@@ -439,7 +439,7 @@ function StationDataSection(): React.JSX.Element {
             <form onSubmit={handleSave} className="space-y-6">
               <div className="space-y-3">
                 <h3 className="text-sm font-medium">{t('nevi.operatorName')}</h3>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2 items-start">
                   <div className="space-y-1">
                     <Label htmlFor="nevi-operator-name" className="leading-6">
                       {t('nevi.operatorName')}
@@ -494,7 +494,7 @@ function StationDataSection(): React.JSX.Element {
 
               <div className="space-y-3">
                 <h3 className="text-sm font-medium">{t('nevi.installationCost')}</h3>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2 items-start">
                   <div className="space-y-1">
                     <Label htmlFor="nevi-installation-cost" className="leading-6">
                       {t('nevi.installationCost')}
@@ -546,7 +546,7 @@ function StationDataSection(): React.JSX.Element {
 
               <div className="space-y-3">
                 <h3 className="text-sm font-medium">{t('nevi.derType')}</h3>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-3 items-start">
                   <div className="space-y-1">
                     <Label htmlFor="nevi-der-type" className="leading-6">
                       {t('nevi.derType')}

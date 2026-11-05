@@ -125,7 +125,7 @@ export function AiInsights(): React.JSX.Element {
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 items-start">
           <div className="space-y-2">
             <Label htmlFor="ai-insights-status" className="leading-6">
               {t('common.status')}

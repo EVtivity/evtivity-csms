@@ -1455,7 +1455,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       .max(2048)
       .optional()
       .describe(
-        'Endpoint URL, required for s3-compatible and r2. s3-compatible: without a path, https on a public host, or a host in allowedPrivateHosts (which may use http). r2: the S3 API URL of the account, https://<account id>.r2.cloudflarestorage.com (or its eu or fedramp jurisdiction); a bucket name after it must be the bucket and is not stored',
+        'Endpoint URL, required for s3-compatible and r2. s3-compatible: without a path, https on a public host, or a host in allowedPrivateHosts (which may use http). r2: the S3 API URL of the account, https://<account id>.r2.cloudflarestorage.com (or its eu, fedramp or us jurisdiction); a bucket name after it must be the bucket and is not stored',
       ),
     forcePathStyle: z
       .boolean()

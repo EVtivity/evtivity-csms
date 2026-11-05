@@ -122,7 +122,7 @@ export function DriverBillingAddressCard({
     >
       {editing ? (
         <form onSubmit={handleSave} noValidate className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
             {FIELDS.map(({ key, label, maxLength }) => (
               <div key={key} className="space-y-2">
                 <Label htmlFor={`driver-${key}`}>{t(label)}</Label>

@@ -268,7 +268,7 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                 <p className="text-sm text-destructive">{validationErrors.editName}</p>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-10 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-10 gap-4 items-start">
               <div className="grid gap-2 md:col-span-7">
                 <Label htmlFor="fcd-edit-firmware-url">{t('firmwareCampaigns.firmwareUrl')}</Label>
                 <Input

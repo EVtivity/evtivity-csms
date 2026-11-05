@@ -503,7 +503,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
               </div>
 
               <div
-                className={`grid grid-cols-1 gap-4 ${editKind === 'Recurring' ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}
+                className={`grid grid-cols-1 items-start gap-4 ${editKind === 'Recurring' ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}
               >
                 <div className="grid gap-2">
                   <div className="flex items-center gap-1.5">
@@ -565,7 +565,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
                 <div className="grid gap-2">
                   <div className="flex items-center gap-1.5">
                     <Label htmlFor="scd-edit-profile-id">{t('smartCharging.profileId')}</Label>
@@ -628,7 +628,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
                 <div className="grid gap-2">
                   <Label htmlFor="scd-edit-start-schedule">
                     {t('smartCharging.startSchedule')}
@@ -694,7 +694,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                   {t('configTemplates.targetFilterHelp')}
                 </p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
                 <div className="grid gap-2">
                   <Label htmlFor="edit-filter-site-select">{t('configTemplates.site')}</Label>
                   <Select

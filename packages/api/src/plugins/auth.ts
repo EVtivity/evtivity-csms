@@ -8,6 +8,7 @@ import { refreshTokens, users, userPermissions, OCTT_API_KEY_NAME } from '@evtiv
 import { eq, and, isNull, or, lt } from 'drizzle-orm';
 import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
+import { countAuthFailure } from './metrics.js';
 import { hashToken } from '../lib/token-hash.js';
 import { authRequestOrigin } from '../lib/auth-audit.js';
 import { getDriverSessionState } from '../lib/driver-active.js';
@@ -287,6 +288,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
 
             // Check expiry
             if (row.expiresAt != null && row.expiresAt < new Date()) {
+              countAuthFailure('operator', 'api_key', 'api_key_expired');
               await reply.status(401).send({ error: 'API key expired', code: 'API_KEY_EXPIRED' });
               return;
             }
@@ -372,6 +374,11 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
 
               return;
             }
+            // The key's user is gone or inactive.
+            countAuthFailure('operator', 'api_key', 'inactive');
+          } else {
+            // A token of API key shape that names no live key (unknown or revoked).
+            countAuthFailure('operator', 'api_key', 'api_key_invalid');
           }
         }
       }

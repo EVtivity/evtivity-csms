@@ -55,7 +55,7 @@ export function MarketingSettings({ settings }: MarketingSettingsProps): React.J
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{t('settings.marketingDescription')}</p>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 items-start">
           <div className="space-y-2">
             <Label htmlFor="gtag-portal" className="leading-6">
               {t('settings.gtagPortal')}

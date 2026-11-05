@@ -3309,7 +3309,8 @@ export async function runLoadManagementCycle(
     /** ENERGY_ASSETS_ALLOW_SIMULATED of the worker (owner decision D13). */
     allowSimulatedEnergyAssets?: boolean;
   } = {},
-): Promise<void> {
+): Promise<{ failedSites: number }> {
+  let failedSites = 0;
   const conditions = [eq(siteLoadManagement.isEnabled, true)];
   if (targetSiteId != null) {
     conditions.push(eq(siteLoadManagement.siteId, targetSiteId));
@@ -3537,7 +3538,9 @@ export async function runLoadManagementCycle(
         changed ? 'Load management cycle applied' : 'Load management allocations refreshed',
       );
     } catch (err: unknown) {
+      failedSites += 1;
       log.error({ err, siteId: site.siteId }, 'Load management cycle failed');
     }
   }
+  return { failedSites };
 }

@@ -89,7 +89,7 @@ export function PartnerRolesCard({
             {t('roaming.partners.heldRoles', { roles: held.join(', ') })}
           </p>
         )}
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
           {OCPI_ROLE_NAMES.map((role) => {
             const id = `partner-approved-role-${role}`;
             return (

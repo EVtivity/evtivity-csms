@@ -2216,7 +2216,7 @@ describe('runLoadManagementCycle', () => {
     });
     const log = makeLogger();
 
-    await expect(runLoadManagementCycle(log, 'site-broken')).resolves.toBeUndefined();
+    await expect(runLoadManagementCycle(log, 'site-broken')).resolves.toEqual({ failedSites: 1 });
 
     expect(log.error).toHaveBeenCalledWith(
       expect.objectContaining({ siteId: 'site-broken' }),

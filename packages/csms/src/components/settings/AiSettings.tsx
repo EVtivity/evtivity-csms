@@ -416,7 +416,7 @@ function AiSurfaceCard({
             {getErrorMessage(toggle.error, t, 'settings.aiSaveFailed')}
           </p>
         )}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
           <div className="space-y-2">
             <Label htmlFor={`${prefix}-provider`} className="leading-6">
               {t('settings.aiProvider')}
@@ -532,7 +532,7 @@ function AiLimitsCard({ settings, canWrite }: CardProps): React.JSX.Element {
         <p className="text-sm text-muted-foreground">{t('settings.aiLimitsDescription')}</p>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
           {LIMIT_KEYS.map((key) => {
             const { min, max } = AI_LIMIT_SETTINGS[key];
             const invalid = invalidLimits.includes(key);

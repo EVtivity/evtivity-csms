@@ -268,7 +268,7 @@ export function TransformerForm({
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="transformer-kva">{t('loadManagement.ratedKva')}</Label>
                 <Select
@@ -307,7 +307,7 @@ export function TransformerForm({
               {t('loadManagement.ratedKvaHelp')}
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="transformer-phases">{t('loadManagement.phases')}</Label>
                 <Select
@@ -350,7 +350,7 @@ export function TransformerForm({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="transformer-power-factor">{t('loadManagement.powerFactor')}</Label>
                 <DecimalInput

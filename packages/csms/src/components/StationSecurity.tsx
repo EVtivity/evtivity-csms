@@ -654,7 +654,7 @@ export function StationSecurity({
       <TabPanel title={t('stations.securityLog')}>
         {/* Four columns from lg; From and To take two each, so the date field and the time selects fit
             on one line from xl and wrap onto two lines below it, never past their column. */}
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 items-start">
           <div className="space-y-1">
             <Label htmlFor="security-logs-source" className="text-xs leading-6">
               {t('stations.securityLogSource')}

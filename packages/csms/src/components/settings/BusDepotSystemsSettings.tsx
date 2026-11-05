@@ -152,7 +152,7 @@ function InterfaceCard({
           />
         </div>
         {connection != null && (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
             <div className="grid min-w-0 gap-2">
               <Label className="leading-6">{t('depotSystems.webSocketUrl')}</Label>
               <IdText value={depotWebSocketUrl(API_BASE_URL, connection.path)} />

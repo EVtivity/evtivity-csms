@@ -203,7 +203,7 @@ function DepartureForm({
   return (
     <form onSubmit={handleSubmit} noValidate className="grid gap-4">
       {departure == null ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
           <div className="grid gap-2">
             <Label htmlFor="departure-vehicle">{t('fleets.departures.vehicle')}</Label>
             <Select
@@ -252,7 +252,7 @@ function DepartureForm({
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
         <div className="grid gap-2">
           <Label htmlFor="departure-date">{t('fleets.departures.departureDate')}</Label>
           <Input
@@ -281,7 +281,7 @@ function DepartureForm({
       </p>
       {shown('when') != null && <p className="text-sm text-destructive">{shown('when')}</p>}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 items-start">
         <div className="grid gap-2">
           <Label htmlFor="departure-arrival-date">{t('fleets.departures.arrivalDate')}</Label>
           <Input

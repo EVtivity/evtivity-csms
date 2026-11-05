@@ -487,7 +487,7 @@ function TerminalEditPanel({ terminal }: { terminal: PaymentTerminal }): React.J
   return (
     <TabPanel title={t('paymentTerminals.detail.editTitle')}>
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 items-start">
           {textField('label', 'paymentTerminals.fields.label')}
           {textField('vendor', 'paymentTerminals.fields.vendor')}
           {textField('model', 'paymentTerminals.fields.model')}

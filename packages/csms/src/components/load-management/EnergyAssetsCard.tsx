@@ -105,123 +105,127 @@ export function EnergyAssetsCard({
     return t('loadManagement.connectionNoneShort');
   }
 
+  // The dialogs sit outside the TabPanel: an empty panel renders its empty
+  // message instead of its children, so the first asset could not be added.
   return (
-    <TabPanel
-      title={t('loadManagement.energyAssets')}
-      description={t('loadManagement.energyAssetsHelp')}
-      isLoading={isLoading}
-      isError={isError}
-      onRetry={onRetry}
-      isEmpty={assets.length === 0}
-      emptyMessage={t('loadManagement.noEnergyAssets')}
-      actions={
-        canWrite ? (
-          <CreateButton
-            label={t('loadManagement.addEnergyAsset')}
-            onClick={() => {
-              setEditing(undefined);
-              setFormOpen(true);
-            }}
-          />
-        ) : undefined
-      }
-    >
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('loadManagement.columns.name')}</TableHead>
-              <TableHead>{t('loadManagement.columns.type')}</TableHead>
-              <TableHead>{t('loadManagement.columns.rating')}</TableHead>
-              <TableHead>{t('loadManagement.columns.connection')}</TableHead>
-              <TableHead>{t('loadManagement.columns.supply')}</TableHead>
-              <TableHead>{t('loadManagement.columns.lastReading')}</TableHead>
-              <TableHead>{t('loadManagement.columns.credit')}</TableHead>
-              {canWrite && <TableHead className="w-24" />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {assets.map((asset) => (
-              <TableRow key={asset.id} data-testid={`energy-asset-${asset.id}`}>
-                <TableCell className="font-medium">{asset.name}</TableCell>
-                <TableCell>
-                  {asset.type === 'battery'
-                    ? t('loadManagement.assetTypeBattery')
-                    : t('loadManagement.assetTypeSolar')}
-                </TableCell>
-                <TableCell>{ratingText(asset)}</TableCell>
-                <TableCell>{connectionText(asset)}</TableCell>
-                <TableCell>
-                  <div className="space-y-1">
-                    <Badge variant={supplyStateVariant(asset.supply.state)}>
-                      {t(supplyStateKey(asset.supply.state))}
-                    </Badge>
-                    {!asset.supply.counted ? (
-                      <p className="text-xs text-muted-foreground">
-                        {t('loadManagement.supplyNotConnected')}
-                      </p>
-                    ) : (
-                      asset.supply.state !== 'fresh' && (
-                        <p className="text-xs text-muted-foreground">
-                          {t('loadManagement.supplyStaleBody')}
-                        </p>
-                      )
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {asset.reading != null ? (
-                    <div className="space-y-0.5">
-                      <p>{formatDateTime(asset.reading.receivedAt, timezone)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatNumber(asset.reading.powerKw, 1)} kW
-                        {asset.reading.socPercent != null &&
-                          `, ${t('loadManagement.stateOfChargeValue', {
-                            percent: formatNumber(asset.reading.socPercent, 0),
-                          })}`}
-                      </p>
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground">{t('loadManagement.noReading')}</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="space-y-0.5">
-                    <p>{formatNumber(asset.supply.creditKw, 1)} kW</p>
-                    {asset.supply.loadKw > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {t('loadManagement.assetLoadValue', {
-                          kw: formatNumber(asset.supply.loadKw, 1),
-                        })}
-                      </p>
-                    )}
-                  </div>
-                </TableCell>
-                {canWrite && (
+    <>
+      <TabPanel
+        title={t('loadManagement.energyAssets')}
+        description={t('loadManagement.energyAssetsHelp')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={onRetry}
+        isEmpty={assets.length === 0}
+        emptyMessage={t('loadManagement.noEnergyAssets')}
+        actions={
+          canWrite ? (
+            <CreateButton
+              label={t('loadManagement.addEnergyAsset')}
+              onClick={() => {
+                setEditing(undefined);
+                setFormOpen(true);
+              }}
+            />
+          ) : undefined
+        }
+      >
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('loadManagement.columns.name')}</TableHead>
+                <TableHead>{t('loadManagement.columns.type')}</TableHead>
+                <TableHead>{t('loadManagement.columns.rating')}</TableHead>
+                <TableHead>{t('loadManagement.columns.connection')}</TableHead>
+                <TableHead>{t('loadManagement.columns.supply')}</TableHead>
+                <TableHead>{t('loadManagement.columns.lastReading')}</TableHead>
+                <TableHead>{t('loadManagement.columns.credit')}</TableHead>
+                {canWrite && <TableHead className="w-24" />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {assets.map((asset) => (
+                <TableRow key={asset.id} data-testid={`energy-asset-${asset.id}`}>
+                  <TableCell className="font-medium">{asset.name}</TableCell>
                   <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <EditIconButton
-                        title={t('loadManagement.editEnergyAssetNamed', { name: asset.name })}
-                        onClick={() => {
-                          setEditing(asset);
-                          setFormOpen(true);
-                        }}
-                      />
-                      <RemoveIconButton
-                        title={t('loadManagement.deleteEnergyAssetNamed', { name: asset.name })}
-                        onClick={() => {
-                          deleteMutation.reset();
-                          setDeleting(asset);
-                        }}
-                      />
+                    {asset.type === 'battery'
+                      ? t('loadManagement.assetTypeBattery')
+                      : t('loadManagement.assetTypeSolar')}
+                  </TableCell>
+                  <TableCell>{ratingText(asset)}</TableCell>
+                  <TableCell>{connectionText(asset)}</TableCell>
+                  <TableCell>
+                    <div className="space-y-1">
+                      <Badge variant={supplyStateVariant(asset.supply.state)}>
+                        {t(supplyStateKey(asset.supply.state))}
+                      </Badge>
+                      {!asset.supply.counted ? (
+                        <p className="text-xs text-muted-foreground">
+                          {t('loadManagement.supplyNotConnected')}
+                        </p>
+                      ) : (
+                        asset.supply.state !== 'fresh' && (
+                          <p className="text-xs text-muted-foreground">
+                            {t('loadManagement.supplyStaleBody')}
+                          </p>
+                        )
+                      )}
                     </div>
                   </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+                  <TableCell>
+                    {asset.reading != null ? (
+                      <div className="space-y-0.5">
+                        <p>{formatDateTime(asset.reading.receivedAt, timezone)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatNumber(asset.reading.powerKw, 1)} kW
+                          {asset.reading.socPercent != null &&
+                            `, ${t('loadManagement.stateOfChargeValue', {
+                              percent: formatNumber(asset.reading.socPercent, 0),
+                            })}`}
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">{t('loadManagement.noReading')}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-0.5">
+                      <p>{formatNumber(asset.supply.creditKw, 1)} kW</p>
+                      {asset.supply.loadKw > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {t('loadManagement.assetLoadValue', {
+                            kw: formatNumber(asset.supply.loadKw, 1),
+                          })}
+                        </p>
+                      )}
+                    </div>
+                  </TableCell>
+                  {canWrite && (
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        <EditIconButton
+                          title={t('loadManagement.editEnergyAssetNamed', { name: asset.name })}
+                          onClick={() => {
+                            setEditing(asset);
+                            setFormOpen(true);
+                          }}
+                        />
+                        <RemoveIconButton
+                          title={t('loadManagement.deleteEnergyAssetNamed', { name: asset.name })}
+                          onClick={() => {
+                            deleteMutation.reset();
+                            setDeleting(asset);
+                          }}
+                        />
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </TabPanel>
 
       {canWrite && (
         <>
@@ -259,6 +263,6 @@ export function EnergyAssetsCard({
           </ConfirmDialog>
         </>
       )}
-    </TabPanel>
+    </>
   );
 }

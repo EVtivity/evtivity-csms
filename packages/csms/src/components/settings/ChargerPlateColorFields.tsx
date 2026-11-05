@@ -46,7 +46,7 @@ export function ChargerPlateColorFields({
   const brandColor = resolveBrandColor(themeColor);
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2 items-start">
       {FIELDS.map(({ key, id, i18n }) => {
         const value = values[key];
         const invalid = showErrors && errors[key] === true;

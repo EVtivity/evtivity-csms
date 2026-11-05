@@ -239,7 +239,7 @@ function PaymentTerminalNewForm({ providers }: { providers: string[] }): React.J
                   : t('paymentTerminals.new.deviceHintTyped')}
               </p>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 items-start">
               <div className="space-y-2">
                 <Label htmlFor="terminal-label" className="leading-6">
                   {t('paymentTerminals.fields.label')}

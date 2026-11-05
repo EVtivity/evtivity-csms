@@ -129,7 +129,7 @@ export function FirmwareDeliveryFields({
 }: Props): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
       <div className="space-y-2">
         <Label htmlFor={`${idPrefix}-retries`} className="leading-6">
           {t('firmwareCampaigns.retries')}

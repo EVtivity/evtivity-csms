@@ -224,7 +224,7 @@ export function StationWebPaymentsCard({
             )}
             {canWrite && (
               <form onSubmit={handleEnable} noValidate className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
                   <div className="space-y-2">
                     <Label htmlFor="dynamic-qr-validity" className="leading-6">
                       {t('stations.dynamicQrValidity')}

@@ -391,7 +391,7 @@ function PaymentProviderForm({ data }: { data: PaymentSettingsResponse }): React
             ),
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="payments-pre-auth" className="leading-6">
                 {t('paymentProviders.general.preAuthAmount', { currency: currency ?? '...' })}
@@ -449,7 +449,7 @@ function PaymentProviderForm({ data }: { data: PaymentSettingsResponse }): React
             <p className="text-sm text-muted-foreground">
               {t('paymentProviders.simulated.description')}
             </p>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-3 items-start">
               <div className="space-y-2">
                 <Label htmlFor="simulated-result-mode" className="leading-6">
                   {t('paymentProviders.simulated.resultMode')}

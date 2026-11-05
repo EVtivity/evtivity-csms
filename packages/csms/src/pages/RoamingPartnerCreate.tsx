@@ -144,7 +144,7 @@ export function RoamingPartnerCreate(): React.JSX.Element {
                   <p className="text-xs text-destructive">{errors.name}</p>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                 <div className="space-y-2">
                   <Label htmlFor="partner-country" className="leading-6">
                     {t('roaming.partners.countryCode')}

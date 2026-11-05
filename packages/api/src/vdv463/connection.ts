@@ -32,6 +32,7 @@ import {
   type Vdv463ChargingRequest,
   type Vdv463Frame,
 } from '@evtivity/lib/vdv463';
+import { depotSystemRequestListsTotal } from '../plugins/metrics.js';
 
 export interface ConnectionLogger {
   info: (obj: unknown, msg?: string) => void;
@@ -301,6 +302,7 @@ export class Vdv463Connection {
             { err, depotSystemId: this.system.id },
             'Depot system recheck failed, the list is not applied',
           );
+          depotSystemRequestListsTotal.inc({ result: 'recheck_failed' });
           continue;
         }
         if (system == null) return;
@@ -308,7 +310,9 @@ export class Vdv463Connection {
         this.sendConfirmation(next.frame, {});
         try {
           await this.deps.applyRequests(system, next.list);
+          depotSystemRequestListsTotal.inc({ result: 'applied' });
         } catch (err: unknown) {
+          depotSystemRequestListsTotal.inc({ result: 'failed' });
           this.deps.log.error(
             { err, depotSystemId: system.id, requests: next.list.length },
             'Depot system charging requests not applied, the next list applies them',

@@ -119,7 +119,7 @@ export function PncLocalCaSection({
         <p className="text-sm font-medium">{t('settings.pncLocalCa')}</p>
         <p className="text-xs text-muted-foreground">{t('settings.pncLocalCaDescription')}</p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 items-start">
         <div className="space-y-2">
           <Label htmlFor="pnc-emaid-country" className="leading-6">
             {t('settings.pncEmaidCountry')}

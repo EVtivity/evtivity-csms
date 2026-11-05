@@ -520,6 +520,40 @@
           }
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "Load Management and Depot Plans",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 },
+      "id": 27,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "Load Management and Depot Plan Problems",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+          "id": 28,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"worker\"} |~ \"Load management cycle failed|Depot charging plan failed|Depot plan profiles not|Load management job failed\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
     }
   ]
 }

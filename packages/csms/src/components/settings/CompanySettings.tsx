@@ -334,7 +334,7 @@ export function CompanySettings({
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{t('settings.companyInfoDescription')}</p>
 
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 sm:grid-cols-2 items-start">
           <div className="space-y-2">
             <Label className="leading-6">{t('settings.companyLogo')}</Label>
             <input
@@ -429,7 +429,7 @@ export function CompanySettings({
           </div>
         </div>
 
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 sm:grid-cols-2 items-start">
           <div className="space-y-2">
             <Label className="leading-6">{t('settings.favicon')}</Label>
             <p className="text-xs text-muted-foreground">{t('settings.faviconDescription')}</p>
@@ -511,7 +511,7 @@ export function CompanySettings({
 
         <div className="space-y-4">
           <h3 className="text-lg font-semibold">{t('settings.seoSettings')}</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="meta-description" className="leading-6">
                 {t('settings.metaDescription')}
@@ -611,7 +611,7 @@ export function CompanySettings({
           noValidate
           className="space-y-4"
         >
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 items-start">
             <div className="space-y-2">
               <Label htmlFor="company-name" className="leading-6">
                 {t('settings.companyName')}

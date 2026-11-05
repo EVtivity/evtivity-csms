@@ -292,7 +292,7 @@ export function TariffDetail(): React.JSX.Element {
             <form
               onSubmit={handleSave}
               noValidate
-              className="grid grid-cols-1 md:grid-cols-2 gap-4"
+              className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start"
             >
               <div className="space-y-2">
                 <Label htmlFor="edit-name" className="leading-6">
@@ -479,7 +479,7 @@ export function TariffDetail(): React.JSX.Element {
                 )}
 
                 {(restrictionType === 'time' || (restrictionType === 'dayTime' && !allDay)) && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-2">
                       <Label htmlFor="edit-start-time" className="leading-6">
                         {t('pricing.startTime')}
@@ -513,7 +513,7 @@ export function TariffDetail(): React.JSX.Element {
                 {restrictionType === 'dayTime' && (
                   <div className="space-y-2">
                     <Label className="leading-6">{t('pricing.dayOfWeek')}</Label>
-                    <div className="flex flex-wrap gap-3">
+                    <div className="flex flex-wrap items-start gap-3">
                       {dayLabels.map((label, idx) => (
                         <label
                           key={idx}
@@ -534,7 +534,7 @@ export function TariffDetail(): React.JSX.Element {
                 )}
 
                 {restrictionType === 'seasonal' && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-2">
                       <Label htmlFor="edit-start-date" className="leading-6">
                         {t('pricing.startDate')}

@@ -274,3 +274,38 @@ describe('bus depot connection boot and error frames', () => {
     expect(ws.sent.at(-1)?.length ?? 0).toBeLessThan(500);
   });
 });
+
+describe('bus depot connection request list metrics', () => {
+  async function lists(result: string): Promise<number> {
+    const { depotSystemRequestListsTotal } = await import('../plugins/metrics.js');
+    return (
+      (await depotSystemRequestListsTotal.get()).values.find((v) => v.labels['result'] === result)
+        ?.value ?? 0
+    );
+  }
+
+  async function sendList(apply: ConnectionDeps['applyRequests']): Promise<void> {
+    const { ws } = setup(() => Promise.resolve(system), apply);
+    ws.emit(
+      'message',
+      Buffer.from(frame(BOOT_ID, 'BootNotification', { presystem: 'BMS' })),
+      false,
+    );
+    await flush();
+    ws.emit(
+      'message',
+      Buffer.from(frame(LIST_ID, 'ProvideChargingRequests', { chargingRequestList: [] })),
+      false,
+    );
+    await flush();
+  }
+
+  it('counts applied and failed lists', async () => {
+    const applied = await lists('applied');
+    const failed = await lists('failed');
+    await sendList(() => Promise.resolve());
+    await sendList(() => Promise.reject(new Error('apply failed')));
+    expect(await lists('applied')).toBe(applied + 1);
+    expect(await lists('failed')).toBe(failed + 1);
+  });
+});

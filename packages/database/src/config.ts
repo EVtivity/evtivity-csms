@@ -45,15 +45,45 @@ export const db = drizzle(client);
 // drizzle-orm/postgres-js overrides postgres-js serializers with `(v) => v`
 // for date/timestamp OIDs and json/jsonb (114, 3802). Raw `client`-tag
 // callers bind Date/Object directly and trip Buffer.byteLength(Object).
+// It also replaces the array OIDs 1182 (date[]), 1185 (timestamptz[]),
+// 1115 (timestamp[]) and 1231 (numeric[]: pg_type typelem 1700, not a date
+// type), and postgres-js then keeps those instead of installing its own array
+// serializer. A scalar date serializer on numeric[] turned `[525]` into
+// "0525-01-01T...", a malformed array literal, so each array OID gets an
+// array literal serializer over its element serializer.
+
+/** Scalar date and time OIDs (pg_type): timestamptz, date, time, timestamp. */
+export const DATE_OIDS = ['1184', '1082', '1083', '1114'] as const;
+/** Date array OIDs (pg_type): date[], timestamptz[], timestamp[]. */
+export const DATE_ARRAY_OIDS = ['1182', '1185', '1115'] as const;
+/** numeric[] (pg_type OID 1231, element numeric 1700). */
+export const NUMERIC_ARRAY_OID = '1231';
+
 const dateToIso = (x: unknown): string =>
   typeof x === 'string' ? x : (x instanceof Date ? x : new Date(x as string)).toISOString();
-for (const oid of ['1184', '1082', '1083', '1114', '1182', '1185', '1115', '1231'] as const) {
-  (client.options.serializers as Record<string, (x: unknown) => string>)[oid] = dateToIso;
-}
+
+const quoteArrayElement = (value: string): string =>
+  '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+
+/** Serializes a JS array (nested arrays included) to a Postgres array literal. */
+const arrayLiteral =
+  (element: (x: unknown) => string) =>
+  (x: unknown): string => {
+    if (!Array.isArray(x)) return typeof x === 'string' ? x : element(x);
+    const items = x.map((item: unknown): string => {
+      if (item === null || item === undefined) return 'null';
+      if (Array.isArray(item)) return arrayLiteral(element)(item);
+      return quoteArrayElement(element(item));
+    });
+    return '{' + items.join(',') + '}';
+  };
+
+const serializers = client.options.serializers as Record<string, (x: unknown) => string>;
+for (const oid of DATE_OIDS) serializers[oid] = dateToIso;
+for (const oid of DATE_ARRAY_OIDS) serializers[oid] = arrayLiteral(dateToIso);
+serializers[NUMERIC_ARRAY_OID] = arrayLiteral((x) => String(x));
 
 const jsonStringify = (x: unknown): string => (typeof x === 'string' ? x : JSON.stringify(x));
-for (const oid of ['114', '3802'] as const) {
-  (client.options.serializers as Record<string, (x: unknown) => string>)[oid] = jsonStringify;
-}
+for (const oid of ['114', '3802'] as const) serializers[oid] = jsonStringify;
 
 export { client };

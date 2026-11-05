@@ -227,7 +227,7 @@ export function FleetBillingProfileCard({
               <p className="text-sm text-destructive">{errors.contacts}</p>
             )}
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
             {textField('legalName', t('fleets.billingProfile.legalName'), 255)}
             {textField('taxId', t('fleets.billingProfile.taxId'), 50)}
             {textField('street', t('fleets.billingProfile.street'), 255)}

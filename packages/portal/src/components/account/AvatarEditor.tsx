@@ -208,7 +208,7 @@ export function AvatarEditor({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 items-start">
               {choices
                 .filter((c) => c.kind === 'enum')
                 .map((choice) => (
