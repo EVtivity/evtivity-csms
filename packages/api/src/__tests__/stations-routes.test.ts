@@ -482,6 +482,7 @@ describe('Station routes - handler logic', () => {
         hasPassword: false,
         dataPlan: null,
         effectiveDataPlan: 'wifi_or_wired',
+        portalListed: true,
         dataPlanSource: 'default',
         metadata: null,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -786,6 +787,75 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().model).toBe('Updated Model');
+    });
+
+    it('takes a station out of the portal listings', async () => {
+      const station = {
+        id: VALID_STATION_ID,
+        stationId: 'STATION-001',
+        siteId: null,
+        vendorId: null,
+        model: null,
+        serialNumber: null,
+        firmwareVersion: null,
+        availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
+        onboardingStatus: 'accepted',
+        isOnline: false,
+        isSimulator: false,
+        loadPriority: 0,
+        securityProfile: 0,
+        pendingSecurityProfile: null,
+        hasPassword: false,
+        portalListed: true,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults([station], [{ ...station, portalListed: false }]);
+      const { db, chargingStations, writeAudit } = await import('@evtivity/database');
+      const updateMock = vi.mocked(db.update);
+      updateMock.mockClear();
+      vi.mocked(writeAudit).mockClear();
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { portalListed: false },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const stationUpdate = updateMock.mock.calls.findIndex((c) => c[0] === chargingStations);
+      expect(stationUpdate).toBeGreaterThanOrEqual(0);
+      const chain = updateMock.mock.results[stationUpdate]?.value as {
+        set: ReturnType<typeof vi.fn>;
+        returning: ReturnType<typeof vi.fn>;
+      };
+      expect(chain.set).toHaveBeenCalledWith(expect.objectContaining({ portalListed: false }));
+      // The updated row (the response and the audit after-snapshot) carries it.
+      expect(chain.returning).toHaveBeenCalledWith(
+        expect.objectContaining({ portalListed: chargingStations.portalListed }),
+      );
+      expect(response.json().portalListed).toBe(false);
+      // The audit shows the change: before and after both carry the setting.
+      const audit = vi.mocked(writeAudit).mock.calls[0]?.[1] as {
+        before: { portalListed?: boolean };
+        after: { portalListed?: boolean };
+      };
+      expect(audit.before.portalListed).toBe(true);
+      expect(audit.after.portalListed).toBe(false);
+    });
+
+    it('refuses a portal listing that is not a boolean', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { portalListed: 'no' },
+      });
+      expect(response.statusCode).toBe(400);
     });
 
     it('moves the station EVSEs to the new OCPI location', async () => {

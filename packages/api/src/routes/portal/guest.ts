@@ -29,7 +29,7 @@ import {
   sites,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
-import { publicStationListed } from '../../lib/public-station.js';
+import { publicStationServed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -568,7 +568,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(chargingStations)
-        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -673,7 +673,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -875,7 +875,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         // A pending or blocked station answers like an unknown one.
-        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationServed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

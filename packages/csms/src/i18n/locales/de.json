@@ -1342,6 +1342,11 @@
     "longitude": "Längengrad",
     "reservationsEnabled": "Reservierungen",
     "reservationsEnabledHelp": "Reservierungen an dieser Station erlauben",
+    "portalListing": {
+      "title": "Fahrerportal",
+      "label": "Im Fahrerportal auflisten",
+      "help": "Zeigt diese Station in der Suche, auf der Karte und auf den Standortseiten des Fahrerportals. Ist die Option aus, erreichen Fahrer die Station nur über ihren QR-Code, einen Link oder ihre Favoriten und können dort weiterhin laden. Die Station wird nur ausgeblendet; wer laden darf, ändert sich nicht."
+    },
     "freeVend": "Freies Laden",
     "connectorRegionNorthAmerican": "Nordamerika",
     "connectorRegionEuropean": "Europa",

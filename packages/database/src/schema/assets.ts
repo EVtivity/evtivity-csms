@@ -218,6 +218,11 @@ export const chargingStations = pgTable(
     latitude: varchar('latitude', { length: 20 }),
     longitude: varchar('longitude', { length: 20 }),
     reservationsEnabled: boolean('reservations_enabled').notNull().default(true),
+    // Listed in the driver portal: its search, map, nearby and location pages.
+    // False hides the station there only. A driver still reaches it by its
+    // OCPP id (QR code, link, favorites) and can start a session; it is not an
+    // access control (api lib/public-station.ts).
+    portalListed: boolean('portal_listed').notNull().default(true),
     // The operator's data plan choice for this station; null uses the SIM or
     // site rule (resolveDataPlan). Written only by setStationDataPlan.
     dataPlan: stationDataPlanEnum('data_plan'),

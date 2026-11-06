@@ -1342,6 +1342,11 @@
     "longitude": "Longitud",
     "reservationsEnabled": "Reservas",
     "reservationsEnabledHelp": "Permitir reservas en esta estación",
+    "portalListing": {
+      "title": "Portal del conductor",
+      "label": "Mostrar en el portal del conductor",
+      "help": "Muestra esta estación en la búsqueda, el mapa y las páginas de ubicación del portal del conductor. Si está desactivado, los conductores solo llegan a ella con su código QR, un enlace o sus favoritos, y pueden seguir cargando allí. Solo oculta la estación; no limita quién puede cargar."
+    },
     "freeVend": "Carga Libre",
     "connectorRegionNorthAmerican": "Norteamérica",
     "connectorRegionEuropean": "Europa",

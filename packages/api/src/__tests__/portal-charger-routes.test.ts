@@ -80,6 +80,9 @@ vi.mock('@evtivity/database', async () => ({
   REMOTE_START_TIMEOUT_REASON: 'RemoteStartTimeout',
   REMOTE_START_REJECTED_REASON: 'RemoteStartRejected',
   availableEvseCountSql: mockAvailableEvseCountSql,
+  evseAvailableSql: vi.fn(() => 'EVSE_AVAILABLE'),
+  evseOpenToDriversSql: vi.fn(() => 'EVSE_OPEN_TO_DRIVERS'),
+  STARTABLE_CONNECTOR_STATUSES: ['available', 'preparing'],
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',
@@ -148,6 +151,21 @@ vi.mock('@evtivity/database', async () => ({
     billing == null
       ? { billingMode: 'card', billingFleetId: null }
       : { billingMode: 'account', billingFleetId: billing.fleetId },
+}));
+
+// Spies on the portal filters, so a test can tell a listing (publicStationListed)
+// from a page reached by OCPP id (publicStationServed).
+const { mockPublicStationListed, mockPublicStationServed, mockPublicSiteListed } = vi.hoisted(
+  () => ({
+    mockPublicStationListed: vi.fn(() => 'PUBLIC_STATION_LISTED'),
+    mockPublicStationServed: vi.fn(() => 'PUBLIC_STATION_SERVED'),
+    mockPublicSiteListed: vi.fn(() => 'PUBLIC_SITE_LISTED'),
+  }),
+);
+vi.mock('../lib/public-station.js', () => ({
+  publicStationListed: mockPublicStationListed,
+  publicStationServed: mockPublicStationServed,
+  publicSiteListed: mockPublicSiteListed,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -2359,6 +2377,129 @@ describe('Portal charger routes - handler logic', () => {
 
       expect(response.statusCode).toBe(409);
       expect(response.json().code).toBe('EVSE_IN_USE');
+    });
+  });
+
+  // A station taken out of the portal listings (portal_listed false) is left
+  // out of the search, the map and the location pages, while its pages by OCPP
+  // id (QR code, link, favorites) and the start keep serving it.
+  describe('a station taken out of the portal listings', () => {
+    const stationRow = {
+      id: VALID_STATION_ID,
+      stationId: 'CS-001',
+      siteId: 'site-1',
+      portalListed: true,
+      model: 'M1',
+      isOnline: true,
+      isSimulator: false,
+      siteName: 'Site A',
+      siteAddress: '123 Main',
+      siteCity: 'City',
+      siteState: 'CA',
+      siteContactIsPublic: false,
+    };
+
+    beforeEach(() => {
+      mockPublicStationListed.mockClear();
+      mockPublicStationServed.mockClear();
+      mockPublicSiteListed.mockClear();
+    });
+
+    it('is left out of the search', async () => {
+      setupDbResults([], []);
+      const response = await app.inject({ method: 'GET', url: '/portal/chargers/search?q=CS' });
+      expect(response.statusCode).toBe(200);
+      expect(mockPublicStationListed).toHaveBeenCalled();
+      expect(mockPublicStationServed).not.toHaveBeenCalled();
+    });
+
+    it('is left out of the map and the nearby list', async () => {
+      setupDbResults([], []);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/nearby?lat=30.2&lng=-97.7',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockPublicStationListed).toHaveBeenCalled();
+      expect(mockPublicStationServed).not.toHaveBeenCalled();
+    });
+
+    it('is left out of the location page, and so is a site without a listed station', async () => {
+      setupDbResults(
+        [
+          {
+            id: 'site-1',
+            name: 'Site A',
+            address: null,
+            city: null,
+            state: null,
+            postalCode: null,
+            latitude: null,
+            longitude: null,
+            hoursOfOperation: null,
+            contactName: null,
+            contactEmail: null,
+            contactPhone: null,
+            contactIsPublic: false,
+          },
+        ],
+        [{ stationCount: 0, evseCount: 0, availableCount: 0 }],
+        [],
+      );
+      const response = await app.inject({ method: 'GET', url: '/portal/chargers/location/site-1' });
+      expect(response.statusCode).toBe(200);
+      expect(mockPublicSiteListed).toHaveBeenCalled();
+      expect(mockPublicStationListed).toHaveBeenCalledTimes(2);
+      expect(mockPublicStationServed).not.toHaveBeenCalled();
+    });
+
+    it('keeps its station page, without a link to its location page', async () => {
+      setupDbResults([{ ...stationRow, portalListed: false }], []);
+      const response = await app.inject({ method: 'GET', url: '/portal/chargers/CS-001' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().stationId).toBe('CS-001');
+      expect(response.json().siteId).toBeNull();
+      expect(response.json().siteAddress).toBe('123 Main');
+      expect(mockPublicStationServed).toHaveBeenCalled();
+      expect(mockPublicStationListed).not.toHaveBeenCalled();
+    });
+
+    it('links a listed station to its location page', async () => {
+      setupDbResults([stationRow], []);
+      const response = await app.inject({ method: 'GET', url: '/portal/chargers/CS-001' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().siteId).toBe('site-1');
+    });
+
+    it('keeps its EVSE page (the QR landing page), without a link to its location page', async () => {
+      setupDbResults(
+        [{ ...stationRow, portalListed: false }],
+        [{ id: 'evs_000000000001', evseId: 1, status: 'available' }],
+        [],
+      );
+      const response = await app.inject({ method: 'GET', url: '/portal/chargers/CS-001/evse/1' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().siteId).toBeNull();
+      expect(mockPublicStationServed).toHaveBeenCalled();
+      expect(mockPublicStationListed).not.toHaveBeenCalled();
+    });
+
+    it('keeps its pricing and the start reached by OCPP id', async () => {
+      setupDbResults([]);
+      await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/CS-001/pricing',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      setupDbResults([]);
+      await app.inject({
+        method: 'POST',
+        url: '/portal/chargers/CS-001/evse/1/start',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: {},
+      });
+      expect(mockPublicStationServed).toHaveBeenCalledTimes(2);
+      expect(mockPublicStationListed).not.toHaveBeenCalled();
     });
   });
 });
