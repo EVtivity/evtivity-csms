@@ -18,7 +18,8 @@ export interface StationPortalListingCardProps {
 /**
  * Station detail > QR codes: whether the driver portal lists the station in
  * its search, map and location pages. An unlisted station stays reachable by
- * its QR code, a link or a driver's favorite.
+ * its QR code, a link or a driver's favorite, RFID and app starts still work,
+ * and roaming partners still see it while its site is published to them.
  */
 export function StationPortalListingCard({
   stationId,

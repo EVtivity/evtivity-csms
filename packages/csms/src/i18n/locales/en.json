@@ -1345,7 +1345,7 @@
     "portalListing": {
       "title": "Driver Portal",
       "label": "List in the driver portal",
-      "help": "Show this station in the search, the map and the location pages of the driver portal. When off, drivers reach it only by its QR code, a link or their favorites, and can still charge there. This hides the station; it does not restrict who can charge."
+      "help": "Show this station in the search, the map and the location pages of the driver portal. When off, the portal does not list it, but drivers still open it by its QR code, a link or their favorites, and drivers with an RFID card or the app still start charging there. Roaming partners still see it while its site is published to them under Roaming."
     },
     "freeVend": "Free Vend",
     "connectorRegionNorthAmerican": "North American",

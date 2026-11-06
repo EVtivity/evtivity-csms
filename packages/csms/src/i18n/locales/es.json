@@ -1345,7 +1345,7 @@
     "portalListing": {
       "title": "Portal del conductor",
       "label": "Mostrar en el portal del conductor",
-      "help": "Muestra esta estación en la búsqueda, el mapa y las páginas de ubicación del portal del conductor. Si está desactivado, los conductores solo llegan a ella con su código QR, un enlace o sus favoritos, y pueden seguir cargando allí. Solo oculta la estación; no limita quién puede cargar."
+      "help": "Muestra esta estación en la búsqueda, el mapa y las páginas de ubicación del portal del conductor. Si está desactivado, el portal no la muestra, pero los conductores aún la abren con su código QR, un enlace o sus favoritos, y los conductores con una tarjeta RFID o la app aún inician la carga allí. Los socios de roaming la siguen viendo mientras su ubicación esté publicada para ellos en Roaming."
     },
     "freeVend": "Carga Libre",
     "connectorRegionNorthAmerican": "Norteamérica",

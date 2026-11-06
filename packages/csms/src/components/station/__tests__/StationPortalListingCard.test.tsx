@@ -20,6 +20,12 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { StationPortalListingCard } from '../StationPortalListingCard';
+import en from '../../../i18n/locales/en.json';
+import de from '../../../i18n/locales/de.json';
+import es from '../../../i18n/locales/es.json';
+import ko from '../../../i18n/locales/ko.json';
+import zh from '../../../i18n/locales/zh.json';
+import zhTW from '../../../i18n/locales/zh-TW.json';
 
 function renderCard(portalListed: boolean): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -72,5 +78,17 @@ describe('StationPortalListingCard', () => {
     await waitFor(() => {
       expect(apiMock.patch).toHaveBeenCalledWith('/v1/stations/sta_1', { portalListed: true });
     });
+  });
+
+  it('says in every language that RFID and app starts and roaming partners keep the station', () => {
+    expect(en.stations.portalListing.help).toMatch(/RFID card or the app/);
+    expect(en.stations.portalListing.help).toMatch(/Roaming partners still see it/);
+    const helps = [de, es, ko, zh, zhTW].map((l) => l.stations.portalListing.help);
+    for (const help of helps) {
+      expect(help).toMatch(/RFID/);
+      expect(help).not.toBe(en.stations.portalListing.help);
+    }
+    expect(zh.stations.portalListing.help).toContain('充电站');
+    expect(zhTW.stations.portalListing.help).toContain('充電站');
   });
 });

@@ -1098,7 +1098,9 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // A site move or a connector type change can still change the effective plan or
   // the AC/DC kind and push the plan's values: accepted, the confirmed tool call
   // runs the same data plan push as the CSMS.
-  updateStation: write({ omit: ['password', 'securityProfile', 'dataPlan'] }),
+  // Hiding a station from the driver portal listings is an operator choice: a
+  // prompt injection could hide every station from drivers with one confirm.
+  updateStation: write({ omit: ['password', 'securityProfile', 'dataPlan', 'portalListed'] }),
   updateStationEvse: W,
   updateStationImage: W,
   // Support Cases

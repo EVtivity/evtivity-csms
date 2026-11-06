@@ -21,6 +21,7 @@ const RUNTIME_BUDGET_MS = 250;
 // so the bound passes it and fails a cubic blowup (8 times).
 const SCALE_FACTOR = 2;
 const MAX_SCALE_RATIO = 6;
+const SCALING_TIMEOUT_MS = 60_000;
 
 // CPU time of this thread, so other test files running in parallel do not count.
 function threadCpuMs(): number {
@@ -68,12 +69,17 @@ describe('planDepotCharging runtime', () => {
     expect(median, `median ${median.toFixed(1)} ms`).toBeLessThan(RUNTIME_BUDGET_MS);
   });
 
-  it('grows about linearly with the number of vehicles', () => {
-    const small = medianCpuMs(depotInput(200 / SCALE_FACTOR));
-    const large = medianCpuMs(depotInput(200));
-    expect(
-      large,
-      `200 vehicles ${large.toFixed(1)} ms, ${String(200 / SCALE_FACTOR)} vehicles ${small.toFixed(1)} ms`,
-    ).toBeLessThan(MAX_SCALE_RATIO * Math.max(small, 1));
-  });
+  // Eight planner runs under coverage took 6.8 s in CI, past the 5 s default.
+  it(
+    'grows about linearly with the number of vehicles',
+    () => {
+      const small = medianCpuMs(depotInput(200 / SCALE_FACTOR));
+      const large = medianCpuMs(depotInput(200));
+      expect(
+        large,
+        `200 vehicles ${large.toFixed(1)} ms, ${String(200 / SCALE_FACTOR)} vehicles ${small.toFixed(1)} ms`,
+      ).toBeLessThan(MAX_SCALE_RATIO * Math.max(small, 1));
+    },
+    SCALING_TIMEOUT_MS,
+  );
 });

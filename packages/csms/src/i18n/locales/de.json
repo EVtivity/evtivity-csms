@@ -1345,7 +1345,7 @@
     "portalListing": {
       "title": "Fahrerportal",
       "label": "Im Fahrerportal auflisten",
-      "help": "Zeigt diese Station in der Suche, auf der Karte und auf den Standortseiten des Fahrerportals. Ist die Option aus, erreichen Fahrer die Station nur über ihren QR-Code, einen Link oder ihre Favoriten und können dort weiterhin laden. Die Station wird nur ausgeblendet; wer laden darf, ändert sich nicht."
+      "help": "Zeigt diese Station in der Suche, auf der Karte und auf den Standortseiten des Fahrerportals. Ist die Option aus, listet das Portal sie nicht auf, aber Fahrer öffnen sie weiterhin über ihren QR-Code, einen Link oder ihre Favoriten, und Fahrer mit einer RFID-Karte oder der App starten dort weiterhin das Laden. Roaming-Partner sehen sie weiterhin, solange ihr Standort unter Roaming für sie veröffentlicht ist."
     },
     "freeVend": "Freies Laden",
     "connectorRegionNorthAmerican": "Nordamerika",

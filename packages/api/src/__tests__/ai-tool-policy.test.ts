@@ -284,6 +284,21 @@ describe('AI tool policy and catalog', () => {
     }
   });
 
+  it('the assistant never changes whether the portal lists a station (portal listing)', () => {
+    expect(toolPolicy('updateStation').exposure).toBe('write');
+    expect(toolPolicy('updateStation').omit).toContain('portalListed');
+    const tool = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateStation');
+    expect(tool).toBeDefined();
+    expect(JSON.stringify(tool?.parameters)).not.toContain('"portalListed"');
+    expect(tool?.bodyParams ?? []).not.toContain('portalListed');
+    const toolset = chatbotToolset([tool?.category ?? ''], AI_TOOL_CATALOG);
+    const call = prepareToolCall(toolset, tool?.name ?? '', {
+      id: 'sta_000000000001',
+      portalListed: false,
+    });
+    expect(call.ok).toBe(false);
+  });
+
   it('no assistant write can set a prepaid balance or another money field (review 2, AI M1)', () => {
     expect(toolPolicy('createToken').omit).toContain('prepaidBalanceCents');
     expect(toolPolicy('updateToken').omit).toEqual(
