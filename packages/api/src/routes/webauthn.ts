@@ -34,6 +34,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { selfService } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { recordAuthAudit } from '../lib/auth-audit.js';
+import type { AuthFailureReason } from '../plugins/metrics.js';
 import {
   announceSessionChange,
   endUserSessions,
@@ -204,7 +205,7 @@ async function refuseSecondFactor(
   request: FastifyRequest,
   reply: FastifyReply,
   user: SignedInUser,
-  reason: string,
+  reason: AuthFailureReason,
 ): Promise<void> {
   await recordAuthAudit(request, {
     kind: 'user',

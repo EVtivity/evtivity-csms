@@ -71,6 +71,17 @@ describe('client.options.serializers', () => {
       expect(serializers['1231']!([1, null])).toBe('{"1",null}');
     });
 
+    it.each(['1231', '1182', '1185', '1115'])(
+      'throws UNDEFINED_VALUE for an undefined element (OID %s), like postgres.js, never NULL',
+      (oid) => {
+        const serializer = serializers[oid]!;
+        expect(() => serializer([undefined])).toThrow(
+          expect.objectContaining({ code: 'UNDEFINED_VALUE' }),
+        );
+        expect(() => serializer([[1], [undefined]])).toThrow('Undefined values are not allowed');
+      },
+    );
+
     it.each(['1182', '1185', '1115'])('serializes a date array (OID %s) per element', (oid) => {
       const value = serializers[oid]!([
         new Date('2026-06-04T01:50:00.000Z'),

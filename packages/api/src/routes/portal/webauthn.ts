@@ -18,6 +18,7 @@ import {
 } from '@evtivity/database';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
+import type { AuthFailureReason } from '../../plugins/metrics.js';
 import { config as apiConfig } from '../../lib/config.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { arrayResponse, errorWith, itemResponse } from '../../lib/response-schemas.js';
@@ -254,7 +255,7 @@ async function refuseSecondFactor(
   request: FastifyRequest,
   reply: FastifyReply,
   driver: Driver,
-  reason: string,
+  reason: AuthFailureReason,
 ): Promise<void> {
   await recordAuthAudit(request, {
     kind: 'driver',

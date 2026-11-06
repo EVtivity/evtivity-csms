@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type { AuthFailureReason } from '../plugins/metrics.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db, drivers, readMfaConfig, type MfaConfig } from '@evtivity/database';
@@ -238,7 +239,7 @@ export function driverMfaEnrollmentAfterVerify(
 /** The `login_failed` audit reason of a mobile sign-in the app cannot finish. */
 export function mobileMfaUnsupportedAuditReason(
   reason: DriverMobileMfaUnsupported['mobileMfaUnsupported'],
-): string {
+): AuthFailureReason {
   if (reason === 'enrollment') return 'mfa_enrollment_required';
   if (reason === 'method_disabled') return 'mfa_method_disabled';
   return 'mfa_factor_unsupported';

@@ -15,7 +15,12 @@ vi.mock('@evtivity/database', () => ({
 import { writeAudit, userAuditLog, driverAuditLog, stationAuditLog } from '@evtivity/database';
 import { authRequestOrigin, recordAuthAudit } from '../lib/auth-audit.js';
 import { commandOutcome, recordStationCommandAudit } from '../lib/station-command-audit.js';
-import { authFailuresTotal, countAuthFailure } from '../plugins/metrics.js';
+import {
+  AUTH_FAILURE_METHODS,
+  AUTH_FAILURE_REASONS,
+  authFailuresTotal,
+  countAuthFailure,
+} from '../plugins/metrics.js';
 
 function request(headers: Record<string, string> = {}): FastifyRequest {
   return { ip: '10.0.0.7', headers, log: { warn: vi.fn() } } as unknown as FastifyRequest;
@@ -185,6 +190,36 @@ describe('auth_failures_total', () => {
     });
     expect(await count({ realm: 'driver', method: 'mfa', reason: 'unknown' })).toBe(1);
     expect(await count({})).toBe(1);
+  });
+
+  it('takes method and reason labels only from the fixed lists', async () => {
+    expect(new Set(AUTH_FAILURE_METHODS).size).toBe(AUTH_FAILURE_METHODS.length);
+    expect(new Set(AUTH_FAILURE_REASONS).size).toBe(AUTH_FAILURE_REASONS.length);
+    for (const value of [...AUTH_FAILURE_METHODS, ...AUTH_FAILURE_REASONS]) {
+      expect(value).toMatch(/^[a-z][a-z_]*$/);
+    }
+    // Free text is a type error (npm run typecheck covers this file), so no caller
+    // can put request text in a label. Never called: the type check is the test.
+    const freeText = async (): Promise<void> => {
+      // @ts-expect-error method is a fixed union
+      countAuthFailure('operator', 'Bearer abc', 'bad_password');
+      // @ts-expect-error reason is a fixed union
+      countAuthFailure('operator', 'password', 'user@example.com');
+      await recordAuthAudit(request(), {
+        kind: 'user',
+        accountId: 'usr_1',
+        action: 'login_failed',
+        method: 'password',
+        // @ts-expect-error the audit reason is the same fixed union
+        reason: 'anything the request said',
+      });
+    };
+    expect(freeText).toBeTypeOf('function');
+    countAuthFailure('operator', 'api_key', 'api_key_expired');
+    const { values } = await authFailuresTotal.get();
+    expect(values.map((v) => v.labels)).toEqual([
+      { realm: 'operator', method: 'api_key', reason: 'api_key_expired' },
+    ]);
   });
 
   it('counts directly for failures that write no audit row', async () => {

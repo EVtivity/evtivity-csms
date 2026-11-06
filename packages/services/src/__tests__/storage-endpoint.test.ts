@@ -165,6 +165,60 @@ describe('validateR2Endpoint', () => {
   ])('refuses %s', (value) => {
     expect(validateR2Endpoint(value)).toBeNull();
   });
+
+  // Addresses close to an account S3 API host (case 364): a near jurisdiction label,
+  // two jurisdictions, an extra or missing label, a port, an IDN label, a look-alike
+  // registrable domain or a host hidden behind userinfo.
+  it.each([
+    `https://${ACCOUNT}.usa.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us-east.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.eur.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.fed.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.eu.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.eu.us.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.us.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}..r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us..r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.com:443x`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.com:8443`,
+    `https://${ACCOUNT}.eu.r2.cloudflarestorage.com:444`,
+    `https://${ACCOUNT}.xn--us-6ka.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.xn--r2-dka.cloudflarestorage.com`,
+    `https://${ACCOUNT}.r2.xn--cloudflarestorage-o0b.com`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.com.evil.example`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.com.us`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.co`,
+    `https://${ACCOUNT}.us.r2-cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.r2.cloudflare-storage.com`,
+    `https://${ACCOUNT}.us.r3.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.cloudflarestorage.com`,
+    `https://${ACCOUNT}us.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT.slice(1)}.us.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT.slice(1)}g.us.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.com@evil.example`,
+    `https://${ACCOUNT}.US.r2.cloudflarestorage.com@evil.example`,
+    `https://evil.example\\@${ACCOUNT}.us.r2.cloudflarestorage.com`,
+    `https://evil.example#@${ACCOUNT}.us.r2.cloudflarestorage.com`,
+    `https://evil.example/${ACCOUNT}.us.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.com%2Fevil.example`,
+    `wss://${ACCOUNT}.us.r2.cloudflarestorage.com`,
+    `//${ACCOUNT}.us.r2.cloudflarestorage.com`,
+    `${ACCOUNT}.us.r2.cloudflarestorage.com`,
+  ])('refuses the look-alike %s', (value) => {
+    expect(validateR2Endpoint(value)).toBeNull();
+  });
+
+  // Spellings a URL parser reads as the same host: accepted and stored in the one
+  // lower-case form, so the stored origin never differs from the signed Host.
+  it.each([
+    `https://${ACCOUNT.toUpperCase()}.US.R2.CLOUDFLARESTORAGE.COM`,
+    `https://${ACCOUNT}.Us.R2.cloudflarestorage.com`,
+    `https://${ACCOUNT}.us.r2.cloudflarestorage.com:443`,
+    `https://${ACCOUNT}.\uff55\uff53.r2.cloudflarestorage.com`,
+    `https://${ACCOUNT}%2Eus.r2.cloudflarestorage.com`,
+  ])('stores %s as the lower-case origin', (value) => {
+    expect(validateR2Endpoint(value)).toBe(`https://${ACCOUNT}.us.r2.cloudflarestorage.com`);
+  });
 });
 
 describe('r2EndpointBucket', () => {

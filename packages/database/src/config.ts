@@ -62,6 +62,14 @@ export const NUMERIC_ARRAY_OID = '1231';
 const dateToIso = (x: unknown): string =>
   typeof x === 'string' ? x : (x instanceof Date ? x : new Date(x as string)).toISOString();
 
+/**
+ * An undefined array element is a caller bug, never a NULL: postgres.js's own array
+ * serializer throws UNDEFINED_VALUE there (no `transform.undefined` is set), so the
+ * replacement does the same instead of storing NULL unseen.
+ */
+const undefinedArrayElement = (): Error =>
+  Object.assign(new Error('Undefined values are not allowed'), { code: 'UNDEFINED_VALUE' });
+
 const quoteArrayElement = (value: string): string =>
   '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 
@@ -71,7 +79,8 @@ const arrayLiteral =
   (x: unknown): string => {
     if (!Array.isArray(x)) return typeof x === 'string' ? x : element(x);
     const items = x.map((item: unknown): string => {
-      if (item === null || item === undefined) return 'null';
+      if (item === undefined) throw undefinedArrayElement();
+      if (item === null) return 'null';
       if (Array.isArray(item)) return arrayLiteral(element)(item);
       return quoteArrayElement(element(item));
     });

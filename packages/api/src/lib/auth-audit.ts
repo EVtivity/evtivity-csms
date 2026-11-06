@@ -3,19 +3,14 @@
 
 import type { FastifyRequest } from 'fastify';
 import { db, writeAudit, userAuditLog, driverAuditLog } from '@evtivity/database';
-import { countAuthFailure } from '../plugins/metrics.js';
+import {
+  countAuthFailure,
+  type AuthFailureMethod,
+  type AuthFailureReason,
+} from '../plugins/metrics.js';
 
-/** How the account proved its identity. */
-export type AuthMethod =
-  | 'password'
-  | 'mfa'
-  | 'recovery_code'
-  | 'webauthn'
-  | 'passkey'
-  | 'mfa_enrollment'
-  | 'sso'
-  | 'reset_token'
-  | 'verification_token';
+/** How the account proved its identity (the `auth_failures_total` methods but `api_key`). */
+export type AuthMethod = Exclude<AuthFailureMethod, 'api_key'>;
 
 export type AuthAuditAction =
   | 'login_succeeded'
@@ -32,8 +27,8 @@ export interface AuthAuditArgs {
   accountId: string | null;
   action: AuthAuditAction;
   method: AuthMethod;
-  /** Why a login failed (bad_password, inactive, mfa_code_invalid, ...). */
-  reason?: string;
+  /** Why a login failed: one of the fixed reasons of `auth_failures_total`. */
+  reason?: AuthFailureReason;
 }
 
 const USER_AGENT_MAX = 255;

@@ -68,11 +68,64 @@ export const authFailuresTotal = new Counter({
 export type AuthFailureRealm = 'operator' | 'driver';
 
 /**
- * Counts one failed sign-in. `method` and `reason` come from fixed sets in the routes
- * (the auth audit method and reason, `api_key` for an API key), never from the request,
- * so the label values stay bounded. Fail-open: a metrics error never fails a sign-in.
+ * How the failed sign-in tried to prove its identity: the auth audit methods, and
+ * `api_key` for an API key. A fixed list, so a caller cannot pass request text.
  */
-export function countAuthFailure(realm: AuthFailureRealm, method: string, reason: string): void {
+export const AUTH_FAILURE_METHODS = [
+  'password',
+  'mfa',
+  'recovery_code',
+  'webauthn',
+  'passkey',
+  'mfa_enrollment',
+  'sso',
+  'reset_token',
+  'verification_token',
+  'api_key',
+] as const;
+export type AuthFailureMethod = (typeof AUTH_FAILURE_METHODS)[number];
+
+/**
+ * Why a sign-in failed: the auth audit reasons and the API key reasons. A fixed list,
+ * so the label values stay bounded; `unknown` stands for a failure without a reason.
+ */
+export const AUTH_FAILURE_REASONS = [
+  'unknown',
+  'unknown_account',
+  'bad_password',
+  'inactive',
+  'locked',
+  'device_locked',
+  'no_portal_access',
+  'reset_not_required',
+  'sso_account',
+  'sso_link_required',
+  'sso_subject_mismatch',
+  'domain_not_allowed',
+  'mfa_code_invalid',
+  'mfa_challenge_exhausted',
+  'mfa_method_disabled',
+  'mfa_policy_unavailable',
+  'mfa_setup_unavailable',
+  'mfa_enrollment_required',
+  'mfa_factor_unsupported',
+  'webauthn_unknown_credential',
+  'webauthn_verification_failed',
+  'api_key_expired',
+  'api_key_invalid',
+] as const;
+export type AuthFailureReason = (typeof AUTH_FAILURE_REASONS)[number];
+
+/**
+ * Counts one failed sign-in. `method` and `reason` are typed to the fixed lists above,
+ * never request text, so the label values stay bounded. Fail-open: a metrics error
+ * never fails a sign-in.
+ */
+export function countAuthFailure(
+  realm: AuthFailureRealm,
+  method: AuthFailureMethod,
+  reason: AuthFailureReason,
+): void {
   try {
     authFailuresTotal.inc({ realm, method, reason });
   } catch (err) {

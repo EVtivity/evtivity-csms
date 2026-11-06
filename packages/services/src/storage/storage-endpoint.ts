@@ -82,8 +82,11 @@ export function validateStorageEndpoint(
 /**
  * The S3 API host of a Cloudflare R2 account: the 32 hex character account ID,
  * then the jurisdiction (none, `eu`, `fedramp` or `us`; Cloudflare R2 docs, "Data
- * location": `https://<ACCOUNT_ID>.<JURISDICTION>.r2.cloudflarestorage.com`,
- * https://developers.cloudflare.com/r2/reference/data-location/). Presigned URLs
+ * location", Jurisdictional Restrictions: the "Available jurisdictions" table lists
+ * eu (European Union), fedramp (FedRAMP) and us (United States), and the endpoint is
+ * `https://<ACCOUNT_ID>.<JURISDICTION>.r2.cloudflarestorage.com`,
+ * https://developers.cloudflare.com/r2/reference/data-location/, checked
+ * 2026-11-06). Presigned URLs
  * work only on this host, not on a bucket's custom domain or r2.dev address.
  */
 const R2_HOST = /^[0-9a-f]{32}\.(?:(?:eu|fedramp|us)\.)?r2\.cloudflarestorage\.com$/;
