@@ -178,6 +178,7 @@ vi.mock('drizzle-orm', () => ({
   count: vi.fn(),
   asc: vi.fn(),
   gt: vi.fn(),
+  gte: vi.fn(),
   isNull: vi.fn(),
   inArray: vi.fn(),
 }));
@@ -2397,6 +2398,7 @@ describe('Portal charger routes - handler logic', () => {
       siteCity: 'City',
       siteState: 'CA',
       siteContactIsPublic: false,
+      siteListed: true,
     };
 
     beforeEach(() => {
@@ -2462,6 +2464,78 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.json().siteAddress).toBe('123 Main');
       expect(mockPublicStationServed).toHaveBeenCalled();
       expect(mockPublicStationListed).not.toHaveBeenCalled();
+    });
+
+    it('names its site while another station of the site is listed', async () => {
+      setupDbResults(
+        [
+          {
+            ...stationRow,
+            portalListed: false,
+            siteContactIsPublic: true,
+            siteContactName: 'Ops',
+            siteContactEmail: null,
+            siteContactPhone: null,
+          },
+        ],
+        [],
+      );
+      const response = await app.inject({ method: 'GET', url: '/portal/chargers/CS-001' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().siteName).toBe('Site A');
+      expect(response.json().siteContactName).toBe('Ops');
+      expect(mockPublicSiteListed).toHaveBeenCalled();
+    });
+
+    it('names no field of a site whose every station is hidden', async () => {
+      const hiddenSite = {
+        ...stationRow,
+        portalListed: false,
+        siteListed: false,
+        siteContactIsPublic: true,
+        siteContactName: 'Ops',
+        siteContactEmail: 'ops@example.com',
+        siteContactPhone: '+12015550177',
+      };
+      setupDbResults([hiddenSite], []);
+      const station = await app.inject({ method: 'GET', url: '/portal/chargers/CS-001' });
+      expect(station.statusCode).toBe(200);
+      expect(station.json()).toMatchObject({
+        stationId: 'CS-001',
+        siteId: null,
+        siteName: null,
+        siteAddress: null,
+        siteCity: null,
+        siteState: null,
+        siteContactName: null,
+        siteContactEmail: null,
+        siteContactPhone: null,
+      });
+      setupDbResults(
+        [hiddenSite],
+        [{ id: 'evs_000000000001', evseId: 1, status: 'available' }],
+        [],
+      );
+      const evse = await app.inject({ method: 'GET', url: '/portal/chargers/CS-001/evse/1' });
+      expect(evse.statusCode).toBe(200);
+      expect(evse.json()).toMatchObject({
+        siteId: null,
+        siteName: null,
+        siteAddress: null,
+        siteCity: null,
+        siteState: null,
+      });
+    });
+
+    it('counts only listed stations in the popular times', async () => {
+      setupDbResults([{ id: 'site-1', timezone: 'UTC' }], []);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/location/site-1/popular-times',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockPublicSiteListed).toHaveBeenCalled();
+      expect(mockPublicStationListed).toHaveBeenCalled();
     });
 
     it('links a listed station to its location page', async () => {

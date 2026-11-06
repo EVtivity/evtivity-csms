@@ -652,6 +652,7 @@ describe('Portal charger routes - remaining branches', () => {
       siteContactEmail: 'ann@example.com',
       siteContactPhone: '+15125550100',
       siteContactIsPublic: true,
+      siteListed: true,
     };
 
     it('returns 404 STATION_NOT_FOUND for an unknown station', async () => {

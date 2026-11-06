@@ -140,10 +140,34 @@ const portalChargerDetail = z
       ),
     model: z.string().max(100).nullable().describe('Station hardware model'),
     isOnline: z.boolean().describe('Whether the station is currently online'),
-    siteName: z.string().max(255).nullable().describe('Site name'),
-    siteAddress: z.string().max(500).nullable().describe('Street address'),
-    siteCity: z.string().max(100).nullable().describe('City'),
-    siteState: z.string().max(100).nullable().describe('State or region'),
+    siteName: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe(
+        'Site name; null for an unsited station and for a site with no station in the portal listings',
+      ),
+    siteAddress: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe(
+        'Street address; null for an unsited station and for a site with no station in the portal listings',
+      ),
+    siteCity: z
+      .string()
+      .max(100)
+      .nullable()
+      .describe(
+        'City; null for an unsited station and for a site with no station in the portal listings',
+      ),
+    siteState: z
+      .string()
+      .max(100)
+      .nullable()
+      .describe(
+        'State or region; null for an unsited station and for a site with no station in the portal listings',
+      ),
     paymentEnabled: z
       .boolean()
       .describe('Whether Stripe is configured for this site and payment is required'),
@@ -208,25 +232,55 @@ const portalStationDetail = z
       ),
     model: z.string().max(100).nullable().describe('Station hardware model'),
     isOnline: z.boolean().describe('Whether the station is currently online'),
-    siteName: z.string().max(255).nullable().describe('Site name'),
-    siteAddress: z.string().max(500).nullable().describe('Street address'),
-    siteCity: z.string().max(100).nullable().describe('City'),
-    siteState: z.string().max(100).nullable().describe('State or region'),
+    siteName: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe(
+        'Site name; null for an unsited station and for a site with no station in the portal listings',
+      ),
+    siteAddress: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe(
+        'Street address; null for an unsited station and for a site with no station in the portal listings',
+      ),
+    siteCity: z
+      .string()
+      .max(100)
+      .nullable()
+      .describe(
+        'City; null for an unsited station and for a site with no station in the portal listings',
+      ),
+    siteState: z
+      .string()
+      .max(100)
+      .nullable()
+      .describe(
+        'State or region; null for an unsited station and for a site with no station in the portal listings',
+      ),
     siteContactName: z
       .string()
       .max(255)
       .nullable()
-      .describe('Public site contact name (null when contact is private)'),
+      .describe(
+        'Public site contact name (null when contact is private or the site has no station in the portal listings)',
+      ),
     siteContactEmail: z
       .string()
       .max(255)
       .nullable()
-      .describe('Public site contact email (null when contact is private)'),
+      .describe(
+        'Public site contact email (null when contact is private or the site has no station in the portal listings)',
+      ),
     siteContactPhone: z
       .string()
       .max(50)
       .nullable()
-      .describe('Public site contact phone (null when contact is private)'),
+      .describe(
+        'Public site contact phone (null when contact is private or the site has no station in the portal listings)',
+      ),
     paymentEnabled: z
       .boolean()
       .describe('Whether Stripe is configured for this site and payment is required'),
@@ -652,6 +706,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteAddress: sites.address,
           siteCity: sites.city,
           siteState: sites.state,
+          siteListed: sql<boolean>`${publicSiteListed()}`,
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
@@ -736,10 +791,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         model: station.model,
         isOnline: station.isOnline,
         isSimulator: station.isSimulator,
-        siteName: station.siteName,
-        siteAddress: station.siteAddress,
-        siteCity: station.siteCity,
-        siteState: station.siteState,
+        // A site whose every station is hidden is not public: no field names it.
+        siteName: station.siteListed ? station.siteName : null,
+        siteAddress: station.siteListed ? station.siteAddress : null,
+        siteCity: station.siteListed ? station.siteCity : null,
+        siteState: station.siteListed ? station.siteState : null,
         paymentEnabled: paymentProvider != null,
         evse: {
           evseId: evse.evseId,
@@ -1467,11 +1523,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const since = new Date();
       since.setDate(since.getDate() - weeks * 7);
 
-      // Sessions of conformance (OCTT) stations are not counted.
+      // Only the stations the location page lists are counted: conformance (OCTT),
+      // pending, blocked and hidden stations are left out.
       const stationIds = db
         .select({ id: chargingStations.id })
         .from(chargingStations)
-        .where(and(eq(chargingStations.siteId, siteId), isOperatorStation()));
+        .where(and(eq(chargingStations.siteId, siteId), publicStationListed()));
 
       const rows = await db
         .select({
@@ -1541,6 +1598,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteContactEmail: sites.contactEmail,
           siteContactPhone: sites.contactPhone,
           siteContactIsPublic: sites.contactIsPublic,
+          siteListed: sql<boolean>`${publicSiteListed()}`,
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
@@ -1644,7 +1702,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const callerDriverId = reservationDriverMap.size > 0 ? await optionalDriverId(request) : null;
       const paymentProvider = await activePaymentProvider(request.log);
 
-      const isContactPublic = station.siteContactIsPublic === true;
+      // A site whose every station is hidden is not public: no field names it.
+      const siteListed = station.siteListed;
+      const isContactPublic = siteListed && station.siteContactIsPublic === true;
       const maintenance = await getMaintenancePayloadForStation(station.id, request.log);
 
       return {
@@ -1654,10 +1714,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         model: station.model,
         isOnline: station.isOnline,
         isSimulator: station.isSimulator,
-        siteName: station.siteName,
-        siteAddress: station.siteAddress,
-        siteCity: station.siteCity,
-        siteState: station.siteState,
+        siteName: siteListed ? station.siteName : null,
+        siteAddress: siteListed ? station.siteAddress : null,
+        siteCity: siteListed ? station.siteCity : null,
+        siteState: siteListed ? station.siteState : null,
         siteContactName: isContactPublic ? station.siteContactName : null,
         siteContactEmail: isContactPublic ? station.siteContactEmail : null,
         siteContactPhone: isContactPublic ? station.siteContactPhone : null,
