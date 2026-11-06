@@ -135,7 +135,9 @@ describe('fields on one row are top aligned', () => {
     ]);
   });
 
-  it('keeps every field row of the CSMS and the portal top aligned', () => {
+  // Parses every CSMS and portal source file: under coverage on a CI runner it
+  // can take longer than the 5 s default.
+  it('keeps every field row of the CSMS and the portal top aligned', { timeout: 60_000 }, () => {
     const offenders = Object.entries({ ...CSMS_SOURCES, ...PORTAL_SOURCES }).flatMap(
       ([file, src]) =>
         src.includes('Label') || src.includes('<label') ? misalignedFieldRows(file, src) : [],
