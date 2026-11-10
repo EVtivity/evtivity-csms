@@ -48,17 +48,18 @@ export interface DashboardLayout {
 
 /**
  * Every chart of the Live dashboard, in the default order (the order the
- * dashboard had before layouts existed). The four last charts are new and
- * hidden by default. The 3D site layout (v0.1.49) stands above the map.
+ * dashboard had before layouts existed). The four last charts and the
+ * security events card are hidden by default. The 3D site layout (v0.1.49) stands above the map.
  */
 export const DASHBOARD_WIDGETS: readonly DashboardWidget[] = [
   { id: 'chart.aiInsights', defaultHidden: false, span: 'full' },
   { id: 'chart.stationStatus', defaultHidden: false, span: 'half' },
-  // Station security events (v0.1.51): enters a saved layout before the
+  // Station security events (v0.1.51): hidden by default (owner decision
+  // 2026-11-10), shown from Customize; enters a saved layout before the
   // utilization chart, which follows the station status chart by default.
   {
     id: 'chart.securityEvents',
-    defaultHidden: false,
+    defaultHidden: true,
     span: 'full',
     enterBefore: 'chart.utilization',
   },

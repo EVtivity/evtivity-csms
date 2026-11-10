@@ -221,6 +221,9 @@ describe('SecurityEventsCard', () => {
     };
     renderCard();
     expect(await screen.findByText('dashboard.securityEvents.empty')).toBeTruthy();
+    // An empty ring at the donut height, so the card keeps its size.
+    expect(screen.getByTestId('empty-donut')).toBeTruthy();
+    expect(screen.getByTestId('chart-placeholder').style.minHeight).toBe('280px');
     cleanup();
     state.reply = { ...reply, stationTotal: 75 };
     renderCard();

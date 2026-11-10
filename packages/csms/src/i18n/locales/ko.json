@@ -2966,7 +2966,9 @@
     "uptime": "가동률",
     "uptimePerDay": "가동률 (일일 %)",
     "noUptimeData": "사용 가능한 가동률 데이터가 없습니다",
-    "noData": "이 기간의 데이터가 없습니다"
+    "noData": "이 기간의 데이터가 없습니다",
+    "noPayments": "이 기간의 결제가 없습니다",
+    "total": "합계"
   },
   "metrics": {
     "uptime": "가동률",
@@ -3202,6 +3204,7 @@
     "testSuccess": "테스트 알림이 전송되었습니다.",
     "testFailed": "테스트 알림 전송에 실패했습니다.",
     "companyInfo": "회사 정보",
+    "systemTab": "시스템",
     "companyInfoDescription": "조직 이름, 연락처 및 주소입니다.",
     "companyName": "회사 이름",
     "companyCurrency": "통화",
@@ -4045,7 +4048,9 @@
       "signalGoodDbmHint": "이 값 이상의 신호는 좋음으로 평가됩니다.",
       "signalFairDbm": "보통 신호 기준(dBm)",
       "signalFairDbmHint": "이 값 이상의 신호는 보통, 그 아래는 약함으로 평가됩니다.",
-      "signalOrderError": "좋음 기준은 보통 기준보다 높아야 합니다."
+      "signalOrderError": "좋음 기준은 보통 기준보다 높아야 합니다.",
+      "simCardsNote": "SIM은 다음 페이지에서 추가하거나 가져옵니다:",
+      "simCardsLink": "SIM"
     },
     "ssoAllowedDomains": "허용된 이메일 도메인",
     "ssoAllowedDomainsHint": "SSO는 쉼표로 구분된 이 도메인에 대해서만 로그인하고 계정을 생성합니다. 권장: 회사 도메인을 입력하십시오. 비워 두면 모든 도메인이 허용됩니다.",
@@ -5573,6 +5578,7 @@
     "securityEventOcppType": "OCPP 유형: {{type}}",
     "securityEventTechInfo": "기술 정보 (선택)",
     "sendSecurityEvent": "보안 이벤트 보내기",
+    "securityEventDescription": "시뮬레이터가 이 보안 이벤트를 충전기에서 CSMS로 보냅니다.",
     "securityEvents": {
       "TamperDetectionActivated": "충전기 열림 (변조 감지 센서)",
       "TiltDetected": "충전기 기울어짐 (제조사 이벤트)",

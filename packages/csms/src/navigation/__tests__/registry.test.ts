@@ -32,6 +32,7 @@ const ALL_ON = {
   aiInsightsEnabled: true,
   simEnabled: true,
   paymentTerminalsEnabled: true,
+  simsExist: true,
 };
 
 describe('NAV_ENTRIES', () => {
@@ -129,6 +130,13 @@ describe('SIMs entry', () => {
     );
     const off = visibleNavEntries(['sims:read'], { ...ALL_ON, simEnabled: false }, true);
     expect(off.map((e) => e.to)).not.toContain('/sims');
+  });
+
+  it('stays hidden until the caller may see a SIM', () => {
+    const none = visibleNavEntries(['sims:read'], { ...ALL_ON, simsExist: false }, true);
+    expect(none.map((e) => e.to)).not.toContain('/sims');
+    const one = visibleNavEntries(['sims:read'], { ...ALL_ON, simsExist: true }, false);
+    expect(one.map((e) => e.to)).toContain('/sims');
   });
 });
 

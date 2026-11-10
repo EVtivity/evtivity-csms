@@ -118,21 +118,32 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
       </CardHeader>
       <CardContent>
         {mapsSettings == null || mapsSettings.apiKey === '' ? (
-          <div className="flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+          <div
+            data-testid="station-map-placeholder"
+            className="flex h-96 items-center justify-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground"
+          >
             <MapPin className="h-4 w-4" />
             {t('dashboard.siteMapNotConfigured')}
           </div>
         ) : mapError != null ? (
-          <div className="flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-destructive">
+          <div
+            data-testid="station-map-placeholder"
+            className="flex h-96 items-center justify-center gap-2 rounded-md border border-dashed p-4 text-sm text-destructive"
+          >
             <MapPin className="h-4 w-4" />
             {mapError}
           </div>
         ) : siteLocationsQuery.isError ? (
-          <LoadErrorRetry
-            onRetry={() => {
-              void siteLocationsQuery.refetch();
-            }}
-          />
+          <div
+            data-testid="station-map-placeholder"
+            className="flex h-96 items-center justify-center"
+          >
+            <LoadErrorRetry
+              onRetry={() => {
+                void siteLocationsQuery.refetch();
+              }}
+            />
+          </div>
         ) : (
           <div ref={mapRef} className="h-96 w-full rounded-md border" />
         )}

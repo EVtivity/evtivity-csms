@@ -447,7 +447,18 @@ describe('Dashboard layout customizing', () => {
     '/v1/dashboard/free-vend',
   ];
 
-  it('shows the Security Events card right after the station status chart with securityEvents:read', async () => {
+  it('hides the Security Events card by default, also with securityEvents:read', async () => {
+    await renderDashboard('operator', ['dashboard:read', 'securityEvents:read']);
+    expect(screen.queryByTestId('security-events-card')).toBeNull();
+  });
+
+  it('shows the Security Events card right after the station status chart once the layout shows it', async () => {
+    savedLayout({
+      version: 1,
+      charts: defaultDashboardLayout().charts.map((c) =>
+        c.id === 'chart.securityEvents' ? { ...c, hidden: false } : c,
+      ),
+    });
     await renderDashboard('operator', ['dashboard:read', 'securityEvents:read']);
     const card = await screen.findByTestId('security-events-card');
     const status = screen.getAllByTestId('chart')[0] as HTMLElement;
@@ -456,7 +467,13 @@ describe('Dashboard layout customizing', () => {
     expect(before(card, energy)).toBe(true);
   });
 
-  it('hides the Security Events card without securityEvents:read', async () => {
+  it('hides the Security Events card without securityEvents:read, also when the layout shows it', async () => {
+    savedLayout({
+      version: 1,
+      charts: defaultDashboardLayout().charts.map((c) =>
+        c.id === 'chart.securityEvents' ? { ...c, hidden: false } : c,
+      ),
+    });
     await renderDashboard('viewer', ['dashboard:read']);
     expect(screen.queryByTestId('security-events-card')).toBeNull();
   });

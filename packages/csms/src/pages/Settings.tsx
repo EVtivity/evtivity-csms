@@ -60,6 +60,7 @@ const TAB_PERMISSIONS: Record<string, Permission> = {
   'smart-charging': 'settings.smartCharging:read',
   ai: 'settings.ai:read',
   dataRetention: 'settings.system:read',
+  system: 'settings.system:read',
   conformance: 'settings.conformance:read',
   history: 'audit:read',
 };
@@ -81,6 +82,7 @@ const ALL_SITE_TABS = new Set([
   'security',
   'ai',
   'dataRetention',
+  'system',
   'history',
 ]);
 
@@ -209,6 +211,9 @@ export function Settings(): React.JSX.Element {
           {tabVisible('dataRetention') && (
             <TabsTrigger value="dataRetention">{t('settings.dataRetention.tab')}</TabsTrigger>
           )}
+          {tabVisible('system') && (
+            <TabsTrigger value="system">{t('settings.systemTab')}</TabsTrigger>
+          )}
           {tabVisible('conformance') && (
             <TabsTrigger value="conformance">{t('settings.conformance')}</TabsTrigger>
           )}
@@ -221,7 +226,6 @@ export function Settings(): React.JSX.Element {
             <InvoiceSellerSettings settings={settings} />
             <InvoicePaymentSettings settings={settings} />
             <PdfBrandingSettings settings={settings} />
-            <UpdateCheckSettings settings={settings} />
           </TabsContent>
         )}
 
@@ -333,6 +337,15 @@ export function Settings(): React.JSX.Element {
         {tabVisible('dataRetention') && (
           <TabsContent value="dataRetention">
             <DataRetentionSettings
+              canWrite={hasPermissionCheck(permissions, 'settings.system:write')}
+            />
+          </TabsContent>
+        )}
+
+        {tabVisible('system') && (
+          <TabsContent value="system" className="space-y-6">
+            <UpdateCheckSettings
+              settings={settings}
               canWrite={hasPermissionCheck(permissions, 'settings.system:write')}
             />
           </TabsContent>

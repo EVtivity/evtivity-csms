@@ -2966,7 +2966,9 @@
     "uptime": "运行时间",
     "uptimePerDay": "正常运行时间 (每日%)",
     "noUptimeData": "无正常运行时间数据",
-    "noData": "此时段没有数据"
+    "noData": "此时段没有数据",
+    "noPayments": "此时段没有付款",
+    "total": "总计"
   },
   "metrics": {
     "uptime": "运行时间",
@@ -3202,6 +3204,7 @@
     "testSuccess": "测试通知已发送。",
     "testFailed": "发送测试通知失败。",
     "companyInfo": "公司信息",
+    "systemTab": "系统",
     "companyInfoDescription": "组织名称、联系方式和地址。",
     "companyName": "公司名称",
     "companyCurrency": "货币",
@@ -4045,7 +4048,9 @@
       "signalGoodDbmHint": "达到或高于此值的信号评为良好。",
       "signalFairDbm": "一般信号起点（dBm）",
       "signalFairDbmHint": "达到或高于此值的信号评为一般，低于此值为较差。",
-      "signalOrderError": "良好阈值必须高于一般阈值。"
+      "signalOrderError": "良好阈值必须高于一般阈值。",
+      "simCardsNote": "在以下页面添加或导入 SIM 卡：",
+      "simCardsLink": "SIM 卡"
     },
     "ssoAllowedDomains": "允许的电子邮件域",
     "ssoAllowedDomainsHint": "SSO 仅为这些域登录和创建账户，以逗号分隔。建议：列出您公司的域。留空则允许所有域。",
@@ -5573,6 +5578,7 @@
     "securityEventOcppType": "OCPP 类型：{{type}}",
     "securityEventTechInfo": "技术信息（可选）",
     "sendSecurityEvent": "发送安全事件",
+    "securityEventDescription": "模拟器将此安全事件从充电桩发送到 CSMS。",
     "securityEvents": {
       "TamperDetectionActivated": "充电桩被打开（防拆传感器）",
       "TiltDetected": "充电桩倾斜（厂商事件）",

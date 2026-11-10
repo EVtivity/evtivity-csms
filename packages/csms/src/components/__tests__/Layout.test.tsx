@@ -154,12 +154,19 @@ function featuresFor(settings: Record<string, unknown>): Record<string, boolean>
 async function renderLayout(
   settings: Settings,
   branding: Record<string, string> = {},
+  sims?: { simEnabled: boolean; total: number },
 ): Promise<HTMLElement> {
   getMock.mockImplementation((url: string) => {
     if (url === '/v1/portal/features') {
       return settings == null
         ? Promise.reject(new Error('unavailable'))
-        : Promise.resolve(featuresFor(settings));
+        : Promise.resolve({
+            ...featuresFor(settings),
+            ...(sims != null ? { simEnabled: sims.simEnabled } : {}),
+          });
+    }
+    if (url === '/v1/sims?limit=1' && sims != null) {
+      return Promise.resolve({ data: [], total: sims.total });
     }
     if (url === '/v1/portal/branding') return Promise.resolve(branding);
     if (url === '/v1/support-cases/unassigned-count') return Promise.resolve({ count: 0 });
@@ -250,5 +257,33 @@ describe('Layout navigation', () => {
     });
     const container = await renderLayout({});
     expect(navHrefs(container)).toEqual(['/', '/audit']);
+  });
+
+  describe('SIM Cards entry', () => {
+    it('stays hidden while the caller sees no SIM', async () => {
+      useAuth.setState({ permissions: ['dashboard:read', 'sims:read'] });
+      const container = await renderLayout({}, {}, { simEnabled: true, total: 0 });
+      expect(navHrefs(container)).toEqual(['/']);
+      expect(getMock.mock.calls.map((call) => String(call[0]))).toContain('/v1/sims?limit=1');
+    });
+
+    it('shows once the caller sees a SIM', async () => {
+      useAuth.setState({ permissions: ['dashboard:read', 'sims:read'] });
+      const container = await renderLayout({}, {}, { simEnabled: true, total: 1 });
+      expect(navHrefs(container)).toEqual(['/', '/sims']);
+    });
+
+    it('reads no SIM without sims:read and while the SIM features are off', async () => {
+      useAuth.setState({ permissions: ['dashboard:read'] });
+      const container = await renderLayout({}, {}, { simEnabled: true, total: 1 });
+      expect(navHrefs(container)).toEqual(['/']);
+      expect(getMock.mock.calls.map((call) => String(call[0]))).not.toContain('/v1/sims?limit=1');
+      cleanup();
+      getMock.mockReset();
+      useAuth.setState({ permissions: ['dashboard:read', 'sims:read'] });
+      const off = await renderLayout({}, {}, { simEnabled: false, total: 1 });
+      expect(navHrefs(off)).toEqual(['/']);
+      expect(getMock.mock.calls.map((call) => String(call[0]))).not.toContain('/v1/sims?limit=1');
+    });
   });
 });

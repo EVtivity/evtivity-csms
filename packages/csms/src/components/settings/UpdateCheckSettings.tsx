@@ -15,6 +15,8 @@ const KEY = 'system.updateCheckEnabled';
 
 interface Props {
   settings: Record<string, unknown> | undefined;
+  /** settings.system:write: without it the switch is read-only. */
+  canWrite: boolean;
 }
 
 /**
@@ -22,7 +24,7 @@ interface Props {
  * once a day for the update notice. On by default (a missing row reads on).
  * Off: the server contacts the website for nothing and no notice shows.
  */
-export function UpdateCheckSettings({ settings }: Props): React.JSX.Element {
+export function UpdateCheckSettings({ settings, canWrite }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -61,7 +63,7 @@ export function UpdateCheckSettings({ settings }: Props): React.JSX.Element {
             offDescription={t('settings.updateCheck.offEffect')}
             size="lg"
             checked={enabled}
-            disabled={mutation.isPending}
+            disabled={!canWrite || mutation.isPending}
             onCheckedChange={(checked) => {
               setEnabled(checked);
               mutation.mutate(checked);

@@ -22,11 +22,11 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock })
 
 import { UpdateCheckSettings } from '../UpdateCheckSettings';
 
-function setup(settings: Record<string, unknown> | undefined): void {
+function setup(settings: Record<string, unknown> | undefined, canWrite = true): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <UpdateCheckSettings settings={settings} />
+      <UpdateCheckSettings settings={settings} canWrite={canWrite} />
     </QueryClientProvider>,
   );
 }
@@ -76,5 +76,13 @@ describe('Update Check settings', () => {
       expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }));
     });
     expect(toggle().getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('shows the switch read-only without settings.system:write', () => {
+    setup({ 'system.updateCheckEnabled': true }, false);
+    expect(toggle().hasAttribute('disabled')).toBe(true);
+    fireEvent.click(toggle());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(apiMock.put).not.toHaveBeenCalled();
   });
 });

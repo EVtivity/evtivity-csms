@@ -2966,7 +2966,9 @@
     "uptime": "Uptime",
     "uptimePerDay": "Uptime (% per day)",
     "noUptimeData": "No uptime data available",
-    "noData": "No data for this period"
+    "noData": "No data for this period",
+    "noPayments": "No payments in this period",
+    "total": "Total"
   },
   "metrics": {
     "uptime": "Uptime",
@@ -3202,6 +3204,7 @@
     "testSuccess": "Test notification sent.",
     "testFailed": "Failed to send test notification.",
     "companyInfo": "Company Info",
+    "systemTab": "System",
     "companyInfoDescription": "Your organization name, contact details, and address.",
     "companyName": "Company Name",
     "companyCurrency": "Currency",
@@ -4045,7 +4048,9 @@
       "signalGoodDbmHint": "A signal at or above this value is graded good.",
       "signalFairDbm": "Fair Signal From (dBm)",
       "signalFairDbmHint": "A signal at or above this value is graded fair, below it poor.",
-      "signalOrderError": "The good threshold must be above the fair threshold."
+      "signalOrderError": "The good threshold must be above the fair threshold.",
+      "simCardsNote": "Add or import SIMs on the",
+      "simCardsLink": "SIMs page"
     },
     "ssoAllowedDomains": "Allowed Email Domains",
     "ssoAllowedDomainsHint": "SSO signs in and creates accounts only for these domains, separated by commas. Recommended: list your company domains. Empty allows every domain.",
@@ -5573,6 +5578,7 @@
     "securityEventOcppType": "OCPP type: {{type}}",
     "securityEventTechInfo": "Tech Info (Optional)",
     "sendSecurityEvent": "Send Security Event",
+    "securityEventDescription": "The simulator sends this security event from the station to the CSMS.",
     "securityEvents": {
       "TamperDetectionActivated": "Charger Opened (Tamper Sensor)",
       "TiltDetected": "Charger Tilted (Vendor Event)",

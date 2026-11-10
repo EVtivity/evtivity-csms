@@ -7,7 +7,8 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
-import { ChartBody, type QueryState } from './ChartBody';
+import { CHART_HEIGHT, ChartBody, type QueryState } from './ChartBody';
+import { EmptyDonut } from './EmptyDonut';
 import { formatNumber } from '@/lib/formatting';
 import { useAuth } from '@/lib/auth';
 import { PAYMENT_STATUS_COLORS } from '@/lib/chart-theme';
@@ -69,8 +70,13 @@ export function PaymentBreakdownChart({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartBody state={state} isEmpty={values.length === 0} emptyText={t('charts.noData')}>
-          <ReactApexChart options={options} series={values} type="donut" height={300} />
+        <ChartBody
+          state={state}
+          isEmpty={values.length === 0}
+          emptyText={t('charts.noPayments')}
+          emptyChart={<EmptyDonut text={t('charts.noPayments')} />}
+        >
+          <ReactApexChart options={options} series={values} type="donut" height={CHART_HEIGHT} />
         </ChartBody>
       </CardContent>
     </Card>

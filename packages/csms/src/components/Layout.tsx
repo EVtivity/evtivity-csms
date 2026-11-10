@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { useEventStream } from '@/hooks/use-event-stream';
 import { api } from '@/lib/api';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { useSimsExist } from '@/hooks/use-sims-exist';
 import { visibleNavEntries, type NavEntry } from '@/navigation/registry';
 import { usePaymentTerminalFeature } from '@/components/payment-terminals/payment-terminal-types';
 
@@ -137,9 +138,10 @@ export function Layout(): React.JSX.Element {
   const permissions = useAuth((s) => s.permissions);
   const hasAllSiteAccess = useHasAllSiteAccess();
   const { available: paymentTerminalsEnabled } = usePaymentTerminalFeature();
+  const simsExist = useSimsExist(featureFlags.simEnabled);
   const visibleNavItems = visibleNavEntries(
     permissions,
-    { ...featureFlags, paymentTerminalsEnabled },
+    { ...featureFlags, paymentTerminalsEnabled, simsExist },
     hasAllSiteAccess,
   );
 

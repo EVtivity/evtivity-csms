@@ -2966,7 +2966,9 @@
     "uptime": "Verfügbarkeit",
     "uptimePerDay": "Verfügbarkeit (% pro Tag)",
     "noUptimeData": "Keine Verfügbarkeitsdaten verfügbar",
-    "noData": "Keine Daten für diesen Zeitraum"
+    "noData": "Keine Daten für diesen Zeitraum",
+    "noPayments": "Keine Zahlungen in diesem Zeitraum",
+    "total": "Gesamt"
   },
   "metrics": {
     "uptime": "Verfügbarkeit",
@@ -3202,6 +3204,7 @@
     "testSuccess": "Testbenachrichtigung gesendet.",
     "testFailed": "Testbenachrichtigung konnte nicht gesendet werden.",
     "companyInfo": "Unternehmensinformationen",
+    "systemTab": "System",
     "companyInfoDescription": "Name, Kontaktdaten und Adresse Ihrer Organisation.",
     "companyName": "Unternehmensname",
     "companyCurrency": "Währung",
@@ -4045,7 +4048,9 @@
       "signalGoodDbmHint": "Ein Signal ab diesem Wert gilt als gut.",
       "signalFairDbm": "Mittleres Signal ab (dBm)",
       "signalFairDbmHint": "Ein Signal ab diesem Wert gilt als mittel, darunter als schwach.",
-      "signalOrderError": "Der Schwellenwert für gut muss über dem für mittel liegen."
+      "signalOrderError": "Der Schwellenwert für gut muss über dem für mittel liegen.",
+      "simCardsNote": "SIMs hinzufügen oder importieren auf der Seite",
+      "simCardsLink": "SIMs"
     },
     "ssoAllowedDomains": "Zulässige E-Mail-Domains",
     "ssoAllowedDomainsHint": "SSO meldet nur Konten dieser Domains an und erstellt nur für sie Konten, durch Kommas getrennt. Empfohlen: Geben Sie die Domains Ihres Unternehmens an. Leer erlaubt jede Domain.",
@@ -5573,6 +5578,7 @@
     "securityEventOcppType": "OCPP-Typ: {{type}}",
     "securityEventTechInfo": "Technische Info (optional)",
     "sendSecurityEvent": "Sicherheitsereignis senden",
+    "securityEventDescription": "Der Simulator sendet dieses Sicherheitsereignis von der Station an das CSMS.",
     "securityEvents": {
       "TamperDetectionActivated": "Ladestation geöffnet (Manipulationssensor)",
       "TiltDetected": "Ladestation gekippt (Herstellerereignis)",

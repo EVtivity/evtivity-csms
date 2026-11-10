@@ -2966,7 +2966,9 @@
     "uptime": "Tiempo activo",
     "uptimePerDay": "Tiempo activo (% por día)",
     "noUptimeData": "No hay datos de tiempo activo disponibles",
-    "noData": "No hay datos para este periodo"
+    "noData": "No hay datos para este periodo",
+    "noPayments": "No hay pagos en este periodo",
+    "total": "Total"
   },
   "metrics": {
     "uptime": "Tiempo activo",
@@ -3202,6 +3204,7 @@
     "testSuccess": "Notificación de prueba enviada.",
     "testFailed": "Error al enviar notificación de prueba.",
     "companyInfo": "Datos de la empresa",
+    "systemTab": "Sistema",
     "companyInfoDescription": "Nombre de la organización, datos de contacto y dirección.",
     "companyName": "Nombre de la empresa",
     "companyCurrency": "Moneda",
@@ -4045,7 +4048,9 @@
       "signalGoodDbmHint": "Una señal igual o superior a este valor se considera buena.",
       "signalFairDbm": "Señal aceptable desde (dBm)",
       "signalFairDbmHint": "Una señal igual o superior a este valor se considera aceptable; por debajo, débil.",
-      "signalOrderError": "El umbral de señal buena debe ser mayor que el de señal aceptable."
+      "signalOrderError": "El umbral de señal buena debe ser mayor que el de señal aceptable.",
+      "simCardsNote": "Agregue o importe SIM en la página",
+      "simCardsLink": "SIM"
     },
     "ssoAllowedDomains": "Dominios de correo permitidos",
     "ssoAllowedDomainsHint": "El SSO inicia sesión y crea cuentas solo para estos dominios, separados por comas. Recomendado: indique los dominios de su empresa. Vacío permite cualquier dominio.",
@@ -5573,6 +5578,7 @@
     "securityEventOcppType": "Tipo OCPP: {{type}}",
     "securityEventTechInfo": "Información Técnica (Opcional)",
     "sendSecurityEvent": "Enviar Evento de Seguridad",
+    "securityEventDescription": "El simulador envía este evento de seguridad desde la estación al CSMS.",
     "securityEvents": {
       "TamperDetectionActivated": "Cargador Abierto (Sensor de Manipulación)",
       "TiltDetected": "Cargador Inclinado (Evento del Fabricante)",

@@ -31,6 +31,10 @@ export interface SimulateRunOptions {
   faultCode?: FaultCode;
   /** The event of the securityEvent action: an OCPP or vendor type and optional tech info. */
   securityEvent?: { type: string; techInfo?: string };
+  /** Called after the action was sent, next to the success toast. */
+  onSent?: () => void;
+  /** Takes the error message instead of the error toast (a dialog shows it inside). */
+  onFailed?: (message: string) => void;
 }
 
 /** Whether a driver token with exactly this ID exists (the simulator's Authorize needs one). */
@@ -71,6 +75,8 @@ export function useSimulateAction(stationId: string): {
       action: string;
       body: Record<string, unknown>;
       button: SimulateRunAction;
+      onSent?: (() => void) | undefined;
+      onFailed?: ((message: string) => void) | undefined;
     }) => api.post<{ commandId: string }>(`/v1/css/actions/${action}`, body),
     onSuccess: (_data, variables) => {
       toast({
@@ -78,14 +84,19 @@ export function useSimulateAction(stationId: string): {
         variant: 'success',
       });
       setActiveAction(null);
+      variables.onSent?.();
     },
     onError: (err: unknown, variables) => {
       const message =
         err != null && typeof err === 'object' && 'body' in err
           ? ((err as { body: { error?: string } }).body.error ?? t('simulate.actionFailed'))
           : t('simulate.actionFailed');
-      toast({ title: `${t(`simulate.${variables.button}`)}: ${message}`, variant: 'destructive' });
       setActiveAction(null);
+      if (variables.onFailed != null) {
+        variables.onFailed(message);
+        return;
+      }
+      toast({ title: `${t(`simulate.${variables.button}`)}: ${message}`, variant: 'destructive' });
     },
   });
 
@@ -100,6 +111,8 @@ export function useSimulateAction(stationId: string): {
         action: 'securityEvent',
         body: { stationId, type: event.type, ...(techInfo !== '' ? { techInfo } : {}) },
         button: action,
+        onSent: options.onSent,
+        onFailed: options.onFailed,
       });
       return;
     }
@@ -127,7 +140,13 @@ export function useSimulateAction(stationId: string): {
       body.tokenType = 'ISO14443';
     }
     setActiveAction(action);
-    mutation.mutate({ action: apiAction, body, button: action });
+    mutation.mutate({
+      action: apiAction,
+      body,
+      button: action,
+      onSent: options.onSent,
+      onFailed: options.onFailed,
+    });
   }
 
   return {

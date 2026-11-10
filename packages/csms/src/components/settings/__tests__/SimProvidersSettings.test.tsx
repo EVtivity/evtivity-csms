@@ -116,6 +116,19 @@ describe('SimProvidersSettings', () => {
     expect(screen.getByText('settings.sim.stationSignalHint')).toBeTruthy();
   });
 
+  it('links to the SIMs page only with sims:read', async () => {
+    renderSettings();
+    await screen.findByText('settings.sim.hologramTitle');
+    expect(screen.queryByTestId('sim-cards-link')).toBeNull();
+    cleanup();
+    perms.add('sims:read');
+    renderSettings();
+    await screen.findByText('settings.sim.hologramTitle');
+    expect(screen.getByTestId('sim-cards-link').querySelector('a')?.getAttribute('href')).toBe(
+      '/sims',
+    );
+  });
+
   it('saves the Hologram account with the organization id and API key', async () => {
     renderSettings();
     fireEvent.click(await screen.findByRole('switch', { name: 'settings.sim.hologramEnabled' }));

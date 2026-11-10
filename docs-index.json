@@ -202,7 +202,7 @@
   {
     "path": "/docs/csms/settings",
     "title": "Settings",
-    "description": "Configure company info, marketing, content, notifications, sustainability, payments, integrations, security, API keys, firmware, station configurations, smart charging, AI, and data retention."
+    "description": "Configure company info, marketing, content, notifications, sustainability, payments, integrations, security, API keys, firmware, station configurations, smart charging, AI, data retention, and system."
   },
   {
     "path": "/docs/csms/sims",

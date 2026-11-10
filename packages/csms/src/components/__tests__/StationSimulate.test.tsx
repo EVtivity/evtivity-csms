@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// The Simulate tab: the High Temperature fault and the Security Event control
+// The Simulate tab: the High Temperature fault and the Security Event dialog
 // (the OCPP list of the station version grouped by severity, the vendor tamper
 // types, the optional tech info) send the simulator actions.
 
@@ -41,9 +41,15 @@ function renderTab(ocppProtocol: string, isOnline = true): void {
   );
 }
 
+function openEventDialog(): HTMLElement {
+  fireEvent.click(screen.getByRole('button', { name: 'simulate.sendSecurityEvent' }));
+  return screen.getByRole('dialog');
+}
+
 afterEach(() => {
   cleanup();
   postMock.mockClear();
+  postMock.mockImplementation(() => Promise.resolve({ commandId: 'c1' }));
 });
 
 describe('StationSimulate', () => {
@@ -63,8 +69,19 @@ describe('StationSimulate', () => {
     });
   });
 
+  it('shows only the Send Security Event button on the tab until it is clicked', () => {
+    renderTab('ocpp2.1');
+    expect(screen.queryByLabelText('simulate.securityEventType')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = openEventDialog();
+    expect(within(dialog).getByText('simulate.securityEventDescription')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'common.cancel' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'common.send' })).toBeTruthy();
+  });
+
   it('groups the 2.x security events by severity with plain titles and the vendor types', () => {
     renderTab('ocpp2.1');
+    openEventDialog();
     const select = screen.getByLabelText<HTMLSelectElement>('simulate.securityEventType');
     const groups = Array.from(select.querySelectorAll('optgroup')).map((g) => g.label);
     expect(groups).toEqual([
@@ -86,6 +103,7 @@ describe('StationSimulate', () => {
 
   it('offers the 1.6 whitepaper names to a 1.6 station', () => {
     renderTab('ocpp1.6');
+    openEventDialog();
     const values = Array.from(
       screen.getByLabelText<HTMLSelectElement>('simulate.securityEventType').options,
     ).map((o) => o.value);
@@ -95,8 +113,9 @@ describe('StationSimulate', () => {
     expect(values).toHaveLength(23);
   });
 
-  it('sends the chosen security event with its tech info', async () => {
+  it('sends the chosen security event with its tech info and closes the dialog', async () => {
     renderTab('ocpp2.0.1');
+    const dialog = openEventDialog();
     fireEvent.change(screen.getByLabelText('simulate.securityEventType'), {
       target: { value: 'TiltDetected' },
     });
@@ -104,7 +123,7 @@ describe('StationSimulate', () => {
     fireEvent.change(screen.getByLabelText('simulate.securityEventTechInfo'), {
       target: { value: ' tilt 35 degrees ' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'simulate.sendSecurityEvent' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common.send' }));
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith('/v1/css/actions/securityEvent', {
         stationId: 'CS-1',
@@ -112,11 +131,29 @@ describe('StationSimulate', () => {
         techInfo: 'tilt 35 degrees',
       });
     });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  it('keeps the dialog open and shows the error inside it when the send fails', async () => {
+    postMock.mockImplementation(() =>
+      Promise.reject(Object.assign(new Error('x'), { body: { error: 'Station not running' } })),
+    );
+    renderTab('ocpp2.1');
+    const dialog = openEventDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common.send' }));
+    await waitFor(() => {
+      expect(within(screen.getByRole('dialog')).getByRole('alert').textContent).toContain(
+        'Station not running',
+      );
+    });
   });
 
   it('sends no tech info when it is empty, and nothing while the station is offline', async () => {
     renderTab('ocpp2.1');
-    fireEvent.click(screen.getByRole('button', { name: 'simulate.sendSecurityEvent' }));
+    const dialog = openEventDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common.send' }));
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith('/v1/css/actions/securityEvent', {
         stationId: 'CS-1',

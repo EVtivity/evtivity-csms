@@ -7,6 +7,7 @@ import { AlertCircle } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ClearableInput } from '@/components/ui/clearable-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -64,6 +65,8 @@ export function StationSimulate({
   // The tamper event is in the 1.6 and the 2.x lists.
   const [eventType, setEventType] = useState<string>('TamperDetectionActivated');
   const [eventTechInfo, setEventTechInfo] = useState('');
+  const [eventDialogOpen, setEventDialogOpen] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
   const simulate = useSimulateAction(stationId);
   const { activeAction, tokenError } = simulate;
 
@@ -239,72 +242,89 @@ export function StationSimulate({
 
       <div className="space-y-3 border-t pt-4" data-testid="sim-security-event">
         <h3 className="text-sm font-semibold">{t('simulate.securityEvent')}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-          <div className="grid gap-2">
-            <Label htmlFor="sim-security-event-type">{t('simulate.securityEventType')}</Label>
-            <Select
-              id="sim-security-event-type"
-              value={eventType}
-              onChange={(e) => {
-                setEventType(e.target.value);
-              }}
-            >
-              {eventGroups.map((group) => (
-                <optgroup key={group.severity} label={t(`severity.${group.severity}`)}>
-                  {group.types.map((type) => (
-                    <option key={type} value={type}>
-                      {t(`simulate.securityEvents.${type}`, { defaultValue: type })}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {t('simulate.securityEventOcppType', { type: eventType })}
-            </p>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="sim-security-event-tech-info">
-              {t('simulate.securityEventTechInfo')}
-            </Label>
-            <Input
-              id="sim-security-event-tech-info"
-              maxLength={255}
-              value={eventTechInfo}
-              onChange={(e) => {
-                setEventTechInfo(e.target.value);
-              }}
-            />
-          </div>
-          <div className="grid gap-2 md:pt-8">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={simulate.isPending || isOnline === false}
-              onClick={() => {
-                void simulate.run('securityEvent', {
-                  evseId: selectedEvse,
-                  securityEvent: { type: eventType, techInfo: eventTechInfo },
-                });
-              }}
-              className="relative w-full min-w-0"
-            >
-              {activeAction === 'securityEvent' && simulate.isPending && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Spinner className="h-4 w-4" />
-                </div>
-              )}
-              <span
-                className={
-                  activeAction === 'securityEvent' && simulate.isPending ? 'invisible' : ''
-                }
-              >
-                {t('simulate.sendSecurityEvent')}
-              </span>
-            </Button>
-          </div>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={simulate.isPending || isOnline === false}
+          onClick={() => {
+            setEventError(null);
+            setEventDialogOpen(true);
+          }}
+        >
+          {t('simulate.sendSecurityEvent')}
+        </Button>
       </div>
+
+      <ConfirmDialog
+        open={eventDialogOpen}
+        onOpenChange={(open) => {
+          setEventDialogOpen(open);
+          if (!open) setEventError(null);
+        }}
+        title={t('simulate.sendSecurityEvent')}
+        description={t('simulate.securityEventDescription')}
+        confirmLabel={t('common.send')}
+        variant="default"
+        asForm
+        isPending={activeAction === 'securityEvent' && simulate.isPending}
+        onConfirm={() => {
+          setEventError(null);
+          void simulate.run('securityEvent', {
+            evseId: selectedEvse,
+            securityEvent: { type: eventType, techInfo: eventTechInfo },
+            onSent: () => {
+              setEventDialogOpen(false);
+            },
+            onFailed: (message) => {
+              setEventError(message);
+            },
+          });
+          return false;
+        }}
+      >
+        <div className="grid gap-2">
+          <Label htmlFor="sim-security-event-type">{t('simulate.securityEventType')}</Label>
+          <Select
+            id="sim-security-event-type"
+            value={eventType}
+            onChange={(e) => {
+              setEventType(e.target.value);
+            }}
+          >
+            {eventGroups.map((group) => (
+              <optgroup key={group.severity} label={t(`severity.${group.severity}`)}>
+                {group.types.map((type) => (
+                  <option key={type} value={type}>
+                    {t(`simulate.securityEvents.${type}`, { defaultValue: type })}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t('simulate.securityEventOcppType', { type: eventType })}
+          </p>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="sim-security-event-tech-info">
+            {t('simulate.securityEventTechInfo')}
+          </Label>
+          <Input
+            id="sim-security-event-tech-info"
+            maxLength={255}
+            value={eventTechInfo}
+            onChange={(e) => {
+              setEventTechInfo(e.target.value);
+            }}
+          />
+        </div>
+        {eventError != null && (
+          <p role="alert" className="flex items-center gap-1 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4" />
+            {eventError}
+          </p>
+        )}
+      </ConfirmDialog>
     </TabPanel>
   );
 }

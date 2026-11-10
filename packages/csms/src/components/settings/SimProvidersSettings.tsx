@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Info } from 'lucide-react';
 import {
@@ -785,6 +786,7 @@ function StationSignalCard({
 export function SimProvidersSettings(): React.JSX.Element {
   const { t } = useTranslation();
   const allSites = useHasAllSiteAccess();
+  const canReadSims = useHasPermission('sims:read');
   const canWrite = useHasCompanyWidePermission('settings.integrations:write');
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: SIM_PROVIDER_SETTINGS_KEY,
@@ -824,6 +826,15 @@ export function SimProvidersSettings(): React.JSX.Element {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">{t('settings.sim.description')}</p>
+      {canReadSims && (
+        // The SIMs menu entry shows only once a SIM exists, so the first one is added from here.
+        <p className="text-sm text-muted-foreground" data-testid="sim-cards-link">
+          {t('settings.sim.simCardsNote')}{' '}
+          <Link to="/sims" className="text-link hover:underline">
+            {t('settings.sim.simCardsLink')}
+          </Link>
+        </p>
+      )}
       <HologramCard data={data} canWrite={canWrite} />
       <OneNceCard data={data} canWrite={canWrite} />
       <SessionHistoryCard data={data} canWrite={canWrite} />

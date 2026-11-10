@@ -2966,7 +2966,9 @@
     "uptime": "正常執行時間",
     "uptimePerDay": "正常執行時間 (每日%)",
     "noUptimeData": "無正常執行時間資料",
-    "noData": "此時段沒有資料"
+    "noData": "此時段沒有資料",
+    "noPayments": "此時段沒有付款",
+    "total": "總計"
   },
   "metrics": {
     "uptime": "執行時間",
@@ -3202,6 +3204,7 @@
     "testSuccess": "測試通知已傳送。",
     "testFailed": "傳送測試通知失敗。",
     "companyInfo": "公司資訊",
+    "systemTab": "系統",
     "companyInfoDescription": "組織名稱、聯絡方式和地址。",
     "companyName": "公司名稱",
     "companyCurrency": "貨幣",
@@ -4045,7 +4048,9 @@
       "signalGoodDbmHint": "達到或高於此值的訊號評為良好。",
       "signalFairDbm": "普通訊號起點（dBm）",
       "signalFairDbmHint": "達到或高於此值的訊號評為普通，低於此值為較差。",
-      "signalOrderError": "良好門檻必須高於普通門檻。"
+      "signalOrderError": "良好門檻必須高於普通門檻。",
+      "simCardsNote": "在以下頁面新增或匯入 SIM 卡：",
+      "simCardsLink": "SIM 卡"
     },
     "ssoAllowedDomains": "允許的電子郵件網域",
     "ssoAllowedDomainsHint": "SSO 僅為這些網域登入和建立帳戶，以逗號分隔。建議：列出您公司的網域。留空則允許所有網域。",
@@ -5573,6 +5578,7 @@
     "securityEventOcppType": "OCPP 類型：{{type}}",
     "securityEventTechInfo": "技術資訊（選填）",
     "sendSecurityEvent": "傳送安全事件",
+    "securityEventDescription": "模擬器將此安全事件從充電樁傳送到 CSMS。",
     "securityEvents": {
       "TamperDetectionActivated": "充電樁被打開（防拆感測器）",
       "TiltDetected": "充電樁傾斜（廠商事件）",

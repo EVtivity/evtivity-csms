@@ -35,6 +35,10 @@ import { SEVERITY_VARIANT } from '@/lib/severity';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { cn } from '@/lib/utils';
 import { ChartBody, queryState } from './ChartBody';
+import { EmptyDonut } from './EmptyDonut';
+
+/** The plot height of the severity donut; the empty and loading states keep it. */
+const SECURITY_DONUT_HEIGHT = 280;
 
 export const SECURITY_EVENT_RANGES = ['24h', '7d', '30d'] as const;
 export type SecurityEventRange = (typeof SECURITY_EVENT_RANGES)[number];
@@ -196,10 +200,17 @@ export function SecurityEventsCard(): React.JSX.Element {
           state={queryState(events)}
           isEmpty={total === 0}
           emptyText={t('dashboard.securityEvents.empty')}
+          emptyChart={<EmptyDonut text={t('dashboard.securityEvents.empty')} />}
+          height={SECURITY_DONUT_HEIGHT}
         >
           <div className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
             <div data-testid="security-events-donut">
-              <ReactApexChart options={options} series={series} type="donut" height={280} />
+              <ReactApexChart
+                options={options}
+                series={series}
+                type="donut"
+                height={SECURITY_DONUT_HEIGHT}
+              />
             </div>
             <div className="min-w-0 space-y-2">
               {stations.length === 0 ? (

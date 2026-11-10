@@ -33,10 +33,12 @@ import type { NavFeatureFlags } from '@/hooks/use-feature-flags';
 /**
  * The flags the nav entries read: the public feature toggles, plus whether the
  * Payment Terminals page applies (`GET /v1/payment-terminals/feature`, read only
- * with `paymentTerminals:read`).
+ * with `paymentTerminals:read`), and whether the caller may see at least one SIM
+ * (`GET /v1/sims?limit=1`, read only with `sims:read`).
  */
 export interface NavFlags extends NavFeatureFlags {
   paymentTerminalsEnabled: boolean;
+  simsExist: boolean;
 }
 
 /** The Payment Terminals menu entry is hidden while the feature is under development. */
@@ -107,7 +109,9 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     icon: Microchip,
     order: 35,
     requiredPermission: 'sims:read',
-    isVisible: (flags) => flags.simEnabled,
+    // Hidden until the caller may see a SIM; the page stays reachable by URL, from
+    // Settings and from the station SIM tab, so the first SIM can be added.
+    isVisible: (flags) => flags.simEnabled && flags.simsExist,
   },
   // Operations
   {
