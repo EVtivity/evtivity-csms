@@ -2,6 +2,9 @@
   "settings": {
     "system.name": "EVtivity CSMS",
     "system.timezone": "America/New_York",
+    "system.distanceUnit": "miles",
+    "system.driverLanguage": "en",
+    "system.updateCheckEnabled": true,
     "ocpp.heartbeatInterval": 900,
     "ocpp.csmsPingInterval": 120,
     "ocpp.meterValueInterval": 60,
@@ -169,6 +172,7 @@
     "sim.signal.goodDbm": -65,
     "sim.signal.fairDbm": -85,
     "portal.registrationEnabled": true,
+    "portal.rfidSelfServiceEnabled": true,
     "mobile.attestation.enabled": false,
     "mobile.attestation.ios.teamId": "",
     "mobile.attestation.ios.bundleId": "",

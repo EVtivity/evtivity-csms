@@ -12,6 +12,7 @@ const siteScopes = vi.hoisted(
     new Map<string, string[] | null>([
       ['usr_000000000001', null],
       ['usr_000000000002', ['sit_aaaaaaaaaaaa']],
+      ['usr_000000000004', null],
     ]),
 );
 
@@ -21,6 +22,7 @@ const userPermissions = vi.hoisted(
       ['usr_000000000001', ['stations:read']],
       ['usr_000000000002', ['stations:read']],
       ['usr_000000000003', ['sites:read']],
+      ['usr_000000000004', ['stations:read', 'securityEvents:read']],
     ]),
 );
 
@@ -56,6 +58,8 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(403).send({ error: 'Forbidden', code: 'INSUFFICIENT_PERMISSIONS' });
       }
     },
+  requestHasPermission: (request: { user?: { userId?: string } }, permission: string) =>
+    Promise.resolve((userPermissions.get(request.user?.userId ?? '') ?? []).includes(permission)),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -224,6 +228,29 @@ describe('GET /sites/:id/ocpp-messages', () => {
       expect(res.json().data).toHaveLength(1);
       const messagesQuery = results.calls.at(-1);
       expect(params(messagesQuery), query).toContain('2026-11-03T12:00:00.000Z');
+    }
+  });
+
+  it('leaves security event messages out without securityEvents:read, and keeps them with it', async () => {
+    const securityReader = app.jwt.sign({
+      userId: 'usr_000000000004',
+      roleId: 'rol_000000000001',
+    });
+    for (const [token, hidden] of [
+      [allSites, true],
+      [securityReader, false],
+    ] as const) {
+      results.calls = [];
+      results.queue = [
+        [{ id: SITE }],
+        [{ id: STATION, station_id: 'CS-3050' }],
+        [{ id: STATION, placed_at: null, move_at: null, move_site_id: null, foreign_until: null }],
+        [logRow()],
+      ];
+      const res = await get(token, `/sites/${SITE}/ocpp-messages`);
+      expect(res.statusCode, res.body).toBe(200);
+      const messagesQuery = results.calls.at(-1);
+      expect(params(messagesQuery).includes('SecurityEventNotification')).toBe(hidden);
     }
   });
 

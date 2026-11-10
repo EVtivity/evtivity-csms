@@ -1332,6 +1332,8 @@ export interface DemoFeatureCounts {
   vehicleSessions: number;
   /** Weekly departure schedules of the Northgate depot vehicles (seed-demo-layout.ts). */
   departureSchedules: number;
+  /** Station security events of the demo layout sites (seed-demo-layout.ts). */
+  securityEvents: number;
 }
 
 /**
@@ -1379,5 +1381,6 @@ export async function seedDemoFeatures(
     vehicleLooks: vehicleLooks.vehicles,
     vehicleSessions: vehicleLooks.sessions,
     departureSchedules: layout.departureSchedules,
+    securityEvents: layout.securityEvents,
   };
 }

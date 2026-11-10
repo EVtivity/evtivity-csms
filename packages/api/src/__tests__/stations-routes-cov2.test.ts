@@ -295,6 +295,8 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  // The caller holds every further permission (securityEvents:read included).
+  requestHasPermission: vi.fn().mockResolvedValue(true),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -1034,6 +1036,7 @@ describe('Station routes - cov2', () => {
         action: 'Heartbeat',
         direction: 'inbound',
         since: null,
+        hiddenActions: expect.any(Array),
       });
     });
 
@@ -1047,6 +1050,7 @@ describe('Station routes - cov2', () => {
         page: 1,
         limit: 50,
         since: movedAt,
+        hiddenActions: expect.any(Array),
       });
     });
 
@@ -1074,6 +1078,25 @@ describe('Station routes - cov2', () => {
         { op: 'eq', col: 'securityEvents.stationId', val: STATION },
         { op: 'ilike', col: 'securityEvents.type', val: '%Tamper%' },
       ]);
+    });
+
+    it('security events read a moved station only from its time at the site', async () => {
+      const movedAt = new Date('2026-11-05T00:00:00Z');
+      mockStationLogSince.mockResolvedValueOnce(movedAt);
+      queue([], [{ total: 0 }]);
+      const res = await inject('GET', `/stations/${STATION}/security-events?search=50%25_off`);
+      expect(res.statusCode).toBe(200);
+      expect(conditionsOf(chainsOf('select')[0])).toEqual([
+        { op: 'eq', col: 'securityEvents.stationId', val: STATION },
+        { op: 'gte', col: 'securityEvents.createdAt', val: movedAt },
+        { op: 'ilike', col: 'securityEvents.type', val: '%50\\%\\_off%' },
+      ]);
+
+      mockStationLogSince.mockResolvedValueOnce('closed');
+      const before = dbState.chains.length;
+      const closed = await inject('GET', `/stations/${STATION}/security-events`);
+      expect(closed.json()).toEqual({ data: [], total: 0 });
+      expect(dbState.chains.length).toBe(before);
     });
   });
 

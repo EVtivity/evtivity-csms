@@ -574,7 +574,27 @@
     "freeVend": "Freies Laden",
     "freeVendInfo": "Ladevorgänge mit freiem Laden an Ihren Standorten und ihre Energie, mit der Anzahl Ihrer Standorte mit aktiviertem freiem Laden.",
     "freeVendSites": "Standorte mit freiem Laden: {{value}}",
-    "noFreeVendSessions": "Keine Ladevorgänge mit freiem Laden in diesem Zeitraum"
+    "noFreeVendSessions": "Keine Ladevorgänge mit freiem Laden in diesem Zeitraum",
+    "securityEvents": {
+      "title": "Sicherheitsereignisse",
+      "info": "Sicherheitsereignisse, die Ihre Ladestationen gemeldet haben, nach Schweregrad und nach Station. Stationen mit dem höchsten Schweregrad stehen oben. Wählen Sie eine Station, um ihren Tab Sicherheit zu öffnen.",
+      "range": "Zeitraum",
+      "range24h": "Letzte 24 Stunden",
+      "range7d": "Letzte 7 Tage",
+      "range30d": "Letzte 30 Tage",
+      "site": "Standort",
+      "allSites": "Alle Standorte",
+      "severity": "Schweregrad",
+      "allSeverities": "Alle Schweregrade",
+      "station": "Station",
+      "worstSeverity": "Höchster Schweregrad",
+      "events": "Ereignisse",
+      "lastEvent": "Letztes Ereignis",
+      "empty": "Keine Sicherheitsereignisse in diesem Zeitraum.",
+      "noStations": "Keine Stationen mit Ereignissen dieses Schweregrads.",
+      "truncated": "{{shown}} von {{total}} Stationen angezeigt.",
+      "criticalRow": "kritisch"
+    }
   },
   "sites": {
     "title": "Standorte",
@@ -758,8 +778,8 @@
       "fitToView": "An Ansicht Anpassen",
       "editLayout": "Layout Bearbeiten",
       "doneEditing": "Bearbeitung Beenden",
-      "hint": "Ziehen zum Drehen, mit zwei Fingern wischen oder mit Umschalttaste ziehen zum Verschieben, Zusammenziehen oder Mausrad zum Zoomen. Klicken Sie auf eine Ladestation für Details.",
-      "hintViewOnly": "Ziehen zum Umsehen, mit zwei Fingern wischen zum Verschieben, Zusammenziehen oder Mausrad zum Zoomen. Klicken Sie auf eine Ladestation für Details.",
+      "hint": "Ziehen zum Drehen, mit zwei Fingern wischen oder mit Umschalttaste ziehen zum Verschieben, Zusammenziehen oder Mausrad zum Zoomen. Klicken Sie auf eine Ladestation für Details. Doppelklicken Sie auf eine Ladestation, um heranzuzoomen.",
+      "hintViewOnly": "Ziehen zum Umsehen, mit zwei Fingern wischen zum Verschieben, Zusammenziehen oder Mausrad zum Zoomen. Klicken Sie auf eine Ladestation für Details. Doppelklicken Sie auf eine Ladestation, um heranzuzoomen.",
       "hintEdit": "Bearbeitungsmodus: Ziehen Sie eine Ladestation auf einen freien Stellplatz oder einen Transformator auf die Wiese. Eine Ladestation rastet im Stellplatz ein und landet nie auf einer anderen Ladestation.",
       "webglUnavailable": "Dieser Browser kann die 3D-Ansicht nicht anzeigen (WebGL ist nicht verfügbar), daher wird die 2D-Ansicht angezeigt.",
       "loading3d": "3D-Ansicht Wird Geladen",
@@ -867,7 +887,7 @@
         "pointerZoom": "Zoomen",
         "pointerZoomKeys": "Zusammenziehen oder Mausrad"
       },
-      "hintTouch": "Ziehen zum Drehen, Zusammenziehen zum Zoomen, mit zwei Fingern ziehen zum Verschieben. Tippen Sie auf eine Ladestation für Details.",
+      "hintTouch": "Ziehen zum Drehen, Zusammenziehen zum Zoomen, mit zwei Fingern ziehen zum Verschieben. Tippen Sie auf eine Ladestation für Details. Doppeltippen Sie auf eine Ladestation, um heranzuzoomen.",
       "hintViewOnlyTouch": "Ziehen zum Umsehen, Zusammenziehen zum Zoomen. Tippen Sie auf eine Ladestation für Details.",
       "hintReplayTouch": "Ein vergangener Moment wird abgespielt. Ziehen zum Drehen, Zusammenziehen zum Zoomen.",
       "portIconLabel": "EVSE {{n}}, {{type}}, {{state}}",
@@ -886,7 +906,8 @@
       "cannotMeetShort": "Nicht erreichbar: {{kwh}} kWh fehlen",
       "transformerLoad": "{{percent}} % der Kapazität",
       "supplyCredit": "Einspeisung {{kw}} kW",
-      "supplyNoReading": "Kein aktueller Messwert"
+      "supplyNoReading": "Kein aktueller Messwert",
+      "evsePlateHover": "EVSE {{n}}, {{types}}"
     },
     "layoutState": {
       "faulted": "Gestört",
@@ -972,7 +993,8 @@
       "reservedWindow": "{{id}} reserviert von {{start}} bis {{end}}",
       "maintenanceNow": "{{id}} in Wartung",
       "maintenanceUntil": "{{id}} in Wartung bis {{end}}",
-      "maintenanceWindow": "{{id}} in Wartung von {{start}} bis {{end}}"
+      "maintenanceWindow": "{{id}} in Wartung von {{start}} bis {{end}}",
+      "rfidTap": "RFID-Karte vorhalten"
     },
     "fleetReadiness": {
       "title": "Flottenbereitschaft",
@@ -1122,6 +1144,7 @@
     "changePasswordOcppOnline": "Dadurch wird das Passwort auf dem Server aktualisiert und über OCPP SetVariables an {{stationId}} übertragen, anschließend wird die Station zurückgesetzt, damit sie sich neu verbindet.",
     "changePasswordOcppOffline": "Die Station ist offline. Das Passwort wird auf dem Server gespeichert und bei der nächsten Verbindung der Station zur Authentifizierung verwendet.",
     "securityLog": "Sicherheitsereignisprotokoll",
+    "securityEventsHidden": "Sicherheitsereignisse der Station sehen nur Benutzer mit der Berechtigung Sicherheitsereignisse. Dieses Protokoll listet die Verbindungsereignisse.",
     "noSecurityLogs": "Keine Sicherheitsereignisse aufgezeichnet",
     "eventType": "Ereignis",
     "eventTypePlaceholder": "z. B. TamperDetectionActivated",
@@ -2076,7 +2099,13 @@
       "empty": "Keine Rechnungsadresse. Rechnungen zeigen Name und E-Mail-Adresse.",
       "updated": "Rechnungsadresse aktualisiert",
       "updateFailed": "Die Rechnungsadresse konnte nicht aktualisiert werden"
-    }
+    },
+    "timezone": "Zeitzone",
+    "distanceUnit": "Entfernungseinheit",
+    "distanceUnitMiles": "Meilen",
+    "distanceUnitKm": "Kilometer",
+    "distanceUnitHelp": "Gilt für Entfernungen im Fahrerportal und in der App.",
+    "timezoneHelp": "Gilt für Zeiten im Fahrerportal, in der App und in Benachrichtigungen."
   },
   "transactions": {
     "title": "Transaktionen",
@@ -2263,6 +2292,7 @@
       "loadManagement": "Lastmanagement",
       "notifications": "Benachrichtigungen",
       "logs": "Protokolle",
+      "securityEvents": "Sicherheitsereignisse",
       "users": "Benutzer",
       "audit": "Audit-Protokoll",
       "maintenance": "Wartung",
@@ -4115,7 +4145,25 @@
     "paymentSubTabTerminals": "Zahlungsterminals",
     "fleetChargingEnabled": "Flottenladen",
     "fleetChargingEnabledDesc": "Plant das Laden im Betriebshof nach der Abfahrt jedes Fahrzeugs, an Standorten mit der Strategie Abfahrtsorientiert.",
-    "fleetChargingEnabledOff": "Die Betriebshofpläne enden, die gesendeten Ladeprofile werden gelöscht, und abfahrtsorientierte Standorte teilen die Leistung gleichmäßig. Die Abfahrten bleiben gespeichert."
+    "fleetChargingEnabledOff": "Die Betriebshofpläne enden, die gesendeten Ladeprofile werden gelöscht, und abfahrtsorientierte Standorte teilen die Leistung gleichmäßig. Die Abfahrten bleiben gespeichert.",
+    "driverLanguage": "Fahrersprache",
+    "driverLanguageHelper": "Die Sprache neuer Fahrer, sofern beim Anlegen keine angegeben wird. Bestehende Fahrer behalten ihre.",
+    "driverDistanceUnit": "Entfernungseinheit für Fahrer",
+    "driverDistanceUnitHelper": "Die Entfernungseinheit neuer Fahrer, sofern beim Anlegen keine angegeben wird. Bestehende Fahrer behalten ihre.",
+    "companyTimezone": "Zeitzone",
+    "companyTimezoneHelper": "Die Zeitzone des Unternehmens: Dashboard-Tage, Rechnungen und Berichte verwenden sie, und neue Fahrer beginnen mit ihr, sofern beim Anlegen keine angegeben wird. Bestehende Fahrer behalten ihre.",
+    "rfidCards": "RFID-Karten",
+    "rfidCardsDescription": "Legen Sie fest, ob Fahrer ihre RFID-Karten selbst verwalten oder der Betreiber sie verwaltet.",
+    "rfidSelfServiceEnabled": "Fahrer Verwalten Ihre RFID-Karten",
+    "rfidSelfServiceEnabledDesc": "Ein: Fahrer fügen ihre RFID-Karten im Portal und in der mobilen App hinzu, benennen sie um, deaktivieren, reaktivieren und entfernen sie. Aus: Fahrer sehen ihre Karten nur, und Betreiber verwalten sie auf der Seite Token.",
+    "rfidSelfServiceOffEffect": "Fahrer können RFID-Karten nicht mehr hinzufügen, umbenennen, deaktivieren, reaktivieren oder entfernen und wenden sich an Sie, um eine verlorene Karte sperren zu lassen. Ihre vorhandenen Karten funktionieren weiter.",
+    "updateCheck": {
+      "title": "Update-Prüfung",
+      "description": "Admins informieren, wenn eine neuere EVtivity CSMS-Version erschienen ist.",
+      "enabled": "Nach neuen Versionen suchen",
+      "enabledDesc": "Ein: Der Server liest einmal am Tag die neueste Versionsnummer von evtivity.com, und Admins sehen auf dem Dashboard einen Hinweis, wenn eine neuere Version erschienen ist. Nur die IP-Adresse des Servers erreicht evtivity.com; Browser kontaktieren die Seite nie. Aus: Es wird nichts gesendet.",
+      "offEffect": "Der Server liest die neueste Version nicht mehr von evtivity.com, und Admins sehen keinen Hinweis mehr, wenn eine neuere Version erschienen ist."
+    }
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -4319,7 +4367,21 @@
     "aiEvents": "KI",
     "channelToggleLabel": "{{event}}-Benachrichtigungen per {{channel}}",
     "eventToggleLabel": "{{event}}-Benachrichtigungen",
-    "securityEvents": "Kontosicherheit"
+    "securityEvents": "Kontosicherheit",
+    "driverChoice": {
+      "title": "Auswahl für Fahrer",
+      "tooltip": "Optional: Jeder Fahrer entscheidet im Portal und in der App. Pflicht: Jeder Fahrer erhält diese Benachrichtigung auf dem Kanal, unabhängig von seiner Auswahl. Ein ausgeschaltetes Ereignis wird nie gesendet, auch nicht als Pflicht.",
+      "alwaysSent": "Fahrer erhalten diese Benachrichtigung immer. Konto- und Sicherheitshinweise können Fahrer nicht ausschalten.",
+      "eventOff": "Dieses Ereignis ist ausgeschaltet. Fahrer erhalten es auf keinem Kanal, auch nicht als Pflicht.",
+      "channelEmail": "E-Mail",
+      "channelSms": "SMS",
+      "channelPush": "Push",
+      "selectLabel": "{{channel}} für {{event}}",
+      "optional": "Optional",
+      "mandatory": "Pflicht",
+      "notConfigured": "Nicht eingerichtet: Auf diesem Kanal wird nichts gesendet.",
+      "explanation": "Fahrer sehen eine Pflichtbenachrichtigung gesperrt eingeschaltet, als von Ihnen vorgeschrieben gekennzeichnet."
+    }
   },
   "reservations": {
     "title": "Reservierungen",
@@ -4840,7 +4902,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "Diese Abfahrt wird von einem Busdepot-System verwaltet; ändern Sie sie dort oder deaktivieren Sie das Depot-System.",
     "DEPOT_SYSTEM_NOT_FOUND": "Busdepot-System nicht gefunden.",
     "DEPOT_SYSTEM_ID_IN_USE": "Ein anderes Busdepot-System verwendet diese System-ID.",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Ein Busdepot-System bedient nur Depot-Standorte."
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Ein Busdepot-System bedient nur Depot-Standorte.",
+    "RFID_SELF_SERVICE_DISABLED": "Ihr Betreiber verwaltet Ihre RFID-Karten. Wenden Sie sich an den Betreiber, um eine Karte hinzuzufügen, zu ändern, zu deaktivieren oder zu entfernen.",
+    "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden"
   },
   "logs": {
     "title": "Protokolle",
@@ -5490,6 +5554,11 @@
     "faultMode": "Fehlermodus",
     "faultModeEnd": "Sitzung beenden",
     "faultModeSuspend": "Sitzung behalten (pausieren)",
+    "faultType": "Fehlerart",
+    "faultCodes": {
+      "internalError": "Interner Fehler",
+      "highTemp": "Übertemperatur"
+    },
     "goOffline": "Offline gehen",
     "comeOnline": "Online gehen",
     "actionSent": "{{action}} gesendet",
@@ -5498,7 +5567,41 @@
     "tokenRequired": "Token ist für diese Aktion erforderlich.",
     "tokenNotFound": "Token in Fahrer-Tokens nicht gefunden. Autorisieren und Laden starten werden abgelehnt.",
     "stationOffline": "Station ist offline. Bringen Sie sie zuerst wieder online.",
-    "invalidForState": "Im aktuellen Anschlussstatus ({{status}}) nicht verfügbar."
+    "invalidForState": "Im aktuellen Anschlussstatus ({{status}}) nicht verfügbar.",
+    "securityEvent": "Sicherheitsereignis",
+    "securityEventType": "Ereignis",
+    "securityEventOcppType": "OCPP-Typ: {{type}}",
+    "securityEventTechInfo": "Technische Info (optional)",
+    "sendSecurityEvent": "Sicherheitsereignis senden",
+    "securityEvents": {
+      "TamperDetectionActivated": "Ladestation geöffnet (Manipulationssensor)",
+      "TiltDetected": "Ladestation gekippt (Herstellerereignis)",
+      "CableCutDetected": "Ladekabel durchtrennt (Herstellerereignis)",
+      "SettingSystemTime": "Systemzeit geändert",
+      "InvalidFirmwareSignature": "Ungültige Firmware-Signatur",
+      "InvalidFirmwareSigningCertificate": "Ungültiges Firmware-Signaturzertifikat",
+      "AttemptedReplayAttacks": "Wiederholte Nachricht empfangen",
+      "FailedToAuthenticateAtCsms": "Station konnte sich nicht am CSMS anmelden",
+      "FailedToAuthenticateAtCentralSystem": "Station konnte sich nicht am CSMS anmelden",
+      "CsmsFailedToAuthenticate": "CSMS konnte sich nicht an der Station anmelden",
+      "CentralSystemFailedToAuthenticate": "CSMS konnte sich nicht an der Station anmelden",
+      "InvalidCsmsCertificate": "Ungültiges CSMS-Zertifikat",
+      "InvalidCentralSystemCertificate": "Ungültiges CSMS-Zertifikat",
+      "InvalidChargingStationCertificate": "Ungültiges Stationszertifikat",
+      "InvalidChargePointCertificate": "Ungültiges Stationszertifikat",
+      "InvalidTLSVersion": "TLS-Version nicht zulässig",
+      "InvalidTLSCipherSuite": "TLS-Cipher-Suite nicht zulässig",
+      "MaintenanceLoginFailed": "Wartungsanmeldung fehlgeschlagen",
+      "SecurityLogWasCleared": "Sicherheitsprotokoll gelöscht",
+      "InvalidMessages": "Ungültige Nachrichten empfangen",
+      "MemoryExhaustion": "Speicher fast voll",
+      "ReconfigurationOfSecurityParameters": "Sicherheitseinstellungen geändert",
+      "DiscardedRenewedClientCertificate": "Erneuertes Client-Zertifikat verworfen",
+      "StartupOfTheDevice": "Station gestartet",
+      "ResetOrReboot": "Station zurückgesetzt oder neu gestartet",
+      "MaintenanceLoginAccepted": "Wartungsanmeldung erfolgreich",
+      "FirmwareUpdated": "Firmware aktualisiert"
+    }
   },
   "loadManagement": {
     "allocationStrategy": "Zuteilungsstrategie",

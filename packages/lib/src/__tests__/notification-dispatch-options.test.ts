@@ -74,7 +74,8 @@ beforeAll(async () => {
 }, 30_000);
 
 describe('dispatchDriverNotification options', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    (await import('../notification-dispatch.js')).clearDriverEventSettingsCache();
     calls.length = 0;
     vi.clearAllMocks();
     mockSendMail.mockResolvedValue({});

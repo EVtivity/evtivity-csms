@@ -6,18 +6,24 @@ import { SURFACE_M } from '../site-layout-cable-surface';
 import * as THREE from 'three';
 import {
   AC_CABLE_M,
-  AC_HANGER_TOP_M,
+  AC_HOOK_TOP_M,
   acCoilPlace,
   acHolsterCable,
   acHolsterEntry,
   catenaryPoints,
   dcGlandOut,
   dcHolsterCable,
+  dcDispenserCableM,
   dcHolsterEntry,
   routeLength,
 } from '../site-layout-charger-cables';
-import { AC_PEDESTAL, acGland, acGlandX, acHangerSides } from '../site-layout-model-ac-pedestal';
-import { CONNECTOR_SPECS, holsterSlots, type ConnectorKind } from '../site-layout-connectors';
+import { AC_PEDESTAL, acGland, acGlandX, acHookSides } from '../site-layout-model-ac-pedestal';
+import {
+  CONNECTOR_SPECS,
+  chargerCableDiameterM,
+  holsterSlots,
+  type ConnectorKind,
+} from '../site-layout-connectors';
 import { cableGlandSize } from '../site-layout-model-cable-gland';
 import { DC_DISPENSER, DC_SIDE_VENTS, dcGland } from '../site-layout-model-dc-dispenser';
 import type { Vec3 } from '../site-layout-model-kit';
@@ -40,7 +46,8 @@ function dcLayouts(): Array<{
       name: `${JSON.stringify(evse)} ${kind}`,
       cables: holsterSlots(evse).map((h) => ({
         kind,
-        route: dcHolsterCable(h.side, h.backM, kind),
+        // A two-EVSE dispenser carries the 6 m dual-outlet cable (`dcDispenserCableM`).
+        route: dcHolsterCable(h.side, h.backM, kind, undefined, dcDispenserCableM(evse.length)),
       })),
     })),
   );
@@ -174,11 +181,11 @@ describe('cable continuity, every charger model', () => {
     }
   });
 
-  it('loops every AC pedestal and curb post cable over its hanger, one piece from gland to handle', () => {
+  it('loops every AC pedestal and curb post cable over its J hook, one piece from gland to handle', () => {
     for (const kind of ['type1', 'type2', 'nacs'] as const) {
-      const d = CONNECTOR_SPECS[kind].cableDiameterM;
+      const d = chargerCableDiameterM(kind, true);
       for (const ports of [1, 2] as const) {
-        for (const side of acHangerSides(ports)) {
+        for (const side of acHookSides(ports)) {
           const label = `${kind} ${String(ports)} ${String(side)}`;
           const glandX = acGlandX(ports, side);
           const entry = acHolsterEntry(side, kind);
@@ -190,9 +197,9 @@ describe('cable continuity, every charger model', () => {
           );
           expect(route[route.length - 1], label).toEqual(entry.end);
           expect(Math.abs(routeLength(route) - AC_CABLE_M) / AC_CABLE_M, label).toBeLessThan(0.01);
-          // Its turns rest on the saddle top: no point above the saddle under the head.
+          // Its turns rest on the hook's rod: no point above the cable's top over it under the head.
           const place = acCoilPlace(side, d);
-          const coil = route.filter((p) => p[1] < AC_HANGER_TOP_M + 0.001);
+          const coil = route.filter((p) => p[1] < AC_HOOK_TOP_M + d + 0.001);
           expect(coil.length, label).toBeGreaterThan(0);
           const top = Math.max(
             ...route
@@ -213,6 +220,40 @@ describe('cable continuity, every charger model', () => {
           // The handle stays in the ADA 308 reach range (15 to 48 in).
           expect(entry.end[1], label).toBeGreaterThan(15 * 0.0254);
           expect(entry.end[1], label).toBeLessThan(48 * 0.0254);
+        }
+      }
+    }
+  });
+});
+
+// A two-EVSE dispenser with four cables, its EVSEs carrying different
+// connector kinds (independent review 2026-11-10, I1): the two idle cables on
+// one side never touch, for every mix.
+describe('four-cable DC dispenser with mixed connector kinds', () => {
+  it('keeps the two idle cables of each side apart', () => {
+    const mixes: Array<[ConnectorKind, ConnectorKind]> = [
+      ['ccs1', 'chademo'],
+      ['ccs2', 'chademo'],
+      ['chademo', 'ccs1'],
+      ['nacs', 'ccs1'],
+    ];
+    for (const [k0, k1] of mixes) {
+      const cables = holsterSlots([2, 2]).map((h) => {
+        const kind = h.connector === 0 ? k0 : k1;
+        const route = dcHolsterCable(h.side, h.backM, kind);
+        const curve = new THREE.CatmullRomCurve3(
+          route.slice(0, -2).map((p) => new THREE.Vector3(...p)),
+        );
+        return { side: h.side, pts: curve.getPoints(240), d: CONNECTOR_SPECS[kind].cableDiameterM };
+      });
+      for (let i = 0; i < cables.length; i += 1) {
+        for (let j = i + 1; j < cables.length; j += 1) {
+          const a = cables[i];
+          const b = cables[j];
+          if (a == null || b == null || a.side !== b.side) continue;
+          let min = Infinity;
+          for (const p of a.pts) for (const q of b.pts) min = Math.min(min, p.distanceTo(q));
+          expect(min, `${k0}/${k1} side ${String(a.side)}`).toBeGreaterThan((a.d + b.d) / 2);
         }
       }
     }

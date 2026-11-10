@@ -5,6 +5,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { clearNotificationSettingsCache, clearStationMessageCache } from '@evtivity/lib';
 import {
+  clearDriverRfidSelfServiceCache,
   clearSecuritySettingsCache,
   clearStationMessageSettingsCache,
   clearSystemSettingsCache,
@@ -27,6 +28,7 @@ interface CacheInvalidateMessage {
     | 'maintenance'
     | 'station_message'
     | 'sim_settings'
+    | 'rfid_self_service'
     | 'driver_active';
   userId?: string;
   driverId?: string;
@@ -56,6 +58,10 @@ interface CacheInvalidateMessage {
  *
  * `sim_settings` comes from the SIM provider settings save: every pod reads the
  * new settings and rebuilds its provider adapters.
+ *
+ * `rfid_self_service` comes from a save or delete of
+ * `portal.rfidSelfServiceEnabled`: every pod drops its cached value, so a
+ * switch to off refuses driver card writes everywhere at once.
  *
  * `station_message` comes from requestStationMessageRepush after a station
  * message setting, company setting, or state template changes: the listeners
@@ -92,6 +98,9 @@ export async function startCacheInvalidateListener(
         return;
       case 'sim_settings':
         clearSimCaches();
+        return;
+      case 'rfid_self_service':
+        clearDriverRfidSelfServiceCache();
         return;
       case 'driver_active':
         // A deactivated driver's or ended session's portal streams end on

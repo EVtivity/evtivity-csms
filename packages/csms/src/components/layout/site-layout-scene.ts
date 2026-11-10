@@ -50,6 +50,7 @@ import {
   panBox,
   type Point,
 } from './site-layout-grid';
+import { zoomTowardPoint } from './site-layout-camera-nav';
 import { nudgeOrbit } from './site-layout-keyboard-nav';
 import { ENGLISH_SIGN_TEXTS } from './site-layout-signs';
 
@@ -67,6 +68,8 @@ import { installChargerModel } from './site-layout-scene-charger-model';
 import { installLinks } from './site-layout-scene-links';
 import { installMerge, mergesStations } from './site-layout-scene-merge';
 import { installRebuild } from './site-layout-scene-rebuild';
+import { evsePlateLights, installEvsePlates } from './site-layout-scene-evse-plates';
+import { installRfidPads } from './site-layout-scene-rfid';
 import { installScreenText } from './site-layout-scene-screen-text';
 import { installSigns } from './site-layout-scene-signs';
 import { installSolar } from './site-layout-scene-solar';
@@ -110,6 +113,8 @@ export function createSiteScene(
   controls.enableDamping = !options.reducedMotion;
   controls.maxPolarAngle = MAX_POLAR_ANGLE;
   controls.minDistance = MIN_DISTANCE;
+  // A touchscreen pinch (the orbit controls' own zoom) zooms toward the fingers, like a map.
+  controls.zoomToCursor = true;
   // Panning moves along the ground, like a map, so the view never lifts off the site.
   controls.screenSpacePanning = false;
   controls.maxDistance = 400;
@@ -242,6 +247,8 @@ export function createSiteScene(
   installKit(scn);
   installCables(scn);
   installConnectors(scn);
+  installRfidPads(scn);
+  installEvsePlates(scn);
   installScreenText(scn);
   installFreeSpots(scn);
   installGround(scn);
@@ -261,6 +268,12 @@ export function createSiteScene(
   scn.canvas.addEventListener('pointermove', scn.onPointerMove);
   scn.canvas.addEventListener('pointerleave', scn.onPointerLeave);
   scn.canvas.addEventListener('pointerup', scn.onPointerUp);
+  scn.canvas.addEventListener('dblclick', scn.onDoubleClick);
+  // A drag of the view takes over from a camera move in progress.
+  const endEase = (): void => {
+    scn.cancelCameraEase();
+  };
+  scn.canvas.addEventListener('pointerdown', endEase);
 
   const observer = new ResizeObserver(() => {
     scn.resize();
@@ -291,6 +304,7 @@ export function createSiteScene(
 
   function loop(now: number): void {
     if (disposed || !active) return;
+    scn.stepCameraEase(now);
     controls.update();
     keepTargetOnSite();
     keepCameraAboveGround();
@@ -316,6 +330,13 @@ export function createSiteScene(
       const fault = faultLightLevel(time);
       for (const obj of objects.values()) {
         if (obj.station.blinking) obj.light.emissiveIntensity = fault;
+      }
+      // Each EVSE's own light on its plate: pulsing while it charges, blinking while faulted.
+      for (const plate of evsePlateLights(scn, scn.built)) {
+        const lamp = plate.station.evseLamps?.[plate.index];
+        if (lamp == null || !plate.station.lit) continue;
+        if (lamp.blinking) plate.light.emissiveIntensity = fault;
+        else if (lamp.pulsing) plate.light.emissiveIntensity = 0.55 + 0.4 * Math.sin(time * 3);
       }
     }
     renderer.render(scene, camera);
@@ -398,6 +419,7 @@ export function createSiteScene(
     },
     nudgeCamera(n) {
       if (disposed) return;
+      scn.cancelCameraEase();
       const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
       const sph = new THREE.Spherical().setFromVector3(offset);
       const next = nudgeOrbit(
@@ -416,6 +438,28 @@ export function createSiteScene(
           maxPolar: MAX_POLAR_ANGLE,
         },
       );
+      controls.target.set(next.target.x, next.target.y, next.target.z);
+      sph.set(next.distance, next.polar, next.azimuth);
+      camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(sph));
+      keepTargetOnSite();
+      keepCameraAboveGround();
+      controls.update();
+    },
+    zoomAt(zoom, at) {
+      if (disposed || zoom === 0) return;
+      scn.cancelCameraEase();
+      const point = scn.pointUnder(at);
+      const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+      const sph = new THREE.Spherical().setFromVector3(offset);
+      const state = {
+        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
+        azimuth: sph.theta,
+        polar: sph.phi,
+        distance: sph.radius,
+      };
+      const limits = { pan: scn.pan, maxDistance: controls.maxDistance, minDistance: MIN_DISTANCE };
+      // Above the horizon there is no point under the pointer: zoom at the center.
+      const next = zoomTowardPoint(state, point ?? state.target, zoom, limits);
       controls.target.set(next.target.x, next.target.y, next.target.z);
       sph.set(next.distance, next.polar, next.azimuth);
       camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(sph));
@@ -442,6 +486,7 @@ export function createSiteScene(
     transformerLabelPoint: scn.transformerLabelPoint,
     linkLabelPoint: scn.linkLabelPoint,
     virtualSignPoint: scn.virtualSignPoint,
+    evsePlatePoint: scn.evsePlatePoint,
     dispose() {
       disposed = true;
       cancelAnimationFrame(animationFrame);
@@ -450,6 +495,8 @@ export function createSiteScene(
       scn.canvas.removeEventListener('pointermove', scn.onPointerMove);
       scn.canvas.removeEventListener('pointerleave', scn.onPointerLeave);
       scn.canvas.removeEventListener('pointerup', scn.onPointerUp);
+      scn.canvas.removeEventListener('dblclick', scn.onDoubleClick);
+      scn.canvas.removeEventListener('pointerdown', endEase);
       controls.dispose();
       scn.showGuides([]);
       scn.guideDash.dispose();

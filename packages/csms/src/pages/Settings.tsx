@@ -17,6 +17,7 @@ import { CompanySettings } from '@/components/settings/CompanySettings';
 import { InvoiceSellerSettings } from '@/components/settings/InvoiceSellerSettings';
 import { InvoicePaymentSettings } from '@/components/settings/InvoicePaymentSettings';
 import { PdfBrandingSettings } from '@/components/settings/PdfBrandingSettings';
+import { UpdateCheckSettings } from '@/components/settings/UpdateCheckSettings';
 import { MarketingSettings } from '@/components/settings/MarketingSettings';
 import { ContentSettings } from '@/components/settings/ContentSettings';
 import { NotificationSettings } from '@/components/settings/NotificationSettings';
@@ -220,6 +221,7 @@ export function Settings(): React.JSX.Element {
             <InvoiceSellerSettings settings={settings} />
             <InvoicePaymentSettings settings={settings} />
             <PdfBrandingSettings settings={settings} />
+            <UpdateCheckSettings settings={settings} />
           </TabsContent>
         )}
 

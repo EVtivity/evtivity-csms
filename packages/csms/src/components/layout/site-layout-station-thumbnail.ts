@@ -27,6 +27,7 @@ export type ThumbnailModel =
   | 'ac-pedestal-dual'
   | 'curb-post'
   | 'wall-box'
+  | 'wall-box-dual'
   | 'split-satellite'
   | 'bus-dispenser'
   | 'pantograph'
@@ -38,6 +39,7 @@ export const THUMBNAIL_MODELS: readonly ThumbnailModel[] = [
   'ac-pedestal-dual',
   'curb-post',
   'wall-box',
+  'wall-box-dual',
   'split-satellite',
   'bus-dispenser',
   'pantograph',
@@ -65,7 +67,8 @@ export type ThumbnailSiteShape = LayoutShape & { mounting?: ChargerMounting | un
 /**
  * The model the 3D view draws for a station, by the same rules: a depot's
  * bus bay or truck lane charger, a custom site's charger for its spot type,
- * a DC split system's satellite, an office or retail wall box, a street's
+ * a DC split system's satellite, an office or retail wall box (two ports
+ * side by side for two EVSEs), a street's
  * curb post, else the DC dispenser or the AC pedestal (dual port for two EVSEs).
  */
 export function stationThumbnailModel(
@@ -98,7 +101,9 @@ export function stationThumbnailModel(
   if (kind.charging === 'dc') {
     return splitDispenserCount(kind, settings) > 1 ? 'split-satellite' : 'dc-dispenser';
   }
-  if (type === 'office_retail' && chargerMountingOf(settings) === 'wall') return 'wall-box';
+  if (type === 'office_retail' && chargerMountingOf(settings) === 'wall') {
+    return ports >= 2 ? 'wall-box-dual' : 'wall-box';
+  }
   if (type === 'curbside' && ports < 2) return 'curb-post';
   return ports >= 2 ? 'ac-pedestal-dual' : 'ac-pedestal';
 }

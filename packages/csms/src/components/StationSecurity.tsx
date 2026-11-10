@@ -32,6 +32,7 @@ import { JsonDetailBlock, JsonPreviewToggle } from '@/components/ExpandableJson'
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { formatDateTime } from '@/lib/timezone';
+import { SECURITY_SEVERITIES } from '@evtivity/lib/security-severity';
 import { SEVERITY_VARIANT } from '@/lib/severity';
 import { getErrorMessage } from '@/lib/error-message';
 import {
@@ -86,9 +87,6 @@ const CONNECTION_EVENT_OPTIONS = [
   'connected',
   'disconnected',
 ] as const;
-
-/** Severities of OCPP security events (connection rows have none). */
-const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
 function getProfileDescLabel(
   profile: number,
@@ -146,6 +144,9 @@ export function StationSecurity({
   const [logsTo, setLogsTo] = useState('');
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
   const [hasSubmittedProfilePassword, setHasSubmittedProfilePassword] = useState(false);
+  // OCPP security event rows need securityEvents:read; without it the API
+  // returns the connection rows only, so the source and severity filters hide.
+  const canReadSecurityEvents = useHasPermission('securityEvents:read');
 
   const {
     data: logsResponse,
@@ -652,30 +653,37 @@ export function StationSecurity({
 
       {/* Security Event Log */}
       <TabPanel title={t('stations.securityLog')}>
+        {!canReadSecurityEvents && (
+          <p className="mb-4 text-sm text-muted-foreground" data-testid="security-events-hidden">
+            {t('stations.securityEventsHidden')}
+          </p>
+        )}
         {/* Four columns from lg; From and To take two each, so the date field and the time selects fit
             on one line from xl and wrap onto two lines below it, never past their column. */}
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 items-start">
-          <div className="space-y-1">
-            <Label htmlFor="security-logs-source" className="text-xs leading-6">
-              {t('stations.securityLogSource')}
-            </Label>
-            <Select
-              id="security-logs-source"
-              value={logsSource}
-              onChange={(e) => {
-                const source = e.target.value as '' | 'connection' | 'security';
-                setLogsSource(source);
-                setLogsEvent('');
-                // Connection rows have no severity.
-                if (source === 'connection') setLogsSeverity('');
-                setLogsPage(1);
-              }}
-            >
-              <option value="">{t('common.all')}</option>
-              <option value="connection">{t('stations.securityLogSourceConnection')}</option>
-              <option value="security">{t('stations.securityLogSourceSecurity')}</option>
-            </Select>
-          </div>
+          {canReadSecurityEvents && (
+            <div className="space-y-1">
+              <Label htmlFor="security-logs-source" className="text-xs leading-6">
+                {t('stations.securityLogSource')}
+              </Label>
+              <Select
+                id="security-logs-source"
+                value={logsSource}
+                onChange={(e) => {
+                  const source = e.target.value as '' | 'connection' | 'security';
+                  setLogsSource(source);
+                  setLogsEvent('');
+                  // Connection rows have no severity.
+                  if (source === 'connection') setLogsSeverity('');
+                  setLogsPage(1);
+                }}
+              >
+                <option value="">{t('common.all')}</option>
+                <option value="connection">{t('stations.securityLogSourceConnection')}</option>
+                <option value="security">{t('stations.securityLogSourceSecurity')}</option>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1">
             <Label htmlFor="security-logs-event" className="text-xs leading-6">
               {t('stations.eventType')}
@@ -709,27 +717,29 @@ export function StationSecurity({
               />
             )}
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="security-logs-severity" className="text-xs leading-6">
-              {t('common.severity')}
-            </Label>
-            <Select
-              id="security-logs-severity"
-              value={logsSeverity}
-              disabled={logsSource === 'connection'}
-              onChange={(e) => {
-                setLogsSeverity(e.target.value);
-                setLogsPage(1);
-              }}
-            >
-              <option value="">{t('common.all')}</option>
-              {SEVERITY_OPTIONS.map((severity) => (
-                <option key={severity} value={severity}>
-                  {t(`severity.${severity}`)}
-                </option>
-              ))}
-            </Select>
-          </div>
+          {canReadSecurityEvents && (
+            <div className="space-y-1">
+              <Label htmlFor="security-logs-severity" className="text-xs leading-6">
+                {t('common.severity')}
+              </Label>
+              <Select
+                id="security-logs-severity"
+                value={logsSeverity}
+                disabled={logsSource === 'connection'}
+                onChange={(e) => {
+                  setLogsSeverity(e.target.value);
+                  setLogsPage(1);
+                }}
+              >
+                <option value="">{t('common.all')}</option>
+                {SECURITY_SEVERITIES.map((severity) => (
+                  <option key={severity} value={severity}>
+                    {t(`severity.${severity}`)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <div className="space-y-1">
             <Label htmlFor="security-logs-limit" className="text-xs leading-6">
               {t('common.pageSize')}

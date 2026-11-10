@@ -57,6 +57,9 @@ export const SPLIT_SATELLITE = {
   logo: { yM: 1.1, widthM: 0.22, heightM: 0.3 },
 } as const;
 
+/** Where the RFID pad mounts: on the front plate under the screen, its center 1.05 m up (2010 ADA 308 reach). */
+export const SATELLITE_RFID_PAD: Vec3 = [0, 1.05, SPLIT_SATELLITE.depthM / 2 + 0.006];
+
 /** A holster cup on the side wall (`side` -1 left, 1 right), `dropM` below the top holster. */
 export function satelliteHolsterMount(
   side: -1 | 1,

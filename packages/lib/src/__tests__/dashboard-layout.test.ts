@@ -103,6 +103,23 @@ describe('dashboard layout', () => {
     expect(resolveDashboardLayout({ version: 7 })).toEqual(defaultDashboardLayout());
   });
 
+  it('shows the security events card full width right after the station status chart', () => {
+    const ids = defaultDashboardLayout().charts.map((c) => c.id);
+    expect(ids.indexOf('chart.securityEvents')).toBe(ids.indexOf('chart.stationStatus') + 1);
+    expect(DASHBOARD_WIDGETS.find((w) => w.id === 'chart.securityEvents')).toMatchObject({
+      defaultHidden: false,
+      span: 'full',
+    });
+    // A layout saved before the card existed gets it before the utilization chart.
+    const saved = defaultDashboardLayout()
+      .charts.filter((c) => c.id !== 'chart.securityEvents')
+      .reverse();
+    const resolved = resolveDashboardLayout({ version: 1, charts: saved }).charts;
+    const at = resolved.findIndex((c) => c.id === 'chart.securityEvents');
+    expect(resolved[at + 1]?.id).toBe('chart.utilization');
+    expect(resolved[at]?.hidden).toBe(false);
+  });
+
   it('puts the 3D site layout above the map in the default layout and in a layout saved before it', () => {
     const ids = defaultDashboardLayout().charts.map((c) => c.id);
     expect(ids.indexOf('chart.siteLayout3d')).toBe(ids.indexOf('chart.stationMap') - 1);

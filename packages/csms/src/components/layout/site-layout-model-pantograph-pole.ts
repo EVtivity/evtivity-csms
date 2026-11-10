@@ -119,6 +119,13 @@ export const PANTOGRAPH_POLE_LOGO = {
   heightM: PANTOGRAPH_POLE.module.logo.heightM,
 } as const;
 
+/** Where the RFID pad mounts on the control module front: right of the screen's lower half and below it, 1.12 m up (2010 ADA 308 reach). */
+export const PANTOGRAPH_POLE_RFID = {
+  x: 0.3,
+  y: PANTOGRAPH_POLE.module.screen.yM - 0.33,
+  z: PANTOGRAPH_POLE.poleM / 2 + PANTOGRAPH_POLE.module.depthM + 0.008,
+} as const;
+
 /** The screen center on the control module front (the display message and glow go there). */
 export const PANTOGRAPH_POLE_SCREEN = {
   x: 0,
@@ -250,7 +257,7 @@ export function createPantographPoleKit(o: PantographPoleOptions = {}): DepotKit
   p.add('trim', boxG(0.006, m.heightM - 0.06, 0.004), {
     at: [m.widthM / 2 - 0.03, my, front + 0.002],
   });
-  // The screen with its bezel, the light bar, the RFID reader and the door lock.
+  // The screen with its bezel, the light bar and the door lock (the scene adds the RFID pad).
   p.add(
     'trim',
     frontProfileG(roundedRect(m.screen.widthM + 0.06, m.screen.heightM + 0.06, 0.02), 0.012, 0.003),
@@ -263,9 +270,6 @@ export function createPantographPoleKit(o: PantographPoleOptions = {}): DepotKit
   });
   p.add('light', frontProfileG(roundedRect(m.widthM * 0.6, 0.025, 0.012), 0.008), {
     at: [0, m.bottomM + m.heightM - 0.05, front + 0.012],
-  });
-  p.add('trim', frontProfileG(roundedRect(0.11, 0.11, 0.015), 0.012, 0.002), {
-    at: [0.3, m.screen.yM - 0.33, front + 0.01],
   });
   p.add('metal', cylG(0.012, 0.012, 0.02, 8), {
     at: [m.widthM / 2 - 0.08, my - 0.1, front + 0.012],

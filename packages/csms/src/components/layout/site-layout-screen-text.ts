@@ -216,11 +216,12 @@ export function canvasScreenTextMeasure(ctx: {
 /**
  * The smallest text a charger screen draws in the scene, in meters of font
  * size, so it is readable at the nearest zoom. Derived: at `MIN_DISTANCE`
- * (3 m) the `CAMERA_FOV` (35 degrees) frame is 2 x 3 x tan(17.5 deg) = 1.89 m
- * tall, which a 720 px tall view draws at 381 px per meter; a 10 px font
+ * (1 m) the `CAMERA_FOV` (35 degrees) frame is 2 x 1 x tan(17.5 deg) = 0.63 m
+ * tall, which a 720 px tall view draws at 1142 px per meter; a 10 px font
  * (about 7 px capital height, the smallest comfortable label size) is then
- * 10 / 381 = 0.026 m. A screen too small for one line of that size draws its
- * largest one line.
+ * 10 / 1142 = 0.0088 m, the size of the body text of a real 7 in charger
+ * screen. A screen too small for one line of that size draws its largest one
+ * line; the hover zoom shows the full text larger.
  */
 export const SCREEN_TEXT_READABLE_M =
   10 / (720 / (2 * MIN_DISTANCE * Math.tan(((CAMERA_FOV / 2) * Math.PI) / 180)));

@@ -1,10 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, isDriverRfidSelfServiceEnabled } from '@evtivity/database';
 import { driverTokens } from '@evtivity/database';
 import { PORTAL_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 import { isVehicleShapedTokenValue } from '@evtivity/lib/vehicle-id';
@@ -128,6 +128,26 @@ async function findOwnToken(id: string, driverId: string): Promise<PortalTokenRo
   return row ?? null;
 }
 
+const SELF_SERVICE_DISABLED = {
+  error: 'Your operator manages your RFID cards',
+  code: 'RFID_SELF_SERVICE_DISABLED',
+} as const;
+
+const SELF_SERVICE_RULE =
+  ' While the operator manages the cards (portal.rfidSelfServiceEnabled off) every driver change answers 403 RFID_SELF_SERVICE_DISABLED, before any token lookup, so the answer is the same for any token id.';
+
+/**
+ * Answers 403 RFID_SELF_SERVICE_DISABLED while drivers do not manage their own
+ * cards. Runs before any token lookup, so a refused request tells nothing about
+ * a token id or a card value. The token service refuses the same writes too,
+ * for a setting that changes between this check and the write.
+ */
+async function refusedWhileReadOnly(reply: FastifyReply): Promise<boolean> {
+  if (await isDriverRfidSelfServiceEnabled()) return false;
+  await reply.status(403).send(SELF_SERVICE_DISABLED);
+  return true;
+}
+
 export function portalTokenRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/tokens',
@@ -164,15 +184,17 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         tags: ['Portal Tokens'],
         summary: 'Add RFID card',
         description:
-          "Registers a card on the driver account. Adding a card the driver removed earlier reactivates it; a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Vehicle id types (VIN, EVCCID, MacAddress) and a value with a MAC address or VIN shape answer 400: a vehicle is added on the Vehicles page or claimed from a session. A value that is another driver's vehicle id answers 409 VEHICLE_ID_IN_USE.",
+          "Registers a card on the driver account. Adding a card the driver removed earlier reactivates it; a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Vehicle id types (VIN, EVCCID, MacAddress) and a value with a MAC address or VIN shape answer 400: a vehicle is added on the Vehicles page or claimed from a session. A value that is another driver's vehicle id answers 409 VEHICLE_ID_IN_USE." +
+          SELF_SERVICE_RULE,
         operationId: 'portalCreateToken',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createTokenBody),
         response: {
           201: itemResponse(tokenItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
-          403: errorWith('The operator deactivated this card', [
+          403: errorWith('The operator deactivated this card, or manages the cards', [
             ERROR_CODES.TOKEN_BLOCKED_BY_OPERATOR,
+            ERROR_CODES.RFID_SELF_SERVICE_DISABLED,
           ]),
           409: errorResponse,
           429: errorResponse,
@@ -182,6 +204,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
       const body = request.body as z.infer<typeof createTokenBody>;
+      if (await refusedWhileReadOnly(reply)) return;
 
       try {
         const token = await tokenService.createToken(
@@ -196,6 +219,10 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         if (token == null) throw new Error('Token insert returned no row');
         await reply.status(201).send(toPortalToken(token));
       } catch (err) {
+        if (err instanceof tokenService.RfidSelfServiceDisabledError) {
+          await reply.status(403).send(SELF_SERVICE_DISABLED);
+          return;
+        }
         // Only a card already on this driver's account can be operator
         // blocked here (re-adding it reactivates it), so the answer tells the
         // driver nothing about other drivers' cards.
@@ -248,7 +275,8 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         tags: ['Portal Tokens'],
         summary: 'Update RFID card status or label',
         description:
-          'Deactivates, reactivates or renames one of the driver cards. The driver can reactivate only a card the driver deactivated: a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Renaming changes no status and works on any own card. A body without isActive and label answers 400.',
+          'Deactivates, reactivates or renames one of the driver cards. The driver can reactivate only a card the driver deactivated: a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Renaming changes no status and works on any own card. A body without isActive and label answers 400.' +
+          SELF_SERVICE_RULE,
         operationId: 'portalUpdateToken',
         security: [{ bearerAuth: [] }],
         params: zodSchema(tokenParams),
@@ -256,8 +284,9 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(tokenItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
-          403: errorWith('The operator deactivated this card', [
+          403: errorWith('The operator deactivated this card, or manages the cards', [
             ERROR_CODES.TOKEN_BLOCKED_BY_OPERATOR,
+            ERROR_CODES.RFID_SELF_SERVICE_DISABLED,
           ]),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
         },
@@ -273,6 +302,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
           .send({ error: 'Send isActive, label or both', code: 'VALIDATION_ERROR' });
         return;
       }
+      if (await refusedWhileReadOnly(reply)) return;
 
       // Another driver's token answers 404 like a missing one, so token ids
       // cannot be probed.
@@ -300,6 +330,10 @@ export function portalTokenRoutes(app: FastifyInstance): void {
           return;
         }
       } catch (err) {
+        if (err instanceof tokenService.RfidSelfServiceDisabledError) {
+          await reply.status(403).send(SELF_SERVICE_DISABLED);
+          return;
+        }
         if (err instanceof tokenService.PncContractTokenError) {
           await reply.status(403).send({
             error: 'This card was deactivated by the operator',
@@ -336,11 +370,15 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Tokens'],
         summary: 'Deactivate (soft-delete) an RFID card',
+        description: 'Removes one of the driver cards by deactivating it.' + SELF_SERVICE_RULE,
         operationId: 'portalDeleteToken',
         security: [{ bearerAuth: [] }],
         params: zodSchema(tokenParams),
         response: {
           200: successResponse,
+          403: errorWith('The operator manages the cards', [
+            ERROR_CODES.RFID_SELF_SERVICE_DISABLED,
+          ]),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
         },
       },
@@ -348,6 +386,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
       const { id } = request.params as z.infer<typeof tokenParams>;
+      if (await refusedWhileReadOnly(reply)) return;
 
       // Another driver's token answers 404 like a missing one.
       const own = await findOwnToken(id, driverId);
@@ -359,11 +398,19 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       // block stay as they are.
       if (!own.isActive) return { success: true };
 
-      await tokenService.updateToken(
-        id,
-        { isActive: false, revokedReason: 'Removed by driver' },
-        { type: 'driver', driverId },
-      );
+      try {
+        await tokenService.updateToken(
+          id,
+          { isActive: false, revokedReason: 'Removed by driver' },
+          { type: 'driver', driverId },
+        );
+      } catch (err) {
+        if (err instanceof tokenService.RfidSelfServiceDisabledError) {
+          await reply.status(403).send(SELF_SERVICE_DISABLED);
+          return;
+        }
+        throw err;
+      }
 
       return { success: true };
     },

@@ -55,6 +55,7 @@ vi.mock('@evtivity/database', async () => ({
   // The real SQLSTATE readers, so the mocked errors map as in production.
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   currentAuditViaAi: () => undefined,
+  isDriverRfidSelfServiceEnabled: vi.fn(async () => true),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -179,6 +180,7 @@ import {
   TokenDriverNotFoundError,
   TokenDriverInactiveError,
   TokenReactivationBlockedError,
+  RfidSelfServiceDisabledError,
   PncContractTokenError,
   tokenActorOf,
 } from '../services/token.service.js';
@@ -1587,5 +1589,64 @@ describe('Plug and Charge contract tokens', () => {
   it('refuses a bulk activation that holds the eMAID of a revoked contract', async () => {
     setupDbResults([{ tokenId: 't9', status: 'revoked' }]);
     await expect(bulkSetActive(['t1', 't9'], true)).rejects.toBeInstanceOf(PncContractTokenError);
+  });
+});
+
+describe('driver RFID self-service off (portal.rfidSelfServiceEnabled)', () => {
+  const driver = { type: 'driver' as const, driverId: 'drv_1' };
+
+  beforeEach(() => {
+    vi.mocked(databaseModule.isDriverRfidSelfServiceEnabled).mockResolvedValue(false);
+  });
+
+  it('refuses a driver create, a re-add included, before any query', async () => {
+    await expect(
+      createToken({ idToken: 'NEW1', tokenType: 'ISO14443', driverId: 'drv_1' }, driver),
+    ).rejects.toBeInstanceOf(RfidSelfServiceDisabledError);
+    expect(databaseModule.db.select).not.toHaveBeenCalled();
+    expect(databaseModule.db.insert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a rename', { label: 'Work' }],
+    ['a reactivation', { isActive: true }],
+    ['a deactivation', { isActive: false }],
+    ['a removal', { isActive: false, revokedReason: 'Removed by driver' }],
+    ['an id change', { idToken: 'X1' }],
+    ['a type change', { tokenType: 'KeyCode' }],
+    ['a driver change', { driverId: 'drv_2' }],
+    ['an expiry change', { expiresAt: null }],
+  ])('refuses %s by a driver before the transaction', async (_name, change) => {
+    await expect(updateToken('t1', change, driver)).rejects.toBeInstanceOf(
+      RfidSelfServiceDisabledError,
+    );
+    expect(databaseModule.db.transaction).not.toHaveBeenCalled();
+    expect(databaseModule.db.select).not.toHaveBeenCalled();
+  });
+
+  it('never reads the setting for an operator, an API key or the system', async () => {
+    const token = { id: 't1', idToken: 'OPS1', tokenType: 'ISO14443', driverId: null };
+    for (const actor of [
+      { type: 'operator' as const, userId: 'usr_1' },
+      { type: 'api_key' as const, userId: 'usr_1', apiKeyId: 'key_1' },
+      { type: 'system' as const },
+    ]) {
+      setupDbResults([], [], [token]);
+      await expect(createToken({ idToken: 'OPS1', tokenType: 'ISO14443' }, actor)).resolves.toEqual(
+        token,
+      );
+    }
+    expect(databaseModule.isDriverRfidSelfServiceEnabled).not.toHaveBeenCalled();
+  });
+
+  it('lets a driver write pass the setting check once it is on', async () => {
+    vi.mocked(databaseModule.isDriverRfidSelfServiceEnabled).mockResolvedValue(true);
+    // No duplicate, no vehicle hit, no driver row: the write goes past the
+    // setting check to the driver lookup.
+    setupDbResults([], [], []);
+    await expect(
+      createToken({ idToken: 'NEW2', tokenType: 'ISO14443', driverId: 'drv_1' }, driver),
+    ).rejects.toBeInstanceOf(TokenDriverNotFoundError);
+    expect(databaseModule.db.select).toHaveBeenCalled();
   });
 });

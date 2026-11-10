@@ -1,11 +1,9 @@
-FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
-# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
-ENV npm_config_fetch_retries=5 \
-    npm_config_fetch_retry_mintimeout=20000 \
-    npm_config_fetch_retry_maxtimeout=120000
-
-WORKDIR /app
-
+# The dependency manifests with every workspace version set to 0.0.0
+# (scripts/docker-dependency-manifests.mjs). A release changes only the version
+# fields, so the npm ci layers below stay cached; the real manifests are copied
+# back after each install.
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS manifests
+WORKDIR /real
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
@@ -24,8 +22,21 @@ COPY packages/css/package.json packages/css/
 COPY packages/octt/package.json packages/octt/
 COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
 COPY packages/worker/package.json packages/worker/
+COPY scripts/docker-dependency-manifests.mjs /tmp/docker-dependency-manifests.mjs
+RUN node /tmp/docker-dependency-manifests.mjs /real /app
+
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
+
+WORKDIR /app
+
+COPY --from=manifests /app/ ./
 
 RUN npm ci --ignore-scripts
+COPY --from=manifests /real/ ./
 
 FROM deps AS build
 
@@ -43,26 +54,10 @@ ENV npm_config_fetch_retries=5 \
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-COPY packages/lib/package.json packages/lib/
-COPY packages/database/package.json packages/database/
-COPY packages/payments/package.json packages/payments/
-COPY packages/payment-terminals/package.json packages/payment-terminals/
-COPY packages/services/package.json packages/services/
-COPY packages/ai/package.json packages/ai/
-COPY packages/api/package.json packages/api/
-COPY packages/ocpp/package.json packages/ocpp/
-COPY packages/v2g-exi/package.json packages/v2g-exi/
-COPY packages/ocpi/package.json packages/ocpi/
-COPY packages/csms/package.json packages/csms/
-COPY packages/portal/package.json packages/portal/
-COPY packages/codegen/package.json packages/codegen/
-COPY packages/css/package.json packages/css/
-COPY packages/octt/package.json packages/octt/
-COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
-COPY packages/worker/package.json packages/worker/
+COPY --from=manifests /app/ ./
 
 RUN npm ci --omit=dev --ignore-scripts
+COPY --from=manifests /real/ ./
 
 COPY --from=build /app/dist/ocpi-simulator.mjs dist/ocpi-simulator.mjs
 COPY --from=build /app/dist/ocpi-simulator.mjs.map dist/ocpi-simulator.mjs.map

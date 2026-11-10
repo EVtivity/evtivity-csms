@@ -5,8 +5,12 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isRequiredDriverEventType } from '@evtivity/lib/notification-events';
 import { EventSettingsLayout } from '@/components/EventSettingsLayout';
+import {
+  DriverChoiceCard,
+  type MandatoryChannels,
+} from '@/components/notifications/DriverChoiceCard';
 import { api } from '@/lib/api';
-import { useHasPermission } from '@/lib/auth';
+import { useHasCompanyWidePermission, useHasPermission } from '@/lib/auth';
 import {
   DRIVER_SESSION_EVENTS,
   DRIVER_ACCOUNT_EVENTS,
@@ -33,12 +37,19 @@ function channelsFor(eventType: string): readonly string[] {
 interface DriverEventSetting {
   eventType: string;
   isEnabled: boolean;
+  emailMandatory?: boolean;
+  smsMandatory?: boolean;
+  pushMandatory?: boolean;
 }
+
+const NO_MANDATORY: MandatoryChannels = { email: false, sms: false, push: false };
 
 export function DriverEvents(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const canEdit = useHasPermission('notifications:write');
+  // The mandatory setting is company-wide, as the API requires (access to every site).
+  const canEditMandatory = useHasCompanyWidePermission('notifications:write');
 
   const { data: settings } = useQuery({
     queryKey: ['driver-event-settings'],
@@ -46,9 +57,22 @@ export function DriverEvents(): React.JSX.Element {
     staleTime: 60_000,
   });
 
+  // Which channels reach drivers, for the "not configured" hint next to Mandatory.
+  const { data: channels } = useQuery({
+    queryKey: ['driver-event-settings', 'channels'],
+    queryFn: () => api.get<MandatoryChannels>('/v1/driver-event-settings/channels'),
+    staleTime: 60_000,
+  });
+
   const enabledMap = new Map<string, boolean>();
+  const mandatoryMap = new Map<string, MandatoryChannels>();
   for (const setting of settings ?? []) {
     enabledMap.set(setting.eventType, setting.isEnabled);
+    mandatoryMap.set(setting.eventType, {
+      email: setting.emailMandatory === true,
+      sms: setting.smsMandatory === true,
+      push: setting.pushMandatory === true,
+    });
   }
 
   return (
@@ -72,6 +96,24 @@ export function DriverEvents(): React.JSX.Element {
       channels={CHANNELS}
       channelsFor={channelsFor}
       channelTooltip={t('notifications.channelTooltipDriver')}
+      renderEventExtra={(eventType) => (
+        <DriverChoiceCard
+          key={eventType}
+          eventType={eventType}
+          eventOn={isRequiredDriverEventType(eventType) || (enabledMap.get(eventType) ?? true)}
+          mandatory={mandatoryMap.get(eventType) ?? NO_MANDATORY}
+          available={channels}
+          canEdit={canEditMandatory}
+          onChange={async (channel, mandatory) => {
+            await api.put('/v1/driver-event-settings/mandatory', {
+              eventType,
+              [channel]: mandatory,
+            });
+            await queryClient.invalidateQueries({ queryKey: ['driver-event-settings'] });
+            void queryClient.invalidateQueries({ queryKey: ['audit', 'notification_template'] });
+          }}
+        />
+      )}
       eventSwitch={{
         enabledMap,
         isRequired: isRequiredDriverEventType,

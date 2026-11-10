@@ -24,6 +24,7 @@ import { queueSimulatedSink } from '@evtivity/payments';
 import { createDriverAiWorker, setDriverAiQueue, startDriverAiBridge } from './driver-ai/queue.js';
 import { createQueues, QUEUE_NAMES } from './queues.js';
 import { createCronWorker } from './cron-worker.js';
+import { queueCsmsUpdateCheckAtStartup } from './handlers/csms-update-check.js';
 import { scheduleCronJobs, scheduleLoadManagementCoordinator } from './scheduler.js';
 import { rebuildDelayedJobs, startRedisRecoveryWatch } from './redis-recovery.js';
 import { createLoadManagementWorker } from './load-management-worker.js';
@@ -132,6 +133,10 @@ async function start(): Promise<void> {
 
   // Schedule cron jobs from database
   await scheduleCronJobs(cronQueue);
+
+  // One CSMS update check at start-up when it is due. Not awaited, so it
+  // never delays the start; it never throws (logged at warn).
+  void queueCsmsUpdateCheckAtStartup(cronQueue, log);
 
   // Schedule load management coordinator (runs every 10s, fans out per-site)
   await scheduleLoadManagementCoordinator(loadQueue);

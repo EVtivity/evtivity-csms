@@ -93,9 +93,9 @@ describe('hasAnySettingsPermission', () => {
 describe('built-in permission catalog', () => {
   const all = permissionCatalog.all();
 
-  it('holds 39 resources with read and write each', () => {
-    expect(permissionCatalog.groups()).toHaveLength(39);
-    expect(all).toHaveLength(78);
+  it('holds 40 resources with read and write each', () => {
+    expect(permissionCatalog.groups()).toHaveLength(40);
+    expect(all).toHaveLength(80);
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -132,7 +132,9 @@ describe('built-in permission catalog', () => {
 
   it('gives operator operational access without settings or users:write', () => {
     const operator = permissionCatalog.defaultsFor('operator');
-    expect(operator).toHaveLength(49);
+    expect(operator).toHaveLength(50);
+    expect(operator).toContain('securityEvents:read');
+    expect(operator).not.toContain('securityEvents:write');
     expect(operator).toContain('paymentTerminals:write');
     expect(operator).toContain('sims:read');
     expect(operator).toContain('sims:write');
@@ -147,17 +149,19 @@ describe('built-in permission catalog', () => {
     for (const p of operator) expect(permissionCatalog.isKnown(p)).toBe(true);
   });
 
-  it('gives viewer read-only access to every page but AI usage and MCP', () => {
+  it('gives viewer read-only access to every page but AI usage, MCP and security events', () => {
     const viewer = permissionCatalog.defaultsFor('viewer');
     const pageReads = permissionCatalog
       .groups()
       .filter((g) => g.kind === 'page')
       .map((g) => g.permissions[0])
-      .filter((p) => p !== 'aiUsage:read' && p !== 'aiMcp:read');
+      .filter((p) => p !== 'aiUsage:read' && p !== 'aiMcp:read' && p !== 'securityEvents:read');
     expect([...viewer].sort()).toEqual([...pageReads].sort());
     // A viewer can read AI conversations but not chat (aiAssistant:write).
     expect(viewer).toContain('aiAssistant:read');
     expect(viewer).not.toContain('aiAssistant:write');
+    // Station security events are for operators and admins only.
+    expect(viewer).not.toContain('securityEvents:read');
   });
 
   it('gives any other role the operator defaults', () => {
@@ -174,8 +178,8 @@ describe('built-in permission catalog', () => {
     permissionCatalog.defaultsFor('operator').push('x:read');
     const [first] = permissionCatalog.groups();
     if (first != null) first.resource = 'changed';
-    expect(permissionCatalog.all()).toHaveLength(78);
-    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(49);
+    expect(permissionCatalog.all()).toHaveLength(80);
+    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(50);
     expect(permissionCatalog.groups()[0]?.resource).toBe('dashboard');
   });
 });

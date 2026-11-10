@@ -1363,6 +1363,41 @@
         "legend": { "displayMode": "list", "placement": "bottom" },
         "tooltip": { "mode": "multi", "sort": "desc" }
       }
+    },
+    {
+      "type": "stat",
+      "title": "Critical Security Events (Last Hour)",
+      "description": "Critical OCPP station security events (tamper, firmware signature, replay, system time) received in the last hour, all stations. Every API task exports the same database value, so the query takes max() across tasks. The CSMS dashboard Security Events card lists the stations.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 90 },
+      "id": 63,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(security_events_critical_last_hour)",
+          "legendFormat": "Critical events",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
     }
   ]
 }

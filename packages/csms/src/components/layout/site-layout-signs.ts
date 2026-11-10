@@ -40,9 +40,23 @@ export interface StationSigns {
   chargingOnlyBottomM: number;
   /** The bottom of the California tow-away sign below it, or null outside California. */
   towAwayBottomM: number | null;
+  /** How far right of `x` the tow-away sign's center stands (0: under the R7-113). */
+  towAwayDxM: number;
   /** The top of the post, in meters (null on a wall). */
   postTopM: number | null;
 }
+
+/**
+ * The signs of a two-port wall box (`AC_WALL_BOX.dual`) hang over the box:
+ * its two J hooks and cable turns fill the wall on both sides (0.285 to
+ * 0.685 m out), where the one-port box keeps its signs beside it
+ * (`WALL_SIGN`). Derived: the bottoms at 1.5 m, clear of the cable turns
+ * (their hooks top out at 1.24 m) and of the station's status marker over
+ * the box (1.33 m), the tow-away sign's top (22 in) at 2.06 m under the
+ * 2.25 m window sill; the R7-113 alone in the middle, or with the
+ * California tow-away sign side by side, 0.042 m apart.
+ */
+export const DUAL_WALL_SIGN = { bottomM: 1.5, chargingOnlyX: -0.22, towAwayX: 0.19 } as const;
 
 /** How far in from a stall's side line the sign post stands, in meters. */
 export const SIGN_POST_INSET_M = 0.2;
@@ -77,8 +91,9 @@ export function stallSignPostXs(
  * Derived: its bottom at 1.4 m puts its 18 in face (0.46 m) between 1.4 and
  * 1.86 m, at eye level and under the ground floor window sill (2.25 m), and
  * a California tow-away sign (22 in) fits under it at 0.79 m on solid wall;
- * it stands 0.75 m left of the box center, past the card reader beside the
- * box (its left edge at 0.44 m) with the 17 in tow-away sign's half width.
+ * it stands 0.75 m left of the box center, past the box's left edge and a
+ * second card reader above the box (its left edge at 0.32 m, `WALL_READER`)
+ * with the 17 in tow-away sign's half width.
  */
 export const WALL_SIGN = { x: -0.75, bottomM: 1.4 } as const;
 
@@ -105,8 +120,24 @@ export function stationSignMount(input: {
   california: boolean;
   /** The facade face in the station's own z (an office or retail wall box: `wallBoxOffset`). */
   wallZ?: number | undefined;
+  /** A wall box's ports: a two-port box hangs its signs over it (`DUAL_WALL_SIGN`). */
+  wallPorts?: 1 | 2 | undefined;
 }): StationSigns | null {
   if (input.siteType === 'depot' || input.largeSpot) return null;
+  const onWallDual =
+    input.wall && input.siteType === 'office_retail' && input.wallPorts === 2 && input.onSpot;
+  if (onWallDual) {
+    const ca = input.california;
+    return {
+      x: ca ? DUAL_WALL_SIGN.chargingOnlyX : 0,
+      z: input.wallZ ?? 0,
+      onWall: true,
+      chargingOnlyBottomM: DUAL_WALL_SIGN.bottomM,
+      towAwayBottomM: ca ? DUAL_WALL_SIGN.bottomM : null,
+      towAwayDxM: ca ? DUAL_WALL_SIGN.towAwayX - DUAL_WALL_SIGN.chargingOnlyX : 0,
+      postTopM: null,
+    };
+  }
   let x: number;
   if (input.siteType === 'custom') {
     if (input.freeSpots == null) return null;
@@ -144,6 +175,7 @@ export function stationSignMount(input: {
     onWall,
     chargingOnlyBottomM,
     towAwayBottomM,
+    towAwayDxM: 0,
     postTopM:
       input.wall && input.siteType === 'office_retail'
         ? null
@@ -207,6 +239,8 @@ export interface SignTexts {
   towAway: string;
   reserved: string;
   maintenance: string;
+  /** The line on every charger's RFID reader pad (site-layout-model-rfid-pad.ts). */
+  rfidTap: string;
 }
 
 /** The i18n keys of the sign texts (every one exists in all six CSMS locales). */
@@ -215,6 +249,7 @@ export const SIGN_TEXT_KEYS = {
   towAway: 'sites.layoutSigns.towAway',
   reserved: 'sites.layoutSigns.reserved',
   maintenance: 'sites.layoutSigns.maintenance',
+  rfidTap: 'sites.layoutSigns.rfidTap',
 } as const satisfies Record<keyof SignTexts, string>;
 
 /** The English texts, the legends of the real signs (the scene's default before a language loads). */
@@ -224,6 +259,7 @@ export const ENGLISH_SIGN_TEXTS: SignTexts = {
     "UNAUTHORIZED\nVEHICLES NOT\nCONNECTED FOR\nELECTRIC CHARGING\nPURPOSES WILL BE\nTOWED AWAY AT\nOWNER'S EXPENSE",
   reserved: 'Reserved',
   maintenance: 'Maintenance',
+  rfidTap: 'Tap RFID card',
 };
 
 /** The sign texts in the viewer's language (`t` of react-i18next). */
@@ -233,6 +269,7 @@ export function signTexts(t: TFunction): SignTexts {
     towAway: t('sites.layoutSigns.towAway'),
     reserved: t('sites.layoutSigns.reserved'),
     maintenance: t('sites.layoutSigns.maintenance'),
+    rfidTap: t('sites.layoutSigns.rfidTap'),
   };
 }
 

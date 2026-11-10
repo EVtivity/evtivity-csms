@@ -7,7 +7,7 @@ import {
   drivers,
   vehicles,
   chargingSessions,
-  driverNotificationPreferences,
+  deleteDriverNotificationPreferences,
   driverPushTokens,
   mfaChallenges,
   userTokens,
@@ -132,9 +132,7 @@ export async function eraseDriver(
       .delete(vehicles)
       .where(eq(vehicles.driverId, driverId))
       .returning({ id: vehicles.id });
-    await tx
-      .delete(driverNotificationPreferences)
-      .where(eq(driverNotificationPreferences.driverId, driverId));
+    await deleteDriverNotificationPreferences(driverId, tx);
     await tx.delete(driverPushTokens).where(eq(driverPushTokens.driverId, driverId));
     await tx.delete(mfaChallenges).where(eq(mfaChallenges.driverId, driverId));
     await deleteRecoveryCodes({ driverId }, tx);

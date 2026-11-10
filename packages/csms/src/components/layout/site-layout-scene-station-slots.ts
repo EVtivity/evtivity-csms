@@ -6,7 +6,7 @@
 import { SPLIT_SYSTEM } from '@evtivity/lib/site-layout';
 import { parksBackedIn, type CarPort, type Point3 } from './site-layout-cable';
 import { CAR_PROFILES, isLargeBodyType, type SceneCar } from './site-layout-car';
-import { AC_HOLSTER, DC_HOLSTER } from './site-layout-charger-cables';
+import { AC_HOLSTER, DC_HOLSTER, dcDispenserCableM } from './site-layout-charger-cables';
 import { holsterSlots, type ConnectorKind } from './site-layout-connectors';
 import { DC_BOLLARD, DC_CAR_FRONT_M, DC_CAR_TAIL_M } from './site-layout-dc-bollards';
 import { carNoseAtStop, carTailAtStop, type WheelStopMount } from './site-layout-grid';
@@ -56,6 +56,17 @@ export function withAcGland(
   return { ...plug, glandX: acGlandX(ports, plug.side ?? -1) };
 }
 
+/**
+ * The cable length of a standard DC dispenser station (not a split system):
+ * a dispenser with two EVSEs serves two spots and carries the 6 m dual-outlet
+ * cable (`dcDispenserCableM`); undefined for every other charger (its class
+ * length).
+ */
+export function dcDispenserCableOf(s: SceneStation): number | undefined {
+  if (s.kind !== 'dc' || (s.dispensers != null && s.dispensers.length > 1)) return undefined;
+  return dcDispenserCableM(s.evseConnectors?.length ?? 1);
+}
+
 /** The bollards in front of a DC dispenser: their center line and front face (6 in pipe, `SITE_BOLLARD`). */
 export const DC_BOLLARD_Z = DC_BOLLARD.z;
 // Holsters on the side walls of the DC cabinet (DC_DISPENSER) and the AC
@@ -66,7 +77,6 @@ export const DC_HOLSTER_X = DC_HOLSTER.x;
 export const DC_HOLSTER_Y = DC_HOLSTER.y;
 export const AC_HOLSTER_X = AC_HOLSTER.x;
 export const AC_HOLSTER_Y = AC_HOLSTER.y;
-// The wall box holster on the facade beside the box (`wallBoxOffset` z).
 
 // Tube segments for a cable through `n` control points: two per point (a coiled
 // wall box cable holds a hundred), at least 48, at most 400.

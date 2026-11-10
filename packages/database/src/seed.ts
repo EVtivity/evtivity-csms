@@ -494,6 +494,11 @@ async function seed(): Promise<void> {
   const defaultSettings: Record<string, unknown> = {
     'system.name': 'EVtivity CSMS',
     'system.timezone': 'America/New_York',
+    // Defaults of new drivers (Settings > Company), with system.timezone.
+    'system.distanceUnit': 'miles',
+    'system.driverLanguage': 'en',
+    // The daily CSMS update check of the worker (Settings > Company).
+    'system.updateCheckEnabled': true,
     // Data plans (features/station-data-plans.md): ocpp.* is Wi-Fi or wired
     // (AC for the charging keys), ocpp.dc.* its DC charging values, and
     // ocpp.cellular.* the Cellular plan.
@@ -689,6 +694,7 @@ async function seed(): Promise<void> {
     // closed/managed deployments (drivers admin-provisioned) can flip this
     // off so the portal Register page returns 403 PORTAL_REGISTRATION_DISABLED.
     'portal.registrationEnabled': true,
+    'portal.rfidSelfServiceEnabled': true,
     // Mobile device attestation. When enabled, native portal clients prove
     // themselves with Apple App Attest (iOS) or Google Play Integrity (Android)
     // on the pre-auth endpoints instead of reCAPTCHA. Disabled by default so the
@@ -2791,7 +2797,7 @@ async function seed(): Promise<void> {
       actorUserId: featureActor?.id ?? null,
     });
     console.log(
-      `  Demo features created (${String(features.powerSites)} sites with sized power equipment, ${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleSessions)} sessions linked to their vehicle, ${String(features.departureSchedules)} depot departure schedules).`,
+      `  Demo features created (${String(features.powerSites)} sites with sized power equipment, ${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleSessions)} sessions linked to their vehicle, ${String(features.departureSchedules)} depot departure schedules, ${String(features.securityEvents)} station security events).`,
     );
   }
 

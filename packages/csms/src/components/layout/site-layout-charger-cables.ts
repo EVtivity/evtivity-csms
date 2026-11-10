@@ -18,14 +18,19 @@ import {
   DC_HOLSTER as DC_HOLSTER_MOUNT,
   DC_SIDE_X,
   dcGland,
-  dcHangerZ,
+  dcHookZ,
 } from './site-layout-model-dc-dispenser';
 import {
-  cableHangerSaddleCenter,
-  cableHangerSpec,
-  type CableHangerSpec,
-} from './site-layout-model-cable-hanger';
-import { coilCable, type CoilPlace } from './site-layout-cable-coil';
+  CABLE_HOOK,
+  cableHookSpec,
+  cableHookTurnZ,
+  coilTopRadius,
+  sidewalkHookTurns,
+  turnsWidth,
+  type CableClass,
+  type CableHookSpec,
+} from './site-layout-model-cable-hook';
+import { bottomRadiusSteps, clearCoilCable, type CoilPlace } from './site-layout-cable-coil';
 import type { Vec3 } from './site-layout-model-kit';
 import { AC_PEDESTAL, acGland } from './site-layout-model-ac-pedestal';
 import { SURFACE_M, type SurfaceAt } from './site-layout-cable-surface';
@@ -110,48 +115,115 @@ export function dcHolsterEntry(
  */
 export const DC_CABLE_M = 3.6;
 
-/** The saddle top of a DC dispenser's cable hangers: 1.2 m, inside the ADA 308 reach (1.22 m), so a driver lifts the loop off. */
-export const DC_HANGER_TOP_M = 1.2;
+/**
+ * The charging cable of a DC dispenser with two EVSEs, which stands on the
+ * line between the two spots it serves: 6 m (19.6 ft), the cable of the
+ * dual-outlet ABB Terra 184 (NA data sheet, document 9AKK107991A4247 rev J:
+ * "Charge cable 6 m (19.6 ft)"; "The Terra 124 and 184 models can charge two
+ * vehicles at the same time",
+ * https://library.e.abb.com/public/dde7c01ce17b45b1857b214235bbb7e7/Terra_124_184_NA_Data-Sheet-J.pdf,
+ * verified 2026-11-10). The 3.6 m median cable does not reach the port of a
+ * car on the far side of its stall from the dispenser (layout review H2,
+ * owner decision 2026-11-10).
+ */
+export const DC_PAIRED_CABLE_M = 6;
 
-/** The hanger of a DC holster's cable: a bar along the side wall, the loop at right angles to the wall. */
-export function dcHangerSpec(kind: ConnectorKind): CableHangerSpec {
-  return cableHangerSpec(CONNECTOR_SPECS[kind].cableDiameterM, 2, 'along');
+/** The cable length of a DC dispenser with `evses` EVSEs: two serve two spots (`DC_PAIRED_CABLE_M`). */
+export function dcDispenserCableM(evses: number): number {
+  return evses >= 2 ? DC_PAIRED_CABLE_M : DC_CABLE_M;
 }
 
-/** Where a DC holster's loop hangs: its hanger on the side wall at `dcHangerZ`. */
+/**
+ * Where a cable loops over a J hook (site-layout-model-cable-hook.ts) whose
+ * rod axis leaves the body face at `mount` along `out`: the turns hang
+ * parallel to the face, stacked out along the throat (`offsetM` past the
+ * turns of cables nearer the face), the cable resting on the rod's top and
+ * bending over it at `coilTopRadius`; `across` runs from the side the cable
+ * comes up (the entry) to the far side.
+ */
+export function hookCoilPlace(o: {
+  mount: Vec3;
+  out: Vec3;
+  across: Vec3;
+  cableDiameterM: number;
+  cable: CableClass;
+  offsetM?: number;
+  /** A wider top bend than the cable's minimum (`coilTopRadius`), never a tighter one. */
+  topRadiusM?: number;
+}): CoilPlace {
+  const d = o.cableDiameterM;
+  const r1 = Math.max(coilTopRadius(d, o.cable), o.topRadiusM ?? 0);
+  const z = cableHookTurnZ(0, d, o.offsetM ?? 0);
+  // The cable's center line tops out a rod radius and a cable radius over the rod axis.
+  const lift = CABLE_HOOK.rodRadiusM + d / 2 - r1;
+  return {
+    center: [o.mount[0] + o.out[0] * z, o.mount[1] + lift, o.mount[2] + o.out[2] * z],
+    u: o.across,
+    axis: o.out,
+    r1,
+  };
+}
+
+/**
+ * The rod top of a DC dispenser's J hooks: 1.2 m, just above the holster
+ * height in front of and behind the handles (their loops clear the handles'
+ * grips by standing 0.17 m in front of the front holster and 0.15 m behind
+ * one behind it, `dcHookZ`) and inside the 0.38 to 1.22 m reach range (2010
+ * ADA Standards 308.2, 308.3), so a driver lifts the loop off. One turn of
+ * the 3.6 m cable then hangs clear of the pad with its bottom no wider
+ * than 0.15 m in radius for every connector, so the loops of a side's two
+ * cables never meet and the way up to the handle stays clear of the gland's
+ * U (at 1.1 m the CHAdeMO loop needed a 0.27 m bottom and touched the back
+ * loop). Derived (review 2026-11-10, H1).
+ */
+export const DC_HOOK_TOP_M = 1.2;
+
+/** Turns a DC cable may take on its hook: up to 2. */
+const DC_HOOK_TURNS = 2;
+
+/** The J hook of a DC holster's cable: its throat holds the cable's turns. */
+export function dcHookSpec(kind: ConnectorKind): CableHookSpec {
+  return cableHookSpec(turnsWidth(DC_HOOK_TURNS, CONNECTOR_SPECS[kind].cableDiameterM));
+}
+
+/**
+ * Where a DC holster's loop hangs: on its J hook on the side wall
+ * (`dcHookZ`, the front holster's in front of it, a holster behind it its
+ * own behind it), the turns parallel to the wall and stacked out along the
+ * hook; the cable comes up the loop's inner edge, the one toward the
+ * middle of the wall where its gland is (the back edge of the front loop,
+ * the front edge of the back loop), so the two loops of one side never meet.
+ */
 export function dcCoilPlace(
   side: -1 | 1,
   backM: number,
   kind: ConnectorKind,
 ): CoilPlace & {
-  /** The hanger group's position (its mounting face on the side wall). */
+  /** The hook group's position (its rod axis on the side wall). */
   mount: Vec3;
 } {
   const d = CONNECTOR_SPECS[kind].cableDiameterM;
-  const spec = dcHangerSpec(kind);
-  const r1 = spec.radiusM + 0.013 + d / 2;
-  const cy = DC_HANGER_TOP_M - r1;
-  const c = cableHangerSaddleCenter(spec);
-  const z = dcHangerZ(backM);
-  // Turns stack along the bar away from the holster.
-  const dir = backM > 0 ? -1 : 1;
-  return {
-    center: [side * (DC_SIDE_X + c[2]), cy, z - dir * (spec.widthM / 2 - 0.02 - d / 2)],
-    u: [side, 0, 0],
-    axis: [0, 0, dir],
-    r1,
-    mount: [side * DC_SIDE_X, cy, z],
-  };
+  const mount: Vec3 = [side * DC_SIDE_X, DC_HOOK_TOP_M - CABLE_HOOK.rodRadiusM, dcHookZ(backM)];
+  const place = hookCoilPlace({
+    mount,
+    out: [side, 0, 0],
+    // In from the inner edge, nearer the gland: the back edge of the front loop, the front of the back one.
+    across: [0, 0, backM > 0 ? -1 : 1],
+    cableDiameterM: d,
+    cable: 'dc',
+  });
+  return { ...place, mount };
 }
 
 /**
- * The route of a holstered DC cable, `DC_CABLE_M` long: out of its gland on
- * the side wall (along the axis, then bent down at 6 cable diameters), up
- * over its hanger in whole hanging turns (`coilCable`, the loop clear of the
+ * The route of a holstered DC cable, `lengthM` long (`DC_CABLE_M`, a two-EVSE
+ * dispenser's `DC_PAIRED_CABLE_M` in two turns): out of its gland on
+ * the side wall (along the axis, then bent down at 6 cable diameters), in a
+ * U up over its J hook in whole hanging turns (`coilCable`, the loop clear of the
  * pad by 0.1 m), then off the bottom of the last turn up into the handle's
- * boot straight along the boot axis. The front holster's hanger is in front
- * of it, a holster behind it has its hanger behind it, so the two loops of
- * one side never meet. No cable crosses a vent (the inlet grille is on the
+ * boot straight along the boot axis. The front holster's hook is in front of
+ * it, a holster behind it has its hook behind it, so the two loops of one
+ * side never meet. No cable crosses a vent (the inlet grille is on the
  * front, the outlet high on the sides).
  */
 export function dcHolsterCable(
@@ -160,6 +232,7 @@ export function dcHolsterCable(
   kind: ConnectorKind,
   surface: SurfaceAt = (x, z) =>
     Math.abs(x) <= 0.8 && Math.abs(z) <= 0.6 ? 0.08 : SURFACE_M.paving,
+  lengthM: number = DC_CABLE_M,
 ): Vec3[] {
   const d = CONNECTOR_SPECS[kind].cableDiameterM;
   const gland = dcGland(side, backM);
@@ -167,16 +240,32 @@ export function dcHolsterCable(
   const entry = dcHolsterEntry(side, backM, kind);
   const place = dcCoilPlace(side, backM, kind);
   const under = surface(place.center[0], place.center[2]);
-  return coilCable({
-    entry: out,
-    place,
-    cableDiameterM: d,
-    handle: entry,
-    floorY: under + d / 2 + COIL_GROUND_CLEARANCE_M,
-    lengthM: DC_CABLE_M,
-    preferTurns: [2, 1, 3],
-  }).points;
+  const floorY = under + d / 2 + COIL_GROUND_CLEARANCE_M;
+  const key = `${String(side)}|${String(backM)}|${kind}|${floorY.toFixed(4)}|${String(lengthM)}`;
+  const known = DC_IDLE_ROUTES.get(key);
+  if (known != null) return known;
+  // The loop's bottom as open as it must be (0.12 to 0.36 m) for the length
+  // to hang clear of the pad, the way up from it to the handle clear of the
+  // gland's U beside it: the cable never passes through itself (`clearCoilCable`).
+  const points = clearCoilCable(
+    {
+      entry: out,
+      place,
+      cableDiameterM: d,
+      handle: entry,
+      floorY,
+      lengthM,
+      preferTurns: [1, 2],
+      entryHeading: [0, -1, 0],
+    },
+    bottomRadiusSteps(0.12, 0.36),
+  ).points;
+  DC_IDLE_ROUTES.set(key, points);
+  return points;
 }
+
+/** The idle DC routes solved so far (the search is pure, its inputs few). */
+const DC_IDLE_ROUTES = new Map<string, Vec3[]>();
 
 /**
  * The charging cable of an AC pedestal and a curb post: the median standard
@@ -203,46 +292,50 @@ export function acHolsterEntry(side: -1 | 1, kind: ConnectorKind): { lead: Vec3;
   return { lead: entry.lead, end: entry.end };
 }
 
-/** The saddle top of an AC pedestal's cable hangers: 30 mm under the head, so the turns clear it. */
-export const AC_HANGER_TOP_M = AC_PEDESTAL.head.bottomM - 0.03;
+/** The rod top of an AC pedestal's J hooks: 30 mm under the head, so the turns clear it. */
+export const AC_HOOK_TOP_M = AC_PEDESTAL.head.bottomM - 0.03;
 
-/** The hanger of an AC pedestal cable: a peg out of the column side, the turns parallel to the side. */
-export function acHangerSpec(cableDiameterM: number): CableHangerSpec {
-  return cableHangerSpec(cableDiameterM, 4, 'out');
+/** Turns an AC pedestal or curb post cable may take on its hook: up to 4. */
+const AC_HOOK_TURNS = 4;
+
+/** The J hook of an AC pedestal cable: out of the column side, the turns parallel to the side. */
+export function acHookSpec(cableDiameterM: number): CableHookSpec {
+  return cableHookSpec(
+    turnsWidth(sidewalkHookTurns(AC_HOOK_TURNS, cableDiameterM), cableDiameterM),
+  );
 }
 
-/** Where an AC pedestal cable loops: its hanger peg on the column side on `side`. */
+/** Where an AC pedestal cable loops: its J hook on the column side on `side`. */
 export function acCoilPlace(
   side: -1 | 1,
   cableDiameterM: number,
 ): CoilPlace & {
-  /** The hanger group's position (its mounting face on the column side). */
+  /** The hook group's position (its rod axis on the column side). */
   mount: Vec3;
 } {
-  const d = cableDiameterM;
-  const spec = acHangerSpec(d);
-  const r1 = spec.radiusM + 0.013 + d / 2;
-  const cy = AC_HANGER_TOP_M - r1;
   const face = AC_PEDESTAL.post.widthM / 2;
-  return {
-    // The first turn 20 mm out along the peg, the next ones further out.
-    center: [side * (face + spec.standoffM + 0.02 + d / 2), cy, 0],
-    // The cable comes up the front of the saddle and over to the back.
-    u: [0, 0, -1],
-    axis: [side, 0, 0],
-    r1,
-    mount: [side * face, cy, 0],
-  };
+  const mount: Vec3 = [side * face, AC_HOOK_TOP_M - CABLE_HOOK.rodRadiusM, 0];
+  // The cable comes up the front of the hook and over to the back.
+  const place = hookCoilPlace({
+    mount,
+    out: [side, 0, 0],
+    across: [0, 0, -1],
+    cableDiameterM,
+    cable: 'ac',
+  });
+  return { ...place, mount };
 }
 
 /**
  * The run of an AC pedestal cable out of its gland under the head (at
- * `glandX`), along the gland axis, bent at 6 cable diameters toward the
- * hanger on `side`; in front of the column, so it never enters the body.
+ * `glandX`): straight down along the gland axis past the strain relief, in
+ * front of the column, so it never enters the body; the cable hangs on from
+ * there (`acHolsterCable`). `side` is the hook's side (the run is the same).
  */
 export function acGlandRun(glandX: number, side: -1 | 1, cableDiameterM: number): Vec3[] {
   const g = acGland(glandX);
-  return cableOutOfGland(g.at, g.axis, cableDiameterM, [side, 0, 0]);
+  // The points along the axis to the strain relief tip (no bend: the cable hangs down).
+  return cableOutOfGland(g.at, g.axis, cableDiameterM, [side, 0, 0]).slice(0, 4);
 }
 
 /**
@@ -257,9 +350,9 @@ export function acGlandOut(glandX: number, cableDiameterM: number): Vec3[] {
 
 /**
  * The route of a holstered AC pedestal cable, `AC_CABLE_M` long: out of its
- * gland, up the front of its hanger peg on the column side and over it in
+ * gland, up the front of its J hook on the column side and over it in
  * whole hanging turns (`coilCable`, the turns' bottom 0.1 m over the pad,
- * each turn further out along the peg), then off the bottom of the last
+ * each turn further out along the hook), then off the bottom of the last
  * (outermost) turn up into the handle's boot along its axis.
  */
 export function acHolsterCable(
@@ -273,16 +366,39 @@ export function acHolsterCable(
   const d = cableDiameterM;
   const place = acCoilPlace(side, d);
   const under = surface(place.center[0], place.center[2]);
-  return coilCable({
-    entry: acGlandRun(glandX, side, d),
-    place,
-    cableDiameterM: d,
-    handle,
-    floorY: under + d / 2 + COIL_GROUND_CLEARANCE_M,
-    lengthM: AC_CABLE_M,
-    preferTurns: [3, 2, 4],
-  }).points;
+  const floorY = under + d / 2 + COIL_GROUND_CLEARANCE_M;
+  const key = [glandX, side, d, floorY, ...handle.lead, ...handle.end]
+    .map((v) => v.toFixed(5))
+    .join('|');
+  const known = AC_IDLE_ROUTES.get(key);
+  if (known != null) return known;
+  // The turns' bottom as open as the top bend (at least 0.12 m), else wider
+  // in 0.03 m steps up to 0.3 m, the first that never passes through itself
+  // (`clearCoilCable`, owner decision 2026-11-10).
+  const points = clearCoilCable(
+    {
+      entry: acGlandRun(glandX, side, d),
+      place,
+      cableDiameterM: d,
+      handle,
+      floorY,
+      lengthM: AC_CABLE_M,
+      // No more turns than the hook holds (`sidewalkHookTurns`: a thick cable fewer).
+      preferTurns: [3, 2, 4, 1].filter((n) => n <= sidewalkHookTurns(AC_HOOK_TURNS, d)),
+      // Down from the gland in a U in front of the column and up the hook's front side.
+      enterFrom: 'side',
+      // The gland stands behind the hook's first turn (under the head, toward its middle).
+      entryBehindFirstTurn: true,
+      entryHeading: [0, -1, 0],
+    },
+    [Math.max(0.12, place.r1), ...bottomRadiusSteps(0.15, 0.3)],
+  ).points;
+  AC_IDLE_ROUTES.set(key, points);
+  return points;
 }
+
+/** The idle AC pedestal and curb post routes solved so far. */
+const AC_IDLE_ROUTES = new Map<string, Vec3[]>();
 
 /** The first run of a plugged DC cable: out of its holster's gland (the cable then runs to the car). */
 export function dcGlandOut(side: -1 | 1, backM: number, kind: ConnectorKind): Vec3[] {

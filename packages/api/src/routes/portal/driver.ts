@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import argon2 from 'argon2';
 import { db, client, getMfaConfig, writeAudit, driverAuditLog } from '@evtivity/database';
-import { drivers, driverNotificationPreferences } from '@evtivity/database';
+import { drivers } from '@evtivity/database';
 import {
   dispatchDriverNotification,
   dispatchSystemNotification,
@@ -161,17 +161,6 @@ const portalDriverProfile = z
     isActive: z.boolean().describe('Whether the driver account is active'),
     createdAt: z.coerce.date().describe('Timestamp the driver account was created'),
     avatar: avatarItem,
-  })
-  .loose();
-
-const notificationPrefsItem = z
-  .object({
-    emailEnabled: z.boolean().describe('Whether email notifications are enabled'),
-    smsEnabled: z.boolean().describe('Whether SMS notifications are enabled'),
-    pushEnabled: z
-      .boolean()
-      .optional()
-      .describe('Whether native push notifications are enabled (omit to keep current value)'),
   })
   .loose();
 
@@ -612,114 +601,6 @@ export function portalDriverRoutes(app: FastifyInstance): void {
       );
 
       return tokens == null ? { success: true } : { success: true, ...tokens };
-    },
-  );
-
-  app.get(
-    '/portal/driver/notification-preferences',
-    {
-      onRequest: [app.authenticateDriver],
-      schema: {
-        tags: ['Portal Driver'],
-        summary: 'Get driver notification preferences',
-        operationId: 'portalGetNotificationPreferences',
-        security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(notificationPrefsItem) },
-      },
-    },
-    async (request) => {
-      const { driverId } = request.user as DriverJwtPayload;
-
-      const [row] = await db
-        .select({
-          emailEnabled: driverNotificationPreferences.emailEnabled,
-          smsEnabled: driverNotificationPreferences.smsEnabled,
-          pushEnabled: driverNotificationPreferences.pushEnabled,
-        })
-        .from(driverNotificationPreferences)
-        .where(eq(driverNotificationPreferences.driverId, driverId));
-
-      if (row == null) {
-        return { emailEnabled: true, smsEnabled: true, pushEnabled: true };
-      }
-
-      return {
-        emailEnabled: row.emailEnabled,
-        smsEnabled: row.smsEnabled,
-        pushEnabled: row.pushEnabled,
-      };
-    },
-  );
-
-  app.put(
-    '/portal/driver/notification-preferences',
-    {
-      onRequest: [app.authenticateDriver],
-      schema: {
-        tags: ['Portal Driver'],
-        summary: 'Update driver notification preferences',
-        operationId: 'portalUpdateNotificationPreferences',
-        security: [{ bearerAuth: [] }],
-        body: zodSchema(notificationPrefsItem),
-        response: { 200: itemResponse(notificationPrefsItem) },
-      },
-    },
-    async (request) => {
-      const { driverId } = request.user as DriverJwtPayload;
-      const body = request.body as z.infer<typeof notificationPrefsItem>;
-
-      const [existing] = await db
-        .select({
-          emailEnabled: driverNotificationPreferences.emailEnabled,
-          smsEnabled: driverNotificationPreferences.smsEnabled,
-          pushEnabled: driverNotificationPreferences.pushEnabled,
-        })
-        .from(driverNotificationPreferences)
-        .where(eq(driverNotificationPreferences.driverId, driverId));
-      // pushEnabled is optional: a client that does not manage native push (the
-      // web portal) omits it, and we must not clobber a value the mobile app set.
-      const pushEnabled = body.pushEnabled ?? existing?.pushEnabled ?? true;
-
-      await db
-        .insert(driverNotificationPreferences)
-        .values({
-          driverId,
-          emailEnabled: body.emailEnabled,
-          smsEnabled: body.smsEnabled,
-          pushEnabled,
-        })
-        .onConflictDoUpdate({
-          target: driverNotificationPreferences.driverId,
-          set: {
-            emailEnabled: body.emailEnabled,
-            smsEnabled: body.smsEnabled,
-            pushEnabled,
-            updatedAt: new Date(),
-          },
-        });
-
-      const next = { emailEnabled: body.emailEnabled, smsEnabled: body.smsEnabled, pushEnabled };
-      // A driver without a stored row has every channel on.
-      const prev = existing ?? { emailEnabled: true, smsEnabled: true, pushEnabled: true };
-      const diff = changedFields(prev, next);
-      if (Object.keys(diff.after).length > 0) {
-        await writeAudit(
-          { table: driverAuditLog, idColumn: 'driver_id' },
-          {
-            entityId: driverId,
-            entityIdSnapshot: driverId,
-            action: 'updated',
-            ...getAuditActor(request),
-            before: { notificationPreferences: diff.before },
-            after: { notificationPreferences: diff.after },
-            notes: 'Notification preferences updated in the driver portal',
-          },
-          db,
-          request.log,
-        );
-      }
-
-      return next;
     },
   );
 

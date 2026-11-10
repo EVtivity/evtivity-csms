@@ -1695,6 +1695,20 @@
       "when": 1791000050500,
       "tag": "0487_station_portal_listed",
       "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "7",
+      "when": 1791000051000,
+      "tag": "0488_release_0_1_51",
+      "breakpoints": true
+    },
+    {
+      "idx": 243,
+      "version": "7",
+      "when": 1791000051500,
+      "tag": "0489_release_0_1_51_indexes",
+      "breakpoints": true
     }
   ]
 }

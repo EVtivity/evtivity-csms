@@ -1,6 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import {
+  SECURITY_SEVERITIES,
+  getSecuritySeverity,
+  securityEventTypesFor,
+  type SecuritySeverity,
+} from '@evtivity/lib/security-severity';
+
 /** Dashboard Simulate tab buttons. `suspendEv` and `suspendEvse` both call suspendCharging. */
 export const SIMULATE_ACTIONS = [
   'plugIn',
@@ -21,7 +28,29 @@ export const SIMULATE_ACTIONS = [
 
 export type SimulateAction = (typeof SIMULATE_ACTIONS)[number];
 
+/** A station-wide simulator action outside the button grid: one security event. */
+export type SimulateRunAction = SimulateAction | 'securityEvent';
+
 export type FaultMode = 'end' | 'suspend';
+
+/**
+ * The faults the Simulate tab offers. HighTemperature: 1.6 StatusNotification
+ * errorCode HighTemperature; 2.0.1 and 2.1 Faulted plus a NotifyEvent of the
+ * EVSE TemperatureSensor Temperature (the simulator sends it).
+ */
+export const FAULT_CODES = ['InternalError', 'HighTemperature'] as const;
+export type FaultCode = (typeof FAULT_CODES)[number];
+
+/** The security event types of a station's OCPP version, grouped by severity, worst first. */
+export function securityEventGroups(
+  protocol: string | null | undefined,
+): Array<{ severity: SecuritySeverity; types: string[] }> {
+  const types = securityEventTypesFor(protocol);
+  return SECURITY_SEVERITIES.map((severity) => ({
+    severity,
+    types: types.filter((type) => getSecuritySeverity(type) === severity),
+  })).filter((group) => group.types.length > 0);
+}
 
 const IDLE_WITH_CABLE: SimulateAction[] = [
   'plugIn',
@@ -84,6 +113,7 @@ export function getValidActions(connectorStatus: string): Set<SimulateAction> {
 export function simulateRequest(
   action: SimulateAction,
   faultMode: FaultMode,
+  faultCode: FaultCode = 'InternalError',
 ): { apiAction: string; params: Record<string, unknown> } {
   switch (action) {
     case 'suspendEv':
@@ -91,7 +121,7 @@ export function simulateRequest(
     case 'suspendEvse':
       return { apiAction: 'suspendCharging', params: { by: 'EVSE' } };
     case 'injectFault':
-      return { apiAction: 'injectFault', params: { errorCode: 'InternalError', mode: faultMode } };
+      return { apiAction: 'injectFault', params: { errorCode: faultCode, mode: faultMode } };
     default:
       return { apiAction: action, params: {} };
   }

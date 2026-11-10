@@ -7,7 +7,8 @@ import {
   AC_PEDESTAL,
   acGland,
   acGlandX,
-  acHangerSides,
+  AC_DUAL_GLAND_X_M,
+  acHookSides,
   createAcPedestalKit,
 } from '../site-layout-model-ac-pedestal';
 import { CHARGER_SLOTS, type ChargerSlot } from '../site-layout-model-charger-parts';
@@ -35,11 +36,11 @@ describe('AC pedestal model', () => {
   });
 
   it('has a cable hanger under each holster, fed from the gland of its port', () => {
-    expect(acHangerSides(1)).toEqual([-1]);
-    expect(acHangerSides(2)).toEqual([-1, 1]);
+    expect(acHookSides(1)).toEqual([-1]);
+    expect(acHookSides(2)).toEqual([-1, 1]);
     expect(acGlandX(1, -1)).toBe(0);
-    expect(acGlandX(2, -1)).toBe(-AC_PEDESTAL.portX);
-    expect(acGlandX(2, 1)).toBe(AC_PEDESTAL.portX);
+    expect(acGlandX(2, -1)).toBe(-AC_DUAL_GLAND_X_M);
+    expect(acGlandX(2, 1)).toBe(AC_DUAL_GLAND_X_M);
   });
 
   it('puts the glands under the head in front of the column, so a cable never enters the body', () => {

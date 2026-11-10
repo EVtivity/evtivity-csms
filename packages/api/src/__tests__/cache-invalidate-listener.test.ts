@@ -18,6 +18,7 @@ const { handlers, mocks } = vi.hoisted(() => ({
     closeUserEventStreams: vi.fn(),
     closeDriverEventStreams: vi.fn(),
     clearSimCaches: vi.fn(),
+    clearDriverRfidSelfServiceCache: vi.fn(),
   },
 }));
 
@@ -37,6 +38,7 @@ vi.mock('@evtivity/database', () => ({
   clearSecuritySettingsCache: mocks.clearSecuritySettingsCache,
   clearStationMessageSettingsCache: mocks.clearStationMessageSettingsCache,
   clearSystemSettingsCache: mocks.clearSystemSettingsCache,
+  clearDriverRfidSelfServiceCache: mocks.clearDriverRfidSelfServiceCache,
 }));
 vi.mock('../middleware/rbac.js', () => ({
   clearPermissionCacheLocal: mocks.clearPermissionCacheLocal,
@@ -89,6 +91,13 @@ describe('startCacheInvalidateListener', () => {
 
     expect(mocks.clearSimCaches).toHaveBeenCalledTimes(1);
     expect(mocks.clearStationMessageCache).not.toHaveBeenCalled();
+  });
+
+  it('drops the cached RFID self-service switch on rfid_self_service', async () => {
+    await deliver({ kind: 'rfid_self_service' });
+
+    expect(mocks.clearDriverRfidSelfServiceCache).toHaveBeenCalledTimes(1);
+    expect(mocks.clearSimCaches).not.toHaveBeenCalled();
   });
 
   it('clears one user entry for a per-user kind', async () => {

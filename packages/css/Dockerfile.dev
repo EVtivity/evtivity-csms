@@ -35,6 +35,8 @@ COPY packages/v2g-exi/ packages/v2g-exi/
 COPY packages/css/ packages/css/
 # The database package tests import scripts/lib (the migration file helpers).
 COPY scripts/lib/ scripts/lib/
+# The lib tests import the dependency manifests helper of the production images.
+COPY scripts/docker-dependency-manifests.mjs scripts/docker-dependency-manifests.d.mts scripts/
 RUN npx tsc -b --force packages/lib packages/database packages/v2g-exi
 
 COPY scripts/generate-test-certs.sh scripts/generate-test-certs.sh

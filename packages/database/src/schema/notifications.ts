@@ -84,6 +84,12 @@ export const driverEventSettings = pgTable(
     id: serial('id').primaryKey(),
     eventType: varchar('event_type', { length: 255 }).notNull(),
     isEnabled: boolean('is_enabled').notNull().default(true),
+    // Channels the operator made mandatory (discussion 56): sent whatever the
+    // driver chose. Only for driver preference events; an event turned off
+    // (is_enabled false) is never sent, mandatory or not.
+    emailMandatory: boolean('email_mandatory').notNull().default(false),
+    smsMandatory: boolean('sms_mandatory').notNull().default(false),
+    pushMandatory: boolean('push_mandatory').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

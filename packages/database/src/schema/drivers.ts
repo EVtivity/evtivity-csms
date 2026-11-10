@@ -132,6 +132,31 @@ export const driverNotificationPreferences = pgTable(
   (table) => [unique('uq_driver_notification_prefs_driver').on(table.driverId)],
 );
 
+// A driver's choice of one notification event on one channel (discussion 56).
+// No row: the channel switch above decides. Only driver preference events
+// (`DRIVER_PREFERENCE_EVENT_TYPES`) have rows; a channel the operator made
+// mandatory is sent whatever is stored. Written only by
+// `lib/driver-notification-settings.ts`.
+export const driverNotificationEventPreferences = pgTable(
+  'driver_notification_event_preferences',
+  {
+    driverId: text('driver_id')
+      .notNull()
+      .references(() => drivers.id, { onDelete: 'cascade' }),
+    eventType: varchar('event_type', { length: 255 }).notNull(),
+    channel: varchar('channel', { length: 10 }).notNull(),
+    enabled: boolean('enabled').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.driverId, table.eventType, table.channel] }),
+    check(
+      'driver_notification_event_prefs_channel_check',
+      sql`${table.channel} IN ('email', 'sms', 'push')`,
+    ),
+  ],
+);
+
 export const guestSessions = pgTable(
   'guest_sessions',
   {

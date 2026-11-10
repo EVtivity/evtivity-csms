@@ -103,6 +103,102 @@ export function isRequiredDriverEventType(eventType: string): boolean {
 }
 
 /**
+ * Notification events whose templates carry a link or a code but are no security
+ * template: their stored copies are redacted (`SENSITIVE_EVENT_TYPES` in the
+ * dispatcher), and the driver ones are never a driver's choice.
+ */
+export const OTHER_SENSITIVE_EVENT_TYPES = [
+  'driver.Welcome',
+  'driver.PasswordChanged',
+  'operator.AccountVerification',
+  'operator.Welcome',
+] as const;
+
+/** The channels a driver notice goes out on. */
+export const DRIVER_NOTIFICATION_CHANNELS = ['email', 'sms', 'push'] as const;
+export type DriverNotificationChannel = (typeof DRIVER_NOTIFICATION_CHANNELS)[number];
+
+export function isDriverNotificationChannel(value: string): value is DriverNotificationChannel {
+  return (DRIVER_NOTIFICATION_CHANNELS as readonly string[]).includes(value);
+}
+
+/**
+ * The driver events a driver turns on or off per channel (portal and mobile app,
+ * discussion 56), grouped as the portal shows them. Every driver event is here except
+ * the required ones, the security templates and the other events whose message holds a
+ * link or a code: those always reach the driver and are never shown as a choice. An
+ * operator can make an event of this list mandatory per channel
+ * (`driver_event_settings.*_mandatory`). The lib test fails when a driver event is in
+ * neither this list nor the always-sent set.
+ */
+export const DRIVER_PREFERENCE_EVENT_GROUPS = {
+  sessions: [
+    'session.Started',
+    'session.Updated',
+    'session.Completed',
+    'session.Faulted',
+    'session.PaymentReceived',
+    'session.IdlingStarted',
+    'session.Receipt',
+  ],
+  payments: [
+    'payment.Complete',
+    'payment.Refunded',
+    'payment.FeeRefunded',
+    'payment.PreAuthFailed',
+    'payment.CaptureFailed',
+    'payment.MissingPaymentMethod',
+    'payment.AccountCreditLimit',
+  ],
+  reservations: [
+    'reservation.Created',
+    'reservation.Cancelled',
+    'reservation.CancelledForMaintenance',
+    'reservation.Expiring',
+    'reservation.Expired',
+    'reservation.StationFaulted',
+    'reservation.TakenByOther',
+  ],
+  invoices: ['invoice.Sent', 'invoice.CreditNote'],
+  supportCases: [
+    'supportCase.Created',
+    'supportCase.OperatorReply',
+    'supportCase.Resolved',
+    'supportCase.AiAnswered',
+  ],
+  rfidCards: ['token.Added', 'token.Removed', 'token.Deactivated', 'token.Reactivated'],
+  maintenance: ['maintenance.SessionStopped'],
+  stationWatch: ['watch.StationAvailable'],
+  prepaidBalance: ['prepaid.LowCredit', 'prepaid.CreditExhausted'],
+  fleetBilling: ['fleet.AccountBillingChanged'],
+} as const satisfies Record<string, readonly DriverEventType[]>;
+
+export type DriverPreferenceEventGroup = keyof typeof DRIVER_PREFERENCE_EVENT_GROUPS;
+
+export const DRIVER_PREFERENCE_EVENT_TYPES: readonly DriverEventType[] = Object.values(
+  DRIVER_PREFERENCE_EVENT_GROUPS,
+).flat();
+
+const PREFERENCE_EVENTS = new Map<string, DriverPreferenceEventGroup>(
+  (
+    Object.entries(DRIVER_PREFERENCE_EVENT_GROUPS) as [
+      DriverPreferenceEventGroup,
+      readonly string[],
+    ][]
+  ).flatMap(([group, events]) => events.map((event) => [event, group] as const)),
+);
+
+/** True for a driver event the driver may turn off (see `DRIVER_PREFERENCE_EVENT_GROUPS`). */
+export function isDriverPreferenceEventType(eventType: string): boolean {
+  return PREFERENCE_EVENTS.has(eventType);
+}
+
+/** The portal group of a driver preference event, else null. */
+export function driverPreferenceEventGroup(eventType: string): DriverPreferenceEventGroup | null {
+  return PREFERENCE_EVENTS.get(eventType) ?? null;
+}
+
+/**
  * Account security notices (system events, always on): sent to operators and drivers
  * when a sign-in method, recovery codes, the phone or email of the account change, an
  * operator creates an API key, the SSO settings change (to every all-site user who

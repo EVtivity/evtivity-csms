@@ -54,6 +54,8 @@ interface EventSettingsLayoutProps {
   enabledMap?: Map<string, boolean>;
   defaultEnabled?: boolean;
   eventSwitch?: EventSwitch;
+  /** Shown for the selected event below its settings, whatever the channel (driver choice). */
+  renderEventExtra?: (selectedEvent: string) => React.ReactNode;
   renderSettingsExtra?: (props: {
     selectedEvent: string;
     channel: string;
@@ -80,6 +82,7 @@ export function EventSettingsLayout({
   enabledMap,
   defaultEnabled,
   eventSwitch,
+  renderEventExtra,
   renderSettingsExtra,
   isSettingsExtraDirty,
   onSave,
@@ -396,6 +399,8 @@ export function EventSettingsLayout({
                     </div>
                   </CardContent>
                 </Card>
+
+                {renderEventExtra?.(selectedEvent)}
 
                 {templateLocked && (
                   <p

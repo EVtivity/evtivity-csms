@@ -350,3 +350,57 @@ describe('getInvoicePaymentSettings', () => {
     expect(await getInvoicePaymentSettings()).toEqual(none);
   });
 });
+
+describe('getDriverDefaults', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mockSelect.mockReset();
+  });
+
+  it('reads the timezone, distance unit and language of new drivers', async () => {
+    mockSelect.mockReturnValue(
+      makeChain([
+        { key: 'system.timezone', value: 'Europe/Berlin' },
+        { key: 'system.distanceUnit', value: 'km' },
+        { key: 'system.driverLanguage', value: 'de' },
+      ]),
+    );
+    const { getDriverDefaults } = await import('../lib/system-settings.js');
+    expect(await getDriverDefaults()).toEqual({
+      timezone: 'Europe/Berlin',
+      distanceUnit: 'km',
+      language: 'de',
+    });
+  });
+
+  it('caches the values for a minute and reads again after a clear', async () => {
+    mockSelect.mockReturnValue(makeChain([{ key: 'system.distanceUnit', value: 'km' }]));
+    const { getDriverDefaults, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    await getDriverDefaults();
+    await getDriverDefaults();
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    clearSystemSettingsCache();
+    await getDriverDefaults();
+    expect(mockSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to America/New_York, miles and en for invalid values and on error', async () => {
+    mockSelect
+      .mockReturnValueOnce(
+        makeChain([
+          { key: 'system.timezone', value: 'Not/AZone' },
+          { key: 'system.distanceUnit', value: 'furlongs' },
+          { key: 'system.driverLanguage', value: 'fr' },
+        ]),
+      )
+      .mockReturnValueOnce(makeFailingChain());
+    const { getDriverDefaults, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    const fallback = { timezone: 'America/New_York', distanceUnit: 'miles', language: 'en' };
+    expect(await getDriverDefaults()).toEqual(fallback);
+    clearSystemSettingsCache();
+    expect(await getDriverDefaults()).toEqual(fallback);
+  });
+});

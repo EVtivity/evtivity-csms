@@ -339,6 +339,14 @@ function profileTxId(profile: Record<string, unknown>): string | null {
   return typeof txId === 'string' || typeof txId === 'number' ? String(txId) : null;
 }
 
+/**
+ * Temperatures (degrees Celsius, the default unit of the 2.x Temperature
+ * variable) the simulator reports for a HighTemperature fault and its clear.
+ * Simulator values, not taken from a standard or a product.
+ */
+export const SIMULATED_HIGH_TEMPERATURE_C = '95.0';
+export const SIMULATED_NORMAL_TEMPERATURE_C = '40.0';
+
 export class StationSimulator {
   readonly client: OcppClient;
   private readonly config: StationConfig;
@@ -410,6 +418,8 @@ export class StationSimulator {
   private readonly firmwareBlockedEvses = new Set<number>();
   // Connectors whose lock is jammed (simulated hardware fault, jamConnectorLock()).
   private readonly jammedLocks = new Set<number>();
+  // EVSEs faulted with HighTemperature (2.0.1 and 2.1 report the temperature by NotifyEvent).
+  private readonly overheatedEvses = new Set<number>();
   private offlineFlag = false;
   // A reboot or power cycle dropped the connection: the next connection boots
   // (BootNotification). A plain connection loss does not (1.6 4.2, 2.1 B01/B04).
@@ -2344,6 +2354,40 @@ export class StationSimulator {
     if (!keepTransaction) faultCtx.state = 'Faulted';
     await this.sendStatusNotification(evseId, connectorId, 'Faulted', errorCode);
     await this.updateEvseStatus(evseId, 'Faulted');
+    // 1.6 carries HighTemperature as the StatusNotification errorCode. 2.0.1 and
+    // 2.1 have no error code there: the station reports the temperature of the
+    // EVSE's TemperatureSensor component (Temperature variable, appendix
+    // dm_components_vars.csv) with an Alerting NotifyEvent.
+    if (errorCode === 'HighTemperature' && !this.is16) {
+      this.overheatedEvses.add(evseId);
+      await this.sendTemperatureEvent(evseId, true);
+    }
+  }
+
+  /**
+   * NotifyEvent of the EVSE temperature sensor: above the limit when the
+   * HighTemperature fault starts, back to normal (cleared) when it is cleared.
+   * A failed send is logged; the Faulted status already reached the CSMS.
+   */
+  private async sendTemperatureEvent(evseId: number, high: boolean): Promise<void> {
+    const event: Record<string, unknown> = {
+      eventId: ++this.eventIdCounter,
+      timestamp: new Date().toISOString(),
+      trigger: 'Alerting',
+      actualValue: high ? SIMULATED_HIGH_TEMPERATURE_C : SIMULATED_NORMAL_TEMPERATURE_C,
+      techCode: 'HighTemperature',
+      component: { name: 'TemperatureSensor', evse: { id: evseId } },
+      variable: { name: 'Temperature' },
+      eventNotificationType: 'HardWiredNotification',
+    };
+    if (!high) event['cleared'] = true;
+    try {
+      await this.sendNotifyEvent([event]);
+    } catch (err) {
+      console.warn(
+        `[${this.config.stationId}] Temperature NotifyEvent failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
@@ -2398,6 +2442,9 @@ export class StationSimulator {
     }
     await this.sendStatusNotification(evseId, connectorId, status);
     await this.updateEvseStatus(evseId, status);
+    if (this.overheatedEvses.delete(evseId)) {
+      await this.sendTemperatureEvent(evseId, false);
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import {
   resolveAccountBilling,
   resolveDriverPricingSource,
   inOperatorStation,
+  getDriverDefaults,
 } from '@evtivity/database';
 import {
   ACCOUNT_INVOICE_RECIPIENTS,
@@ -60,7 +61,7 @@ import {
 } from '../lib/driver-billing-address-schema.js';
 import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 import type { JwtPayload } from '../plugins/auth.js';
-import { isValidTimezone, UI_LANGUAGES } from '@evtivity/lib';
+import { DISTANCE_UNITS, isValidTimezone, newDriverPreferences, UI_LANGUAGES } from '@evtivity/lib';
 import {
   paginatedResponse,
   itemResponse,
@@ -110,6 +111,11 @@ const driverItem = z
     language: z
       .string()
       .describe('Preferred language of the portal, notifications and invoices (e.g. en, de)'),
+    timezone: z.string().optional().describe('IANA timezone of the driver (e.g. America/New_York)'),
+    distanceUnit: z
+      .enum(DISTANCE_UNITS)
+      .optional()
+      .describe('Preferred distance unit of the portal and app (miles or km)'),
     isActive: z.boolean().describe('Whether the driver account is enabled'),
     erasedAt: z.coerce
       .date()
@@ -310,12 +316,26 @@ const driverLanguage = z
   .enum(UI_LANGUAGES)
   .describe('Preferred language of the portal, notifications and invoices');
 
+const driverDistanceUnit = z
+  .enum(DISTANCE_UNITS)
+  .describe('Preferred distance unit of the portal and app (miles or km)');
+
 const createDriverBody = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   email: z.email().max(255).optional(),
   phone: z.string().max(50).optional(),
-  language: driverLanguage.optional().describe('Preferred language (default en)'),
+  language: driverLanguage
+    .optional()
+    .describe('Preferred language. Unset: the system.driverLanguage setting (default en)'),
+  timezone: z
+    .string()
+    .max(50)
+    .optional()
+    .describe('IANA timezone. Unset: the system.timezone setting (default America/New_York)'),
+  distanceUnit: driverDistanceUnit
+    .optional()
+    .describe('Preferred distance unit. Unset: the system.distanceUnit setting (default miles)'),
 });
 
 const updateDriverBody = z.object({
@@ -345,6 +365,7 @@ const updateDriverBody = z.object({
       'Whether the driver account is active. false also deactivates every active token of the driver, ends the portal sessions and revokes the open emailed links; true does not reactivate the tokens.',
     ),
   timezone: z.string().max(50).optional().describe('IANA timezone (e.g. America/New_York)'),
+  distanceUnit: driverDistanceUnit.optional(),
 });
 
 const createTokenBody = z.object({
@@ -529,6 +550,7 @@ const DRIVER_AUDIT_KEYS = [
   'phone',
   'language',
   'timezone',
+  'distanceUnit',
   'isActive',
   'emailVerified',
 ] as const;
@@ -732,6 +754,33 @@ export function driverRoutes(app: FastifyInstance): void {
     },
   );
 
+  app.get(
+    '/drivers/defaults',
+    {
+      onRequest: [authorize('drivers:read')],
+      schema: {
+        tags: ['Drivers'],
+        summary: 'Get the preferences new drivers start with',
+        description:
+          'The timezone (system.timezone), distance unit (system.distanceUnit) and language (system.driverLanguage) a driver created without them gets. An unset or invalid setting answers America/New_York, miles and en.',
+        operationId: 'getDriverDefaults',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                timezone: z.string().describe('IANA timezone of new drivers'),
+                distanceUnit: z.enum(DISTANCE_UNITS).describe('Distance unit of new drivers'),
+                language: z.enum(UI_LANGUAGES).describe('Language of new drivers'),
+              })
+              .loose(),
+          ),
+        },
+      },
+    },
+    async () => getDriverDefaults(),
+  );
+
   app.post(
     '/drivers',
     {
@@ -751,6 +800,11 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createDriverBody>;
+
+      if (body.timezone !== undefined && !isValidTimezone(body.timezone)) {
+        await reply.status(400).send({ error: 'Invalid IANA timezone', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
       // Stored, compared and texted in E.164 only.
       const createPhoneIn = readPhoneInput(body.phone);
@@ -775,7 +829,13 @@ export function driverRoutes(app: FastifyInstance): void {
 
       let driver;
       try {
-        [driver] = await db.insert(drivers).values(body).returning(driverSafeSelect);
+        // Preferences the request leaves out take the company defaults
+        // (Settings > Company).
+        const preferences = newDriverPreferences(body, await getDriverDefaults());
+        [driver] = await db
+          .insert(drivers)
+          .values({ ...body, ...preferences })
+          .returning(driverSafeSelect);
       } catch (err) {
         // The pre-check above is non-transactional, so two concurrent POSTs with the
         // same lowercased email can both pass it and race here. The partial unique
@@ -900,6 +960,7 @@ export function driverRoutes(app: FastifyInstance): void {
       if (body.language !== undefined) fields['language'] = body.language;
       if (body.isActive !== undefined) fields['isActive'] = body.isActive;
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
+      if (body.distanceUnit !== undefined) fields['distanceUnit'] = body.distanceUnit;
 
       let updated;
       try {

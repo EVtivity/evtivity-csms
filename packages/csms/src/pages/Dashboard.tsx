@@ -13,6 +13,7 @@ import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { EnergyChart } from '@/components/charts/EnergyChart';
 import { SessionsChart } from '@/components/charts/SessionsChart';
 import { Sparkline } from '@/components/charts/Sparkline';
+import { SecurityEventsCard } from '@/components/charts/SecurityEventsCard';
 import { StationStatusChart } from '@/components/charts/StationStatusChart';
 import { UtilizationChart } from '@/components/charts/UtilizationChart';
 import { PeakUsageChart } from '@/components/charts/PeakUsageChart';
@@ -560,6 +561,7 @@ function DashboardBody({
   const canReadInsights = useHasPermission('aiInsights:read');
   // The site Layout tab reads with sites:read.
   const canReadSites = useHasPermission('sites:read');
+  const canReadSecurityEvents = useHasPermission('securityEvents:read');
   const featureFlags = useFeatureFlags();
   const timezone = useUserTimezone();
   const dashboardLayout = useDashboardLayout();
@@ -1331,6 +1333,11 @@ function DashboardBody({
           state={queryState(stationStatus)}
         />
       ),
+    },
+    'chart.securityEvents': {
+      name: t('dashboard.securityEvents.title'),
+      visible: canReadSecurityEvents,
+      render: () => <SecurityEventsCard />,
     },
     'chart.utilization': {
       name: t('charts.topUtilization'),

@@ -101,7 +101,8 @@ describe('DC split systems hold one spot per dispenser', () => {
     const s = lot();
     const placed = [{ ...bayToPosition({ col: 0, row: 0 }), charging: 'dc' as const, span: 3 }];
     expect(accessibleChargingSpace(placed, s)).toBeNull();
-    expect(layoutStationCountsOfKinds([DC4, DC2, AC2]).spots).toBe(4 + 1 + 2);
+    // A split system one spot per dispenser, a dual-outlet dispenser and a dual-port pedestal two each.
+    expect(layoutStationCountsOfKinds([DC4, DC2, AC2]).spots).toBe(4 + 2 + 2);
   });
 
   it('regroups a split system onto free contiguous spots of its group', () => {
@@ -136,6 +137,7 @@ describe('charger port limits', () => {
       connectorsPerEvse: 2,
       cables: 4,
       singleEvseConnectors: 3,
+      satelliteConnectors: 2,
     });
     expect(drawnConnectorCounts('dc', [1, 1])).toEqual([1, 1]);
     expect(drawnConnectorCounts('dc', [2, 2])).toEqual([2, 2]);

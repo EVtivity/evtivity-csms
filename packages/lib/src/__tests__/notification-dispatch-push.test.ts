@@ -66,7 +66,8 @@ beforeAll(async () => {
 describe('dispatchDriverNotification native push', () => {
   let sql: ReturnType<typeof createSqlMock>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    (await import('../notification-dispatch.js')).clearDriverEventSettingsCache();
     calls.length = 0;
     pushTokens = [];
     vi.clearAllMocks();

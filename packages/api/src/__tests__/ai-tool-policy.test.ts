@@ -444,6 +444,20 @@ describe('AI tool policy and catalog', () => {
     expect(names).not.toContain('delete_notification_template');
   });
 
+  it('the assistant and MCP write no driver RFID card and cannot flip RFID self-service', () => {
+    for (const op of [
+      'portalCreateToken',
+      'portalUpdateToken',
+      'portalDeleteToken',
+      'getSetting',
+      'updateSetting',
+      'upsertSetting',
+      'deleteSetting',
+    ]) {
+      expect(toolPolicy(op).exposure, op).toBe('never');
+    }
+  });
+
   it('the assistant cannot change a site AI budget or the AI insights scope (review 2, AI I4)', () => {
     expect(toolPolicy('updateSite').omit).toEqual(expect.arrayContaining(['aiMonthlyTokenBudget']));
     // The site PATCH no longer takes the insights switch: the scope has its own routes.

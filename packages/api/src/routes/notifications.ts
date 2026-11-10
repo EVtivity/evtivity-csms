@@ -7,11 +7,18 @@ import { eq, desc, count, and, or, ilike, like } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import {
+  client,
+  db,
+  getCompanyCurrency,
+  getDriverEventSettingRow,
+  listDriverEventSettings,
+  setDriverEventMandatory,
+  setDriverEventSwitch,
+} from '@evtivity/database';
 import {
   notifications,
   notificationTemplates,
-  driverEventSettings,
   ocppEventSettings,
   settings,
   notificationTemplateAuditLog,
@@ -31,6 +38,9 @@ import {
   securityTemplateSaveProblems,
   wrapEmailHtml,
   readBodyPrefix,
+  clearNotificationSettingsCache,
+  driverNotificationChannels,
+  getNotificationSettings,
 } from '@evtivity/lib';
 import type { AllowedTemplateOptions } from '@evtivity/lib';
 import { isMissingFileError } from '../lib/fs-errors.js';
@@ -38,6 +48,7 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
   DRIVER_EVENT_TYPES,
   isDriverEventType,
+  isDriverPreferenceEventType,
   isRequiredDriverEventType,
   isSecurityTemplateEventType,
   OCPP_NOTIFICATION_EVENT_TYPES,
@@ -46,6 +57,24 @@ import {
 } from '@evtivity/lib/notification-events';
 
 const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
+
+// Driver event settings (the switch and the mandatory channels) are read through
+// a 60 s cache in every process that dispatches. Clear it here and tell the
+// others through the notification_settings message they already handle.
+async function invalidateDriverEventSettings(log: FastifyBaseLogger): Promise<void> {
+  clearNotificationSettingsCache();
+  try {
+    await getPubSub().publish(
+      OCPP_CACHE_INVALIDATE_CHANNEL,
+      JSON.stringify({ kind: 'notification_settings' }),
+    );
+  } catch (err) {
+    log.warn(
+      { err },
+      'Driver event settings invalidation publish failed, peers refresh within 60s',
+    );
+  }
+}
 async function invalidateOcppEventSettingsCache(log: FastifyBaseLogger): Promise<void> {
   try {
     await getPubSub().publish(
@@ -186,6 +215,19 @@ const eventToggleSettingItem = z
     id: z.number().int().describe('Setting ID'),
     eventType: z.string().max(255).describe('Driver event type identifier'),
     isEnabled: z.boolean().describe('Whether the driver event type is sent'),
+    emailMandatory: z
+      .boolean()
+      .describe(
+        'Whether drivers get the event by email whatever they chose (when email is configured)',
+      ),
+    smsMandatory: z
+      .boolean()
+      .describe(
+        'Whether drivers get the event by SMS whatever they chose (when SMS is configured)',
+      ),
+    pushMandatory: z
+      .boolean()
+      .describe('Whether drivers get the event by native push whatever they chose'),
     createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
   })
@@ -443,6 +485,26 @@ async function securityTemplateProblems(
 }
 
 const REQUIRED_DRIVER_EVENT_LIST = REQUIRED_DRIVER_EVENT_TYPES.join(', ');
+
+const driverEventMandatoryBody = z.object({
+  eventType: z
+    .string()
+    .max(255)
+    .describe(
+      'A driver event drivers may choose. Account and security notices are always sent: any other type returns 400 VALIDATION_ERROR.',
+    ),
+  email: z.boolean().optional().describe('Mandatory by email (true) or optional (false)'),
+  sms: z.boolean().optional().describe('Mandatory by SMS (true) or optional (false)'),
+  push: z.boolean().optional().describe('Mandatory by native push (true) or optional (false)'),
+});
+
+const driverNotificationChannelsItem = z
+  .object({
+    email: z.boolean().describe('Email is configured (SMTP)'),
+    sms: z.boolean().describe('SMS is configured (Twilio)'),
+    push: z.boolean().describe('Native push is available (Expo, needs no configuration)'),
+  })
+  .loose();
 
 const driverEventSettingBody = z.object({
   eventType: z
@@ -1534,9 +1596,87 @@ export function notificationRoutes(app: FastifyInstance): void {
         response: { 200: arrayResponse(eventToggleSettingItem) },
       },
     },
-    async () => {
-      const rows = await db.select().from(driverEventSettings);
-      return rows;
+    async () => listDriverEventSettings(),
+  );
+
+  app.get(
+    '/driver-event-settings/channels',
+    {
+      onRequest: [authorize('notifications:read')],
+      schema: {
+        tags: ['Notifications'],
+        summary: 'List the configured driver notification channels',
+        description:
+          'Which channels reach drivers: email with SMTP configured, SMS with Twilio configured, native push always. A mandatory channel sends only when it is configured.',
+        operationId: 'getDriverNotificationChannels',
+        security: [{ bearerAuth: [] }],
+        response: { 200: itemResponse(driverNotificationChannelsItem) },
+      },
+    },
+    async () => driverNotificationChannels(await getNotificationSettings(client)),
+  );
+
+  app.put(
+    '/driver-event-settings/mandatory',
+    {
+      onRequest: [authorize('notifications:write')],
+      schema: {
+        tags: ['Notifications'],
+        summary: 'Make a driver event mandatory or optional per channel',
+        description:
+          'A mandatory channel sends the event to every driver whatever they chose, while the event is on and the channel is configured. An event turned off (PUT /v1/driver-event-settings) is never sent, mandatory or not. Only events drivers may choose can be mandatory; account and security notices are always sent.',
+        operationId: 'updateDriverEventMandatory',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(driverEventMandatoryBody),
+        response: {
+          200: itemResponse(eventToggleSettingItem),
+          400: errorWith('Not a driver choice, or no channel given', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
+          404: errorWith('The user is restricted to some sites', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
+      const body = request.body as z.infer<typeof driverEventMandatoryBody>;
+      if (!isDriverPreferenceEventType(body.eventType)) {
+        await reply.status(400).send({
+          error: 'eventType must be a driver notification drivers can turn on or off',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+      if (body.email == null && body.sms == null && body.push == null) {
+        await reply.status(400).send({
+          error: 'Send email, sms or push',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+      const existing = await getDriverEventSettingRow(body.eventType);
+      const saved = await setDriverEventMandatory(body.eventType, {
+        ...(body.email != null ? { email: body.email } : {}),
+        ...(body.sms != null ? { sms: body.sms } : {}),
+        ...(body.push != null ? { push: body.push } : {}),
+      });
+      await invalidateDriverEventSettings(request.log);
+      await auditNotificationTemplate(request, {
+        eventType: body.eventType,
+        action: 'event_settings_changed',
+        key: { setting: 'driver_mandatory' },
+        before: {
+          emailMandatory: existing?.emailMandatory ?? false,
+          smsMandatory: existing?.smsMandatory ?? false,
+          pushMandatory: existing?.pushMandatory ?? false,
+        },
+        after: {
+          emailMandatory: saved.emailMandatory,
+          smsMandatory: saved.smsMandatory,
+          pushMandatory: saved.pushMandatory,
+        },
+      });
+      return saved;
     },
   );
 
@@ -1582,33 +1722,16 @@ export function notificationRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      const [existing] = await db
-        .select({ isEnabled: driverEventSettings.isEnabled })
-        .from(driverEventSettings)
-        .where(eq(driverEventSettings.eventType, body.eventType));
-      const [saved] = await db
-        .insert(driverEventSettings)
-        .values({
-          eventType: body.eventType,
-          isEnabled: body.isEnabled,
-        })
-        .onConflictDoUpdate({
-          target: [driverEventSettings.eventType],
-          set: {
-            isEnabled: body.isEnabled,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
-      if (saved != null) {
-        await auditNotificationTemplate(request, {
-          eventType: body.eventType,
-          action: 'event_settings_changed',
-          key: { setting: 'driver' },
-          before: { isEnabled: existing?.isEnabled ?? null },
-          after: { isEnabled: saved.isEnabled },
-        });
-      }
+      const existing = await getDriverEventSettingRow(body.eventType);
+      const saved = await setDriverEventSwitch(body.eventType, body.isEnabled);
+      await invalidateDriverEventSettings(request.log);
+      await auditNotificationTemplate(request, {
+        eventType: body.eventType,
+        action: 'event_settings_changed',
+        key: { setting: 'driver' },
+        before: { isEnabled: existing?.isEnabled ?? null },
+        after: { isEnabled: saved.isEnabled },
+      });
       return saved;
     },
   );

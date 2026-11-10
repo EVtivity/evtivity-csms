@@ -56,6 +56,9 @@ vi.mock('../lib/site-access.js', async () =>
 );
 
 vi.mock('@evtivity/database', () => ({
+  isDriverRfidSelfServiceEnabled: vi.fn(() => Promise.resolve(true)),
+  clearDriverRfidSelfServiceCache: vi.fn(),
+  RFID_SELF_SERVICE_SETTING_KEY: 'portal.rfidSelfServiceEnabled',
   getCompanyCurrency: vi.fn(() => Promise.resolve('USD')),
   getCompanyTaxBasis: vi.fn(() => Promise.resolve('net')),
   getCompanyPriceDisplay: vi.fn(() => Promise.resolve('net')),
@@ -165,6 +168,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     isDataPlanSettingKey: actual.isDataPlanSettingKey,
     validateDataPlanSetting: actual.validateDataPlanSetting,
     normalizeMeasurandList: actual.normalizeMeasurandList,
+    UPDATE_CHECK_SETTING_KEY: actual.UPDATE_CHECK_SETTING_KEY,
     encryptString: vi.fn((_val: string, _key: string) => 'encrypted-value'),
     decryptString: actual.decryptString,
     clearNotificationSettingsCache: vi.fn(),
@@ -176,6 +180,12 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     isStationMessageLanguage: actual.isStationMessageLanguage,
     STATION_MESSAGE_LANGUAGES: actual.STATION_MESSAGE_LANGUAGES,
     isTaxBasis: actual.isTaxBasis,
+    isDistanceUnit: actual.isDistanceUnit,
+    isUiLanguage: actual.isUiLanguage,
+    isValidTimezone: actual.isValidTimezone,
+    SYSTEM_DISTANCE_UNIT_KEY: actual.SYSTEM_DISTANCE_UNIT_KEY,
+    SYSTEM_DRIVER_LANGUAGE_KEY: actual.SYSTEM_DRIVER_LANGUAGE_KEY,
+    SYSTEM_TIMEZONE_KEY: actual.SYSTEM_TIMEZONE_KEY,
     OCPI_TARIFF_SETTING_KEYS: actual.OCPI_TARIFF_SETTING_KEYS,
     TAX_BASES: actual.TAX_BASES,
     UI_LANGUAGES: actual.UI_LANGUAGES,

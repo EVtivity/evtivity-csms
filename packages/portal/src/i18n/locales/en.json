@@ -1019,7 +1019,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "This departure is managed by a bus depot system; change it there, or disable the depot system.",
     "DEPOT_SYSTEM_NOT_FOUND": "Bus depot system not found.",
     "DEPOT_SYSTEM_ID_IN_USE": "Another bus depot system uses this system ID.",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "A bus depot system serves depot sites only."
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "A bus depot system serves depot sites only.",
+    "RFID_SELF_SERVICE_DISABLED": "Your operator manages your RFID cards. Contact the operator to add, change, deactivate or remove a card.",
+    "NOTIFICATION_EVENT_MANDATORY": "Your operator requires this notification on this channel, so it cannot be turned off"
   },
   "validation": {
     "required": "This field is required",
@@ -1146,7 +1148,10 @@
     "labelPlaceholder": "Label (optional), e.g. Company RFID card",
     "labelHint": "A name that helps you tell your cards apart. Leave empty to show the card number.",
     "renameCard": "Rename RFID Card",
-    "renameFailed": "Could not rename the card. Try again."
+    "renameFailed": "Could not rename the card. Try again.",
+    "managedByOperator": "Your operator manages your RFID cards. To add, change or remove a card, or to block a lost one, contact the operator.",
+    "noCardsAssigned": "No RFID cards are assigned to you.",
+    "contactSupport": "Contact Support"
   },
   "vehicles": {
     "addVehicle": "Add Vehicle",
@@ -1532,5 +1537,91 @@
   "storageUnavailable": {
     "title": "Uploads Unavailable",
     "description": "Files cannot be uploaded right now. Please try again later, or contact support if this keeps happening."
+  },
+  "notificationPrefs": {
+    "intro": "Choose which notifications you get on each channel.",
+    "notification": "Notification",
+    "allNotifications": "All Notifications",
+    "allChannelLabel": "All {{channel}} notifications",
+    "eventChannelLabel": "{{event}} by {{channel}}",
+    "channels": {
+      "email": "Email",
+      "sms": "SMS",
+      "push": "Push"
+    },
+    "required": "Required by your operator",
+    "requiredNote": "Your operator requires the notifications marked with a lock. They are always sent on that channel.",
+    "alwaysSentNote": "Account and security messages, such as password resets and sign-in codes, are always sent.",
+    "noChannels": "Your operator has not set up email or text message notifications yet.",
+    "groups": {
+      "sessions": "Charging Sessions",
+      "payments": "Payments",
+      "reservations": "Reservations",
+      "invoices": "Invoices",
+      "supportCases": "Support Cases",
+      "rfidCards": "RFID Cards",
+      "maintenance": "Maintenance",
+      "stationWatch": "Station Watch",
+      "prepaidBalance": "Prepaid Balance",
+      "fleetBilling": "Fleet Billing"
+    },
+    "events": {
+      "session": {
+        "Started": "Charging started",
+        "Updated": "Charging progress",
+        "Completed": "Charging completed",
+        "Faulted": "Charging stopped by a fault",
+        "PaymentReceived": "Session payment received",
+        "IdlingStarted": "Idle fee started",
+        "Receipt": "Session receipt"
+      },
+      "payment": {
+        "Complete": "Payment complete",
+        "Refunded": "Payment refunded",
+        "FeeRefunded": "Reservation fee refunded",
+        "PreAuthFailed": "Payment authorization failed",
+        "CaptureFailed": "Payment failed",
+        "MissingPaymentMethod": "No payment method on file",
+        "AccountCreditLimit": "Fleet credit limit reached"
+      },
+      "reservation": {
+        "Created": "Reservation confirmed",
+        "Cancelled": "Reservation cancelled",
+        "CancelledForMaintenance": "Reservation cancelled for maintenance",
+        "Expiring": "Reservation ending soon",
+        "Expired": "Reservation expired",
+        "StationFaulted": "Reserved station out of service",
+        "TakenByOther": "Reserved charger taken by someone else"
+      },
+      "invoice": {
+        "Sent": "Invoice sent",
+        "CreditNote": "Credit note issued"
+      },
+      "supportCase": {
+        "Created": "Support case created",
+        "OperatorReply": "Reply to your support case",
+        "Resolved": "Support case resolved",
+        "AiAnswered": "Automatic answer to your support case"
+      },
+      "token": {
+        "Added": "RFID card added",
+        "Removed": "RFID card removed",
+        "Deactivated": "RFID card deactivated",
+        "Reactivated": "RFID card reactivated"
+      },
+      "maintenance": {
+        "SessionStopped": "Charging stopped for maintenance"
+      },
+      "watch": {
+        "StationAvailable": "Watched station available"
+      },
+      "prepaid": {
+        "LowCredit": "Prepaid balance low",
+        "CreditExhausted": "Prepaid balance used up"
+      },
+      "fleet": {
+        "AccountBillingChanged": "Fleet billing changed"
+      }
+    }
   }
 }

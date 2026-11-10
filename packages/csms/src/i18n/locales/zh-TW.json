@@ -574,7 +574,27 @@
     "freeVend": "免費充電",
     "freeVendInfo": "您的充電站中的免費充電工作階段及其能量，以及已開啟免費充電的充電站數量。",
     "freeVendSites": "開啟免費充電的充電站：{{value}}",
-    "noFreeVendSessions": "此期間沒有免費充電工作階段"
+    "noFreeVendSessions": "此期間沒有免費充電工作階段",
+    "securityEvents": {
+      "title": "安全事件",
+      "info": "您的充電樁回報的安全事件，依嚴重程度與充電樁統計。嚴重程度最高的充電樁排在最前。選擇充電樁可開啟其安全分頁。",
+      "range": "時間範圍",
+      "range24h": "最近 24 小時",
+      "range7d": "最近 7 天",
+      "range30d": "最近 30 天",
+      "site": "充電站",
+      "allSites": "所有充電站",
+      "severity": "嚴重程度",
+      "allSeverities": "所有嚴重程度",
+      "station": "充電樁",
+      "worstSeverity": "最高嚴重程度",
+      "events": "事件",
+      "lastEvent": "最近事件",
+      "empty": "此時間範圍內沒有安全事件。",
+      "noStations": "沒有此嚴重程度事件的充電樁。",
+      "truncated": "顯示 {{total}} 個充電樁中的 {{shown}} 個。",
+      "criticalRow": "嚴重"
+    }
   },
   "sites": {
     "title": "充電站",
@@ -758,8 +778,8 @@
       "fitToView": "符合檢視",
       "editLayout": "編輯佈局",
       "doneEditing": "完成編輯",
-      "hint": "拖曳以旋轉，雙指滑動或按住 Shift 拖曳以平移，捏合或滾動滾輪以縮放。點選充電樁查看詳細資料。",
-      "hintViewOnly": "拖曳以環視，雙指滑動以平移，捏合或滾動滾輪以縮放。點選充電樁查看詳細資料。",
+      "hint": "拖曳以旋轉，雙指滑動或按住 Shift 拖曳以平移，捏合或滾動滾輪以縮放。點選充電樁查看詳細資料。按兩下充電樁可放大。",
+      "hintViewOnly": "拖曳以環視，雙指滑動以平移，捏合或滾動滾輪以縮放。點選充電樁查看詳細資料。按兩下充電樁可放大。",
       "hintEdit": "編輯模式：將充電樁拖曳到空閒車位，或將變壓器拖曳到草地上。充電樁會對齊車位，且不會落在其他充電樁上。",
       "webglUnavailable": "此瀏覽器無法顯示 3D 檢視（WebGL 無法使用），因此顯示 2D 檢視。",
       "loading3d": "正在載入 3D 檢視",
@@ -867,7 +887,7 @@
         "pointerZoom": "縮放",
         "pointerZoomKeys": "捏合或滾輪"
       },
-      "hintTouch": "拖曳以旋轉，捏合以縮放，雙指拖曳以平移。輕觸充電樁查看詳細資料。",
+      "hintTouch": "拖曳以旋轉，捏合以縮放，雙指拖曳以平移。輕觸充電樁查看詳細資料。點兩下充電樁可放大。",
       "hintViewOnlyTouch": "拖曳以環視，捏合以縮放。輕觸充電樁查看詳細資料。",
       "hintReplayTouch": "正在重播過去的時刻。拖曳以旋轉，捏合以縮放。",
       "portIconLabel": "EVSE {{n}}，{{type}}，{{state}}",
@@ -886,7 +906,8 @@
       "cannotMeetShort": "無法達成：缺 {{kwh}} kWh",
       "transformerLoad": "容量的 {{percent}}%",
       "supplyCredit": "供電 {{kw}} kW",
-      "supplyNoReading": "無最新讀數"
+      "supplyNoReading": "無最新讀數",
+      "evsePlateHover": "EVSE {{n}}，{{types}}"
     },
     "layoutState": {
       "faulted": "故障",
@@ -972,7 +993,8 @@
       "reservedWindow": "{{id}} 預約時間 {{start}} 至 {{end}}",
       "maintenanceNow": "{{id}} 維護中",
       "maintenanceUntil": "{{id}} 維護至 {{end}}",
-      "maintenanceWindow": "{{id}} 維護時間 {{start}} 至 {{end}}"
+      "maintenanceWindow": "{{id}} 維護時間 {{start}} 至 {{end}}",
+      "rfidTap": "請刷 RFID 卡"
     },
     "fleetReadiness": {
       "title": "車隊就緒",
@@ -1122,6 +1144,7 @@
     "changePasswordOcppOnline": "這將更新伺服器上的密碼並透過 OCPP SetVariables 推送到 {{stationId}}，然後重設充電樁以重新連線。",
     "changePasswordOcppOffline": "充電樁離線。密碼將儲存在伺服器上，並在下次連線時用於驗證充電樁。",
     "securityLog": "安全事件日誌",
+    "securityEventsHidden": "充電樁安全事件僅向擁有安全事件權限的使用者顯示。此日誌列出連線事件。",
     "noSecurityLogs": "沒有安全事件記錄",
     "eventType": "事件",
     "eventTypePlaceholder": "例如：TamperDetectionActivated",
@@ -2076,7 +2099,13 @@
       "empty": "沒有帳單地址。發票顯示姓名與電子郵件。",
       "updated": "帳單地址已更新",
       "updateFailed": "無法更新帳單地址"
-    }
+    },
+    "timezone": "時區",
+    "distanceUnit": "距離單位",
+    "distanceUnitMiles": "英里",
+    "distanceUnitKm": "公里",
+    "distanceUnitHelp": "用於駕駛員入口網站和應用程式中的距離。",
+    "timezoneHelp": "用於駕駛員入口網站、應用程式和通知中的時間。"
   },
   "transactions": {
     "title": "交易記錄",
@@ -2263,6 +2292,7 @@
       "loadManagement": "負載管理",
       "notifications": "通知",
       "logs": "日誌",
+      "securityEvents": "安全事件",
       "users": "使用者",
       "audit": "稽核日誌",
       "maintenance": "維護",
@@ -4115,7 +4145,25 @@
     "paymentSubTabTerminals": "支付終端機",
     "fleetChargingEnabled": "車隊充電",
     "fleetChargingEnabledDesc": "在使用依發車規劃策略的充電站，依每輛車的發車時間規劃場站充電。",
-    "fleetChargingEnabledOff": "場站規劃停止，已傳送的充電設定檔將被清除，依發車規劃的充電站平均分配功率。發車仍會保存。"
+    "fleetChargingEnabledOff": "場站規劃停止，已傳送的充電設定檔將被清除，依發車規劃的充電站平均分配功率。發車仍會保存。",
+    "driverLanguage": "駕駛員語言",
+    "driverLanguageHelper": "新駕駛員建立時未指定語言則使用此語言。現有駕駛員保留各自的設定。",
+    "driverDistanceUnit": "駕駛員距離單位",
+    "driverDistanceUnitHelper": "新駕駛員建立時未指定距離單位則使用此單位。現有駕駛員保留各自的設定。",
+    "companyTimezone": "時區",
+    "companyTimezoneHelper": "公司時區：儀表板的日期、發票和報告使用此時區；新駕駛員建立時未指定時區則使用此時區。現有駕駛員保留各自的設定。",
+    "rfidCards": "RFID 卡",
+    "rfidCardsDescription": "決定駕駛員自行管理 RFID 卡，還是由營運商管理。",
+    "rfidSelfServiceEnabled": "駕駛員管理自己的 RFID 卡",
+    "rfidSelfServiceEnabledDesc": "開啟：駕駛員在入口網站與行動應用程式中新增、重新命名、停用、重新啟用及移除自己的 RFID 卡。關閉：駕駛員只能檢視自己的卡，由營運商在權杖頁面管理。",
+    "rfidSelfServiceOffEffect": "駕駛員將無法再新增、重新命名、停用、重新啟用或移除 RFID 卡，如需停用遺失的卡需聯絡您。現有的卡繼續可用。",
+    "updateCheck": {
+      "title": "更新檢查",
+      "description": "有更新的 EVtivity CSMS 版本發布時通知管理員。",
+      "enabled": "檢查新版本",
+      "enabledDesc": "開啟：伺服器每天從 evtivity.com 讀取一次最新版本號，有更新版本發布時，管理員會在儀表板上看到通知。只有伺服器的 IP 位址會到達 evtivity.com，瀏覽器從不存取它。關閉：不傳送任何內容。",
+      "offEffect": "伺服器不再從 evtivity.com 讀取最新版本，有更新版本發布時管理員也不會再看到通知。"
+    }
   },
   "pnc": {
     "certificates": "憑證",
@@ -4319,7 +4367,21 @@
     "aiEvents": "AI",
     "channelToggleLabel": "{{event}} {{channel}} 通知",
     "eventToggleLabel": "{{event}} 通知",
-    "securityEvents": "帳戶安全"
+    "securityEvents": "帳戶安全",
+    "driverChoice": {
+      "title": "駕駛員選擇",
+      "tooltip": "可選：每位駕駛員在入口網站和應用程式中自行決定。必要：無論駕駛員如何選擇，所有駕駛員都會在此管道收到此通知。已關閉的事件不會傳送，無論是否必要。",
+      "alwaysSent": "駕駛員一律會收到此通知。駕駛員無法關閉帳戶和安全通知。",
+      "eventOff": "此事件已關閉，因此無論是否必要，駕駛員都不會在任何管道收到。",
+      "channelEmail": "電子郵件",
+      "channelSms": "簡訊",
+      "channelPush": "推播",
+      "selectLabel": "{{event}} 的{{channel}}",
+      "optional": "可選",
+      "mandatory": "必要",
+      "notConfigured": "未設定：此管道不傳送任何內容。",
+      "explanation": "駕駛員會看到必要通知處於開啟並鎖定狀態，並標示為您要求的通知。"
+    }
   },
   "reservations": {
     "title": "預約",
@@ -4840,7 +4902,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "此出發計畫由公車車場系統管理，請在該系統中變更，或停用車場系統。",
     "DEPOT_SYSTEM_NOT_FOUND": "找不到公車車場系統。",
     "DEPOT_SYSTEM_ID_IN_USE": "另一個公車車場系統已使用此系統 ID。",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公車車場系統僅服務車場充電站。"
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公車車場系統僅服務車場充電站。",
+    "RFID_SELF_SERVICE_DISABLED": "您的 RFID 卡由營運商管理。如需新增、變更、停用或移除卡片，請聯絡營運商。",
+    "NOTIFICATION_EVENT_MANDATORY": "營運商要求在此管道接收此通知，因此無法關閉"
   },
   "logs": {
     "title": "日誌",
@@ -5490,6 +5554,11 @@
     "faultMode": "故障模式",
     "faultModeEnd": "結束工作階段",
     "faultModeSuspend": "保留工作階段（暫停）",
+    "faultType": "故障類型",
+    "faultCodes": {
+      "internalError": "內部錯誤",
+      "highTemp": "溫度過高"
+    },
     "goOffline": "離線",
     "comeOnline": "上線",
     "actionSent": "{{action}} 已傳送",
@@ -5498,7 +5567,41 @@
     "tokenRequired": "此操作需要權杖。",
     "tokenNotFound": "在駕駛員權杖中找不到權杖。授權和開始充電將被拒絕。",
     "stationOffline": "充電樁已離線。請先使其恢復上線。",
-    "invalidForState": "目前連接器狀態（{{status}}）下不可用。"
+    "invalidForState": "目前連接器狀態（{{status}}）下不可用。",
+    "securityEvent": "安全事件",
+    "securityEventType": "事件",
+    "securityEventOcppType": "OCPP 類型：{{type}}",
+    "securityEventTechInfo": "技術資訊（選填）",
+    "sendSecurityEvent": "傳送安全事件",
+    "securityEvents": {
+      "TamperDetectionActivated": "充電樁被打開（防拆感測器）",
+      "TiltDetected": "充電樁傾斜（廠商事件）",
+      "CableCutDetected": "充電線纜被剪斷（廠商事件）",
+      "SettingSystemTime": "系統時間被變更",
+      "InvalidFirmwareSignature": "固件簽章無效",
+      "InvalidFirmwareSigningCertificate": "固件簽章憑證無效",
+      "AttemptedReplayAttacks": "收到重放訊息",
+      "FailedToAuthenticateAtCsms": "充電樁登入 CSMS 失敗",
+      "FailedToAuthenticateAtCentralSystem": "充電樁登入 CSMS 失敗",
+      "CsmsFailedToAuthenticate": "CSMS 登入充電樁失敗",
+      "CentralSystemFailedToAuthenticate": "CSMS 登入充電樁失敗",
+      "InvalidCsmsCertificate": "CSMS 憑證無效",
+      "InvalidCentralSystemCertificate": "CSMS 憑證無效",
+      "InvalidChargingStationCertificate": "充電樁憑證無效",
+      "InvalidChargePointCertificate": "充電樁憑證無效",
+      "InvalidTLSVersion": "TLS 版本不被允許",
+      "InvalidTLSCipherSuite": "TLS 加密套件不被允許",
+      "MaintenanceLoginFailed": "維護登入失敗",
+      "SecurityLogWasCleared": "安全日誌已清除",
+      "InvalidMessages": "收到無效訊息",
+      "MemoryExhaustion": "記憶體即將耗盡",
+      "ReconfigurationOfSecurityParameters": "安全設定已變更",
+      "DiscardedRenewedClientCertificate": "已捨棄續期的用戶端憑證",
+      "StartupOfTheDevice": "充電樁已啟動",
+      "ResetOrReboot": "充電樁已重設或重新啟動",
+      "MaintenanceLoginAccepted": "維護登入成功",
+      "FirmwareUpdated": "固件已更新"
+    }
   },
   "loadManagement": {
     "allocationStrategy": "分配策略",

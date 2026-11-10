@@ -11,6 +11,21 @@
 export type ConnectorKind = 'type1' | 'type2' | 'ccs1' | 'ccs2' | 'chademo' | 'nacs' | 'mcs';
 
 /** The connector kind of a station connector type (OCPP 1.6, 2.x and CSMS spellings), by the charging kind when unknown. */
+/**
+ * The thickest AC charging cable the layout draws: 16.1 mm, the thickest
+ * OLFLEX CHARGE AC cable (5G6+1x0.5, LAPP data sheet, EN 50620 and IEC
+ * 62893-3, March 2025). An AC charger's J3400 cable is an AC cable, so it is
+ * drawn at most this thick; the 25 mm J3400 cable of `CONNECTOR_SPECS` is the
+ * DC one.
+ */
+export const AC_CABLE_MAX_DIAMETER_M = 0.0161;
+
+/** The cable diameter of connector `kind` on a charger of that current: an AC cable at most `AC_CABLE_MAX_DIAMETER_M`. */
+export function chargerCableDiameterM(kind: ConnectorKind, ac: boolean): number {
+  const d = CONNECTOR_SPECS[kind].cableDiameterM;
+  return ac ? Math.min(d, AC_CABLE_MAX_DIAMETER_M) : d;
+}
+
 export function connectorKindOf(type: string | null | undefined, dc: boolean): ConnectorKind {
   const t = (type ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (t === 'ctype1' || t === 'type1' || t === 'j1772' || t === 'stype1') return 'type1';
@@ -473,31 +488,64 @@ export const HOLSTER_SEAT_M = HOLSTER.cupDepthM - 0.006;
 
 /**
  * A holster on a charger surface: its plate against the surface at `mount`,
- * the cup mouth `HOLSTER_DEPTH_M` out along `facing` (a unit vector on the
- * ground plane), and the handle seated nose first with its face
- * `HOLSTER_SEAT_M` inside the mouth, turned to face back into the cup.
+ * the cup mouth `HOLSTER_DEPTH_M` out along its axis, and the handle seated
+ * nose first with its face `HOLSTER_SEAT_M` inside the mouth, turned to face
+ * back into the cup. The axis is `facing` (a unit vector on the ground plane)
+ * tipped `noseUp` radians down, so the handle's face points that much up
+ * into the cup (a wall box dock, `wallBoxHolsterMount`); 0 keeps it level.
+ * The handle and the holster turn by `handleYaw` and `holsterYaw` about the
+ * vertical, then by `handleTilt` and `holsterTilt` about their own lateral
+ * axis (three.js Euler order `YXZ`).
  */
 export function holsterPose(
   mount: { x: number; y: number; z: number },
   facing: { x: number; z: number },
+  noseUp = 0,
 ): {
   mouth: { x: number; y: number; z: number };
   holsterYaw: number;
+  holsterTilt: number;
   handle: { x: number; y: number; z: number };
   handleYaw: number;
+  handleTilt: number;
+  noseUp: number;
 } {
+  const c = {
+    x: facing.x * Math.cos(noseUp),
+    y: -Math.sin(noseUp),
+    z: facing.z * Math.cos(noseUp),
+  };
   const mouth = {
-    x: mount.x + facing.x * HOLSTER_DEPTH_M,
-    y: mount.y,
-    z: mount.z + facing.z * HOLSTER_DEPTH_M,
+    x: mount.x + c.x * HOLSTER_DEPTH_M,
+    y: mount.y + c.y * HOLSTER_DEPTH_M,
+    z: mount.z + c.z * HOLSTER_DEPTH_M,
   };
   const inset = HOLSTER_DEPTH_M - HOLSTER_SEAT_M;
   return {
     mouth,
     holsterYaw: Math.atan2(facing.x, facing.z),
-    handle: { x: mount.x + facing.x * inset, y: mount.y, z: mount.z + facing.z * inset },
+    holsterTilt: noseUp,
+    handle: { x: mount.x + c.x * inset, y: mount.y + c.y * inset, z: mount.z + c.z * inset },
     handleYaw: Math.atan2(-facing.x, -facing.z),
+    handleTilt: -noseUp,
+    noseUp,
   };
+}
+
+/**
+ * A point of a handle's side frame (`y` up, `z` along its face) in the scene
+ * frame of a handle at `at` turned `yaw` about the vertical and its face
+ * tipped `noseUp` radians up (`holsterPose`).
+ */
+export function handleFramePoint(
+  at: { x: number; y: number; z: number },
+  yaw: number,
+  local: { y: number; z: number },
+  noseUp = 0,
+): [number, number, number] {
+  const y = local.y * Math.cos(noseUp) + local.z * Math.sin(noseUp);
+  const z = -local.y * Math.sin(noseUp) + local.z * Math.cos(noseUp);
+  return [at.x + Math.sin(yaw) * z, at.y + y, at.z + Math.cos(yaw) * z];
 }
 
 /** The thickest cable of a set of connectors (the cable a unit draws to a vehicle). */
@@ -599,13 +647,14 @@ export function handleCableEntry(
   at: { x: number; y: number; z: number },
   yaw: number,
   kind: ConnectorKind,
+  noseUp = 0,
 ): CableEntry {
   const tip = bootTipLocal(kind);
   const { dir } = gripAxis(kind);
   const lead = { y: tip.y + dir.v * CABLE_LEAD_M, z: tip.z + dir.u * CABLE_LEAD_M };
   return {
-    end: plugCableEnd(at, yaw, kind),
-    lead: [at.x + Math.sin(yaw) * lead.z, at.y + lead.y, at.z + Math.cos(yaw) * lead.z],
+    end: plugCableEnd(at, yaw, kind, noseUp),
+    lead: handleFramePoint(at, yaw, lead, noseUp),
   };
 }
 
@@ -621,12 +670,12 @@ export function cableIntoHandle(
   ];
 }
 
-/** Where the cable leaves a handle placed at `at` and turned `yaw` (its face toward +z turned by yaw). */
+/** Where the cable leaves a handle placed at `at`, turned `yaw` and its face tipped `noseUp` up (its face toward +z turned by them). */
 export function plugCableEnd(
   at: { x: number; y: number; z: number },
   yaw: number,
   kind: ConnectorKind,
+  noseUp = 0,
 ): [number, number, number] {
-  const end = handleCableEndLocal(kind);
-  return [at.x + Math.sin(yaw) * end.z, at.y + end.y, at.z + Math.cos(yaw) * end.z];
+  return handleFramePoint(at, yaw, handleCableEndLocal(kind), noseUp);
 }

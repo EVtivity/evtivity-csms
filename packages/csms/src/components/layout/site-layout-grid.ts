@@ -60,8 +60,25 @@ export const BAY_STATION_Z = 0.9;
 /** The painted gap at the front and back of each spot line, in meters. */
 export const BAY_LINE_GAP = 0.7;
 
-/** The camera never comes nearer than this, in meters (owner decision 2026-11-02: 3 m, close enough to see a connector). */
-export const MIN_DISTANCE = 3;
+/**
+ * The camera never comes nearer than this, in meters (owner decision
+ * 2026-11-09: 1 m, close enough to read a connector face, an EVSE plate and
+ * an RFID pad; it was 3 m from 2026-11-02). The eye height floor
+ * (`MIN_CAMERA_HEIGHT`) still holds, so the camera comes this close only to
+ * a point at about charger height (zoom at the pointer, `zoomTowardPoint`).
+ */
+export const MIN_DISTANCE = 1;
+
+/**
+ * The camera's near clipping plane at a view distance, in meters: a fifth of
+ * the distance, from 0.1 to 0.5 m, so a model 1 m away is never cut while
+ * the depth buffer keeps its precision far away (the far plane follows the
+ * zoom-out limit). Derived.
+ */
+export function cameraNearM(distance: number): number {
+  if (!Number.isFinite(distance)) return 0.5;
+  return Math.min(0.5, Math.max(0.1, distance * 0.2));
+}
 /** The zoom-out limit is at least this, in meters. */
 export const MAX_DISTANCE_MIN = 160;
 /** Grass the camera may pan over around everything on the site, in meters. */
@@ -349,10 +366,6 @@ export function wallMounted(bay: LayoutBay, lot: Lot, kind: 'ac' | 'dc'): boolea
 }
 
 /**
- * How far behind its spot point a wall box hangs on the facade, in the
- * station's own z (negative: toward the building).
- */
-/**
  * How far in front of the facade line a wall sign's back sits, in meters: on
  * the outer face of the facade (its ground floor cladding and the window
  * strip stand up to 0.1 m proud of `FACADE_Z`), so the sign is on the wall,
@@ -360,8 +373,17 @@ export function wallMounted(bay: LayoutBay, lot: Lot, kind: 'ac' | 'dc'): boolea
  */
 export const FACADE_SIGN_STANDOFF_M = 0.11;
 
+/** How far the ground floor's stone base stands proud of `FACADE_Z` (0.06 m, up to 3.2 m high). */
+export const FACADE_BASE_PROUD_M = 0.06;
+
+/**
+ * How far behind its spot point a wall box hangs on the facade, in the
+ * station's own z (negative: toward the building): its back on the face of the
+ * ground floor's stone base, so the box, its J hook and the cable turns on
+ * it stand in front of the wall, never inside it.
+ */
 export function wallBoxOffset(): number {
-  return FACADE_Z - BAY_STATION_Z;
+  return FACADE_Z + FACADE_BASE_PROUD_M - BAY_STATION_Z;
 }
 
 /** The front edge of an AC pedestal's concrete pad (1.0 by 0.9 m, centered on the charger), in the station's own z. */
@@ -1281,14 +1303,32 @@ export const READER_REACH_M = { min: 15 * 0.0254, max: 48 * 0.0254 } as const;
 export const READER_INTERFACE_ABOVE_MOUNT_M = 0.045;
 
 /**
+ * A card reader of an AC wall box mounts on the facade above the box (owner
+ * decision 2026-11-10), clear of the J hooks and cable turns beside it
+ * (`WALL_BOX_HOOK`: from 0.31 m right of a one-port box's center, from
+ * 0.435 m either side of a two-port box) and of its signs (a one-port box's
+ * beside it at x -0.75, a two-port box's over it from 1.5 m,
+ * `DUAL_WALL_SIGN`). Derived: the bracket at 1.14 m puts the reader's bottom
+ * (0.021 m under the mount at the scene scale) 0.03 m over the box's
+ * mounting plate top (0.68 + 0.4 + 0.01 m = 1.09 m) and its card interface
+ * 1.185 m up, within the 48 in (1.219 m) high reach of the 2010 ADA
+ * Standards 308.2 and 308.3; it stands 0.0975 m off the wall at the scene
+ * scale (bracket standoff 0.025 m plus the 0.04 m screen reader, times 1.5),
+ * within the 4 in of 307.2. A connector's reader on a two-port box sits over
+ * its own dock (`AC_WALL_BOX.dual.dockX`, 0.125 m); a second station-wide
+ * reader one reader width (0.198 m scaled) plus a 0.022 m gap to the left.
+ */
+export const WALL_READER = { mountY: 1.14, portX: 0.125, pitchM: 0.22 } as const;
+
+/**
  * Where a card reader mounts on its charger, in the charger's own frame: the
  * point on the host surface its bracket stands on (the reader models stand
  * off it themselves). On the front of a DC dispenser (integrated, as
  * dispensers of the class offer it), a connector's reader under its side of
  * the screen and a station-wide one in the middle below; on the front of an
  * AC pedestal's column (0.233 m wide, so its readers stack, the first EVSE's
- * below the second's); on the facade beside an AC wall box. Every card
- * interface stays within `READER_REACH_M`.
+ * below the second's); on the facade above an AC wall box (`WALL_READER`).
+ * Every card interface stays within `READER_REACH_M`.
  */
 export function readerMount(
   kind: 'dc' | 'ac',
@@ -1296,12 +1336,25 @@ export function readerMount(
   side: -1 | 0 | 1,
   index: number,
   wallOffset: number,
+  wallPorts: 1 | 2 = 1,
+  count = 1,
 ): { x: number; y: number; z: number } {
   if (kind === 'dc') {
     // The DC dispenser front fascia: 10 mm proud of the 0.34 m front (`DC_DISPENSER`).
     return { x: side === 0 ? -index * 0.16 : side * 0.17, y: side === 0 ? 0.72 : 0.92, z: 0.35 };
   }
-  if (wall) return { x: side === 0 ? -0.34 - index * 0.16 : side * 0.34, y: 1.12, z: wallOffset };
+  if (wall) {
+    // Over the box: a connector's reader over its own dock of a two-port box;
+    // station-wide readers centered over a two-port box (its coils on both
+    // sides), from the middle to the left over a one-port box (its coil right).
+    const x =
+      side !== 0 && wallPorts === 2
+        ? side * WALL_READER.portX
+        : wallPorts === 2
+          ? (index - (count - 1) / 2) * WALL_READER.pitchM
+          : -index * WALL_READER.pitchM;
+    return { x, y: WALL_READER.mountY, z: wallOffset };
+  }
   // The AC pedestal column front (`AC_PEDESTAL.post`: 0.18 m deep).
   return {
     x: side === 0 ? -index * 0.16 : 0,

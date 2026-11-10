@@ -29,6 +29,7 @@ import {
 import {
   BUS_DISPENSER,
   BUS_DISPENSER_HOLSTERS,
+  BUS_DISPENSER_RFID,
   BUS_DISPENSER_SCREEN,
   cableArmOutlet,
   createBusDispenserKit,
@@ -39,6 +40,7 @@ import { createMcsArmBoomKit, createMcsArmPoleKit } from './site-layout-model-mc
 import {
   MCS_DISPENSER,
   MCS_DISPENSER_HOLSTER,
+  MCS_DISPENSER_RFID,
   MCS_DISPENSER_SCREEN,
   createMcsDispenserKit,
 } from './site-layout-model-mcs-dispenser';
@@ -54,6 +56,7 @@ import {
   PANTOGRAPH_LINKAGE,
   PANTOGRAPH_POLE,
   PANTOGRAPH_POLE_LOGO,
+  PANTOGRAPH_POLE_RFID,
   PANTOGRAPH_POLE_SCREEN,
   createPantographLinkageKit,
   createPantographPoleKit,
@@ -76,6 +79,7 @@ import {
 type LargeChargersCtx = SceneSlice<
   | 'M'
   | 'addScreenMessage'
+  | 'addRfidPad'
   | 'cabinetGlow'
   | 'cable'
   | 'carKit'
@@ -132,6 +136,7 @@ export function installLargeChargers(scn: LargeChargersCtx): void {
         );
         unit.position.set(r.chargerX, 0, r.chargerZ);
         g.add(unit);
+        scn.addRfidPad(unit, MCS_DISPENSER_RFID);
         const sc = MCS_DISPENSER_SCREEN;
         const screen: [number, number, number] = [r.chargerX + sc[0], sc[1], r.chargerZ + sc[2]];
         if (i === 0) {
@@ -188,6 +193,7 @@ export function installLargeChargers(scn: LargeChargersCtx): void {
         mats,
       );
       g.add(unit);
+      scn.addRfidPad(g, BUS_DISPENSER_RFID);
       const sc = BUS_DISPENSER_SCREEN;
       const screen: [number, number, number] = [sc[0], sc[1], sc[2]];
       scn.addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);
@@ -251,6 +257,8 @@ export function installLargeChargers(scn: LargeChargersCtx): void {
       );
       pole.position.z = columnZ;
       g.add(pole);
+      const pad = PANTOGRAPH_POLE_RFID;
+      scn.addRfidPad(g, [pad.x, pad.y, columnZ + pad.z]);
       const sc = PANTOGRAPH_POLE_SCREEN;
       const screen: [number, number, number] = [sc.x, sc.y, columnZ + sc.z];
       scn.addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);

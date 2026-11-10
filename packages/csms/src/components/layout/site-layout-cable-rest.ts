@@ -6,6 +6,7 @@
 // reach the ground it rests on it, the rest lying in a bow on the surface
 // under it. Pure: no three.js.
 
+import { relaxCableBends } from './site-layout-cable-relax';
 import { catenaryPoints, routeLength } from './site-layout-charger-cables';
 import {
   densify,
@@ -201,6 +202,16 @@ export function plugRoute(o: {
       : pts.map((p, i) =>
           i < o.from.length - 1 ? p : ([Math.min(hi, Math.max(lo, p[0])), p[1], p[2]] as Vec3),
         );
+  // Every join between the pieces relaxes into the cable's bend (no kink), the gland run
+  // and the way into the boot held, then the cable rests on the surface.
+  const relaxed = (pts: Vec3[], held?: { from: number; to: number }): Vec3[] =>
+    relaxCableBends(pts, {
+      minRadiusM: o.bendM,
+      fixed: (i) =>
+        i < o.from.length - 1 ||
+        i >= pts.length - 3 ||
+        (held != null && i >= held.from && i <= held.to),
+    });
   const rest = (pts: Vec3[]): Vec3[] =>
     keepInside(liftOntoSurface(densify(keepInside(pts)), o.surface, r));
   const carX = (o.car.minX + o.car.maxX) / 2;
@@ -221,7 +232,7 @@ export function plugRoute(o: {
   const corner: readonly [number, number] = o.nosePort
     ? [into[0], Math.min(into[2] - 0.15, o.car.minZ - 0.2)]
     : [sideX, o.car.minZ - 0.3];
-  const build = (bowM: number, flip = false): Vec3[] => {
+  const build = (bowM: number, flip = false, waves = 1): Vec3[] => {
     const path: Array<readonly [number, number]> = [touch];
     if (bowM > 0) {
       const len = Math.hypot(corner[0] - touch[0], corner[1] - touch[1]) || 1;
@@ -232,8 +243,16 @@ export function plugRoute(o: {
         nx = -nx;
         nz = -nz;
       }
-      for (const t of [0.2, 0.4, 0.5, 0.6, 0.8]) {
-        const k = Math.sin(Math.PI * t) * bowM;
+      // One bow, or `waves` bends one after the other along the chord.
+      const ts =
+        waves === 1
+          ? [0.2, 0.4, 0.5, 0.6, 0.8]
+          : Array.from({ length: 8 * waves - 1 }, (_, i) => (i + 1) / (8 * waves));
+      for (const t of ts) {
+        // S bends lie on one side only (smooth bumps), so a chord along the
+        // stall line keeps all its slack inside the stall.
+        const k =
+          waves === 1 ? Math.sin(Math.PI * t) * bowM : Math.sin(Math.PI * waves * t) ** 2 * bowM;
         path.push([
           touch[0] + (corner[0] - touch[0]) * t + nx * k,
           touch[1] + (corner[1] - touch[1]) * t + nz * k,
@@ -246,14 +265,19 @@ export function plugRoute(o: {
     const last = ground[ground.length - 1] ?? first;
     const drop = catenaryPoints(start, first, first[1], 14);
     const rise = catenaryPoints(into, last, last[1], 14).reverse();
-    return [
-      ...o.from.slice(0, -1),
-      ...drop,
-      ...ground.slice(1),
-      ...rise.slice(1),
-      o.plug.lead,
-      o.plug.end,
-    ];
+    // The run lying on the ground keeps its bow (it carries the slack); the spans in the air relax.
+    const groundFrom = o.from.length - 1 + drop.length;
+    return relaxed(
+      [
+        ...o.from.slice(0, -1),
+        ...drop,
+        ...ground.slice(1),
+        ...rise.slice(1),
+        o.plug.lead,
+        o.plug.end,
+      ],
+      { from: groundFrom, to: groundFrom + ground.length - 2 },
+    );
   };
   // A fixed cable first spans straight from its anchor toward the port and
   // lets the rest down onto the ground between them, bowed away from the car;
@@ -297,11 +321,38 @@ export function plugRoute(o: {
   const chord = Math.hypot(corner[0] - touch[0], corner[1] - touch[1]);
   const bowed = (flip: boolean): Vec3[] =>
     build(
-      solveIncreasing((x) => routeLength(build(x, flip)), 0, Math.max(0.5, chord), length),
+      solveIncreasing((x) => routeLength(build(x, flip)), 0, Math.max(1, chord), length),
       flip,
     );
+  // A bow whose depth could not take the whole length (a short chord) is no fit.
+  const full = (pts: Vec3[]): boolean => Math.abs(routeLength(pts) - length) <= 0.01 * length;
   const first = bowed(false);
-  if (o.bounds == null || inside(first)) return { points: rest(first), reaches: true };
+  if (o.bounds == null || (inside(first) && full(first))) {
+    return { points: rest(first), reaches: true };
+  }
   const second = bowed(true);
+  if (inside(second) && full(second)) return { points: rest(second), reaches: true };
+  // Neither bow stays in the stall with the whole length: the slack lies in
+  // bends one after the other inside it, as deep as the stall allows, clear
+  // of the car, measured as drawn (kept inside the stall, `rest`)
+  // (independent review 2026-11-10, M1: a bow clamped into the stall lost
+  // its slack).
+  const drawn = (x: number, flip: boolean, waves: number): Vec3[] => rest(build(x, flip, waves));
+  const clearOfCar = (pts: Vec3[]): boolean =>
+    pts.slice(0, -3).every((p) => o.blocked == null || !o.blocked(p));
+  for (const waves of [2, 3, 4, 5, 6]) {
+    for (const flip of [false, true]) {
+      let lo2 = 0;
+      let hi2 = Math.max(1, chord);
+      for (let k = 0; k < 24; k += 1) {
+        const mid = (lo2 + hi2) / 2;
+        if (clearOfCar(drawn(mid, flip, waves))) lo2 = mid;
+        else hi2 = mid;
+      }
+      if (routeLength(drawn(lo2, flip, waves)) < length) continue;
+      const depth = solveIncreasing((x) => routeLength(drawn(x, flip, waves)), 0, lo2, length);
+      return { points: drawn(depth, flip, waves), reaches: true };
+    }
+  }
   return { points: rest(inside(second) ? second : first), reaches: true };
 }

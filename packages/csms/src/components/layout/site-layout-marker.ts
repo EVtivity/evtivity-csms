@@ -12,8 +12,14 @@ import { AC_WALL_BOX } from './site-layout-model-wall-box';
 /** The gap between a charger model's top and its status marker. */
 export const MARKER_GAP_M = 0.25;
 
-/** The wall box bottom above the sidewalk (the scene's mounting height). */
-export const WALL_BOX_BOTTOM_M = 0.85;
+/**
+ * The wall box bottom above the sidewalk (the scene's mounting height,
+ * `AC_WALL_BOX.bottomM`): 0.68 m, under 27 in (0.686 m), so the box (125 mm
+ * deep, more than 4 in) meets the protrusion limit of the 2010 ADA Standards
+ * 307.2 over the sidewalk (owner decision 2026-11-10), as the facade
+ * panelboard does.
+ */
+export const WALL_BOX_BOTTOM_M = AC_WALL_BOX.bottomM;
 
 /** The split satellite's foot under its body. */
 const SATELLITE_FOOT_M = 0.1;

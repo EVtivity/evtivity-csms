@@ -48,6 +48,7 @@ import { paymentTerminalReconcileHandler } from './handlers/payment-terminal-rec
 import { paymentTerminalStatusHandler } from './handlers/payment-terminal-status.js';
 import { departureScheduleExpandHandler } from './handlers/departure-schedule-expand.js';
 import { departureCloseHandler } from './handlers/departure-close.js';
+import { csmsUpdateCheckHandler } from './handlers/csms-update-check.js';
 
 const log = createLogger('cron-worker');
 
@@ -98,6 +99,13 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   // Route-aware charging: departures from weekly schedules, and passed departures completed.
   ['departure-schedule-expand', departureScheduleExpandHandler],
   ['departure-close', departureCloseHandler],
+  // The daily read of the latest CSMS release (security review case 385).
+  [
+    'csms-update-check',
+    async (log) => {
+      await csmsUpdateCheckHandler(log);
+    },
+  ],
 ]);
 
 /** Redis key of the lock a cron job holds while it runs (ACL prefix `wkl:`). */

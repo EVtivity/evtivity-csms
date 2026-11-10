@@ -16,7 +16,10 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn().mockResolvedValue([]), put: vi.fn() } }));
 
-vi.mock('@/lib/auth', () => ({ useHasPermission: () => true }));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: () => true,
+  useHasCompanyWidePermission: () => true,
+}));
 
 vi.mock('@/components/EventSettingsLayout', () => ({
   EventSettingsLayout: (props: {

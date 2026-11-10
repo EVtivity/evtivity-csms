@@ -934,6 +934,13 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   l('/dashboard/station-status', 'dashboard:read', undefined, {
     counts: [{ path: '@sum:count', all: 3, a: 1 }],
   }),
+  l('/dashboard/security-events', 'securityEvents:read', undefined, {
+    counts: [
+      { path: 'total', all: 3, a: 1 },
+      { path: 'counts.critical', all: 3, a: 1 },
+      { path: 'stationTotal', all: 3, a: 1 },
+    ],
+  }),
   l('/dashboard/utilization', 'dashboard:read'),
   l('/dashboard/peak-usage', 'dashboard:read', undefined, {
     counts: [{ path: '@sum:count', all: 5, a: 2 }],
@@ -1934,6 +1941,16 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'SETTING_NOT_FOUND',
     {
       body: () => ({ eventType: 'session.Started', isEnabled: false }),
+    },
+  ),
+  c(
+    'PUT',
+    '/driver-event-settings/mandatory',
+    'notifications:write',
+    () => '/driver-event-settings/mandatory',
+    'SETTING_NOT_FOUND',
+    {
+      body: () => ({ eventType: 'session.Faulted', email: true }),
     },
   ),
   c(
@@ -4103,7 +4120,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'GET',
     '/stations/:id/security-events',
-    'stations:read',
+    'stations:read, securityEvents:read',
     (f) => `${st(f)}/security-events`,
     'STATION_NOT_FOUND',
     {
@@ -5095,6 +5112,11 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
     })),
   ),
   { method: 'GET', path: '/assistant/status', reason: 'AI availability flag, no site data' },
+  {
+    method: 'GET',
+    path: '/system/update-check',
+    reason: 'the latest released CSMS version, no site data',
+  },
   { method: 'GET', path: '/users/me/ai-usage', reason: "the caller's own AI usage" },
   ...(
     [
@@ -5147,6 +5169,7 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
   ...(
     [
       ['GET', '/drivers'],
+      ['GET', '/drivers/defaults'],
       ['GET', '/drivers/:id'],
       ['POST', '/drivers/:id/portal-invite'],
       ['PUT', '/drivers/:id/avatar'],
@@ -5255,6 +5278,7 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
       ['GET', '/ocpp-event-template'],
       ['GET', '/ocpp-event-settings'],
       ['GET', '/driver-event-settings'],
+      ['GET', '/driver-event-settings/channels'],
       ['GET', '/notification-templates'],
       ['POST', '/email-wrapper/preview'],
       ['POST', '/notification-templates/preview'],

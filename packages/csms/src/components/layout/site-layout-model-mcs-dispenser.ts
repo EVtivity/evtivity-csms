@@ -52,6 +52,9 @@ const FRONT_Z = MCS_DISPENSER.depthM / 2;
 export const MCS_DISPENSER_HOLSTER: Vec3 = [-0.2, 1.2, FRONT_Z];
 /** The screen center on the lane face. */
 export const MCS_DISPENSER_SCREEN: Vec3 = [0, MCS_DISPENSER.screen.yM, FRONT_Z + 0.012];
+
+/** Where the RFID pad mounts: under the emergency stop, 1.08 m up, inside the 15 to 48 in reach range (2010 ADA 308). */
+export const MCS_DISPENSER_RFID: Vec3 = [0.24, 1.08, FRONT_Z + 0.002];
 /** The logo plate on the back, facing -z. */
 export const MCS_DISPENSER_LOGO = { x: 0, y: 1.5, widthM: 0.5, heightM: 0.16 } as const;
 
@@ -96,10 +99,7 @@ export function createMcsDispenserKit(): DepotKit {
   p.add('light', frontProfileG(roundedRect(D.widthM * 0.6, 0.03, 0.015), 0.008), {
     at: [0, D.heightM - D.cornerM - 0.05, FRONT_Z + 0.006],
   });
-  // The RFID reader and the emergency stop with its yellow collar.
-  p.add('trim', frontProfileG(roundedRect(0.11, 0.11, 0.015), 0.012, 0.002), {
-    at: [0.24, D.screen.yM - 0.32, FRONT_Z + 0.006],
-  });
+  // The emergency stop with its yellow collar (the scene adds the RFID pad, `MCS_DISPENSER_RFID`).
   p.add('plate', cylG(0.045, 0.045, 0.008, 16), {
     at: [0.24, D.screen.yM - 0.5, FRONT_Z + 0.006],
     rot: [Math.PI / 2, 0, 0],

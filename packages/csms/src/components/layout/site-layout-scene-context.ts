@@ -3,6 +3,7 @@
 
 // The shared state and helpers of the 3D site scene, passed to each scene module.
 
+import type { EvsePlateMount } from './site-layout-model-evse-plate';
 import { type DepotLayout, type FreePlacement, type FreeSpotRect } from '@evtivity/lib/site-layout';
 import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 import * as THREE from 'three';
@@ -24,7 +25,8 @@ import {
 } from './site-layout-grid';
 import { type RaisedRect } from './site-layout-ground';
 import type { LinkKind } from './site-layout-links';
-import { type CableHangerSpec } from './site-layout-model-cable-hanger';
+import { type CableHookSpec } from './site-layout-model-cable-hook';
+import type { WallBoxRingReader } from './site-layout-model-wall-box';
 import type { ChargerKit, ChargerSlot } from './site-layout-model-charger-parts';
 import type { ModelKit } from './site-layout-model-kit';
 import { type RowCarport } from './site-layout-solar';
@@ -92,11 +94,40 @@ export interface SceneCtx {
     r: number,
     material: THREE.Material,
   ) => THREE.Mesh<THREE.ExtrudeGeometry, THREE.Material>;
-  cableHanger: (
-    spec: CableHangerSpec,
+  /**
+   * The number plate of EVSE `index` of a station (site-layout-scene-evse-plates.ts)
+   * and the material of its status light, which the EVSE's own port lights share.
+   */
+  addEvsePlate: (
+    g: THREE.Object3D,
+    s: SceneStation,
+    index: number,
+    mount: EvsePlateMount,
+  ) => { plate: THREE.Group; light: THREE.MeshStandardMaterial };
+  /**
+   * A port's own status light (a pedestal lens, a wall box ring) in the
+   * material of its EVSE's plate light (`addEvsePlate`), so it shows that
+   * EVSE's state and pulses and blinks with it; kept out of the station merge.
+   */
+  addEvsePortLight: (
+    g: THREE.Object3D,
+    light: THREE.MeshStandardMaterial,
+    geometry: THREE.BufferGeometry,
+    at: readonly [number, number, number],
+    tiltX?: number,
+  ) => THREE.Mesh;
+  /** A wall box port's ring reader: the tap pictogram in its status ring and the tap line under it. */
+  addRingReader: (g: THREE.Object3D, reader: WallBoxRingReader, dz?: number) => THREE.Group;
+  /** An RFID reader pad with its tap label (site-layout-scene-rfid.ts). */
+  addRfidPad: (
+    g: THREE.Object3D,
+    at: readonly [number, number, number],
+    o?: { windowM?: number; tiltX?: number; turnY?: number },
+  ) => THREE.Group;
+  cableHook: (
+    spec: CableHookSpec,
     at: readonly [number, number, number],
     turnY: number,
-    rubber: THREE.Material,
   ) => THREE.Group;
   cable: (
     points: Array<[number, number, number]>,
@@ -132,6 +163,7 @@ export interface SceneCtx {
     mount: Point3,
     facing: { x: number; z: number },
     plugged: boolean,
+    noseUp?: number,
   ) => CableEntry;
   theme: SceneTheme;
   layout: SceneLayout;
@@ -271,7 +303,16 @@ export interface SceneCtx {
   labelPoint: (stationId: string) => ScreenPoint | null;
   avatarPoint: (stationId: string) => ScreenPoint | null;
   virtualSignPoint: (stationId: string) => ScreenPoint | null;
+  evsePlatePoint: (stationId: string, index: number) => ScreenPoint | null;
   focusStation: (stationId: string) => void;
+  /** Makes a point the orbit center, easing in to frame `heightM` when given (`site-layout-camera-nav.ts`). */
+  focusAt: (point: THREE.Vector3, heightM: number | null) => void;
+  /** One frame of a camera move in progress; true while it runs. */
+  stepCameraEase: (nowMs: number) => boolean;
+  /** Ends a camera move in progress (wheel, drag or key input took over). */
+  cancelCameraEase: () => void;
+  /** The 3D point under a pointer position: the model there, else the ground. */
+  pointUnder: (e: { clientX: number; clientY: number }) => THREE.Vector3 | null;
   transformerLabelPoint: (id: string) => ScreenPoint | null;
   energyLabelPoint: (id: string) => ScreenPoint | null;
   linkLabelPoint: (id: string) => ScreenPoint | null;
@@ -284,6 +325,7 @@ export interface SceneCtx {
     moved: boolean;
   } | null;
   canvas: HTMLCanvasElement;
+  onDoubleClick: (e: MouseEvent) => void;
   onPointerDown: (e: PointerEvent) => void;
   onPointerLeave: () => void;
   onPointerMove: (e: PointerEvent) => void;

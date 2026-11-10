@@ -115,6 +115,10 @@ export function installMerge(scn: MergeCtx): void {
         if (material.blending === THREE.AdditiveBlending || o.userData['ring'] === true) return;
         // The charge flow tubes animate their own texture and draw over the cable.
         if (o.userData['chargeFlow'] === true) return;
+        // The EVSE plates stay pickable for their label, their lights animate.
+        if (o.userData['evsePlate'] === true) return;
+        // A port's own status light shares its EVSE's plate light, which animates.
+        if (o.userData['evseLight'] === true) return;
         // The rotation handle shows only in Edit Layout, where stations are not merged.
         if (o.userData['rotateHandle'] != null) return;
         const part = flatGeometry(o.geometry as THREE.BufferGeometry);

@@ -5,6 +5,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { db, operatorStationSql, toDate } from '@evtivity/database';
 import { maskStationCredentials } from '@evtivity/lib/secret-config';
 import { readStationSiteWindows } from './site-layout-replay.js';
+import { visibleActionCondition } from './ocpp-log-visibility.js';
 
 /** The most lines one read returns, and the default. */
 export const SITE_OCPP_MESSAGES_MAX = 200;
@@ -29,6 +30,8 @@ export interface SiteOcppMessagesQuery {
   stationId?: string | undefined;
   after?: Date | undefined;
   limit: number;
+  /** Actions the reader may not see (`hiddenOcppLogActions`). */
+  hiddenActions?: readonly string[] | undefined;
 }
 
 interface Row extends Record<string, unknown> {
@@ -62,6 +65,8 @@ export async function listSiteOcppMessages(
   ];
   if (query.stationId != null) stationConditions.push(sql`s.id = ${query.stationId}`);
   const after = query.after != null ? sql`AND l.created_at >= ${query.after}` : sql``;
+  const visible = visibleActionCondition(sql`l.action`, query.hiddenActions ?? []);
+  const visibleOnly = visible != null ? sql`AND ${visible}` : sql``;
 
   const stations = await db.execute<{ id: string; station_id: string }>(sql`
     SELECT s.id, s.station_id FROM charging_stations s
@@ -91,7 +96,7 @@ export async function listSiteOcppMessages(
       CROSS JOIN LATERAL (
         SELECT l.id, l.created_at
         FROM ocpp_message_logs l
-        WHERE l.station_id = w.station_id AND l.created_at >= w.since ${after}
+        WHERE l.station_id = w.station_id AND l.created_at >= w.since ${after} ${visibleOnly}
         ORDER BY l.created_at DESC, l.id DESC
         LIMIT ${query.limit}
       ) recent

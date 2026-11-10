@@ -58,6 +58,9 @@ function pgError(code: string): Error {
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
+  getDriverDefaults: vi.fn(() =>
+    Promise.resolve({ timezone: 'America/New_York', distanceUnit: 'miles', language: 'en' }),
+  ),
   db: {
     select: vi.fn(() => makeChain('select')),
     selectDistinct: vi.fn(() => makeChain('selectDistinct')),

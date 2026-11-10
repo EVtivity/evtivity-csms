@@ -54,6 +54,9 @@ vi.mock('../lib/site-access.js', async () =>
 );
 
 vi.mock('@evtivity/database', () => ({
+  isDriverRfidSelfServiceEnabled: vi.fn(() => Promise.resolve(true)),
+  clearDriverRfidSelfServiceCache: vi.fn(),
+  RFID_SELF_SERVICE_SETTING_KEY: 'portal.rfidSelfServiceEnabled',
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

@@ -13,8 +13,11 @@ import { DEFAULT_CURRENCY } from './currency.js';
 import {
   isDriverEventType,
   isRequiredDriverEventType,
+  isDriverPreferenceEventType,
   isSecurityTemplateEventType,
+  OTHER_SENSITIVE_EVENT_TYPES,
   SECURITY_TEMPLATE_EVENTS,
+  type DriverNotificationChannel,
 } from './notification-events.js';
 import { securityTemplateRenderProblem } from './security-template.js';
 import { formatDateTime, isValidTimezone } from './timezone.js';
@@ -118,15 +121,8 @@ export interface NotificationDispatchResult {
 // Event-type-scoped so a normal session receipt or station alert keeps its
 // full body (the operator needs the rendered text for debugging). Every
 // security template with an account link or a code (`SECURITY_TEMPLATE_EVENTS`)
-// is redacted, so a new one cannot be forgotten here; the list below adds the
+// is redacted, so a new one cannot be forgotten here; OTHER_SENSITIVE_EVENT_TYPES (notification-events) adds the
 // other events whose templates carry a link or code.
-const OTHER_SENSITIVE_EVENT_TYPES = [
-  'driver.Welcome',
-  'driver.PasswordChanged',
-  'operator.AccountVerification',
-  'operator.Welcome',
-] as const;
-
 export const SENSITIVE_EVENT_TYPES: ReadonlySet<string> = new Set([
   ...Object.entries(SECURITY_TEMPLATE_EVENTS)
     .filter(([, secrets]) => secrets.links.length > 0 || secrets.codes.length > 0)
@@ -292,6 +288,7 @@ let settingsCache: { settings: NotificationSettings; expiresAt: number } | null 
  */
 export function clearNotificationSettingsCache(): void {
   settingsCache = null;
+  driverEventSettingsCache = null;
   companyCache = null;
   systemTimezoneCache = null;
 }
@@ -956,7 +953,73 @@ export function logNotification(
   logger.info({ channel, recipient, subject }, body);
 }
 
-// --- Driver event on/off switch ---
+// --- Driver event on/off switch and mandatory channels ---
+
+/** The operator's settings of one driver event type (`driver_event_settings`). */
+export interface DriverEventSetting {
+  isEnabled: boolean;
+  /** Channels the operator made mandatory: sent whatever the driver chose. */
+  mandatory: Record<DriverNotificationChannel, boolean>;
+}
+
+let driverEventSettingsCache: {
+  settings: Map<string, DriverEventSetting>;
+  expiresAt: number;
+} | null = null;
+
+/** Drop the cached driver event settings (also part of `clearNotificationSettingsCache`). */
+export function clearDriverEventSettingsCache(): void {
+  driverEventSettingsCache = null;
+}
+
+/**
+ * Every stored driver event setting, cached 60 s per process (P6). Cleared with
+ * `clearNotificationSettingsCache`, which the `notification_settings` cache
+ * invalidation message runs in every process after an operator change.
+ */
+export async function getDriverEventSettings(
+  sql: postgres.Sql,
+): Promise<Map<string, DriverEventSetting>> {
+  if (driverEventSettingsCache != null && driverEventSettingsCache.expiresAt > Date.now()) {
+    return driverEventSettingsCache.settings;
+  }
+  const rows = await sql`
+    SELECT event_type, is_enabled, email_mandatory, sms_mandatory, push_mandatory
+    FROM driver_event_settings
+  `;
+  const settings = new Map<string, DriverEventSetting>();
+  for (const row of rows) {
+    settings.set(row.event_type as string, {
+      isEnabled: row.is_enabled !== false,
+      mandatory: {
+        email: row.email_mandatory === true,
+        sms: row.sms_mandatory === true,
+        push: row.push_mandatory === true,
+      },
+    });
+  }
+  driverEventSettingsCache = { settings, expiresAt: Date.now() + CACHE_TTL_MS };
+  return settings;
+}
+
+const NO_MANDATORY: Record<DriverNotificationChannel, boolean> = {
+  email: false,
+  sms: false,
+  push: false,
+};
+
+/**
+ * The channels an operator made mandatory for a driver event. Only driver
+ * preference events can be mandatory; any other type answers none (they are
+ * always sent anyway).
+ */
+export function mandatoryChannelsOf(
+  settings: Map<string, DriverEventSetting>,
+  eventType: string,
+): Record<DriverNotificationChannel, boolean> {
+  if (!isDriverPreferenceEventType(eventType)) return NO_MANDATORY;
+  return settings.get(eventType)?.mandatory ?? NO_MANDATORY;
+}
 
 // Operators turn a driver event type off on the Driver Events tab
 // (driver_event_settings). No row means on. Some driver events (guest receipts,
@@ -969,12 +1032,52 @@ export async function isDriverEventDisabled(
   eventType: string,
 ): Promise<boolean> {
   if (!isDriverEventType(eventType) || isRequiredDriverEventType(eventType)) return false;
-  const rows = await sql`
-    SELECT is_enabled FROM driver_event_settings
-    WHERE event_type = ${eventType}
-    LIMIT 1
-  `;
-  return rows[0] != null && rows[0].is_enabled === false;
+  const settings = await getDriverEventSettings(sql);
+  return settings.get(eventType)?.isEnabled === false;
+}
+
+/** Which driver notification channels the operator has set up. Push (Expo) needs no setup. */
+export function driverNotificationChannels(
+  settings: NotificationSettings,
+): Record<DriverNotificationChannel, boolean> {
+  return {
+    email: settings.smtp != null,
+    sms: settings.twilio != null || getNotificationTestSinkUrl() != null,
+    push: true,
+  };
+}
+
+/** A driver's stored choices of one event, `{ channel: enabled }`, as the database returns them. */
+function readEventChoices(value: unknown): Partial<Record<DriverNotificationChannel, boolean>> {
+  const choices: Partial<Record<DriverNotificationChannel, boolean>> = {};
+  if (value == null || typeof value !== 'object') return choices;
+  for (const [channel, enabled] of Object.entries(value as Record<string, unknown>)) {
+    if (
+      (channel === 'email' || channel === 'sms' || channel === 'push') &&
+      typeof enabled === 'boolean'
+    ) {
+      choices[channel] = enabled;
+    }
+  }
+  return choices;
+}
+
+/**
+ * The channels a driver event goes out on for one driver (discussion 56). An event
+ * that is no driver choice (required, security template, a link or code) goes on
+ * every channel. Otherwise a mandatory channel always goes; else the driver's choice
+ * for this event, else the driver's channel switch, else on.
+ */
+export function resolveDriverChannels(
+  eventType: string,
+  channelSwitches: Partial<Record<DriverNotificationChannel, boolean>> | undefined,
+  eventChoices: Partial<Record<DriverNotificationChannel, boolean>>,
+  mandatory: Record<DriverNotificationChannel, boolean>,
+): Record<DriverNotificationChannel, boolean> {
+  if (!isDriverPreferenceEventType(eventType)) return { email: true, sms: true, push: true };
+  const one = (channel: DriverNotificationChannel): boolean =>
+    mandatory[channel] || (eventChoices[channel] ?? channelSwitches?.[channel] ?? true);
+  return { email: one('email'), sms: one('sms'), push: one('push') };
 }
 
 // --- Driver notification dispatch ---
@@ -1025,15 +1128,25 @@ export async function dispatchDriverNotification(
     // Driver row, notification preferences, company settings, and SMTP/Twilio
     // settings are independent — fan them out so dispatch latency is bounded
     // by the slowest single query instead of the sum.
-    const [driverRows, prefRows, company, notificationSettings] = await Promise.all([
+    // The channel switches and this event's choices come in one row: the
+    // switches are null for a driver who never saved preferences.
+    const [driverRows, prefRows, eventSettings, company, notificationSettings] = await Promise.all([
       sql`
-        SELECT first_name, last_name, email, phone, language, timezone FROM drivers WHERE id = ${driverId}
-      `,
+          SELECT first_name, last_name, email, phone, language, timezone FROM drivers WHERE id = ${driverId}
+        `,
       sql`
-        SELECT email_enabled, sms_enabled, push_enabled
-        FROM driver_notification_preferences
-        WHERE driver_id = ${driverId}
-      `,
+          SELECT p.email_enabled, p.sms_enabled, p.push_enabled,
+            (SELECT coalesce(json_object_agg(e.channel, e.enabled), '{}'::json)
+               FROM driver_notification_event_preferences e
+               WHERE e.driver_id = ${driverId} AND e.event_type = ${eventType}) AS event_choices
+          FROM (SELECT 1) AS one
+          LEFT JOIN driver_notification_preferences p ON p.driver_id = ${driverId}
+        `,
+      // Only a driver choice can be mandatory; the switch check above already
+      // loaded the cached settings for it.
+      isDriverPreferenceEventType(eventType)
+        ? getDriverEventSettings(sql)
+        : Promise.resolve(new Map<string, DriverEventSetting>()),
       getCompanySettings(sql),
       getNotificationSettings(sql),
     ]);
@@ -1064,13 +1177,27 @@ export async function dispatchDriverNotification(
       language,
     );
 
-    // A required event type (password reset, MFA code, verification, portal invite)
-    // reaches the driver on every channel they have, whatever their preferences say.
-    const prefs = isRequiredDriverEventType(eventType) ? undefined : prefRows[0];
-    const emailEnabled = prefs != null ? (prefs.email_enabled as boolean) : true;
-    const smsEnabled =
-      options?.sms !== false && (prefs != null ? (prefs.sms_enabled as boolean) : true);
-    const pushEnabled = prefs != null ? (prefs.push_enabled as boolean) : true;
+    // An event that is no driver choice (password reset, MFA code, verification,
+    // portal invite, security notices) reaches the driver on every channel they
+    // have. Otherwise a mandatory channel always goes, then the driver's choice
+    // for this event, then their channel switch (discussion 56).
+    const prefs = prefRows[0];
+    const eventChoices = readEventChoices(prefs?.event_choices);
+    const channelsOn = resolveDriverChannels(
+      eventType,
+      prefs?.email_enabled != null
+        ? {
+            email: prefs.email_enabled as boolean,
+            sms: prefs.sms_enabled as boolean,
+            push: prefs.push_enabled as boolean,
+          }
+        : undefined,
+      eventChoices,
+      mandatoryChannelsOf(eventSettings, eventType),
+    );
+    const emailEnabled = channelsOn.email;
+    const smsEnabled = options?.sms !== false && channelsOn.sms;
+    const pushEnabled = channelsOn.push;
 
     // Email path. Records a row for every attempt the dispatcher could have
     // made -- including the "skipped because no address on file" and

@@ -890,16 +890,19 @@ const HARBOR_SETTINGS_TIE_IN: DemoLayoutSettings = {
  *     is 752 A at 480 V, and 125 percent of it (940 A) is past the 800 A a
  *     4000 A bus with a 4000 A main takes load-side under the 120 percent
  *     rule of 705.12(B)(3)(2) (derived).
- *   - Solar canopy over the 6 stalls of the front row at 2.93 kWp a stall (the
+ *   - Solar canopy over the 12 stalls of the front row at 2.93 kWp a stall (the
  *     mean of the Six Flags Magic Mountain 2.87, MSU 2.70 (13,490 kWp,
  *     Inovateus, over 5,000 spaces, MSU Today, March 2018) and Disneyland Paris
- *     3.22 kWp a space carports, derived): 17.6, so 18 kWp (180 before, 30 kWp
- *     a stall), with a 15 kW inverter at a 1.2 DC to AC ratio (PVWatts API v8
- *     default; LBNL Tracking the Sun 2024, 1.23 to 1.25), derived 18 / 1.2.
- *     Load-side on the main switchboard: 15 kW is 18 A at 480 V, 23 A at 125
- *     percent, within the 800 A (derived).
+ *     3.22 kWp a space carports, derived): 35.2, so 35 kWp (18 over the 6
+ *     stalls before the DC pairs, 180 before that), with a 29 kW inverter at a
+ *     1.2 DC to AC ratio (PVWatts API v8 default; LBNL Tracking the Sun 2024,
+ *     1.23 to 1.25), derived 35 / 1.2. Load-side on the main switchboard: 29
+ *     kW is 35 A at 480 V, 44 A at 125 percent, within the 800 A (derived).
+ *   - Twelve spots a row (six before): every ABB Terra 184 dual outlet stands
+ *     on the line between two spots and serves both (`sharesSpotPair`, owner
+ *     decision 2026-11-09), six on the front edge row and five on the back.
  */
-const HARBOR_SETTINGS: DemoLayoutSettings = {
+const HARBOR_SETTINGS_SIX_SPOTS: DemoLayoutSettings = {
   ...HARBOR_SETTINGS_MIDDLE_CARPORT,
   transformers: [
     {
@@ -942,7 +945,23 @@ const HARBOR_SETTINGS: DemoLayoutSettings = {
     },
   ],
 };
+const HARBOR_SETTINGS: DemoLayoutSettings = {
+  ...HARBOR_SETTINGS_SIX_SPOTS,
+  spotsPerRow: 12,
+  energyAssets: (HARBOR_SETTINGS_SIX_SPOTS.energyAssets ?? []).map((a) =>
+    a.id === 'pv-1' && a.electrical != null
+      ? {
+          ...a,
+          capacityKwp: 35,
+          electrical: { ...a.electrical, inverterKw: 29, ratingBefore: [180, 18] },
+        }
+      : a,
+  ),
+};
 const LAKESIDE = 'sit_demolayout02';
+
+/** The ports (EVSEs) of Lakeside Retail Park's two-port wall box, CS-3019. */
+export const LAKESIDE_WALL_PAIR_PORTS = 2;
 const RIVERSIDE = 'sit_demolayout03';
 const MAPLE = 'sit_demolayout04';
 const WILLOW = 'sit_demolayout05';
@@ -952,12 +971,12 @@ const PATROON = 'sit_demolayout07';
 /**
  * Patroon Creek Charging Plaza: a parking lot of 4 rows of 8 spots with the
  * chargers on islands (rows 1 and 2 back to back on one island), its
- * transformer on the grass left of the first row. Four DC fast chargers take
- * the spots nearest the transformer (`groupedSpotOrder`), and eight dual-port
- * Level 2 pedestals the far end, each standing on the line between two spots
- * and serving both (`sharesSpotPair`, ChargePoint CPF50 Site Design Guide:
- * "two stations back to back centered on four spaces"), in the slots the
- * placement gives them after the DC group (`freeSlotsFor`).
+ * transformer on the grass left of the first row. Four dual-outlet DC fast
+ * chargers take the eight spots of the first row next to the transformer,
+ * two each, and eight dual-port
+ * Level 2 pedestals the far rows (`freeSlotsFor`), each standing on the line
+ * between two spots and serving both (`sharesSpotPair`, ChargePoint CPF50 Site Design
+ * Guide: "two stations back to back centered on four spaces").
  */
 const PATROON_SETTINGS: DemoLayoutSettings = {
   siteType: 'parking_lot',
@@ -997,20 +1016,34 @@ export const PATROON_DC_FOUR_CABLES: readonly number[] = [50, 51];
 const PATROON_AC: readonly number[] = [54, 55, 56, 57, 58, 59, 60, 61];
 /** The ports (EVSEs) of each Patroon Creek Level 2 pedestal. */
 export const PATROON_AC_PORTS = 2;
-const PATROON_DC_SPOTS: readonly LayoutBay[] = groupedSpotOrder(PATROON_SETTINGS, 'dc').slice(
-  0,
-  PATROON_DC.length,
-);
+/**
+ * The DC dispensers on the line between two spots each, serving both
+ * (`sharesSpotPair`, owner decision 2026-11-09): the whole first row, next to
+ * the transformer, so the island of rows 1 and 2 holds only the AC group and
+ * its panelboards stand at its row end nearest the pad.
+ */
+const PATROON_DC_SPOTS: readonly LayoutBay[] = [0, 2, 4, 6].map((col) => ({ col, row: 0 }));
+/**
+ * The dual-port pedestals from the far end (`freeSlotsFor`): the last row,
+ * three pairs of the third and one at the far end of the second, whose
+ * neighbor spot is the access aisle of the accessible charging space.
+ */
 const PATROON_AC_SPOTS: readonly LayoutBay[] = freeSlotsFor(
   PATROON_AC.map(() => ({ charging: 'ac' as const, depot: null, ports: PATROON_AC_PORTS })),
-  PATROON_DC_SPOTS.map((b) => ({ ...bayToPosition(b), charging: 'dc' as const })),
+  PATROON_DC_SPOTS.map((b) => ({ ...bayToPosition(b), charging: 'dc' as const, pair: true })),
   PATROON_SETTINGS,
 ).map(positionToBay);
-/** Where the plan before the dual-port pedestals stood the single-port ones (one spot each). */
-const PATROON_AC_SPOTS_SINGLE: readonly LayoutBay[] = groupedSpotOrder(
+/** Where the plan before the DC pairs stood the DC dispensers: one spot each, nearest the transformer. */
+const PATROON_DC_SPOTS_SINGLE: readonly LayoutBay[] = groupedSpotOrder(
   PATROON_SETTINGS,
-  'ac',
-).slice(0, PATROON_AC.length);
+  'dc',
+).slice(0, PATROON_DC.length);
+/** Where the plan before the DC pairs stood the dual-port pedestals: after the single-spot DC group. */
+const PATROON_AC_SPOTS_BEFORE_DC_PAIRS: readonly LayoutBay[] = freeSlotsFor(
+  PATROON_AC.map(() => ({ charging: 'ac' as const, depot: null, ports: PATROON_AC_PORTS })),
+  PATROON_DC_SPOTS_SINGLE.map((b) => ({ ...bayToPosition(b), charging: 'dc' as const })),
+  PATROON_SETTINGS,
+).map(positionToBay);
 
 /**
  * A demo card reader: simulated device `sim_term_<seq>` (its serial number
@@ -1235,21 +1268,21 @@ export const LAYOUT_DEMO: {
       ],
       stations: [
         dc(1, 0, 0, 'cir_demolayout01'),
-        dc(2, 1, 0, 'cir_demolayout01', { cellular: true }),
-        dc(3, 2, 0, 'cir_demolayout01'),
-        dc(4, 3, 0, 'cir_demolayout01', { maintenance: true }),
-        dc(5, 4, 0, 'cir_demolayout01'),
-        dc(6, 5, 0, 'cir_demolayout01'),
-        dc(13, 1, 2, 'cir_demolayout02', {
+        dc(2, 2, 0, 'cir_demolayout01', { cellular: true }),
+        dc(3, 4, 0, 'cir_demolayout01'),
+        dc(4, 6, 0, 'cir_demolayout01', { maintenance: true }),
+        dc(5, 8, 0, 'cir_demolayout01'),
+        dc(6, 10, 0, 'cir_demolayout01'),
+        dc(13, 2, 2, 'cir_demolayout02', {
           movedFrom: { siteId: LAKESIDE, circuitId: 'cir_demolayout03' },
         }),
-        dc(14, 2, 2, 'cir_demolayout02', {
+        dc(14, 4, 2, 'cir_demolayout02', {
           movedFrom: { siteId: LAKESIDE, circuitId: 'cir_demolayout03' },
         }),
-        dc(15, 3, 2, 'cir_demolayout02', {
+        dc(15, 6, 2, 'cir_demolayout02', {
           movedFrom: { siteId: LAKESIDE, circuitId: 'cir_demolayout03' },
         }),
-        dc(16, 4, 2, 'cir_demolayout02', {
+        dc(16, 8, 2, 'cir_demolayout02', {
           movedFrom: { siteId: LAKESIDE, circuitId: 'cir_demolayout03' },
         }),
         dc(21, 0, 2, 'cir_demolayout02', { offline: true, faulted: true }),
@@ -1335,8 +1368,16 @@ export const LAYOUT_DEMO: {
         }),
         ac(17, 6, 0, 'cir_demolayout04'),
         ac(18, 7, 0, 'cir_demolayout04'),
-        ac(19, 8, 0, 'cir_demolayout04'),
-        ac(20, 9, 0, 'cir_demolayout04'),
+        // A two-port wall box on the line between spots 8 and 9, one car per
+        // port (owner decision 2026-11-10), so the demo shows a two-port wall
+        // pair: one station with two EVSEs on its one 2-pole 40 A circuit with
+        // power sharing, 32 A continuous shared by both ports (ChargePoint
+        // CT4000 data sheet, dual port "Standard Power Share": "One 40 A
+        // branch circuit"; the family's dual-port wall mounts CT4023 and
+        // CT4027), so panel LP-2 keeps its loading. The box after it moves
+        // from spot 9 to spot 10, keeping the run continuous.
+        ac(19, 8, 0, 'cir_demolayout04', { evses: LAKESIDE_WALL_PAIR_PORTS }),
+        ac(20, 10, 0, 'cir_demolayout04', { before: { col: 9, row: 0 } }),
       ],
     },
     {
@@ -1669,20 +1710,18 @@ export const LAYOUT_DEMO: {
       stations: [
         ...PATROON_DC.map((n, i) => {
           const spot = PATROON_DC_SPOTS[i] ?? { col: 0, row: 0 };
-          return dc(
-            n,
-            spot.col,
-            spot.row,
-            evseCircuitId(n),
-            PATROON_DC_FOUR_CABLES.includes(n) ? { extraConnectorTypes: ['CHAdeMO'] } : {},
-          );
+          const single = PATROON_DC_SPOTS_SINGLE[i] ?? spot;
+          return dc(n, spot.col, spot.row, evseCircuitId(n), {
+            ...(PATROON_DC_FOUR_CABLES.includes(n) ? { extraConnectorTypes: ['CHAdeMO'] } : {}),
+            before: { col: single.col, row: single.row },
+          });
         }),
         ...PATROON_AC.map((n, i) => {
           const spot = PATROON_AC_SPOTS[i] ?? { col: 0, row: 0 };
-          const single = PATROON_AC_SPOTS_SINGLE[i] ?? spot;
+          const earlier = PATROON_AC_SPOTS_BEFORE_DC_PAIRS[i] ?? spot;
           return ac(n, spot.col, spot.row, evseCircuitId(n), {
             evses: PATROON_AC_PORTS,
-            before: { col: single.col, row: single.row },
+            before: { col: earlier.col, row: earlier.row },
           });
         }),
       ],
@@ -1971,6 +2010,8 @@ export const LAYOUT_DEMO_PREVIOUS_SETTINGS: Readonly<Record<string, DemoLayoutSe
     HARBOR_SETTINGS_FAR_EQUIPMENT,
     // The pad at the lot edge with the 750 kVA solar carport tie-in transformer.
     HARBOR_SETTINGS_TIE_IN,
+    // Six spots a row, each DC dispenser in one spot, before the DC pairs.
+    HARBOR_SETTINGS_SIX_SPOTS,
   ],
   // The transformer 5 m out, before it moved to the lot edge.
   [PATROON]: [PATROON_SETTINGS_FAR_TRANSFORMER],

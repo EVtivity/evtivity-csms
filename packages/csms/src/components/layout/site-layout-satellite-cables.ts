@@ -1,16 +1,28 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// The holstered cables of a DC split system satellite, without three.js. Each
-// cable leaves its gland (the front holster's low on the side wall, a second
-// holster's on the back face), loops over the cable hanger peg of its side
-// wall and rises into the boot of its handle in the holster. One peg per side carries every cable of that side, side by side
-// along the peg, the turns hanging parallel to the wall, so a second holster
-// on one side gets its own place on the same peg. Frame: the satellite's
-// own, origin at its footprint center on the ground, the front +z.
+// The holstered cables of a DC split system satellite, without three.js. A
+// satellite carries at most two cables, one on each side
+// (`CHARGER_PORT_LIMITS.dc.satelliteConnectors`). Each cable leaves its gland
+// low on its side wall, loops over the J hook of that wall, the turns hanging
+// parallel to the wall, and rises into the boot of its handle in the
+// holster. Frame: the satellite's own, origin at its footprint center on the
+// ground, the front +z.
 
-import { COIL_GROUND_CLEARANCE_M, DC_CABLE_M, routeLength } from './site-layout-charger-cables';
-import { coilBottomRadius, coilCable, type CoilPlace } from './site-layout-cable-coil';
+import { tightestBend } from './site-layout-cable-relax';
+import {
+  COIL_GROUND_CLEARANCE_M,
+  DC_CABLE_M,
+  hookCoilPlace,
+  routeLength,
+} from './site-layout-charger-cables';
+import {
+  cableSelfClearance,
+  coilBottomRadius,
+  SELF_CLEARANCE_MIN_RATIO,
+  coilCable,
+  type CoilPlace,
+} from './site-layout-cable-coil';
 import { SURFACE_M, type SurfaceAt } from './site-layout-cable-surface';
 import {
   CONNECTOR_SPECS,
@@ -19,7 +31,12 @@ import {
   type ConnectorKind,
 } from './site-layout-connectors';
 import { cableOutOfGland } from './site-layout-model-cable-gland';
-import { cableHangerSpec, type CableHangerSpec } from './site-layout-model-cable-hanger';
+import {
+  CABLE_HOOK,
+  cableHookSpec,
+  turnsWidth,
+  type CableHookSpec,
+} from './site-layout-model-cable-hook';
 import type { Vec3 } from './site-layout-model-kit';
 import { SPLIT_SATELLITE } from './site-layout-model-split-satellite';
 
@@ -27,13 +44,17 @@ import { SPLIT_SATELLITE } from './site-layout-model-split-satellite';
 export const SATELLITE_SIDE_X = SPLIT_SATELLITE.widthM / 2;
 
 /**
- * The hanger peg of a side wall. Saddle top 1.0 m: under the handles (their
+ * The J hook of a side wall. Rod top 1.0 m: under the handles (their
  * lowest point, the boot, stands at 0.94 m and more) and inside the 0.38 to
- * 1.22 m reach range of the 2010 ADA Standards 308.2 and 308.3. Its plate
- * stands 0.06 m behind the wall's middle, clear of the holster rail in front
- * of it. Turns a cable may take on the peg: up to 2. Derived.
+ * 1.22 m reach range of the 2010 ADA Standards 308.2 and 308.3. Its rose
+ * stands 0.03 m behind the wall's middle, clear of the holster rail in front
+ * of it. Turns a cable may take on the peg: up to 2. Derived: the hook depth,
+ * with the front gland's place, by a search over hook depth and gland height
+ * and depth for the layout where every connector's idle cable keeps its
+ * length, bends no tighter than 1.9 diameters and never passes through
+ * itself (owner decision 2026-11-10, layout review H1).
  */
-export const SATELLITE_HANGER = { topM: 1.0, zM: -0.06, turnsPerCable: 2 } as const;
+export const SATELLITE_HANGER = { topM: 1.0, zM: -0.03, turnsPerCable: 2 } as const;
 
 /** The front gland's height on the side wall: low, so its cable rises to the saddle. */
 const GLAND_Y_M = 0.45;
@@ -52,19 +73,15 @@ export function satelliteHolster(side: -1 | 1, backM: number): Vec3 {
 }
 
 /**
- * The gland of the cable in place `slot` of its side. The front holster's
- * cable (slot 0): low on the side wall 0.03 m behind the front edge (0.45 m),
- * in front of the peg plate and under the holster rail. The cable of a second holster on that side (slot 1): on the back face
- * 0.09 m out from the center line, over the logo area and under the cap
- * (1.33 m), so its run comes down behind the satellite, clear of the front
- * cable's runs. Both come up the front of the peg. The layout was found by a
- * search over peg depth and height and gland places for the one where every
- * cable of every connector type keeps its clearances (the tests). Derived.
+ * The gland of the cable of side `side`: low on the side wall in the wall's
+ * middle (0.45 m up), under the holster rail and the hook, where the cable's
+ * U from it stays beside its own turns (`SATELLITE_HANGER`). The cable comes
+ * up the front of the peg. The layout was found by a search over peg depth
+ * and height and gland places for the one where every cable of every
+ * connector type keeps its clearances (the tests). Derived.
  */
-export function satelliteGland(side: -1 | 1, slot: number): { at: Vec3; axis: Vec3 } {
-  return slot === 0
-    ? { at: [side * SATELLITE_SIDE_X, GLAND_Y_M, 0.12], axis: [side, 0, 0] }
-    : { at: [side * 0.09, 1.33, -SPLIT_SATELLITE.depthM / 2], axis: [0, 0, -1] };
+export function satelliteGland(side: -1 | 1): { at: Vec3; axis: Vec3 } {
+  return { at: [side * SATELLITE_SIDE_X, GLAND_Y_M, 0], axis: [side, 0, 0] };
 }
 
 /** Where the handle of a satellite holster's cable enters its boot. */
@@ -81,49 +98,34 @@ export function satelliteHolsterEntry(
 
 const diameter = (kind: ConnectorKind): number => CONNECTOR_SPECS[kind].cableDiameterM;
 
-/**
- * The peg of a side carrying `kinds` (its cables, front holster first): a
- * saddle six diameters of the thickest cable in radius, as wide as every
- * cable's turns side by side.
- */
-export function satelliteHangerSpec(kinds: readonly ConnectorKind[]): CableHangerSpec {
-  const thickest = Math.max(...kinds.map(diameter));
-  const base = cableHangerSpec(thickest, 0, 'out');
-  const turns = kinds.reduce((w, k) => w + SATELLITE_HANGER.turnsPerCable * diameter(k) * 1.15, 0);
-  return { ...base, widthM: turns + 0.04 };
+/** Room on the hook's throat past the turns, so they never touch the hook's tip. Derived. */
+const CABLE_GAP_M = 0.006;
+
+/** The J hook of a side carrying a cable of `kind`: a throat for its turns. */
+export function satelliteHookSpec(kind: ConnectorKind): CableHookSpec {
+  return cableHookSpec(turnsWidth(SATELLITE_HANGER.turnsPerCable, diameter(kind)) + CABLE_GAP_M);
 }
 
-/**
- * Where cable `slot` of a side loops: on its own stretch of the peg, each
- * turn further out along the peg.
- */
-export function satelliteCoilPlace(
-  side: -1 | 1,
-  kinds: readonly ConnectorKind[],
-  slot: number,
-): CoilPlace & { mount: Vec3 } {
-  const spec = satelliteHangerSpec(kinds);
-  const thickest = Math.max(...kinds.map(diameter));
-  const kind = kinds[slot] ?? kinds[0] ?? 'ccs1';
-  const d = diameter(kind);
-  const cy = SATELLITE_HANGER.topM - (spec.radiusM + 0.013 + thickest / 2);
-  // The back holster's cable nearest the wall, the front one outside it: each
-  // cable's last turn then leaves for its handle away from the other's turns.
-  const before = kinds
-    .slice(slot + 1)
-    .reduce((w, k) => w + SATELLITE_HANGER.turnsPerCable * diameter(k) * 1.15, 0);
-  return {
-    center: [
-      side * (SATELLITE_SIDE_X + spec.standoffM + 0.02 + before + d / 2),
-      cy,
-      SATELLITE_HANGER.zM,
-    ],
-    // Every cable comes up the front of the saddle and over to the back.
-    u: [0, 0, -1],
-    axis: [side, 0, 0],
-    r1: spec.radiusM + 0.013 + d / 2,
-    mount: [side * SATELLITE_SIDE_X, cy, SATELLITE_HANGER.zM],
-  };
+/** Where the cable of a side loops on its hook, each turn further out along the hook. */
+export function satelliteCoilPlace(side: -1 | 1, kind: ConnectorKind): CoilPlace & { mount: Vec3 } {
+  const mount: Vec3 = [
+    side * SATELLITE_SIDE_X,
+    SATELLITE_HANGER.topM - CABLE_HOOK.rodRadiusM,
+    SATELLITE_HANGER.zM,
+  ];
+  const place = hookCoilPlace({
+    mount,
+    out: [side, 0, 0],
+    // The cable comes over the hook from the front, its gland's side.
+    across: [0, 0, -1],
+    cableDiameterM: diameter(kind),
+    cable: 'dc',
+    offsetM: 0,
+    // The inside of the turn 5.5 cable diameters and 13 mm, wider than the 5 D
+    // minimum, to the cable's center half a diameter more. Derived.
+    topRadiusM: 5.5 * diameter(kind) + 0.013 + diameter(kind) / 2,
+  });
+  return { ...place, mount };
 }
 
 /** The ground under a satellite: its base plate, else the paving. */
@@ -135,29 +137,36 @@ export function satelliteSurface(x: number, z: number): number {
 }
 
 /**
- * The route of the cable in place `slot` of its side, `DC_CABLE_M` long (the
- * DC dispenser class median), to the holster `backM` behind the front one:
+ * The route of the cable of side `side`, `DC_CABLE_M` long (the DC dispenser
+ * class median), to the holster `backM` behind the front one:
  * out of its gland (bent down at six cable diameters), up the front of the
- * peg and over it in whole hanging turns clear of the ground by 0.1 m, then
+ * hook and over it in whole hanging turns clear of the ground by 0.1 m, then
  * up into the handle's boot along the boot axis.
  */
 export function satelliteHolsterCable(
   side: -1 | 1,
-  kinds: readonly ConnectorKind[],
-  slot: number,
+  kind: ConnectorKind,
   backM: number,
   surface: SurfaceAt = satelliteSurface,
 ): Vec3[] {
-  const kind = kinds[slot] ?? kinds[0] ?? 'ccs1';
   const d = diameter(kind);
-  const gland = satelliteGland(side, slot);
-  const out = cableOutOfGland(gland.at, gland.axis, d, [0, -1, 0]);
-  const place = satelliteCoilPlace(side, kinds, slot);
+  const gland = satelliteGland(side);
+  const place = satelliteCoilPlace(side, kind);
   const under = surface(place.center[0], place.center[2]);
   const floorY = under + d / 2 + COIL_GROUND_CLEARANCE_M;
-  const route = (bottomRadiusM: number): Vec3[] =>
+  const key = `${String(side)}|${kind}|${String(backM)}|${floorY.toFixed(4)}`;
+  const known = SATELLITE_IDLE_ROUTES.get(key);
+  if (known != null) return known;
+  // The gland bends down, the cable hanging in a U up to its hook, when its
+  // length allows that; a thicker cable, whose U takes more than its length,
+  // bends up to the hook.
+  const bends: Vec3[] = [
+    [0, -1, 0],
+    [0, 1, 0],
+  ];
+  const route = (bend: Vec3, bottomRadiusM: number, offAngleRad: number): Vec3[] =>
     coilCable({
-      entry: out,
+      entry: cableOutOfGland(gland.at, gland.axis, d, bend),
       place,
       cableDiameterM: d,
       handle: satelliteHolsterEntry(side, backM, kind),
@@ -165,16 +174,44 @@ export function satelliteHolsterCable(
       lengthM: DC_CABLE_M,
       preferTurns: [1, 2],
       bottomRadiusM,
+      entryHeading: bend,
+      offAngleRad,
     }).points;
   // A cable whose length falls between one and two whole turns hangs its
-  // turn open wider at the bottom (up to the saddle's radius), so it keeps
-  // its full length on the peg instead of a shorter loop.
+  // turn open wider at the bottom (up to 0.3 m), so it keeps its full length
+  // on the hook instead of a shorter loop.
   const fits = (points: Vec3[]): boolean => Math.abs(routeLength(points) - DC_CABLE_M) < 0.02;
-  const first = route(coilBottomRadius(d));
-  if (fits(first)) return first;
-  for (let r2 = coilBottomRadius(d) + 0.01; r2 <= place.r1; r2 += 0.01) {
-    const wider = route(r2);
-    if (fits(wider)) return wider;
+  // Of the routes that take its length, the first that bends no tighter than
+  // two diameters (a wider bottom on a short drop folds the legs) and never
+  // passes through itself (`SELF_CLEARANCE_MIN_RATIO` on the drawn points, owner decision
+  // 2026-11-10), else the one that comes closest.
+  const widest = 0.3;
+  const minBend = 2 * d;
+  let best: { score: number; points: Vec3[] } | null = null;
+  for (const bend of bends) {
+    for (let r2 = 0.12; r2 <= widest + 1e-9; r2 += 0.01) {
+      for (const phi of SATELLITE_OFF_ANGLES) {
+        const points = route(bend, r2, phi);
+        if (!fits(points)) continue;
+        const score = Math.min(
+          tightestBend(points, 4, points.length - 4) / minBend,
+          cableSelfClearance(points, d) / (SELF_CLEARANCE_MIN_RATIO * d),
+        );
+        if (score >= 1) {
+          SATELLITE_IDLE_ROUTES.set(key, points);
+          return points;
+        }
+        if (best == null || score > best.score) best = { score, points };
+      }
+    }
   }
-  return first;
+  const points = best?.points ?? route(bends[0] ?? [0, -1, 0], coilBottomRadius(d), 0);
+  SATELLITE_IDLE_ROUTES.set(key, points);
+  return points;
 }
+
+/** The idle satellite routes solved so far (the search is pure, its inputs few). */
+const SATELLITE_IDLE_ROUTES = new Map<string, Vec3[]>();
+
+/** Where the last turn may leave for the handle, before its entry side (radians, `coilCable`). */
+const SATELLITE_OFF_ANGLES = [0, 0.4, 0.8] as const;

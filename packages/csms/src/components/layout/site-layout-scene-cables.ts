@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// Cable tubes of the 3D site scene: idle cables, charging cables with their charge flow, cable hangers.
+// Cable tubes of the 3D site scene: idle cables, charging cables with their charge flow, cable hooks.
 
 import * as THREE from 'three';
 import {
@@ -13,39 +13,35 @@ import {
 } from './site-layout-cable';
 import { liftOntoSurface } from './site-layout-cable-surface';
 import { SCENE_COLORS } from './site-layout-colors';
-import { createCableHangerKit, type CableHangerSpec } from './site-layout-model-cable-hanger';
+import { createCableHookKit, type CableHookSpec } from './site-layout-model-cable-hook';
 
 import type { SceneSlice } from './site-layout-scene-context';
 import { tubeSegments } from './site-layout-scene-station-slots';
 
 type CablesCtx = SceneSlice<
   'M' | 'cableGround' | 'chargeFlowTextures' | 'modelKit' | 'modelOf' | 'shadowed' | 'track',
-  'cable' | 'cableHanger' | 'chargeContactGlow' | 'chargeFlowPath' | 'chargingCable'
+  'cable' | 'cableHook' | 'chargeContactGlow' | 'chargeFlowPath' | 'chargingCable'
 >;
 
 export function installCables(scn: CablesCtx): void {
-  // A cable hanger (site-layout-model-cable-hanger.ts) with its mounting face
-  // through `at`, turned `turnY` about y (0: the face is z = at.z, the hanger out along +z).
-  function cableHanger(
-    spec: CableHangerSpec,
+  // A J cable hook (site-layout-model-cable-hook.ts), its rod axis leaving
+  // the face at `at`, turned `turnY` about y (0: the face is z = at.z, the hook out along +z).
+  function cableHook(
+    spec: CableHookSpec,
     at: readonly [number, number, number],
     turnY: number,
-    rubber: THREE.Material,
   ): THREE.Group {
-    const kit = scn.modelKit(`cable-hanger:${JSON.stringify(spec)}`, () =>
-      createCableHangerKit(spec),
-    );
-    const g = scn.modelOf(kit, 'cable-hanger', {
-      // Powder coated steel, the gray of the charger metal parts.
-      body: scn.M(SCENE_COLORS.chargerMetal, { roughness: 0.55, metalness: 0.3 }),
+    const kit = scn.modelKit(`cable-hook:${JSON.stringify(spec)}`, () => createCableHookKit(spec));
+    const g = scn.modelOf(kit, 'cable-hook', {
+      // Powder coated steel, the dark gray of the charger trim.
+      body: scn.M(SCENE_COLORS.dark1, { roughness: 0.5, metalness: 0.3 }),
       metal: scn.M(SCENE_COLORS.chargerMetal, { roughness: 0.4, metalness: 0.7 }),
-      rubber,
     });
     g.position.set(...at);
     g.rotation.y = turnY;
     return g;
   }
-  scn.cableHanger = cableHanger;
+  scn.cableHook = cableHook;
   function cable(
     points: Array<[number, number, number]>,
     material: THREE.Material,

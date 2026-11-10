@@ -1019,7 +1019,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "Diese Abfahrt wird von einem Busdepot-System verwaltet; ändern Sie sie dort oder deaktivieren Sie das Depot-System.",
     "DEPOT_SYSTEM_NOT_FOUND": "Busdepot-System nicht gefunden.",
     "DEPOT_SYSTEM_ID_IN_USE": "Ein anderes Busdepot-System verwendet diese System-ID.",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Ein Busdepot-System bedient nur Depot-Standorte."
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Ein Busdepot-System bedient nur Depot-Standorte.",
+    "RFID_SELF_SERVICE_DISABLED": "Ihr Betreiber verwaltet Ihre RFID-Karten. Wenden Sie sich an den Betreiber, um eine Karte hinzuzufügen, zu ändern, zu deaktivieren oder zu entfernen.",
+    "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -1146,7 +1148,10 @@
     "labelPlaceholder": "Bezeichnung (optional), z. B. RFID-Firmenkarte",
     "labelHint": "Ein Name, an dem du deine Karten unterscheidest. Leer lassen, um die Kartennummer anzuzeigen.",
     "renameCard": "RFID-Karte umbenennen",
-    "renameFailed": "Die Karte konnte nicht umbenannt werden. Versuche es erneut."
+    "renameFailed": "Die Karte konnte nicht umbenannt werden. Versuche es erneut.",
+    "managedByOperator": "Ihr Betreiber verwaltet Ihre RFID-Karten. Um eine Karte hinzuzufügen, zu ändern oder zu entfernen oder eine verlorene Karte sperren zu lassen, wenden Sie sich an den Betreiber.",
+    "noCardsAssigned": "Ihnen sind keine RFID-Karten zugewiesen.",
+    "contactSupport": "Support Kontaktieren"
   },
   "vehicles": {
     "addVehicle": "Fahrzeug hinzufügen",
@@ -1532,5 +1537,91 @@
   "storageUnavailable": {
     "title": "Hochladen nicht verfügbar",
     "description": "Dateien können gerade nicht hochgeladen werden. Bitte versuche es später erneut oder wende dich an den Support, wenn das Problem weiter besteht."
+  },
+  "notificationPrefs": {
+    "intro": "Wähle, welche Benachrichtigungen du auf welchem Kanal erhältst.",
+    "notification": "Benachrichtigung",
+    "allNotifications": "Alle Benachrichtigungen",
+    "allChannelLabel": "Alle Benachrichtigungen per {{channel}}",
+    "eventChannelLabel": "{{event}} per {{channel}}",
+    "channels": {
+      "email": "E-Mail",
+      "sms": "SMS",
+      "push": "Push"
+    },
+    "required": "Von deinem Betreiber vorgeschrieben",
+    "requiredNote": "Dein Betreiber schreibt die mit einem Schloss markierten Benachrichtigungen vor. Sie werden auf diesem Kanal immer gesendet.",
+    "alwaysSentNote": "Konto- und Sicherheitsnachrichten wie das Zurücksetzen des Passworts und Anmeldecodes werden immer gesendet.",
+    "noChannels": "Dein Betreiber hat noch keine Benachrichtigungen per E-Mail oder SMS eingerichtet.",
+    "groups": {
+      "sessions": "Ladevorgänge",
+      "payments": "Zahlungen",
+      "reservations": "Reservierungen",
+      "invoices": "Rechnungen",
+      "supportCases": "Supportfälle",
+      "rfidCards": "RFID-Karten",
+      "maintenance": "Wartung",
+      "stationWatch": "Stationsbeobachtung",
+      "prepaidBalance": "Prepaid-Guthaben",
+      "fleetBilling": "Flottenabrechnung"
+    },
+    "events": {
+      "session": {
+        "Started": "Laden gestartet",
+        "Updated": "Ladefortschritt",
+        "Completed": "Laden abgeschlossen",
+        "Faulted": "Laden durch eine Störung beendet",
+        "PaymentReceived": "Zahlung für den Ladevorgang erhalten",
+        "IdlingStarted": "Standgebühr begonnen",
+        "Receipt": "Beleg für den Ladevorgang"
+      },
+      "payment": {
+        "Complete": "Zahlung abgeschlossen",
+        "Refunded": "Zahlung erstattet",
+        "FeeRefunded": "Reservierungsgebühr erstattet",
+        "PreAuthFailed": "Zahlungsautorisierung fehlgeschlagen",
+        "CaptureFailed": "Zahlung fehlgeschlagen",
+        "MissingPaymentMethod": "Keine Zahlungsmethode hinterlegt",
+        "AccountCreditLimit": "Kreditlimit der Flotte erreicht"
+      },
+      "reservation": {
+        "Created": "Reservierung bestätigt",
+        "Cancelled": "Reservierung storniert",
+        "CancelledForMaintenance": "Reservierung wegen Wartung storniert",
+        "Expiring": "Reservierung endet bald",
+        "Expired": "Reservierung abgelaufen",
+        "StationFaulted": "Reservierte Station außer Betrieb",
+        "TakenByOther": "Reservierter Ladepunkt von jemand anderem belegt"
+      },
+      "invoice": {
+        "Sent": "Rechnung gesendet",
+        "CreditNote": "Gutschrift ausgestellt"
+      },
+      "supportCase": {
+        "Created": "Supportfall erstellt",
+        "OperatorReply": "Antwort auf deinen Supportfall",
+        "Resolved": "Supportfall gelöst",
+        "AiAnswered": "Automatische Antwort auf deinen Supportfall"
+      },
+      "token": {
+        "Added": "RFID-Karte hinzugefügt",
+        "Removed": "RFID-Karte entfernt",
+        "Deactivated": "RFID-Karte deaktiviert",
+        "Reactivated": "RFID-Karte reaktiviert"
+      },
+      "maintenance": {
+        "SessionStopped": "Laden wegen Wartung beendet"
+      },
+      "watch": {
+        "StationAvailable": "Beobachtete Station verfügbar"
+      },
+      "prepaid": {
+        "LowCredit": "Prepaid-Guthaben niedrig",
+        "CreditExhausted": "Prepaid-Guthaben aufgebraucht"
+      },
+      "fleet": {
+        "AccountBillingChanged": "Flottenabrechnung geändert"
+      }
+    }
   }
 }

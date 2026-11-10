@@ -1864,7 +1864,7 @@ describe('Site routes - handler logic', () => {
 
     it('reads the station counts by depot kind for the layout defaults', async () => {
       // One truck station: the counts the depot defaults read (an AC station would count in neither).
-      const counts = { total: 1, bus: 0, truck: 1, spots: 1 };
+      const counts = { total: 1, bus: 0, truck: 1, spots: 1, rowSpots: 1 };
       mockReadStationLayoutKinds.mockResolvedValueOnce(
         new Map([['sta_000000000003', { charging: 'dc', depot: 'truck' }]]),
       );

@@ -37,8 +37,8 @@ import {
  * 5.7 in display (4:3, 116 by 87 mm) on the head front, the cable kept off
  * the ground. No top sign (owner decision 2026-11-02). Derived from the
  * envelope: the head from 0.9 m to the 1.5 m top, the cast foot, the column
- * depth and the lens sizes. The cables loop over the shared cable hanger
- * (site-layout-model-cable-hanger.ts) on the column side, which the scene adds.
+ * depth and the lens sizes. The cables loop over the shared J cable hook
+ * (site-layout-model-cable-hook.ts) on the column side, which the scene adds.
  */
 export const AC_PEDESTAL = {
   post: { widthM: 0.233, depthM: 0.18 },
@@ -51,21 +51,39 @@ export const AC_PEDESTAL = {
   /** The status lens of each port. */
   lensY: 1.15,
   lensR: 0.04,
-  /** The x of each port's lens and gland on a dual-port head (a single port: 0). */
+  /** The x of each port's lens on a dual-port head (a single port: 0); its gland: `acGlandX`. */
   portX: 0.075,
   /** The glands' z under the head: 15 mm in front of the column, inside the head front. */
   glandZ: 0.105,
 } as const;
 
-/** The sides of the column with a cable hanger: one under each holster (one port: its holster's left). */
-export function acHangerSides(ports: 1 | 2): Array<-1 | 1> {
+/**
+ * Where each port's RFID pad mounts on the head front: under its status lens
+ * (a single port in the middle), its center 1.02 m up, inside the 15 to 48
+ * in reach range (2010 ADA Standards 308.2, 308.3). Derived.
+ */
+export function acRfidPads(ports: 1 | 2): Vec3[] {
+  const xs = ports === 2 ? [-AC_PEDESTAL.portX, AC_PEDESTAL.portX] : [0];
+  // On the face panel (its front 7 mm proud of the head front).
+  return xs.map((x) => [x, 1.02, AC_PEDESTAL.frontZ + 0.007] as const);
+}
+
+/** The sides of the column with a cable hook: one under each holster (one port: its holster's left). */
+export function acHookSides(ports: 1 | 2): Array<-1 | 1> {
   return ports === 2 ? [-1, 1] : [-1];
 }
 
-/** The x of the gland of the port whose holster is on `side`. */
+/**
+ * The x of the gland of the port whose holster is on `side`: under the head
+ * toward its middle (0.035 m out), so each cable hangs from its gland in a U
+ * of about its bend out to the hook on its side. Derived.
+ */
 export function acGlandX(ports: 1 | 2, side: -1 | 1): number {
-  return ports === 2 ? side * AC_PEDESTAL.portX : 0;
+  return ports === 2 ? side * AC_DUAL_GLAND_X_M : 0;
 }
+
+/** How far out from the middle a dual-port head's glands stand. */
+export const AC_DUAL_GLAND_X_M = 0.035;
 
 /** The charger slots a cable gland's parts go in. */
 const AC_GLAND_SLOTS = { nut: 'metal', dome: 'trim', relief: 'rubber' } as const;
@@ -73,6 +91,29 @@ const AC_GLAND_SLOTS = { nut: 'metal', dome: 'trim', relief: 'rubber' } as const
 /** The cable gland of the port at `x` under the head, pointing down. */
 export function acGland(x: number): { at: Vec3; axis: Vec3 } {
   return { at: [x, AC_PEDESTAL.head.bottomM, AC_PEDESTAL.glandZ], axis: [0, -1, 0] };
+}
+
+/** The center of the status lens of each port (EVSE order: left, right; one port in the middle). */
+export function acLensAt(ports: 1 | 2): Vec3[] {
+  const a = AC_PEDESTAL;
+  const xs = ports === 2 ? [-a.portX, a.portX] : [0];
+  return xs.map((x) => [x, a.lensY, a.frontZ + 0.006] as const);
+}
+
+/** A status lens dome, facing +z, centered on its own origin (the light the scene colors). */
+export function acLensGeometry(): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(
+    AC_PEDESTAL.lensR - 0.004,
+    16,
+    4,
+    0,
+    Math.PI * 2,
+    0,
+    Math.PI / 2,
+  );
+  g.rotateX(Math.PI / 2);
+  g.scale(1, 1, 0.35);
+  return g;
 }
 
 /**
@@ -151,17 +192,15 @@ export function createAcPedestalKit(ports: 1 | 2, cableDiameterM = 0.0125): Char
       0.003,
     ),
   );
-  // A status lens per port (lit in the station state color) in a chrome bezel; the port
-  // cable leaves through a gland under the head.
-  const xs = ports === 2 ? [-a.portX, a.portX] : [0];
-  for (const x of xs) {
+  // A status lens per port in a chrome bezel: one port lit in the station state
+  // color (the `light` slot); two ports each in its own EVSE's state, so the
+  // scene adds those lenses (`acLensAt`, `acLensGeometry`). The port cable
+  // leaves through a gland under the head.
+  const xs = acLensAt(ports).map((at) => at[0]);
+  for (const [k, x] of xs.entries()) {
     p.add('metal', torusG(a.lensR, 0.007, 6, 20), { at: [x, a.lensY, a.frontZ + 0.01] });
-    p.add(
-      'light',
-      new THREE.SphereGeometry(a.lensR - 0.004, 16, 4, 0, Math.PI * 2, 0, Math.PI / 2),
-      { at: [x, a.lensY, a.frontZ + 0.006], rot: [Math.PI / 2, 0, 0], scale: [1, 0.35, 1] },
-    );
-    const gland = acGland(x);
+    if (ports === 1) p.add('light', acLensGeometry(), { at: [x, a.lensY, a.frontZ + 0.006] });
+    const gland = acGland(ports === 2 ? acGlandX(2, k === 0 ? -1 : 1) : 0);
     addCableGland(p, AC_GLAND_SLOTS, gland.at, gland.axis, cableDiameterM);
   }
   return p.kit();

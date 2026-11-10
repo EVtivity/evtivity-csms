@@ -3,8 +3,9 @@
 
 // The live OCPP messages of a site for the site layout window: the newest
 // rows of the stored, masked OCPP message log of the site's stations. Same
-// permission as a station's OCPP log (stations:read); the site scope of the
-// caller decides the site, 404 outside it.
+// permission as a station's OCPP log (stations:read, security events only with
+// securityEvents:read); the site scope of the caller decides the site, 404
+// outside it.
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -23,6 +24,7 @@ import {
   SITE_OCPP_MESSAGES_MAX,
   listSiteOcppMessages,
 } from '../lib/site-ocpp-messages.js';
+import { hiddenOcppLogActions } from '../lib/ocpp-log-visibility.js';
 
 /** One open window polls every 2 s; this leaves room for a few tabs. */
 export const SITE_OCPP_MESSAGES_RATE_LIMIT = 120;
@@ -80,7 +82,7 @@ export function siteOcppMessageRoutes(app: FastifyInstance): void {
         tags: ['Sites'],
         summary: 'List the live OCPP messages of a site',
         description:
-          'The newest OCPP messages of the stations of a site, oldest first, as the station OCPP log stores them (credentials and URL passwords masked). Optional station filter and a since time for polling. 120 a minute.',
+          'The newest OCPP messages of the stations of a site, oldest first, as the station OCPP log stores them (credentials and URL passwords masked). Optional station filter and a since time for polling. SecurityEventNotification messages (station security events) and their replies are left out unless the caller holds securityEvents:read. 120 a minute.',
         operationId: 'getSiteOcppMessages',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
@@ -124,6 +126,7 @@ export function siteOcppMessageRoutes(app: FastifyInstance): void {
         stationId: query.stationId,
         after: query.after != null ? new Date(query.after) : undefined,
         limit: query.limit,
+        hiddenActions: await hiddenOcppLogActions(request),
       });
       return { data };
     },

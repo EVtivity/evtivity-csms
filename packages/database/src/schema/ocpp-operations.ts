@@ -89,6 +89,8 @@ export const securityEvents = pgTable(
     index('idx_security_events_type').on(table.type),
     index('idx_security_events_severity').on(table.severity),
     index('idx_security_events_timestamp').on(table.timestamp),
+    // The dashboard card and the critical event gauge filter by receipt time.
+    index('idx_security_events_created_at').on(table.createdAt),
   ],
 );
 

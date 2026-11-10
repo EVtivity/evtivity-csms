@@ -17,10 +17,21 @@ const mockInterfaceOn = vi.fn(() => Promise.resolve(true));
 vi.mock('@evtivity/database', () => ({
   db: { execute: (q: MockSql) => mockExecute(sqlText(q)) },
   isVdv463Enabled: () => mockInterfaceOn(),
+  operatorStationSql: (alias: string) => `${alias}.is_conformance = false`,
 }));
 
 vi.mock('drizzle-orm', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({
+      // A raw fragment is part of the SQL text, not a bound value.
+      strings: strings.flatMap((s, i) => {
+        const v = values[i] as { raw?: string } | undefined;
+        return i < values.length && v?.raw != null ? [`${s}${v.raw}`] : [s];
+      }),
+      values: values.filter((v) => (v as { raw?: string } | undefined)?.raw == null),
+    }),
+    { raw: (text: string) => ({ raw: text }) },
+  ),
 }));
 
 vi.mock('@evtivity/lib', () => ({
@@ -106,6 +117,7 @@ describe('collectFeatureMetrics', () => {
       ],
       ['FROM depot_systems\n', [{ enabled: 2, locked: 1 }]],
       ['FROM depot_system_refused_requests r', [{ reason: 'unknown_vehicle', count: 3 }]],
+      ["e.severity = 'critical'", [{ critical: 2 }]],
     ]);
 
     await collectFeatureMetrics();
@@ -141,6 +153,14 @@ describe('collectFeatureMetrics', () => {
     expect(await single(m.depotSystemsEnabled)).toBe(2);
     expect(await single(m.depotSystemsAuthLocked)).toBe(1);
     expect(await series(m.depotSystemRefusedRequests, 'reason')).toEqual({ unknown_vehicle: 3 });
+    expect(await single(m.securityEventsCriticalLastHour)).toBe(2);
+    const securitySql = mockExecute.mock.calls
+      .map((c) => String(c[0]))
+      .find((text) => text.includes("severity = 'critical'"));
+    // By receipt time, never the station-reported timestamp.
+    expect(securitySql).toContain("e.created_at > NOW() - INTERVAL '1 hour'");
+    // Conformance stations are left out, like the dashboard card.
+    expect(securitySql).toContain('s.is_conformance = false');
   });
 
   it('drops labels that no longer have rows and reads empty results as 0', async () => {
@@ -153,6 +173,7 @@ describe('collectFeatureMetrics', () => {
     expect(await single(m.loadManagementSitesEnabled)).toBe(0);
     expect(await single(m.chargingPlanStalenessMaxSeconds)).toBe(0);
     expect(await series(m.departureNoticesLastHour, 'kind')).toEqual({ at_risk: 0, missed: 0 });
+    expect(await single(m.securityEventsCriticalLastHour)).toBe(0);
   });
 
   it('keeps the previous values and logs when a query fails', async () => {

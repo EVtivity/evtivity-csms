@@ -45,7 +45,9 @@ import { StationSecurity } from '../StationSecurity';
 
 // The profile change needs settings.stationConfig:write.
 beforeEach(() => {
-  useAuth.setState({ permissions: ['stations:write', 'settings.stationConfig:write'] });
+  useAuth.setState({
+    permissions: ['stations:write', 'settings.stationConfig:write', 'securityEvents:read'],
+  });
 });
 
 function renderSecurity(overrides: Partial<Parameters<typeof StationSecurity>[0]> = {}): void {
@@ -199,6 +201,16 @@ describe('StationSecurity', () => {
     });
     expect(severity.value).toBe('');
     expect(severity.disabled).toBe(true);
+  });
+
+  it('hides the security event filters without securityEvents:read and says why', () => {
+    useAuth.setState({ permissions: ['stations:write'] });
+    renderSecurity();
+    expect(screen.queryByLabelText('common.severity')).toBeNull();
+    expect(screen.queryByLabelText('stations.securityLogSource')).toBeNull();
+    expect(screen.getByTestId('security-events-hidden').textContent).toBe(
+      'stations.securityEventsHidden',
+    );
   });
 
   it('expands a log row to formatted JSON and collapses it again', async () => {

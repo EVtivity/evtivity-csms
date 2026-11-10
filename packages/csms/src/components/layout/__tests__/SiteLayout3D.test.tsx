@@ -373,6 +373,7 @@ describe('SiteLayout3D', () => {
           towAway: 'sites.layoutSigns.towAway',
           reserved: 'sites.layoutSigns.reserved',
           maintenance: 'sites.layoutSigns.maintenance',
+          rfidTap: 'sites.layoutSigns.rfidTap',
         },
       }),
     );

@@ -151,6 +151,15 @@ const EVENT_FAMILY_PERMISSION: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Event types whose permission differs from their family's: a station
+ * security event notice reaches only security event readers (security case
+ * 373), not every stations:read holder.
+ */
+const EVENT_TYPE_PERMISSION: Readonly<Record<string, string>> = {
+  'station.securityEvent': 'securityEvents:read',
+};
+
+/**
  * Families every client gets: payment events (masked by `eventForClient`) so
  * session and station pages refresh, and AI events (insight, proposal, alert
  * and usage notices), which carry ids only and are site-filtered.
@@ -167,6 +176,8 @@ export function mappedEventFamilies(): string[] {
  * false when no client does (a family in neither list).
  */
 export function eventReadPermission(type: string): string | null | false {
+  const typePermission = EVENT_TYPE_PERMISSION[type];
+  if (typePermission != null) return typePermission;
   const family = type.split('.', 1)[0] ?? '';
   const permission = EVENT_FAMILY_PERMISSION[family];
   if (permission != null) return permission;

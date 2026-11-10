@@ -24,6 +24,7 @@ import {
   placePowerEquipment,
   layoutStationPlaces,
   heldSpots,
+  settlePairs,
   sharesSpotPair,
   splitDispenserCount,
 } from '@evtivity/lib/site-layout';
@@ -379,20 +380,24 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     );
   }, [selected2dStation, shownStations, layoutSettings]);
 
-  // Dual-port AC pedestals hold their partner spot, DC split systems a spot
+  // Dual-port AC pedestals and dual-outlet DC dispensers hold their partner spot, DC split systems a spot
   // per dispenser, and the accessible charging space its access aisle
   // (`heldSpots`); the 2D board marks them.
   const placedSlots = useMemo(
     () =>
-      resolvedStations.map((s) => ({
-        id: s.id,
-        stationId: s.stationId,
-        x: s.positionX,
-        y: s.positionY,
-        charging: s.chargingKind,
-        pair: sharesSpotPair(stationLayoutKindOf(s), layoutSettings),
-        span: splitDispenserCount(stationLayoutKindOf(s), layoutSettings),
-      })),
+      // A pair holds only while its partner spot is free (`settlePairs`).
+      settlePairs(
+        resolvedStations.map((s) => ({
+          id: s.id,
+          stationId: s.stationId,
+          x: s.positionX,
+          y: s.positionY,
+          charging: s.chargingKind,
+          pair: sharesSpotPair(stationLayoutKindOf(s), layoutSettings),
+          span: splitDispenserCount(stationLayoutKindOf(s), layoutSettings),
+        })),
+        layoutSettings,
+      ),
     [resolvedStations, layoutSettings],
   );
   // The 2D card layout of the site type (`site-layout-2d-placement.ts`): a

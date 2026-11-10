@@ -11,6 +11,7 @@ import {
   BAY_LINE_GAP,
   BUILDING_HEIGHT_M,
   CURB_M,
+  FACADE_BASE_PROUD_M,
   FACADE_Z,
   SIDEWALK_M,
   buildingBox,
@@ -336,8 +337,8 @@ export function installGround(scn: GroundCtx): void {
     const mass = scn.box(width, H, depth, wallMaterial);
     mass.position.set(cx, H / 2, b.minZ + depth / 2);
     scn.site.add(mass);
-    const base = scn.box(width, 3.2, 0.06, baseMaterial);
-    base.position.set(cx, 1.6, FACADE_Z + 0.03);
+    const base = scn.box(width, 3.2, FACADE_BASE_PROUD_M, baseMaterial);
+    base.position.set(cx, 1.6, FACADE_Z + FACADE_BASE_PROUD_M / 2);
     scn.site.add(base);
     // The facade parts (site-layout-model-facade-*.ts), each standing on the wall face.
     const facade = {
@@ -353,7 +354,12 @@ export function installGround(scn: GroundCtx): void {
       }),
     };
     // `face`: the wall face it stands on (the ground floor's stone base stands 0.06 m proud).
-    const onFacade = (part: THREE.Group, x: number, y: number, face = FACADE_Z + 0.06): void => {
+    const onFacade = (
+      part: THREE.Group,
+      x: number,
+      y: number,
+      face = FACADE_Z + FACADE_BASE_PROUD_M,
+    ): void => {
       part.position.set(x, y, face);
       part.traverse((o) => {
         o.raycast = () => undefined;

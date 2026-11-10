@@ -52,6 +52,8 @@ interface AuthState {
     password: string;
     phone?: string;
     recaptchaToken?: string;
+    /** The portal language the visitor registers in (the new account's language). */
+    language?: string;
     /** A generated avatar chosen on the form, stored with the new account. */
     avatar?: { style: 'avataaars'; seed: string; options: Record<string, string | number> };
   }) => Promise<void>;

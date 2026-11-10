@@ -13,7 +13,9 @@ import {
   type Point,
 } from './site-layout-grid';
 
+import { isDoubleTap } from './site-layout-camera-nav';
 import type { SceneSlice } from './site-layout-scene-context';
+import { pickEvsePlate } from './site-layout-scene-evse-plates';
 import { pickChargerScreen } from './site-layout-scene-screen-text';
 import { type PickKind, type StationObject } from './site-layout-scene-types';
 
@@ -29,11 +31,13 @@ export function distanceToSegment(p: Point, a: Point, b: Point): number {
 type InteractionCtx = SceneSlice<
   | 'applySelection'
   | 'batteryObjects'
+  | 'built'
   | 'callbacks'
   | 'camera'
   | 'controls'
   | 'editing'
   | 'energyLabels'
+  | 'focusAt'
   | 'layout'
   | 'linkLabels'
   | 'lotPoint'
@@ -46,7 +50,14 @@ type InteractionCtx = SceneSlice<
   | 'theme'
   | 'transformerObjects'
   | 'virtualSprites',
-  'canvas' | 'drag' | 'onPointerDown' | 'onPointerLeave' | 'onPointerMove' | 'onPointerUp'
+  | 'canvas'
+  | 'drag'
+  | 'onDoubleClick'
+  | 'onPointerDown'
+  | 'onPointerLeave'
+  | 'onPointerMove'
+  | 'onPointerUp'
+  | 'pointUnder'
 >;
 
 export function installInteraction(scn: InteractionCtx): void {
@@ -58,7 +69,7 @@ export function installInteraction(scn: InteractionCtx): void {
   let downAt: { x: number; y: number } | null = null;
   const canvas = scn.renderer.domElement;
   scn.canvas = canvas;
-  function setRay(e: PointerEvent): void {
+  function setRay(e: { clientX: number; clientY: number }): void {
     const rect = canvas.getBoundingClientRect();
     ndc.set(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -75,8 +86,8 @@ export function installInteraction(scn: InteractionCtx): void {
     }
     return out;
   }
-  function pick(e: PointerEvent): { kind: PickKind; id: string } | null {
-    setRay(e);
+  /** The groups a pointer can hit: stations, transformers, batteries, canopies (and switchboards in Edit Layout). */
+  function pickGroups(): THREE.Object3D[] {
     const groups: THREE.Object3D[] = [...scn.objects.values()].map((o) => o.group);
     groups.push(
       ...scn.transformerObjects.values(),
@@ -85,6 +96,11 @@ export function installInteraction(scn: InteractionCtx): void {
       // A switchboard at a transformer moves with it (Edit Layout).
       ...(scn.editing ? switchboardsAt(null) : []),
     );
+    return groups;
+  }
+  function pick(e: { clientX: number; clientY: number }): { kind: PickKind; id: string } | null {
+    setRay(e);
+    const groups = pickGroups();
     const hits = ray
       .intersectObjects(groups, true)
       .filter(
@@ -280,8 +296,11 @@ export function installInteraction(scn: InteractionCtx): void {
         // A virtual status sign shows its time window instead of the station tooltip.
         const sign = pickVirtualSign(e);
         // A charger screen shows its zoom instead of the station tooltip.
+        // An EVSE plate shows its EVSE label instead.
         const screen =
-          sign == null && hit?.kind === 'station' ? pickChargerScreen(scn, ray, hit.id) : null;
+          sign == null && hit?.kind === 'station'
+            ? (pickChargerScreen(scn, ray, hit.id) ?? pickEvsePlate(scn, scn.built, ray, hit.id))
+            : null;
         hoverStation(sign == null && screen == null && hit?.kind === 'station' ? hit.id : null);
         hoverEquipment(
           sign != null
@@ -375,6 +394,7 @@ export function installInteraction(scn: InteractionCtx): void {
   }
   scn.onPointerMove = onPointerMove;
   function onPointerUp(e: PointerEvent): void {
+    trackTap(e);
     if (scn.drag != null) {
       const { id, kind, moved } = scn.drag;
       scn.drag = null;
@@ -442,4 +462,87 @@ export function installInteraction(scn: InteractionCtx): void {
     }
   }
   scn.onPointerUp = onPointerUp;
+
+  /** The load management panels (switchboards, panelboards) on the site. */
+  function panelGroups(): THREE.Object3D[] {
+    return scn.site.children.filter((o) => typeof o.userData['panelId'] === 'string');
+  }
+  /**
+   * The 3D point under the pointer: the model it is over (a charger, its car,
+   * equipment), else the ground; null when it points above the horizon.
+   */
+  function pointUnder(e: { clientX: number; clientY: number }): THREE.Vector3 | null {
+    setRay(e);
+    const hit = ray
+      .intersectObjects([...pickGroups(), ...panelGroups()], true)
+      .find((h) => h.object.type === 'Mesh' && h.object.userData['ring'] !== true);
+    if (hit != null) return hit.point.clone();
+    return ray.ray.intersectPlane(floor, new THREE.Vector3());
+  }
+  scn.pointUnder = pointUnder;
+
+  /**
+   * What a double click or double tap focuses: the charger or equipment under
+   * the pointer, its center and height in world meters (null: nothing there).
+   */
+  function focusTarget(e: { clientX: number; clientY: number }): {
+    point: THREE.Vector3;
+    heightM: number;
+  } | null {
+    const hit = pick(e);
+    let root: THREE.Object3D | null = null;
+    if (hit?.kind === 'station' || hit?.kind === 'handle') {
+      const obj = scn.objects.get(hit.id);
+      if (obj == null) return null;
+      // The charger at the station's own point (merged sites keep the group's place).
+      const point = new THREE.Vector3(0, Math.max(0.5, obj.top / 2), 0);
+      obj.group.localToWorld(point);
+      return { point, heightM: Math.max(1.2, obj.top) };
+    }
+    if (hit?.kind === 'transformer') root = scn.transformerObjects.get(hit.id) ?? null;
+    else if (hit?.kind === 'battery') root = scn.batteryObjects.get(hit.id) ?? null;
+    else if (hit?.kind === 'solar') root = scn.solarObjects.get(hit.id) ?? null;
+    if (root == null) {
+      setRay(e);
+      const panel = ray.intersectObjects(panelGroups(), true).find((h) => h.object.type === 'Mesh');
+      let o: THREE.Object3D | null = panel?.object ?? null;
+      while (o != null && o.parent !== scn.site) o = o.parent;
+      root = o;
+    }
+    if (root == null) return null;
+    const box = new THREE.Box3().setFromObject(root);
+    if (box.isEmpty()) return null;
+    const size = box.getSize(new THREE.Vector3());
+    return { point: box.getCenter(new THREE.Vector3()), heightM: Math.max(1, size.y) };
+  }
+
+  // A double click (mouse, pen) or a double tap (touch) on a charger or
+  // equipment eases the camera in and makes it the orbit center (map apps).
+  let lastTap: { x: number; y: number; timeMs: number } | null = null;
+  let lastPointerType = 'mouse';
+  function focusUnder(e: { clientX: number; clientY: number }): void {
+    const target = focusTarget(e);
+    if (target != null) scn.focusAt(target.point, target.heightM);
+  }
+  function onDoubleClick(e: MouseEvent): void {
+    // A touch double tap is handled on its taps (browsers differ on dblclick for touch).
+    if (lastPointerType === 'touch' || scn.drag != null) return;
+    focusUnder(e);
+  }
+  scn.onDoubleClick = onDoubleClick;
+  function trackTap(e: PointerEvent): void {
+    lastPointerType = e.pointerType;
+    if (e.pointerType !== 'touch') return;
+    if (downAt != null && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 5) {
+      lastTap = null;
+      return;
+    }
+    const tap = { x: e.clientX, y: e.clientY, timeMs: e.timeStamp };
+    if (isDoubleTap(lastTap, tap)) {
+      lastTap = null;
+      focusUnder(e);
+      return;
+    }
+    lastTap = tap;
+  }
 }

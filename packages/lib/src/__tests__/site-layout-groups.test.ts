@@ -10,6 +10,7 @@ import {
   freeSlotsFor,
   layoutStationCountsOfKinds,
   positionToBay,
+  sharesSpotPair,
   spotPairPartner,
   withSiteType,
   type LayoutStationKind,
@@ -34,7 +35,7 @@ function mix(n: number, seed: number): LayoutStationKind[] {
   });
 }
 
-/** The spots of each row a station holds, with its kind (a pedestal: both of its pair). */
+/** The spots of each row a station holds, with its kind (a paired station: both of its pair). */
 function rowsOf(
   kinds: readonly LayoutStationKind[],
   slots: ReadonlyArray<{ x: number; y: number }>,
@@ -47,8 +48,7 @@ function rowsOf(
     if (kind == null || !bayInLayout(bay, settings)) return;
     const row = rows.get(bay.row) ?? new Map<number, 'ac' | 'dc'>();
     row.set(bay.col, kind.charging);
-    const partner =
-      kind.charging === 'ac' && (kind.ports ?? 1) >= 2 ? spotPairPartner(bay, settings) : null;
+    const partner = sharesSpotPair(kind, settings) ? spotPairPartner(bay, settings) : null;
     if (partner != null) row.set(partner.col, kind.charging);
     rows.set(bay.row, row);
   });
@@ -122,10 +122,10 @@ describe('charger groups on a lot', () => {
       transformers: [{ id: 'tx', x: -5, z: 2.5 }],
     });
     // Placed one by one, as stations come online.
-    const placed: Array<{ x: number; y: number; charging: 'dc' }> = [];
+    const placed: Array<{ x: number; y: number; charging: 'dc'; pair: boolean }> = [];
     for (let i = 0; i < 5; i++) {
       const [slot] = freeSlotsFor([DC], placed, settings);
-      placed.push({ ...slot!, charging: 'dc' });
+      placed.push({ ...slot!, charging: 'dc', pair: sharesSpotPair(DC, settings) });
     }
     // The run in each row is continuous and nobody waits off the lot.
     expect(placed.every((p) => bayInLayout(positionToBay(p), settings))).toBe(true);

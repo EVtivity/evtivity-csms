@@ -4,7 +4,6 @@
 // The all-in-one DC dispenser of the 3D site layout: its body kit. The scene
 // adds holsters, handles, cables, readers, the logo and the glow.
 
-import * as THREE from 'three';
 import {
   ModelParts,
   boxG,
@@ -49,13 +48,20 @@ export const DC_DISPENSER = {
   plinthM: 0.08,
   /** The 7 in 16:9 screen (155 by 87 mm active area): center height, width and height. */
   screen: { y: 1.47, widthM: 0.155, heightM: 0.087 },
-  /** The RFID reader pad below the screen. */
-  rfid: { y: 1.25, sizeM: 0.09 },
+  /**
+   * The RFID reader pad below the screen (site-layout-model-rfid-pad.ts, the
+   * scene adds it): its center 1.14 m up, the pad's top inside the 48 in
+   * (1.22 m) high reach of the 2010 ADA Standards 308.2.1.
+   */
+  rfid: { y: 1.14 },
   /** The emergency stop push button (a red mushroom head on a yellow ring). */
   stop: { x: 0.24, y: 1.62 },
   /** The status light strip above the screen. */
   lightY: 1.95,
 } as const;
+
+/** Where the RFID pad mounts: on the fascia face below the screen (the fascia 10 mm proud of the front). */
+export const DC_RFID_PAD: Vec3 = [0, DC_DISPENSER.rfid.y, DC_DISPENSER.frontZ + 0.01];
 
 /** Where a DC dispenser's side wall is (holsters and cable glands), in x. */
 export const DC_SIDE_X = DC_DISPENSER.widthM / 2;
@@ -76,24 +82,32 @@ export const DC_HOLSTER = { y: 1.1, z: 0.1 } as const;
 
 /**
  * Where the cable gland of a holster on a DC dispenser side wall stands: on
- * plain wall high on the side, between the two vents (1.35 m up, below the
- * outlet's 1.57 m), pointing straight out: 0.09 m in front of the front
- * holster, 0.09 m behind a holster `backM` behind it, each next to its own
- * cable hanger (`dcHangerZ`), so each cable hangs in its own stretch of the
- * wall and two cables never cross.
+ * plain wall on the side (`DC_GLAND_Y_M`, under the handles and far below the outlet's 1.72 m),
+ * pointing straight out, between the two loops of the side and outside
+ * both: 0.07 m behind the front holster, 0.09 m in front of a holster `backM`
+ * behind it, so each cable comes up its own loop's inner edge, keeps to its
+ * own stretch of the wall and two cables never cross.
  */
+/**
+ * The height of the DC cable glands: 0.8 m, under the handles' grips (their
+ * lowest point near the wall about 1.05 m), so a cable bends down out of its
+ * gland, hangs in a U and comes up into its hook clear of the pad. Derived.
+ */
+export const DC_GLAND_Y_M = 0.8;
+
 export function dcGland(side: -1 | 1, backM: number): { at: Vec3; axis: Vec3 } {
-  const z = backM > 0 ? DC_HOLSTER.z - backM - 0.09 : DC_HOLSTER.z + 0.09;
-  return { at: [side * DC_SIDE_X, 1.35, z], axis: [side, 0, 0] };
+  const z = backM > 0 ? DC_HOLSTER.z - backM + 0.09 : DC_HOLSTER.z - 0.07;
+  return { at: [side * DC_SIDE_X, DC_GLAND_Y_M, z], axis: [side, 0, 0] };
 }
 
 /**
- * The z of a holster's cable hanger on the side wall: 0.14 m in front of
- * the front holster, 0.14 m behind a holster behind it, so the turns hang in
- * planes clear of the handles (a handle is 0.116 m across) and of each other.
+ * The z of a holster's J hook on the side wall: 0.17 m in front of the front
+ * holster, 0.15 m behind a holster behind it, so the turns, parallel to the
+ * wall, hang clear of the handles (a handle is about 0.05 m across) and of
+ * each other's loops. Derived.
  */
-export function dcHangerZ(backM: number): number {
-  return backM > 0 ? DC_HOLSTER.z - backM - 0.14 : DC_HOLSTER.z + 0.14;
+export function dcHookZ(backM: number): number {
+  return backM > 0 ? DC_HOLSTER.z - backM - 0.15 : DC_HOLSTER.z + 0.17;
 }
 
 /**
@@ -161,14 +175,6 @@ export function createDcDispenserKit(
       0.003,
     ),
   );
-  // The RFID reader pad with its contactless mark.
-  p.add('metal', frontProfileG(roundedRect(d.rfid.sizeM, d.rfid.sizeM, 0.012), 0.01, 0.002), {
-    at: [0, d.rfid.y, front + 0.012],
-  });
-  p.add('trim', new THREE.TorusGeometry(0.025, 0.003, 4, 16, Math.PI * 1.2), {
-    at: [0, d.rfid.y, front + 0.018],
-    rot: [0, 0, Math.PI * 0.4],
-  });
   // The status light strip and its housing above the screen.
   p.add('trim', frontProfileG(roundedRect(0.36, 0.04, 0.02), 0.012, 0.003), {
     at: [0, d.lightY, front + 0.006],

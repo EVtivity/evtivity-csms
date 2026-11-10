@@ -16,6 +16,7 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     assertWritable: vi.fn(),
     isReservationEnabled: vi.fn(),
     isSupportEnabled: vi.fn(),
+    isDriverRfidSelfServiceEnabled: vi.fn(),
     isRoamingEnabled: vi.fn(),
     isPncEnabled: vi.fn(),
     isFleetEnabled: vi.fn(),
@@ -25,6 +26,8 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     isAiInsightsEnabled: vi.fn(),
     clearRoamingCache: vi.fn(),
     clearSupportCache: vi.fn(),
+    clearDriverRfidSelfServiceCache: vi.fn(),
+    clearCsmsUpdateCheckSettingCache: vi.fn(),
     clearFleetCache: vi.fn(),
     clearFleetChargingSettingCache: vi.fn(),
     clearVdv463SettingCache: vi.fn(),
@@ -89,6 +92,10 @@ vi.mock('@evtivity/database', () => ({
   getReservationSettings: mocks.getReservationSettings,
   isReservationEnabled: mocks.isReservationEnabled,
   isSupportEnabled: mocks.isSupportEnabled,
+  isDriverRfidSelfServiceEnabled: mocks.isDriverRfidSelfServiceEnabled,
+  clearDriverRfidSelfServiceCache: mocks.clearDriverRfidSelfServiceCache,
+  clearCsmsUpdateCheckSettingCache: mocks.clearCsmsUpdateCheckSettingCache,
+  RFID_SELF_SERVICE_SETTING_KEY: 'portal.rfidSelfServiceEnabled',
   isRoamingEnabled: mocks.isRoamingEnabled,
   isPncEnabled: mocks.isPncEnabled,
   isFleetEnabled: mocks.isFleetEnabled,
@@ -289,6 +296,7 @@ describe('settings routes (cov2)', () => {
   it('GET /portal/features answers the public feature flags and reservation limits', async () => {
     mocks.isReservationEnabled.mockResolvedValue(true);
     mocks.isSupportEnabled.mockResolvedValue(false);
+    mocks.isDriverRfidSelfServiceEnabled.mockResolvedValue(false);
     mocks.isRoamingEnabled.mockResolvedValue(true);
     mocks.isPncEnabled.mockResolvedValue(false);
     mocks.isFleetEnabled.mockResolvedValue(true);
@@ -306,6 +314,7 @@ describe('settings routes (cov2)', () => {
     expect(res.json()).toEqual({
       reservationEnabled: true,
       supportEnabled: false,
+      rfidSelfServiceEnabled: false,
       roamingEnabled: true,
       pncEnabled: false,
       fleetEnabled: true,
@@ -330,6 +339,7 @@ describe('settings routes (cov2)', () => {
     for (const flag of [
       mocks.isReservationEnabled,
       mocks.isSupportEnabled,
+      mocks.isDriverRfidSelfServiceEnabled,
       mocks.isRoamingEnabled,
       mocks.isPncEnabled,
       mocks.isFleetEnabled,
@@ -358,6 +368,7 @@ describe('settings routes (cov2)', () => {
     for (const flag of [
       mocks.isReservationEnabled,
       mocks.isSupportEnabled,
+      mocks.isDriverRfidSelfServiceEnabled,
       mocks.isRoamingEnabled,
       mocks.isPncEnabled,
       mocks.isFleetEnabled,
@@ -525,6 +536,8 @@ describe('settings routes (cov2)', () => {
   it.each([
     ['roaming.enabled', 'clearRoamingCache'],
     ['support.enabled', 'clearSupportCache'],
+    ['portal.rfidSelfServiceEnabled', 'clearDriverRfidSelfServiceCache'],
+    ['system.updateCheckEnabled', 'clearCsmsUpdateCheckSettingCache'],
     ['fleet.enabled', 'clearFleetCache'],
     ['fleetCharging.enabled', 'clearFleetChargingSettingCache'],
     ['vdv463.enabled', 'clearVdv463SettingCache'],
@@ -544,6 +557,8 @@ describe('settings routes (cov2)', () => {
     for (const other of [
       'clearRoamingCache',
       'clearSupportCache',
+      'clearDriverRfidSelfServiceCache',
+      'clearCsmsUpdateCheckSettingCache',
       'clearFleetCache',
       'clearFleetChargingSettingCache',
       'clearVdv463SettingCache',
@@ -554,6 +569,42 @@ describe('settings routes (cov2)', () => {
       if (other !== clear) expect(mocks[other]).not.toHaveBeenCalled();
     }
   });
+
+  it.each([['false'], [0], [null], ['off']])(
+    'PUT portal.rfidSelfServiceEnabled refuses the non-boolean value %j',
+    async (value) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/settings/portal.rfidSelfServiceEnabled',
+        headers: auth,
+        payload: { value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'portal.rfidSelfServiceEnabled must be true or false',
+        code: 'VALIDATION_ERROR',
+      });
+      expect(mocks.clearDriverRfidSelfServiceCache).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([['false'], [0], [null]])(
+    'PUT system.updateCheckEnabled refuses the non-boolean value %j',
+    async (value) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/settings/system.updateCheckEnabled',
+        headers: auth,
+        payload: { value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'system.updateCheckEnabled must be true or false',
+        code: 'VALIDATION_ERROR',
+      });
+      expect(mocks.clearCsmsUpdateCheckSettingCache).not.toHaveBeenCalled();
+    },
+  );
 
   it('PUT vdv463.enabled tells every API process to recheck the depot interface switch', async () => {
     setupDbResults([], [{ key: 'vdv463.enabled', value: false }]);
@@ -569,6 +620,57 @@ describe('settings routes (cov2)', () => {
       'depot_system_changed',
       JSON.stringify({ all: true }),
     );
+  });
+
+  it.each(['PUT', 'PATCH'] as const)(
+    '%s portal.rfidSelfServiceEnabled tells every API process to drop its cached switch',
+    async (method) => {
+      setupDbResults([], [{ key: 'portal.rfidSelfServiceEnabled', value: false }]);
+      mocks.publish.mockClear();
+      const res = await app.inject({
+        method,
+        url: '/settings/portal.rfidSelfServiceEnabled',
+        headers: auth,
+        payload: { value: false },
+      });
+      expect(res.statusCode, res.body).toBeLessThan(300);
+      expect(mocks.clearDriverRfidSelfServiceCache).toHaveBeenCalledTimes(1);
+      expect(mocks.publish).toHaveBeenCalledWith(
+        'cache_invalidate',
+        JSON.stringify({ kind: 'rfid_self_service' }),
+      );
+    },
+  );
+
+  it('DELETE portal.rfidSelfServiceEnabled answers 400: the setting is only set to true or false', async () => {
+    setupDbResults([{ key: 'portal.rfidSelfServiceEnabled', value: false }]);
+    mocks.publish.mockClear();
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/settings/portal.rfidSelfServiceEnabled',
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: 'portal.rfidSelfServiceEnabled must be true or false',
+      code: 'VALIDATION_ERROR',
+    });
+    expect(rec.deletes).toBe(0);
+    expect(mocks.clearDriverRfidSelfServiceCache).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('keeps the RFID self-service save when the announcement publish fails', async () => {
+    setupDbResults([], [{ key: 'portal.rfidSelfServiceEnabled', value: false }]);
+    mocks.publish.mockRejectedValueOnce(new Error('redis down'));
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/settings/portal.rfidSelfServiceEnabled',
+      headers: auth,
+      payload: { value: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.clearDriverRfidSelfServiceCache).toHaveBeenCalledTimes(1);
   });
 
   describe('AI settings (TC-AI-C-05, TC-AI-C-06)', () => {

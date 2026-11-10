@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { SIMULATE_ACTIONS, getValidActions, simulateRequest } from '../simulate-actions';
+import {
+  SIMULATE_ACTIONS,
+  getValidActions,
+  securityEventGroups,
+  simulateRequest,
+} from '../simulate-actions';
 
 describe('getValidActions', () => {
   it('offers suspend, resume and EV full during a session', () => {
@@ -49,5 +54,34 @@ describe('simulateRequest', () => {
       params: { errorCode: 'InternalError', mode: 'suspend' },
     });
     expect(simulateRequest('powerCycle', 'end')).toEqual({ apiAction: 'powerCycle', params: {} });
+  });
+});
+
+describe('High Temperature fault', () => {
+  it('sends the chosen fault code with injectFault', () => {
+    expect(simulateRequest('injectFault', 'end', 'HighTemperature')).toEqual({
+      apiAction: 'injectFault',
+      params: { errorCode: 'HighTemperature', mode: 'end' },
+    });
+  });
+});
+
+describe('securityEventGroups', () => {
+  it('groups the 2.x events by severity, worst first, with the vendor tamper types critical', () => {
+    const groups = securityEventGroups('ocpp2.1');
+    expect(groups.map((g) => g.severity)).toEqual(['critical', 'high', 'medium', 'low', 'info']);
+    expect(groups[0]?.types).toEqual(
+      expect.arrayContaining(['TamperDetectionActivated', 'TiltDetected', 'CableCutDetected']),
+    );
+    expect(groups.flatMap((g) => g.types)).toHaveLength(23);
+    expect(groups.flatMap((g) => g.types)).toContain('InvalidCsmsCertificate');
+  });
+
+  it('lists the 1.6 whitepaper names for a 1.6 station', () => {
+    const types = securityEventGroups('ocpp1.6').flatMap((g) => g.types);
+    expect(types).toContain('InvalidCentralSystemCertificate');
+    expect(types).not.toContain('InvalidCsmsCertificate');
+    expect(types).toContain('MaintenanceLoginFailed');
+    expect(types).toHaveLength(23);
   });
 });

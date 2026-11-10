@@ -20,6 +20,8 @@ export interface KeyboardNavScene {
   viewDistance: () => number;
   fit: (toggle?: boolean) => void;
   nudgeCamera?: (n: CameraNudge) => void;
+  /** Zooms toward the point under the pointer (map style); absent: `nudgeCamera` zooms at the center. */
+  zoomAt?: (zoom: number, at: { clientX: number; clientY: number }) => void;
 }
 
 export interface LayoutKeyboardNavOptions {

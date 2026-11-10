@@ -19,6 +19,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=release-version.sh
 source "$SCRIPT_DIR/release-version.sh"
+# shellcheck source=release-build.sh
+source "$SCRIPT_DIR/release-build.sh"
 
 PUSH=false
 FORCE=false
@@ -156,35 +158,17 @@ fi
 echo ""
 
 count=$(echo "$SERVICES" | grep -c ':')
-echo "Building all $count Docker images locally..."
+# RELEASE_BUILD_JOBS images at a time (default 3, scripts/release-build.sh); every image must build.
+jobs="${RELEASE_BUILD_JOBS:-3}"
+echo "Building all $count Docker images locally, $jobs at a time..."
 echo ""
 
-failed=""
-pass=0
-fail=0
-results=""
 total_start=$(date +%s)
-
-for entry in $SERVICES; do
-  name="${entry%%:*}"
-  dockerfile="${entry#*:}"
-  echo "--- Building $name ($dockerfile)"
-
-  start=$(date +%s)
-  if docker build -f "$dockerfile" -t "evtivity-${name}:local-test" .; then
-    elapsed=$(( $(date +%s) - start ))
-    pass=$((pass + 1))
-    echo "    $name: OK (${elapsed}s)"
-    results="$results\n  $name: OK (${elapsed}s)"
-  else
-    elapsed=$(( $(date +%s) - start ))
-    fail=$((fail + 1))
-    failed="$failed $name"
-    echo "    $name: FAILED (${elapsed}s)"
-    results="$results\n  $name: FAILED (${elapsed}s)"
-  fi
-  echo ""
-done
+release_build_images "$jobs" "$SERVICES"
+pass=$RELEASE_BUILD_PASS
+fail=$RELEASE_BUILD_FAIL
+failed=$RELEASE_BUILD_FAILED
+results=$RELEASE_BUILD_RESULTS
 
 total_elapsed=$(( $(date +%s) - total_start ))
 total_min=$((total_elapsed / 60))
@@ -195,7 +179,7 @@ echo "Build results: $pass passed, $fail failed (${total_min}m ${total_sec}s)"
 printf "%b\n" "$results"
 echo ""
 
-if [ $fail -gt 0 ]; then
+if [ "$fail" -gt 0 ]; then
   echo "FAILED services:$failed"
   echo ""
   echo "Fix build errors before releasing."
@@ -213,10 +197,10 @@ fi
 echo ""
 
 # Check for unpushed commits
-unpushed=$(git log --oneline @{u}..HEAD 2>/dev/null | wc -l | tr -d ' ')
+unpushed=$(git log --oneline '@{u}..HEAD' 2>/dev/null | wc -l | tr -d ' ')
 if [ "$unpushed" -gt 0 ]; then
   echo "WARNING: $unpushed unpushed commit(s):"
-  git log --oneline @{u}..HEAD
+  git log --oneline '@{u}..HEAD'
   echo ""
   read -rp "Push these commits along with the release tag? (y/n) " confirm
   if [ "$confirm" != "y" ]; then

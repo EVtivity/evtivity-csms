@@ -23,3 +23,13 @@ updates:
       # Node.js majors move with the engines field and the CI node version.
       - dependency-name: node
         update-types: ['version-update:semver-major']
+  # Workflow actions are pinned by full commit SHA with the version as a
+  # comment; Dependabot proposes the new SHA and comment weekly.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - '*'

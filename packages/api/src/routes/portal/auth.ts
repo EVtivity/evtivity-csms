@@ -23,6 +23,7 @@ import {
   resolveAccountBilling,
   writeAudit,
   driverAuditLog,
+  getDriverDefaults,
 } from '@evtivity/database';
 import { drivers, userTokens } from '@evtivity/database';
 import {
@@ -33,6 +34,7 @@ import {
   verifyMfaChallenge,
   matchTotpStep,
 } from '@evtivity/lib';
+import { UI_LANGUAGES } from '@evtivity/lib/languages';
 import { clearAuthCookies, isSecureRequest, readRefreshCookie } from '../../lib/auth-cookies.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { portalDriverItem } from '../../lib/portal-driver-item.js';
@@ -204,6 +206,12 @@ const registerBody = z.object({
   password: newPasswordSchema,
   phone: z.string().max(50).optional(),
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
+  language: z
+    .enum(UI_LANGUAGES)
+    .optional()
+    .describe(
+      'The language the visitor uses in the portal or app. Unset: the system.driverLanguage setting (default en)',
+    ),
   avatar: generatedAvatarBody
     .optional()
     .describe(
@@ -361,7 +369,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Register a new driver account',
         description:
-          'Answers 202 { success: true } for a new and for an existing email alike, so the answer does not reveal whether an account exists, and signs nobody in. A new email gets a driver row (registrationSource=portal, argon2 password) and a verification email; the driver signs in after opening the link. An existing email (active or not, with or without portal access) changes nothing and gets driver.RegistrationAttempt, an email with the sign-in and password reset links. Verifies the reCAPTCHA token when enabled (web) or the device attestation (mobile apps). Returns 400 WEAK_PASSWORD, 400 VALIDATION_ERROR for a phone number that does not parse (stored in E.164) or an avatar off the allow-list, 429 PHONE_REGISTRATION_LIMITED when the phone number was used in three portal registrations in the last 24 hours, and 403 if portal registration is disabled by settings.',
+          'Answers 202 { success: true } for a new and for an existing email alike, so the answer does not reveal whether an account exists, and signs nobody in. A new email gets a driver row (registrationSource=portal, argon2 password) and a verification email; the driver signs in after opening the link. An existing email (active or not, with or without portal access) changes nothing and gets driver.RegistrationAttempt, an email with the sign-in and password reset links. Verifies the reCAPTCHA token when enabled (web) or the device attestation (mobile apps). Returns 400 WEAK_PASSWORD, 400 VALIDATION_ERROR for a phone number that does not parse (stored in E.164), an avatar off the allow-list or a language that is not a UI language, 429 PHONE_REGISTRATION_LIMITED when the phone number was used in three portal registrations in the last 24 hours, and 403 if portal registration is disabled by settings.',
         operationId: 'portalRegister',
         security: [],
         body: zodSchema(registerBody),
@@ -475,6 +483,10 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       // without that work.
       await reply.status(202).send({ success: true });
       afterReply(request, async () => {
+        // The language the visitor registered in, else the company default;
+        // the time zone and distance unit start at the company defaults
+        // (Settings > Company). The driver changes them in Account.
+        const defaults = await getDriverDefaults();
         let driver;
         try {
           [driver] = await db
@@ -486,6 +498,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
               phone,
               passwordHash,
               registrationSource: 'portal',
+              language: body.language ?? defaults.language,
+              timezone: defaults.timezone,
+              distanceUnit: defaults.distanceUnit,
             })
             .returning(driverSessionColumns);
         } catch (err) {

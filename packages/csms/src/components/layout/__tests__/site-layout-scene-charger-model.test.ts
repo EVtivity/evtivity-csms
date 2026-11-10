@@ -43,9 +43,9 @@ describe('idle charger model', () => {
       expect(b.isEmpty(), model).toBe(false);
       expect(b.max.y, model).toBeGreaterThan(1);
       const names = models(built.group);
-      // The standard chargers loop their idle cables over a hanger, the MCS dispenser over its arm.
+      // The standard chargers loop their idle cables over a J hook, the MCS dispenser over its arm.
       if (model === 'mcs-dispenser') expect(names, model).toContain('mcs-arm');
-      if (HANGER_MODELS.includes(model)) expect(names, model).toContain('cable-hanger');
+      if (HANGER_MODELS.includes(model)) expect(names, model).toContain('cable-hook');
       // The plate color is the operator's own.
       let plate = false;
       built.group.traverse((o) => {

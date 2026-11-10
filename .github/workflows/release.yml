@@ -30,7 +30,7 @@ jobs:
       prerelease: ${{ steps.type.outputs.prerelease }}
       channel: ${{ steps.type.outputs.channel }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Classify tag
         id: type
@@ -52,14 +52,25 @@ jobs:
           echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
           echo "${REF_NAME}: prerelease=${PRERELEASE} channel=${CHANNEL:-none}" >> "$GITHUB_STEP_SUMMARY"
 
-  build-and-push:
-    name: Build ${{ matrix.image }}
-    runs-on: ubuntu-latest
+  # Each platform builds natively on its own runner (arm64 on an arm64 runner, no QEMU
+  # emulation) and pushes its image by digest; build-and-push then joins the two digests
+  # into one multi-platform manifest list per image under the release tags. Same images,
+  # platforms and tags as one multi-platform build.
+  build:
+    name: Build ${{ matrix.service.image }} ${{ matrix.arch.name }}
+    runs-on: ${{ matrix.arch.runner }}
     needs: prepare
     strategy:
       fail-fast: true
       matrix:
-        include:
+        arch:
+          - name: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - name: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+        service:
           - image: api
             dockerfile: packages/api/Dockerfile
             description: EVtivity CSMS REST API
@@ -89,13 +100,78 @@ jobs:
             description: EVtivity CSMS OCPI roaming simulator
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/login-action@v4
+      - name: Extract labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service.image }}
+          labels: |
+            org.opencontainers.image.title=evtivity-${{ matrix.service.image }}
+            org.opencontainers.image.description=${{ matrix.service.description }}
+            org.opencontainers.image.source=https://github.com/EVtivity/evtivity-csms
+            org.opencontainers.image.licenses=BUSL-1.1
+            org.opencontainers.image.vendor=EVtivity
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          platforms: ${{ matrix.arch.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE_PREFIX }}/${{ matrix.service.image }},push-by-digest=true,name-canonical=true,push=true
+          # The layer cache lives in the registry: a GitHub Actions cache written by a tag run
+          # is scoped to that tag, so the next release could never read it (no step of
+          # v0.1.50-beta.4 was cached). The version-free install layers of the Dockerfiles
+          # then stay cached from one release to the next. Its own package, so the image
+          # packages keep only their release tags.
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/buildcache:${{ matrix.service.image }}-${{ matrix.arch.name }}
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/buildcache:${{ matrix.service.image }}-${{ matrix.arch.name }},mode=max,image-manifest=true,oci-mediatypes=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: digests-${{ matrix.service.image }}-${{ matrix.arch.name }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  build-and-push:
+    name: Publish ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    strategy:
+      fail-fast: true
+      matrix:
+        image: [api, ocpp, ocpi, csms, portal, migrate, css, worker, ocpi-simulator]
+
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -103,7 +179,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
           # docker/metadata-action already extends only {{version}} for a semver
@@ -120,23 +196,31 @@ jobs:
             type=raw,value=alpha,enable=${{ needs.prepare.outputs.channel == 'alpha' }}
             type=raw,value=beta,enable=${{ needs.prepare.outputs.channel == 'beta' }}
             type=ref,event=branch
-          labels: |
-            org.opencontainers.image.title=evtivity-${{ matrix.image }}
-            org.opencontainers.image.description=${{ matrix.description }}
-            org.opencontainers.image.source=https://github.com/EVtivity/evtivity-csms
-            org.opencontainers.image.licenses=BUSL-1.1
-            org.opencontainers.image.vendor=EVtivity
 
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Create the multi-platform manifest list
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+        run: |
+          count=$(find . -maxdepth 1 -type f | wc -l)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::expected 2 platform digests for $IMAGE, found $count"
+            exit 1
+          fi
+          args=()
+          while IFS= read -r tag; do args+=(-t "$tag"); done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          for digest in *; do args+=("$IMAGE@sha256:$digest"); done
+          docker buildx imagetools create "${args[@]}"
+
+      - name: Check both platforms
+        env:
+          IMAGE: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          platforms=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --raw |
+            jq -r '[.manifests[] | select(.platform.os != "unknown") | .platform.architecture] | sort | join(",")')
+          echo "$IMAGE:$VERSION platforms $platforms"
+          [ "$platforms" = "amd64,arm64" ] || { echo "::error::$IMAGE:$VERSION has $platforms"; exit 1; }
 
   github-release:
     name: Create GitHub Release
@@ -146,7 +230,7 @@ jobs:
     outputs:
       changelog: ${{ steps.changelog.outputs.body }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
 
@@ -195,7 +279,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && needs.prepare.outputs.prerelease == 'false'
     steps:
       - name: Checkout helm chart repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: EVtivity/evtivity-csms-helm
           token: ${{ secrets.HELM_REPO_PAT }}
@@ -231,7 +315,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && needs.prepare.outputs.prerelease == 'false'
     steps:
       - name: Checkout cdk repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: EVtivity/evtivity-csms-cdk
           token: ${{ secrets.CDK_REPO_PAT }}

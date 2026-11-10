@@ -54,6 +54,9 @@ vi.mock('../lib/site-access.js', async () =>
 );
 
 vi.mock('@evtivity/database', () => ({
+  isDriverRfidSelfServiceEnabled: vi.fn(() => Promise.resolve(true)),
+  clearDriverRfidSelfServiceCache: vi.fn(),
+  RFID_SELF_SERVICE_SETTING_KEY: 'portal.rfidSelfServiceEnabled',
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -1143,6 +1146,49 @@ describe('Settings routes', () => {
     };
     expect(insertChain.values).toHaveBeenCalledWith({ key: 'company.taxBasis', value: 'gross' });
     expect(clearSystemSettingsCache).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['system.distanceUnit', 'km'],
+    ['system.driverLanguage', 'zh-TW'],
+    ['system.timezone', 'Europe/Berlin'],
+  ])('PUT /v1/settings/%s stores %s and clears the cache', async (key, value) => {
+    vi.mocked(db.insert).mockClear();
+    vi.mocked(clearSystemSettingsCache).mockClear();
+    setupDbResults([], [{ key, value }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({ key, value });
+    expect(clearSystemSettingsCache).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['system.distanceUnit', 'furlongs', 'system.distanceUnit must be miles or km'],
+    [
+      'system.driverLanguage',
+      'fr',
+      'system.driverLanguage must be one of: en, de, es, ko, zh, zh-TW',
+    ],
+    ['system.timezone', 'Mars/Olympus', 'system.timezone must be an IANA time zone'],
+  ])('PUT /v1/settings/%s refuses %s', async (key, value, error) => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR', error });
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it('PUT /v1/settings/mobile.app.urlSchemes stores normalized schemes and clears the cache', async () => {

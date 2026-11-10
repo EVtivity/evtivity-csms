@@ -2143,6 +2143,46 @@ describe('Station routes - handler logic', () => {
       expect(response.json().data[0].severity).toBe('critical');
     });
 
+    it('leaves out the security event rows without securityEvents:read', async () => {
+      const { requestHasPermission } = await import('../middleware/rbac.js');
+      const { sql } = await import('drizzle-orm');
+      const { db } = (await import('@evtivity/database')) as unknown as {
+        db: { execute: ReturnType<typeof vi.fn> };
+      };
+      vi.mocked(requestHasPermission).mockImplementation((_req, permission) =>
+        Promise.resolve(permission !== 'securityEvents:read'),
+      );
+      try {
+        // Only security rows asked for: nothing to read.
+        const executeCalls = db.execute.mock.calls.length;
+        const onlySecurity = await app.inject({
+          method: 'GET',
+          url: `/stations/${VALID_STATION_ID}/security-logs?source=security`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(onlySecurity.statusCode).toBe(200);
+        expect(onlySecurity.json()).toEqual({ data: [], total: 0 });
+        expect(db.execute.mock.calls.length).toBe(executeCalls);
+
+        // The whole feed reads the connection log only.
+        vi.mocked(sql).mockClear();
+        db.execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0 }]);
+        const feed = await app.inject({
+          method: 'GET',
+          url: `/stations/${VALID_STATION_ID}/security-logs`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(feed.statusCode).toBe(200);
+        const texts = vi
+          .mocked(sql)
+          .mock.calls.map((c) => (Array.isArray(c[0]) ? (c[0] as string[]).join('?') : ''));
+        expect(texts.some((t) => t.includes('FROM connection_logs'))).toBe(true);
+        expect(texts.some((t) => t.includes('FROM security_events'))).toBe(false);
+      } finally {
+        vi.mocked(requestHasPermission).mockResolvedValue(true);
+      }
+    });
+
     it('rejects an unknown severity', async () => {
       const response = await app.inject({
         method: 'GET',

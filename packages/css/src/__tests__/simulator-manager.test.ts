@@ -308,6 +308,8 @@ describe('SimulatorManager.handleCommand', () => {
       ['resumeCharging', 'resumeCharging', [2]],
       ['evFull', 'evFull', [2]],
       ['clearFault', 'clearFault', [2]],
+      // The station sends its own receipt time: no timestamp from the request.
+      ['securityEvent', 'sendSecurityEventNotification', ['FirmwareUpdated', undefined, 'info']],
       ['reservationReply', 'setNextReservationReply', ['NoReply']],
       ['goOffline', 'goOffline', []],
       ['comeOnline', 'comeOnline', []],

@@ -150,7 +150,14 @@ describe.each(['csms', 'portal'])('%s security headers', (app) => {
     expect(/font-src ([^;]*);/.exec(csp)?.[1]).toBe("'self'");
     expect(/style-src ([^;]*);/.exec(csp)?.[1]).toBe("'self' 'unsafe-inline'");
     expect(read('index.html')).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
-    expect(read('src/main.tsx')).toContain("import '@fontsource/inter/400.css';");
+    const main = read('src/main.tsx');
+    for (const weight of [400, 500, 600, 700]) {
+      expect(main).toContain(`import '@fontsource/inter/${String(weight)}.css';`);
+    }
+    // The font loads before the app stylesheet, so --font-sans finds it.
+    expect(main.indexOf("import '@fontsource/inter/700.css';")).toBeLessThan(
+      main.indexOf("import './index.css';"),
+    );
   });
 
   it('index.html carries no meta CSP and no inline script', () => {

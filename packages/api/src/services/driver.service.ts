@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, desc } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, getDriverDefaults } from '@evtivity/database';
 import { drivers, driverTokens } from '@evtivity/database';
 import * as tokenService from './token.service.js';
 
@@ -21,7 +21,12 @@ export async function createDriver(data: {
   email?: string;
   phone?: string;
 }) {
-  const [driver] = await db.insert(drivers).values(data).returning();
+  // A new driver starts with the company defaults (Settings > Company).
+  const defaults = await getDriverDefaults();
+  const [driver] = await db
+    .insert(drivers)
+    .values({ ...defaults, ...data })
+    .returning();
   return driver;
 }
 

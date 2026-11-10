@@ -312,7 +312,10 @@ describe('MeterValueGenerator', () => {
       const gen = new MeterValueGenerator(dc);
       gen.resetSession({ capacityKwh: 60, startSocPercent: 90 });
       gen.tick(false, null);
-      expect(gen.currentPowerW).toBeLessThan(150000 * 0.6);
+      // 90 % SoC: 0.95 - 0.5 * 0.75 = 0.575 of the maximum, with at most +5 % variation,
+      // below the 0.9 the flat part never goes under.
+      expect(gen.currentPowerW).toBeLessThanOrEqual(150000 * 0.575 * 1.05);
+      expect(gen.currentPowerW).toBeLessThan(150000 * 0.9 * 0.95);
       gen.resetSession({ capacityKwh: 60, startSocPercent: 100 });
       gen.tick(false, null);
       expect(gen.currentPowerW).toBe(0);

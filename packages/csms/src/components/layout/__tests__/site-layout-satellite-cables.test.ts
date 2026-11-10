@@ -1,7 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { CABLE_HOOK, CABLE_TURN_PITCH } from '../site-layout-model-cable-hook';
 import { describe, expect, it } from 'vitest';
+import { CHARGER_PORT_LIMITS } from '@evtivity/lib/site-layout';
 import { DC_CABLE_M, routeLength } from '../site-layout-charger-cables';
 import { CONNECTOR_SPECS, holsterPose, type ConnectorKind } from '../site-layout-connectors';
 import { dispenserHolsters } from '../site-layout-grid';
@@ -12,13 +14,19 @@ import {
   SATELLITE_SIDE_X,
   satelliteCoilPlace,
   satelliteGland,
-  satelliteHangerSpec,
+  satelliteHookSpec,
   satelliteHolster,
   satelliteHolsterCable,
   satelliteHolsterEntry,
 } from '../site-layout-satellite-cables';
 
 const KINDS: ConnectorKind[] = ['ccs1', 'ccs2', 'chademo', 'nacs'];
+
+/** A satellite carries one or two cables, one on each side (`CHARGER_PORT_LIMITS.dc.satelliteConnectors`). */
+const SATELLITE_COUNTS = Array.from(
+  { length: CHARGER_PORT_LIMITS.dc.satelliteConnectors },
+  (_, k) => k + 1,
+);
 
 interface Cable {
   side: -1 | 1;
@@ -30,14 +38,12 @@ interface Cable {
 /** Every idle cable of a satellite with `count` holsters of `kind`, as the scene lays them out. */
 function satelliteCables(count: number, kind: ConnectorKind): Cable[] {
   const holsters = dispenserHolsters(count);
-  return holsters.map((h, k) => {
-    const sideKinds = holsters.filter((o) => o.side === h.side).map(() => kind);
-    const slot = holsters.slice(0, k).filter((o) => o.side === h.side).length;
+  return holsters.map((h) => {
     return {
       side: h.side,
       backM: h.backM,
       kind,
-      route: satelliteHolsterCable(h.side, sideKinds, slot, h.backM),
+      route: satelliteHolsterCable(h.side, kind, h.backM),
     };
   });
 }
@@ -71,14 +77,12 @@ function routeGap(a: readonly Vec3[], b: readonly Vec3[]): number {
 describe('split system satellite cables', () => {
   it('runs every idle cable unbroken from its gland over its side peg into its handle', () => {
     for (const kind of KINDS) {
-      for (const count of [1, 2, 3, 4]) {
+      for (const count of SATELLITE_COUNTS) {
         const holsters = dispenserHolsters(count);
         holsters.forEach((h, k) => {
-          const sideKinds = holsters.filter((o) => o.side === h.side).map(() => kind);
-          const slot = holsters.slice(0, k).filter((o) => o.side === h.side).length;
-          const route = satelliteHolsterCable(h.side, sideKinds, slot, h.backM);
+          const route = satelliteHolsterCable(h.side, kind, h.backM);
           const label = `${kind} ${String(count)} cables, holster ${String(k)}`;
-          const gland = satelliteGland(h.side, slot);
+          const gland = satelliteGland(h.side);
           const first = route[0];
           const last = route[route.length - 1];
           if (first == null || last == null) throw new Error('empty route');
@@ -90,7 +94,7 @@ describe('split system satellite cables', () => {
           // The cable length is the DC dispenser class median, within 10 percent.
           expect(Math.abs(routeLength(route) - DC_CABLE_M) / DC_CABLE_M, label).toBeLessThan(0.1);
           // It goes over the saddle top of its own place on the peg (on a hanger, never loose).
-          const place = satelliteCoilPlace(h.side, sideKinds, slot);
+          const place = satelliteCoilPlace(h.side, kind);
           const top: Vec3 = [place.center[0], place.center[1] + place.r1, place.center[2]];
           expect(
             Math.min(...route.map((p) => Math.hypot(p[0] - top[0], p[1] - top[1], p[2] - top[2]))),
@@ -113,7 +117,7 @@ describe('split system satellite cables', () => {
 
   it('keeps every cable clear of the others and of the other handles', () => {
     for (const kind of KINDS) {
-      for (const count of [2, 3, 4]) {
+      for (const count of [2]) {
         const cables = satelliteCables(count, kind);
         const r = CONNECTOR_SPECS[kind].cableDiameterM / 2;
         cables.forEach((a, i) => {
@@ -142,28 +146,27 @@ describe('split system satellite cables', () => {
     }
   });
 
-  it('mounts each side peg on the side wall within reach, clear of the holster rail', () => {
+  it('mounts each side hook on the side wall within reach, clear of the holster rail', () => {
     for (const kind of KINDS) {
-      for (const kinds of [[kind], [kind, kind]]) {
-        const spec = satelliteHangerSpec(kinds);
-        const place = satelliteCoilPlace(1, kinds, 0);
-        // The saddle top inside the 0.38 to 1.22 m reach range of the 2010 ADA Standards 308.
-        const top = place.center[1] + place.r1;
-        expect(top).toBeGreaterThan(0.38);
-        expect(top).toBeLessThanOrEqual(1.22);
-        // The peg plate (0.1 m wide) stays on the 0.3 m deep wall and behind the rail.
-        const hd = SPLIT_SATELLITE.depthM / 2;
-        expect(SATELLITE_HANGER.zM - 0.05).toBeGreaterThanOrEqual(-hd);
-        expect(SATELLITE_HANGER.zM + 0.05).toBeLessThan(
-          SPLIT_SATELLITE.rail.zM - SPLIT_SATELLITE.rail.depthM / 2,
-        );
-        // Every cable's turns fit on the peg.
-        const last = satelliteCoilPlace(1, kinds, kinds.length - 1);
-        const turnsEnd =
-          last.center[0] +
-          (SATELLITE_HANGER.turnsPerCable - 0.5) * CONNECTOR_SPECS[kind].cableDiameterM * 1.15;
-        expect(turnsEnd).toBeLessThan(SATELLITE_SIDE_X + spec.standoffM + spec.widthM);
-      }
+      const spec = satelliteHookSpec(kind);
+      const place = satelliteCoilPlace(1, kind);
+      // The cable's top over the hook inside the 0.38 to 1.22 m reach range of the 2010 ADA Standards 308.
+      const top = place.center[1] + place.r1;
+      expect(top).toBeGreaterThan(0.38);
+      expect(top).toBeLessThanOrEqual(1.22);
+      // The hook's rose (0.05 m across) stays on the 0.3 m deep wall and behind the rail.
+      const hd = SPLIT_SATELLITE.depthM / 2;
+      expect(SATELLITE_HANGER.zM - CABLE_HOOK.roseRadiusM).toBeGreaterThanOrEqual(-hd);
+      expect(SATELLITE_HANGER.zM + CABLE_HOOK.roseRadiusM).toBeLessThan(
+        SPLIT_SATELLITE.rail.zM - SPLIT_SATELLITE.rail.depthM / 2,
+      );
+      // The cable's turns fit on the hook's throat.
+      const turnsEnd =
+        place.center[0] +
+        (SATELLITE_HANGER.turnsPerCable - 0.5) *
+          CABLE_TURN_PITCH *
+          CONNECTOR_SPECS[kind].cableDiameterM;
+      expect(turnsEnd).toBeLessThan(SATELLITE_SIDE_X + CABLE_HOOK.roseThicknessM + spec.throatM);
     }
   });
 });

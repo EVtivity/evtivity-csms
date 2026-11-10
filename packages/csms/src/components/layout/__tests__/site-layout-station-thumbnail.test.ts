@@ -59,6 +59,7 @@ describe('stationThumbnailModel', () => {
       mounting: 'wall' as const,
     };
     expect(stationThumbnailModel(station([[T1]]), office)).toBe('wall-box');
+    expect(stationThumbnailModel(station([[T1], [T1]]), office)).toBe('wall-box-dual');
     expect(stationThumbnailModel(station([[T1]]), { ...office, mounting: 'stall' as const })).toBe(
       'ac-pedestal',
     );

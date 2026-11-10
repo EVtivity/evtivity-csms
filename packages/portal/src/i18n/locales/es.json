@@ -1019,7 +1019,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "Esta salida la gestiona un sistema de depósito de autobuses; cámbiela allí o desactive el sistema de depósito.",
     "DEPOT_SYSTEM_NOT_FOUND": "Sistema de depósito de autobuses no encontrado.",
     "DEPOT_SYSTEM_ID_IN_USE": "Otro sistema de depósito de autobuses usa este ID de sistema.",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Un sistema de depósito de autobuses solo atiende sitios de tipo depósito."
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Un sistema de depósito de autobuses solo atiende sitios de tipo depósito.",
+    "RFID_SELF_SERVICE_DISABLED": "Su operador gestiona sus tarjetas RFID. Contacte al operador para añadir, cambiar, desactivar o eliminar una tarjeta.",
+    "NOTIFICATION_EVENT_MANDATORY": "Tu operador exige esta notificación en este canal, por lo que no se puede desactivar"
   },
   "validation": {
     "required": "Este campo es obligatorio",
@@ -1146,7 +1148,10 @@
     "labelPlaceholder": "Etiqueta (opcional), p. ej., Tarjeta RFID de empresa",
     "labelHint": "Un nombre que le ayuda a distinguir sus tarjetas. Déjelo vacío para mostrar el número de tarjeta.",
     "renameCard": "Renombrar tarjeta RFID",
-    "renameFailed": "No se pudo renombrar la tarjeta. Inténtelo de nuevo."
+    "renameFailed": "No se pudo renombrar la tarjeta. Inténtelo de nuevo.",
+    "managedByOperator": "Su operador gestiona sus tarjetas RFID. Para añadir, cambiar o eliminar una tarjeta, o para bloquear una tarjeta perdida, contacte al operador.",
+    "noCardsAssigned": "No tiene tarjetas RFID asignadas.",
+    "contactSupport": "Contactar con Soporte"
   },
   "vehicles": {
     "addVehicle": "Agregar vehículo",
@@ -1532,5 +1537,91 @@
   "storageUnavailable": {
     "title": "Subida no disponible",
     "description": "No se pueden subir archivos en este momento. Intente de nuevo más tarde o comuníquese con soporte si el problema continúa."
+  },
+  "notificationPrefs": {
+    "intro": "Elige qué notificaciones recibes en cada canal.",
+    "notification": "Notificación",
+    "allNotifications": "Todas las Notificaciones",
+    "allChannelLabel": "Todas las notificaciones por {{channel}}",
+    "eventChannelLabel": "{{event}} por {{channel}}",
+    "channels": {
+      "email": "Correo electrónico",
+      "sms": "SMS",
+      "push": "Push"
+    },
+    "required": "Exigida por tu operador",
+    "requiredNote": "Tu operador exige las notificaciones marcadas con un candado. Siempre se envían por ese canal.",
+    "alwaysSentNote": "Los mensajes de cuenta y seguridad, como el restablecimiento de contraseña y los códigos de inicio de sesión, siempre se envían.",
+    "noChannels": "Tu operador aún no ha configurado notificaciones por correo electrónico ni por SMS.",
+    "groups": {
+      "sessions": "Sesiones de Carga",
+      "payments": "Pagos",
+      "reservations": "Reservas",
+      "invoices": "Facturas",
+      "supportCases": "Casos de Soporte",
+      "rfidCards": "Tarjetas RFID",
+      "maintenance": "Mantenimiento",
+      "stationWatch": "Seguimiento de Estaciones",
+      "prepaidBalance": "Saldo Prepago",
+      "fleetBilling": "Facturación de Flota"
+    },
+    "events": {
+      "session": {
+        "Started": "Carga iniciada",
+        "Updated": "Progreso de la carga",
+        "Completed": "Carga completada",
+        "Faulted": "Carga detenida por una falla",
+        "PaymentReceived": "Pago de la sesión recibido",
+        "IdlingStarted": "Cargo por inactividad iniciado",
+        "Receipt": "Recibo de la sesión"
+      },
+      "payment": {
+        "Complete": "Pago completado",
+        "Refunded": "Pago reembolsado",
+        "FeeRefunded": "Tarifa de reserva reembolsada",
+        "PreAuthFailed": "Falló la autorización del pago",
+        "CaptureFailed": "Falló el pago",
+        "MissingPaymentMethod": "No hay método de pago registrado",
+        "AccountCreditLimit": "Límite de crédito de la flota alcanzado"
+      },
+      "reservation": {
+        "Created": "Reserva confirmada",
+        "Cancelled": "Reserva cancelada",
+        "CancelledForMaintenance": "Reserva cancelada por mantenimiento",
+        "Expiring": "La reserva termina pronto",
+        "Expired": "Reserva vencida",
+        "StationFaulted": "Estación reservada fuera de servicio",
+        "TakenByOther": "Otra persona ocupó el cargador reservado"
+      },
+      "invoice": {
+        "Sent": "Factura enviada",
+        "CreditNote": "Nota de crédito emitida"
+      },
+      "supportCase": {
+        "Created": "Caso de soporte creado",
+        "OperatorReply": "Respuesta a tu caso de soporte",
+        "Resolved": "Caso de soporte resuelto",
+        "AiAnswered": "Respuesta automática a tu caso de soporte"
+      },
+      "token": {
+        "Added": "Tarjeta RFID agregada",
+        "Removed": "Tarjeta RFID eliminada",
+        "Deactivated": "Tarjeta RFID desactivada",
+        "Reactivated": "Tarjeta RFID reactivada"
+      },
+      "maintenance": {
+        "SessionStopped": "Carga detenida por mantenimiento"
+      },
+      "watch": {
+        "StationAvailable": "Estación seguida disponible"
+      },
+      "prepaid": {
+        "LowCredit": "Saldo prepago bajo",
+        "CreditExhausted": "Saldo prepago agotado"
+      },
+      "fleet": {
+        "AccountBillingChanged": "Facturación de flota cambiada"
+      }
+    }
   }
 }

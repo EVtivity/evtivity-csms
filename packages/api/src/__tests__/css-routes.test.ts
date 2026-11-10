@@ -449,6 +449,164 @@ describe('CSS routes', () => {
       expect(JSON.parse(published?.[1] ?? '{}')).toMatchObject({ action, params });
     });
 
+    it.each([
+      ['ocpp2.1', 'InvalidCsmsCertificate'],
+      ['ocpp2.0.1', 'MaintenanceLoginFailed'],
+      ['ocpp1.6', 'InvalidCentralSystemCertificate'],
+      ['ocpp1.6', 'TiltDetected'],
+      ['ocpp2.1', 'CableCutDetected'],
+    ])('publishes a %s security event %s with its tech info', async (ocppProtocol, type) => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-SEC', ocppProtocol }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/securityEvent',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-SEC', type, techInfo: 'door sensor' },
+      });
+      expect(response.statusCode).toBe(200);
+      const published = mockState.publishCalls.find(([ch]) => ch === 'css_commands');
+      expect(JSON.parse(published?.[1] ?? '{}')).toMatchObject({
+        action: 'securityEvent',
+        params: { type, techInfo: 'door sensor' },
+      });
+    });
+
+    it.each([
+      ['ocpp1.6', 'InvalidCsmsCertificate'],
+      ['ocpp2.1', 'InvalidChargePointCertificate'],
+      ['ocpp2.1', 'SomethingMadeUp'],
+    ])('refuses a %s security event %s outside its list', async (ocppProtocol, type) => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-SEC', ocppProtocol }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/securityEvent',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-SEC', type },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.payload).code).toBe('VALIDATION_ERROR');
+      expect(mockState.publishCalls).toHaveLength(0);
+    });
+
+    it('refuses a security event tech info over 255 characters', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/securityEvent',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-SEC', type: 'TiltDetected', techInfo: 'x'.repeat(256) },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('publishes the High Temperature fault', async () => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-21', ocppProtocol: 'ocpp2.0.1' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/injectFault',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-21', evseId: 1, errorCode: 'HighTemperature', mode: 'end' },
+      });
+      expect(response.statusCode).toBe(200);
+      const published = mockState.publishCalls.find(([ch]) => ch === 'css_commands');
+      expect(JSON.parse(published?.[1] ?? '{}')).toMatchObject({
+        action: 'injectFault',
+        params: { errorCode: 'HighTemperature' },
+      });
+    });
+
+    it('audits a simulated security event on the station in the caller name', async () => {
+      mockAuditStationChange.mockClear();
+      setupDbResults([
+        { id: 'id-1', stationId: 'TEST-SEC', ocppProtocol: 'ocpp2.1', chargingStationId: 'sta_1' },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/securityEvent',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-SEC', type: 'TamperDetectionActivated' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockAuditStationChange).toHaveBeenCalledWith(
+        expect.anything(),
+        'sta_1',
+        'updated',
+        expect.objectContaining({
+          after: {
+            simulatedSecurityEvent: { type: 'TamperDetectionActivated', severity: 'critical' },
+          },
+        }),
+      );
+    });
+
+    it('audits the High Temperature fault on the station', async () => {
+      mockAuditStationChange.mockClear();
+      setupDbResults([
+        { id: 'id-1', stationId: 'TEST-21', ocppProtocol: 'ocpp2.1', chargingStationId: 'sta_2' },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/injectFault',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-21', evseId: 1, errorCode: 'HighTemperature' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockAuditStationChange).toHaveBeenCalledWith(
+        expect.anything(),
+        'sta_2',
+        'updated',
+        expect.objectContaining({
+          after: { simulatedFault: { errorCode: 'HighTemperature', evseId: 1 } },
+        }),
+      );
+    });
+
+    it('sends a v21 SecurityEventNotification of the station list and audits it', async () => {
+      mockAuditStationChange.mockClear();
+      setupDbResults([
+        { id: 'id-1', stationId: 'TEST-SEC', ocppProtocol: 'ocpp2.1', chargingStationId: 'sta_3' },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v21/sendSecurityEventNotification',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          stationId: 'TEST-SEC',
+          type: 'SettingSystemTime',
+          timestamp: '2026-11-10T10:00:00Z',
+          techInfo: 'clock',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockAuditStationChange).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['a type outside the station list', { type: 'AnyText', timestamp: '2026-11-10T10:00:00Z' }],
+      ['a type over 50 characters', { type: 'T'.repeat(51), timestamp: '2026-11-10T10:00:00Z' }],
+      [
+        'a tech info over 255 characters',
+        { type: 'TiltDetected', timestamp: '2026-11-10T10:00:00Z', techInfo: 'x'.repeat(256) },
+      ],
+      ['a time that is no date-time', { type: 'TiltDetected', timestamp: 'yesterday' }],
+    ])('refuses a v21 sendSecurityEventNotification with %s', async (_name, body) => {
+      setupDbResults([
+        { id: 'id-1', stationId: 'TEST-SEC', ocppProtocol: 'ocpp2.1', chargingStationId: 'sta_3' },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v21/sendSecurityEventNotification',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-SEC', ...body },
+      });
+      // The route answers VALIDATION_ERROR; a schema refusal is mapped to it by
+      // the app error handler, which this test app does not install.
+      expect(response.statusCode).toBe(400);
+      expect(['VALIDATION_ERROR', 'FST_ERR_VALIDATION']).toContain(
+        JSON.parse(response.payload).code,
+      );
+      expect(mockState.publishCalls.filter(([ch]) => ch === 'css_commands')).toHaveLength(0);
+    });
+
     it.each(['ocpp2.1', 'ocpp2.0.1'])(
       'publishes setSignalStrength for a %s station',
       async (ocppProtocol) => {

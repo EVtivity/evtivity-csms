@@ -5,13 +5,23 @@ import { useEffect, useRef } from 'react';
 import { tryParseJson } from '@evtivity/lib/safe-json';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '@/components/ui/toast';
+import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { APP_VERSION } from '@/lib/version';
 import { isNewerVersion } from '@/lib/version-compare';
 
-const VERSION_URL = 'https://evtivity.com/csms-version.txt';
+// The worker reads the latest release from the EVtivity website once a day
+// (system.updateCheckEnabled); the browser asks only the own API, never the
+// website (security review case 385).
+const UPDATE_CHECK_PATH = '/v1/system/update-check';
 const DISMISS_KEY = 'csms_update_dismissed';
 const DISMISS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+interface UpdateCheck {
+  enabled: boolean;
+  latestVersion: string | null;
+  checkedAt: string | null;
+}
 
 interface DismissalRecord {
   version: string;
@@ -45,9 +55,9 @@ export function useUpdateCheck(): void {
 
     void (async (): Promise<void> => {
       try {
-        const res = await fetch(VERSION_URL);
-        if (!res.ok) return;
-        const latest = (await res.text()).trim();
+        const check = await api.get<UpdateCheck>(UPDATE_CHECK_PATH);
+        const latest = check.latestVersion?.trim() ?? null;
+        if (!check.enabled || latest == null) return;
         // Semver precedence: a 0.1.38-beta.1 install is told about 0.1.38.
         if (!isNewerVersion(latest, APP_VERSION)) return;
 

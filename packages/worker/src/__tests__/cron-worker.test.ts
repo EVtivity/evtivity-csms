@@ -117,6 +117,7 @@ const handlerMocks = {
   paymentTerminalStatusHandler: vi.fn().mockResolvedValue(undefined),
   departureScheduleExpandHandler: vi.fn().mockResolvedValue(undefined),
   departureCloseHandler: vi.fn().mockResolvedValue(undefined),
+  csmsUpdateCheckHandler: vi.fn().mockResolvedValue({ status: 'off' }),
 };
 
 vi.mock('../handlers/report-scheduler.js', () => ({
@@ -218,6 +219,9 @@ vi.mock('../handlers/departure-schedule-expand.js', () => ({
 }));
 vi.mock('../handlers/departure-close.js', () => ({
   departureCloseHandler: (...a: unknown[]) => handlerMocks.departureCloseHandler(...a),
+}));
+vi.mock('../handlers/csms-update-check.js', () => ({
+  csmsUpdateCheckHandler: (...a: unknown[]) => handlerMocks.csmsUpdateCheckHandler(...a),
 }));
 vi.mock('../handlers/ai-insight-scan.js', () => ({
   aiInsightScanHandler: (...a: unknown[]) => handlerMocks.aiInsightScanHandler(...a),
@@ -402,6 +406,7 @@ describe('cron-worker processor dispatch', () => {
       ['payment-terminal-status', 'paymentTerminalStatusHandler'],
       ['departure-schedule-expand', 'departureScheduleExpandHandler'],
       ['departure-close', 'departureCloseHandler'],
+      ['csms-update-check', 'csmsUpdateCheckHandler'],
     ];
 
     for (const [jobName, handlerKey] of routes) {

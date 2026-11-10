@@ -52,7 +52,7 @@ import {
 } from '@evtivity/database';
 import type { PlanProfileReplyOutcome } from '@evtivity/database';
 import { planProfileHash } from '@evtivity/services/charging-plan-profile-hash';
-import { getSecuritySeverity } from '../lib/security-severity.js';
+import { getSecuritySeverity } from '@evtivity/lib/security-severity';
 import { paymentContext } from '../lib/payments.js';
 import { reportedCharacteristics, upsertStationConfiguration } from './station-configurations.js';
 import { CACHE_MAX_SIZE } from './projection-support/ttl-cache.js';

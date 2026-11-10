@@ -74,6 +74,24 @@ describe('useLayoutWheelNav', () => {
     expect(scene.nudges).toHaveLength(0);
   });
 
+  it('zooms a mouse wheel and a pinch toward the pointer, a swipe still pans', () => {
+    const at: Array<{ zoom: number; x: number; y: number }> = [];
+    scene.zoomAt = (zoom, p) => {
+      at.push({ zoom, x: p.clientX, y: p.clientY });
+    };
+    wheel(canvas, { deltaY: -100, clientX: 120, clientY: 80 });
+    wheel(canvas, { deltaY: -4, ctrlKey: true, clientX: 30, clientY: 40 });
+    wheel(canvas, { deltaX: 10, deltaY: 6.5 });
+    expect(at).toEqual([
+      { zoom: expect.any(Number) as number, x: 120, y: 80 },
+      { zoom: expect.any(Number) as number, x: 30, y: 40 },
+    ]);
+    expect(at[0]?.zoom).toBeGreaterThan(0);
+    // The swipe pans through nudgeCamera, never zoomAt.
+    expect(scene.nudges).toHaveLength(1);
+    expect(scene.nudges[0]?.zoom).toBe(0);
+  });
+
   it('zooms for a Safari trackpad pinch', () => {
     const start = Object.assign(new Event('gesturestart', { cancelable: true }), { scale: 1 });
     const change = Object.assign(new Event('gesturechange', { cancelable: true }), { scale: 1.5 });

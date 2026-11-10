@@ -58,6 +58,13 @@ export const BUS_DISPENSER_HOLSTERS: readonly Vec3[] = [
   [0.3, 1.2, FRONT_Z],
 ];
 
+/**
+ * Where the RFID pad mounts: between the holsters, 1.12 m up, inside the 15
+ * to 48 in reach range (2010 ADA Standards 308.2, 308.3); the screen above
+ * it is out of reach of a hand at 1.82 m.
+ */
+export const BUS_DISPENSER_RFID: Vec3 = [0, 1.12, FRONT_Z];
+
 /** The screen center on the cabinet front (display message and glow). */
 export const BUS_DISPENSER_SCREEN: Vec3 = [0, BUS_DISPENSER.screen.yM, FRONT_Z + 0.012];
 
@@ -154,10 +161,7 @@ export function createBusDispenserKit(tips: readonly CableArmTip[]): DepotKit {
   p.add('light', frontProfileG(roundedRect(D.widthM * 0.7, 0.03, 0.015), 0.008), {
     at: [0, D.plinthM + D.heightM - 0.1, FRONT_Z + 0.006],
   });
-  // The RFID reader and the emergency stop beside the screen.
-  p.add('trim', frontProfileG(roundedRect(0.11, 0.11, 0.015), 0.012, 0.002), {
-    at: [0.3, D.screen.yM, FRONT_Z + 0.006],
-  });
+  // The emergency stop beside the screen (the scene adds the RFID pad, `BUS_DISPENSER_RFID`).
   p.add('stop', cylG(0.03, 0.035, 0.04, 14), {
     at: [-0.3, D.screen.yM, FRONT_Z + 0.02],
     rot: [Math.PI / 2, 0, 0],

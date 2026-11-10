@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// Map-style wheel input on the 3D layout stage. The listener runs in the
+// Map-style wheel input on the 3D layout stage: a mouse wheel and a pinch zoom
+// toward the point under the pointer (`zoomAt`), a trackpad swipe pans. The listener runs in the
 // capture phase and stops the event, so the orbit controls on the canvas
 // never zoom as well; a scrollable panel on the stage (the station list, a
 // popup) keeps its own scrolling.
@@ -28,6 +29,8 @@ export function insideScrollable(target: EventTarget | null, stage: HTMLElement)
 
 interface GestureLike extends Event {
   scale?: number;
+  clientX?: number;
+  clientY?: number;
 }
 
 export function useLayoutWheelNav(
@@ -63,7 +66,10 @@ export function useLayoutWheelNav(
         distance: scene.viewDistance(),
         stageHeightPx: (stage as HTMLElement).clientHeight,
       });
-      if (!isZeroNudge(nudge)) scene.nudgeCamera?.(nudge);
+      if (isZeroNudge(nudge)) return;
+      // A wheel or pinch zoom goes toward the point under the pointer, like a map.
+      if (source !== 'trackpad' && scene.zoomAt != null) scene.zoomAt(nudge.zoom, e);
+      else scene.nudgeCamera?.(nudge);
     }
 
     // Safari sends a trackpad pinch as gesture events, not a ctrl wheel.
@@ -76,8 +82,13 @@ export function useLayoutWheelNav(
       const scale = e.scale ?? 1;
       const zoom = gestureZoom(gestureScale, scale);
       gestureScale = scale;
-      if (zoom !== 0)
-        sceneRef.current?.nudgeCamera?.({ forward: 0, right: 0, yaw: 0, pitch: 0, zoom });
+      if (zoom === 0) return;
+      const scene = sceneRef.current;
+      if (scene?.zoomAt != null && e.clientX != null && e.clientY != null) {
+        scene.zoomAt(zoom, { clientX: e.clientX, clientY: e.clientY });
+      } else {
+        scene?.nudgeCamera?.({ forward: 0, right: 0, yaw: 0, pitch: 0, zoom });
+      }
     }
 
     stage.addEventListener('wheel', onWheel, { capture: true, passive: false });

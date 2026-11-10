@@ -1,3 +1,15 @@
+# The dependency manifests with every workspace version set to 0.0.0
+# (scripts/docker-dependency-manifests.mjs). A release changes only the version
+# fields, so the npm ci layers below stay cached; the real manifests are copied
+# back after each install.
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS manifests
+WORKDIR /real
+COPY package.json package-lock.json ./
+COPY packages/lib/package.json packages/lib/
+COPY packages/csms/package.json packages/csms/
+COPY scripts/docker-dependency-manifests.mjs /tmp/docker-dependency-manifests.mjs
+RUN node /tmp/docker-dependency-manifests.mjs /real /app
+
 # The build output is static files, so build once on the native platform instead of
 # again under emulation for each target architecture.
 FROM --platform=$BUILDPLATFORM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS build
@@ -8,11 +20,10 @@ ENV npm_config_fetch_retries=5 \
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-COPY packages/lib/package.json packages/lib/
-COPY packages/csms/package.json packages/csms/
+COPY --from=manifests /app/ ./
 
 RUN npm ci --ignore-scripts --workspace=packages/csms
+COPY --from=manifests /real/ ./
 
 COPY packages/csms/ packages/csms/
 COPY packages/lib/ packages/lib/

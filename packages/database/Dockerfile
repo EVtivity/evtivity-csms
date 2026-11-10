@@ -1,11 +1,9 @@
-FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
-# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
-ENV npm_config_fetch_retries=5 \
-    npm_config_fetch_retry_mintimeout=20000 \
-    npm_config_fetch_retry_maxtimeout=120000
-
-WORKDIR /app
-
+# The dependency manifests with every workspace version set to 0.0.0
+# (scripts/docker-dependency-manifests.mjs). A release changes only the version
+# fields, so the npm ci layers below stay cached; the real manifests are copied
+# back after each install.
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS manifests
+WORKDIR /real
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
@@ -22,8 +20,21 @@ COPY packages/portal/package.json packages/portal/
 COPY packages/codegen/package.json packages/codegen/
 COPY packages/css/package.json packages/css/
 COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
+COPY scripts/docker-dependency-manifests.mjs /tmp/docker-dependency-manifests.mjs
+RUN node /tmp/docker-dependency-manifests.mjs /real /app
+
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
+
+WORKDIR /app
+
+COPY --from=manifests /app/ ./
 
 RUN npm ci --ignore-scripts && npm rebuild argon2
+COPY --from=manifests /real/ ./
 
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/

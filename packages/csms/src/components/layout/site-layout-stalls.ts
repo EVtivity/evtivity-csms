@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // The stalls a station serves on a parking lot or an office or retail row,
-// without three.js: a dual-port AC pedestal stands on the line between its
-// spot and the partner spot and serves both (`sharesSpotPair`,
+// without three.js: a dual-port AC pedestal or a dual-outlet DC dispenser
+// (and a two-port wall box on an office or retail row, on the facade)
+// stands on the line between its spot and the partner spot and serves both (`sharesSpotPair`,
 // `spotPairPartner` in @evtivity/lib/site-layout); the station of the
 // accessible charging space serves one widened vehicle space beside a striped
 // access aisle (`accessibleChargingSpace`, `ACCESSIBLE_SPACE`); a DC split
@@ -22,7 +23,7 @@ export interface Stall {
 export interface StationStalls {
   /** How far the charger stands from the middle of its spot along the row, in lot meters. */
   shiftX: number;
-  /** The stalls it serves, EVSE order (lower column first), in its own frame. */
+  /** The stalls it serves, EVSE order (a paired station: left first in its own frame; a split system: from its first dispenser), in its own frame. */
   stalls: Stall[];
   /** A DC split system: a dispenser stands in the head of every stall (EVSE order). */
   dispensers?: boolean | undefined;
@@ -34,9 +35,11 @@ export interface AccessibleSpaceBoxes {
   aisle: Box;
 }
 
-/** The partner spot of a parking lot spot on the 3D lot (columns 0 and 1, 2 and 3, ...). */
+/** The partner spot of a parking lot or office or retail row spot on the 3D lot (columns 0 and 1, 2 and 3, ...). */
 export function lotPairPartner(bay: LayoutBay, lot: Lot): LayoutBay | null {
-  if (lot.siteType !== 'parking_lot' || !isSpot(bay, lot)) return null;
+  if ((lot.siteType !== 'parking_lot' && lot.siteType !== 'office_retail') || !isSpot(bay, lot)) {
+    return null;
+  }
   const partner = { col: bay.col % 2 === 0 ? bay.col + 1 : bay.col - 1, row: bay.row };
   return isSpot(partner, lot) ? partner : null;
 }
@@ -102,16 +105,28 @@ export function stationStalls(
       dispensers: true,
     };
   }
+  const access = opts.access;
   const partner = opts.pair ? lotPairPartner(bay, lot) : null;
   if (partner != null) {
     const lineX = w * Math.max(bay.col, partner.col);
-    const cols = [bay.col, partner.col].sort((a, b) => a - b);
+    // EVSE 1 serves the left stall seen from the charger's front (OCPP 2.0.1
+    // Part 1, Numbering: "from left to right"), on a turned row too; the
+    // stall of the accessible charging space is its widened vehicle space.
+    const stalls = [bay.col, partner.col].map((col) => {
+      if (access != null && access.stall.col === col && access.stall.row === bay.row) {
+        const { vehicle } = accessibleSpaceBoxes(access, lot);
+        return {
+          x: sign * ((vehicle.minX + vehicle.maxX) / 2 - lineX),
+          width: vehicle.maxX - vehicle.minX,
+        };
+      }
+      return { x: sign * (center(col) - lineX), width: w };
+    });
     return {
       shiftX: lineX - center(bay.col),
-      stalls: cols.map((col) => ({ x: sign * (center(col) - lineX), width: w })),
+      stalls: stalls.sort((a, b) => a.x - b.x),
     };
   }
-  const access = opts.access;
   if (access != null && access.stall.col === bay.col && access.stall.row === bay.row) {
     const { vehicle } = accessibleSpaceBoxes(access, lot);
     return {

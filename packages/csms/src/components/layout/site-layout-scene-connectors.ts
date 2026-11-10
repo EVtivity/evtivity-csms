@@ -99,7 +99,8 @@ export function installConnectors(scn: ConnectorsCtx): void {
     return g.clone();
   }
   // A holster on a charger surface at `mount` (its plate against the surface,
-  // the cup facing `facing`, a unit vector on the ground plane) with its handle
+  // the cup facing `facing`, a unit vector on the ground plane, tipped
+  // `noseUp` down, `holsterPose`) with its handle
   // seated nose first, unless the handle is plugged into a vehicle. Returns
   // where the handle's cable leaves its boot, or the cup mouth when empty.
   // The cable of a handle holstered on a side wall: out of its gland along the
@@ -138,17 +139,18 @@ export function installConnectors(scn: ConnectorsCtx): void {
     mount: Point3,
     facing: { x: number; z: number },
     plugged: boolean,
+    noseUp = 0,
   ): CableEntry {
-    const pose = holsterPose(mount, facing);
+    const pose = holsterPose(mount, facing, noseUp);
     const holster = connectorHolster(kind);
     holster.position.set(pose.mouth.x, pose.mouth.y, pose.mouth.z);
-    holster.rotation.y = pose.holsterYaw;
+    holster.rotation.set(pose.holsterTilt, pose.holsterYaw, 0, 'YXZ');
     parent.add(holster);
-    const entry = handleCableEntry(pose.handle, pose.handleYaw, kind);
+    const entry = handleCableEntry(pose.handle, pose.handleYaw, kind, noseUp);
     if (plugged) return entry;
     const h = connectorHandle(kind);
     h.position.set(pose.handle.x, pose.handle.y, pose.handle.z);
-    h.rotation.y = pose.handleYaw;
+    h.rotation.set(pose.handleTilt, pose.handleYaw, 0, 'YXZ');
     parent.add(h);
     return entry;
   }

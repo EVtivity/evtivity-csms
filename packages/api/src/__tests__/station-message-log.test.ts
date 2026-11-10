@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi } from 'vitest';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
+
+const dialect = new PgDialect();
 
 const execute = vi.fn();
 
@@ -43,5 +47,45 @@ describe('listStationMessageLog', () => {
       'ftp://fw:[redacted]@files.example.com/fw.bin',
     );
     expect(JSON.stringify(page)).not.toContain('UrlSecret99');
+  });
+
+  it('leaves security event rows out of the rows, the total and the action list when hidden', async () => {
+    execute.mockReset();
+    execute
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ count: 0 }])
+      .mockResolvedValueOnce([{ count: 0 }])
+      .mockResolvedValueOnce([{ action: 'Heartbeat' }, { action: 'SecurityEventNotification' }])
+      .mockResolvedValueOnce([]);
+
+    const page = await listStationMessageLog('sta_1', {
+      page: 1,
+      limit: 20,
+      hiddenActions: ['SecurityEventNotification'],
+    });
+
+    expect(page.actions).toEqual(['Heartbeat']);
+    // The rows, the log count and the queued count all carry the filter.
+    for (const call of execute.mock.calls.slice(0, 3)) {
+      const query = dialect.sqlToQuery(call[0] as SQL);
+      expect(query.sql).toMatch(/IS NULL OR \S+ NOT IN \(\$\d+\)/);
+      expect(query.params).toContain('SecurityEventNotification');
+    }
+  });
+
+  it('adds no action filter for a reader with securityEvents:read', async () => {
+    execute.mockReset();
+    execute
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ count: 0 }])
+      .mockResolvedValueOnce([{ count: 0 }])
+      .mockResolvedValueOnce([{ action: 'SecurityEventNotification' }])
+      .mockResolvedValueOnce([]);
+
+    const page = await listStationMessageLog('sta_1', { page: 1, limit: 20, hiddenActions: [] });
+
+    expect(page.actions).toEqual(['SecurityEventNotification']);
+    const query = dialect.sqlToQuery(execute.mock.calls[0]?.[0] as SQL);
+    expect(query.sql).not.toContain('NOT IN');
   });
 });

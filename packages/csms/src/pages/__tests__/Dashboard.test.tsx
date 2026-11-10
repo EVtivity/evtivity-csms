@@ -92,6 +92,9 @@ vi.mock('@/components/ai/insights/ActiveInsightsWidget', () => ({
 vi.mock('@/components/charts/StationStatusChart', () => ({
   StationStatusChart: () => <div data-testid="chart" />,
 }));
+vi.mock('@/components/charts/SecurityEventsCard', () => ({
+  SecurityEventsCard: () => <div data-testid="security-events-card" />,
+}));
 vi.mock('@/components/charts/EnergyChart', () => ({
   EnergyChart: () => <div data-testid="chart" />,
 }));
@@ -443,6 +446,20 @@ describe('Dashboard layout customizing', () => {
     '/v1/dashboard/plug-and-charge',
     '/v1/dashboard/free-vend',
   ];
+
+  it('shows the Security Events card right after the station status chart with securityEvents:read', async () => {
+    await renderDashboard('operator', ['dashboard:read', 'securityEvents:read']);
+    const card = await screen.findByTestId('security-events-card');
+    const status = screen.getAllByTestId('chart')[0] as HTMLElement;
+    expect(before(status, card)).toBe(true);
+    const energy = screen.getAllByTestId('chart')[1] as HTMLElement;
+    expect(before(card, energy)).toBe(true);
+  });
+
+  it('hides the Security Events card without securityEvents:read', async () => {
+    await renderDashboard('viewer', ['dashboard:read']);
+    expect(screen.queryByTestId('security-events-card')).toBeNull();
+  });
 
   it('hides Active insights without aiInsights:read', async () => {
     await renderDashboard('admin');

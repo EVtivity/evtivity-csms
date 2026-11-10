@@ -21,7 +21,17 @@ import {
   type PriceDisplay,
   type TaxBasis,
 } from '@evtivity/lib/price-display';
+import {
+  DEFAULT_DISTANCE_UNIT,
+  DEFAULT_DRIVER_LANGUAGE,
+  isDistanceUnit,
+  type DistanceUnit,
+} from '@evtivity/lib/driver-defaults';
+import { isUiLanguage } from '@evtivity/lib/languages';
 import { SaveButton } from '@/components/save-button';
+import { DistanceUnitSelect } from '@/components/ui/distance-unit-select';
+import { LanguageSelect } from '@/components/ui/language-select';
+import { TimezoneSelect } from '@/components/ui/timezone-select';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,6 +83,9 @@ interface CompanyValues {
   currency: string;
   priceDisplay: PriceDisplay;
   taxBasis: TaxBasis;
+  timezone: string;
+  driverLanguage: string;
+  driverDistanceUnit: DistanceUnit;
   contactEmail: string;
   supportEmail: string;
   supportPhone: string;
@@ -96,11 +109,18 @@ function companyValuesFrom(settings: Record<string, unknown> | undefined): Compa
     return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
   };
   const priceDisplay = s('company.priceDisplay');
+  const driverLanguage = s('system.driverLanguage');
+  const driverDistanceUnit = s('system.distanceUnit');
   return {
     name: s('company.name') || 'EVtivity',
     currency: s('company.currency').trim().toUpperCase() || DEFAULT_CURRENCY,
     priceDisplay: isPriceDisplay(priceDisplay) ? priceDisplay : DEFAULT_PRICE_DISPLAY,
     taxBasis: settings == null ? DEFAULT_TAX_BASIS : resolveTaxBasis(settings['company.taxBasis']),
+    timezone: s('system.timezone') || 'America/New_York',
+    driverLanguage: isUiLanguage(driverLanguage) ? driverLanguage : DEFAULT_DRIVER_LANGUAGE,
+    driverDistanceUnit: isDistanceUnit(driverDistanceUnit)
+      ? driverDistanceUnit
+      : DEFAULT_DISTANCE_UNIT,
     contactEmail: s('company.contactEmail'),
     supportEmail: s('company.supportEmail'),
     supportPhone: s('company.supportPhone'),
@@ -137,6 +157,8 @@ export function CompanySettings({
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['settings'] }),
       queryClient.invalidateQueries({ queryKey: ['branding'] }),
+      // The Create Driver form preselects the driver defaults.
+      queryClient.invalidateQueries({ queryKey: ['drivers', 'defaults'] }),
     ]);
   };
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +185,9 @@ export function CompanySettings({
     currency: companyCurrency,
     priceDisplay: companyPriceDisplay,
     taxBasis: companyTaxBasis,
+    timezone: companyTimezone,
+    driverLanguage,
+    driverDistanceUnit,
     contactEmail: companyContactEmail,
     supportEmail: companySupportEmail,
     supportPhone: companySupportPhone,
@@ -182,6 +207,9 @@ export function CompanySettings({
   const setCompanyCurrency = companyField('currency');
   const setCompanyPriceDisplay = companyField('priceDisplay');
   const setCompanyTaxBasis = companyField('taxBasis');
+  const setCompanyTimezone = companyField('timezone');
+  const setDriverLanguage = companyField('driverLanguage');
+  const setDriverDistanceUnit = companyField('driverDistanceUnit');
   const setCompanyContactEmail = companyField('contactEmail');
   const setCompanySupportEmail = companyField('supportEmail');
   const setCompanySupportPhone = companyField('supportPhone');
@@ -205,6 +233,9 @@ export function CompanySettings({
         api.put('/v1/settings/company.currency', { value: vals.currency }),
         api.put('/v1/settings/company.priceDisplay', { value: vals.priceDisplay }),
         api.put('/v1/settings/company.taxBasis', { value: vals.taxBasis }),
+        api.put('/v1/settings/system.timezone', { value: vals.timezone }),
+        api.put('/v1/settings/system.driverLanguage', { value: vals.driverLanguage }),
+        api.put('/v1/settings/system.distanceUnit', { value: vals.driverDistanceUnit }),
         api.put('/v1/settings/company.contactEmail', { value: vals.contactEmail }),
         api.put('/v1/settings/company.supportEmail', { value: vals.supportEmail }),
         api.put('/v1/settings/company.supportPhone', { value: vals.supportPhone }),
@@ -688,6 +719,44 @@ export function CompanySettings({
                 <option value="gross">{t('settings.companyTaxBasisGross')}</option>
               </Select>
               <p className="text-xs text-muted-foreground">{t('settings.companyTaxBasisHelper')}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company-timezone" className="leading-6">
+                {t('settings.companyTimezone')}
+              </Label>
+              <TimezoneSelect
+                id="company-timezone"
+                value={companyTimezone}
+                onChange={setCompanyTimezone}
+              />
+              <p className="text-xs text-muted-foreground">{t('settings.companyTimezoneHelper')}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company-driver-language" className="leading-6">
+                {t('settings.driverLanguage')}
+              </Label>
+              <LanguageSelect
+                id="company-driver-language"
+                value={driverLanguage}
+                onChange={setDriverLanguage}
+              />
+              <p className="text-xs text-muted-foreground">{t('settings.driverLanguageHelper')}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company-driver-distance-unit" className="leading-6">
+                {t('settings.driverDistanceUnit')}
+              </Label>
+              <DistanceUnitSelect
+                id="company-driver-distance-unit"
+                value={driverDistanceUnit}
+                onChange={setDriverDistanceUnit}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.driverDistanceUnitHelper')}
+              </p>
             </div>
 
             <div className="space-y-2">

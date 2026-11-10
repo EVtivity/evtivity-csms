@@ -4,6 +4,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { db, toDate } from '@evtivity/database';
 import { maskStationCredentials } from '@evtivity/lib/secret-config';
+import { visibleActionCondition } from './ocpp-log-visibility.js';
 
 /**
  * A station's OCPP message log: the messages exchanged (`processed`) and the
@@ -35,6 +36,11 @@ export interface StationMessageLogQuery {
   direction?: 'inbound' | 'outbound' | undefined;
   /** Only rows logged or queued at or after this time (a site user's window of a moved station). */
   since?: Date | null | undefined;
+  /**
+   * Actions the reader may not see (`hiddenOcppLogActions`): left out of the
+   * rows, the total and the action list.
+   */
+  hiddenActions?: readonly string[] | undefined;
 }
 
 export interface StationMessageLogPage {
@@ -58,7 +64,12 @@ interface Row extends Record<string, unknown> {
 }
 
 /** The pending, unexpired queue rows of a station (`stationDbId` is `charging_stations.id`). */
-function queuedFilter(stationDbId: string, action: string | null, since: Date | null): SQL {
+function queuedFilter(
+  stationDbId: string,
+  action: string | null,
+  since: Date | null,
+  hidden: readonly string[],
+): SQL {
   const conditions = [
     sql`s.id = ${stationDbId}`,
     sql`q.status = 'pending'`,
@@ -66,6 +77,8 @@ function queuedFilter(stationDbId: string, action: string | null, since: Date | 
   ];
   if (action != null) conditions.push(sql`q.action = ${action}`);
   if (since != null) conditions.push(sql`q.created_at >= ${since}`);
+  const visible = visibleActionCondition(sql`q.action`, hidden);
+  if (visible != null) conditions.push(visible);
   return sql.join(conditions, sql` AND `);
 }
 
@@ -78,11 +91,14 @@ export async function listStationMessageLog(
   const withQueued = query.direction !== 'inbound';
   const offset = (query.page - 1) * query.limit;
   const since = query.since ?? null;
+  const hidden = query.hiddenActions ?? [];
 
   const logConditions = [sql`l.station_id = ${stationDbId}`];
   if (action != null) logConditions.push(sql`l.action = ${action}`);
   if (query.direction != null) logConditions.push(sql`l.direction = ${query.direction}`);
   if (since != null) logConditions.push(sql`l.created_at >= ${since}`);
+  const visible = visibleActionCondition(sql`l.action`, hidden);
+  if (visible != null) logConditions.push(visible);
   const logFilter = sql.join(logConditions, sql` AND `);
 
   const logs = sql`
@@ -97,7 +113,7 @@ export async function listStationMessageLog(
       NULL::text AS error_description, q.created_at, 'queued'::text AS processing_status
     FROM offline_command_queue q
     JOIN charging_stations s ON s.station_id = q.station_id
-    WHERE ${queuedFilter(stationDbId, action, since)}`;
+    WHERE ${queuedFilter(stationDbId, action, since, hidden)}`;
   const entries = withQueued ? sql`${logs} UNION ALL ${queued}` : logs;
 
   const [rows, logCount, queuedCount, logActions, queuedActions] = await Promise.all([
@@ -114,7 +130,7 @@ export async function listStationMessageLog(
           SELECT count(*)::int AS count
           FROM offline_command_queue q
           JOIN charging_stations s ON s.station_id = q.station_id
-          WHERE ${queuedFilter(stationDbId, action, since)}`)
+          WHERE ${queuedFilter(stationDbId, action, since, hidden)}`)
       : Promise.resolve([{ count: 0 }]),
     // Skip-scan emulation: a plain SELECT DISTINCT walks every log row for
     // the station (~500ms at a few thousand rows, worse as the table
@@ -145,12 +161,13 @@ export async function listStationMessageLog(
       SELECT DISTINCT q.action
       FROM offline_command_queue q
       JOIN charging_stations s ON s.station_id = q.station_id
-      WHERE ${queuedFilter(stationDbId, null, since)}`),
+      WHERE ${queuedFilter(stationDbId, null, since, hidden)}`),
   ]);
 
   const actions = new Set<string>();
   for (const r of logActions) if (r.action != null) actions.add(r.action);
   for (const r of queuedActions) actions.add(r.action);
+  for (const a of hidden) actions.delete(a);
 
   return {
     data: rows.map((r) => ({

@@ -6,6 +6,7 @@
  * ApexCharts requires hex strings, not CSS variables.
  */
 
+import type { SecuritySeverity } from '@evtivity/lib/security-severity';
 import { formatCalendarDate } from './formatting';
 
 export function getGridColor(isDark: boolean): string {
@@ -36,6 +37,18 @@ export const CHART_COLORS = {
   violet: '#8b5cf6',
   muted: '#6b7280',
 } as const;
+
+/**
+ * Security event severity colors for the dashboard donut, worst first: critical
+ * the destructive red, high orange, medium amber, low blue, info gray. The light
+ * theme takes the 600 shade and the dark theme the 400 shade (Tailwind), so each
+ * segment keeps its contrast against the card.
+ */
+export function securitySeverityColors(isDark: boolean): Record<SecuritySeverity, string> {
+  return isDark
+    ? { critical: '#f87171', high: '#fb923c', medium: '#fbbf24', low: '#60a5fa', info: '#9ca3af' }
+    : { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#2563eb', info: '#4b5563' };
+}
 
 export const STATUS_COLORS: Record<string, string> = {
   available: '#3b82f6',

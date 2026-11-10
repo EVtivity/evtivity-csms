@@ -5,7 +5,7 @@
       "name": "Harbor Point Charging Hub",
       "settings": {
         "siteType": "parking_lot",
-        "spotsPerRow": 6,
+        "spotsPerRow": 12,
         "rows": 3,
         "facingDeg": 0,
         "chargerPlacement": "lot_edge",
@@ -51,7 +51,7 @@
             "type": "solar",
             "name": "Solar Carport",
             "capacityKwh": null,
-            "peakKwp": 18
+            "peakKwp": 35
           }
         ]
       },
@@ -156,7 +156,7 @@
         {
           "id": "sta_demolayout02",
           "kind": "dc",
-          "col": 1,
+          "col": 2,
           "row": 0,
           "circuitId": "cir_demoevse02",
           "free": null,
@@ -165,7 +165,7 @@
         {
           "id": "sta_demolayout03",
           "kind": "dc",
-          "col": 2,
+          "col": 4,
           "row": 0,
           "circuitId": "cir_demoevse03",
           "free": null,
@@ -174,7 +174,7 @@
         {
           "id": "sta_demolayout04",
           "kind": "dc",
-          "col": 3,
+          "col": 6,
           "row": 0,
           "circuitId": "cir_demoevse04",
           "free": null,
@@ -183,7 +183,7 @@
         {
           "id": "sta_demolayout05",
           "kind": "dc",
-          "col": 4,
+          "col": 8,
           "row": 0,
           "circuitId": "cir_demoevse05",
           "free": null,
@@ -192,7 +192,7 @@
         {
           "id": "sta_demolayout06",
           "kind": "dc",
-          "col": 5,
+          "col": 10,
           "row": 0,
           "circuitId": "cir_demoevse06",
           "free": null,
@@ -201,7 +201,7 @@
         {
           "id": "sta_demolayout13",
           "kind": "dc",
-          "col": 1,
+          "col": 2,
           "row": 2,
           "circuitId": "cir_demolayout02",
           "free": null,
@@ -210,7 +210,7 @@
         {
           "id": "sta_demolayout14",
           "kind": "dc",
-          "col": 2,
+          "col": 4,
           "row": 2,
           "circuitId": "cir_demoevse14",
           "free": null,
@@ -219,7 +219,7 @@
         {
           "id": "sta_demolayout15",
           "kind": "dc",
-          "col": 3,
+          "col": 6,
           "row": 2,
           "circuitId": "cir_demoevse15",
           "free": null,
@@ -228,7 +228,7 @@
         {
           "id": "sta_demolayout16",
           "kind": "dc",
-          "col": 4,
+          "col": 8,
           "row": 2,
           "circuitId": "cir_demoevse16",
           "free": null,
@@ -432,12 +432,12 @@
           "row": 0,
           "circuitId": "cir_demoevse19",
           "free": null,
-          "evses": 1
+          "evses": 2
         },
         {
           "id": "sta_demolayout20",
           "kind": "ac",
-          "col": 9,
+          "col": 10,
           "row": 0,
           "circuitId": "cir_demoevse20",
           "free": null,
@@ -1149,7 +1149,7 @@
         {
           "id": "sta_demolayout51",
           "kind": "dc",
-          "col": 1,
+          "col": 2,
           "row": 0,
           "circuitId": "cir_demoevse51",
           "free": null,
@@ -1158,7 +1158,7 @@
         {
           "id": "sta_demolayout52",
           "kind": "dc",
-          "col": 2,
+          "col": 4,
           "row": 0,
           "circuitId": "cir_demoevse52",
           "free": null,
@@ -1167,7 +1167,7 @@
         {
           "id": "sta_demolayout53",
           "kind": "dc",
-          "col": 3,
+          "col": 6,
           "row": 0,
           "circuitId": "cir_demoevse53",
           "free": null,

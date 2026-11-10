@@ -33,6 +33,8 @@ COPY packages/database/ packages/database/
 COPY packages/ocpi-simulator/ packages/ocpi-simulator/
 # The database package tests import scripts/lib (the migration file helpers).
 COPY scripts/lib/ scripts/lib/
+# The lib tests import the dependency manifests helper of the production images.
+COPY scripts/docker-dependency-manifests.mjs scripts/docker-dependency-manifests.d.mts scripts/
 RUN npx tsc -b --force packages/lib packages/database
 
 CMD ["node", "--import", "tsx", "packages/ocpi-simulator/src/index.ts"]

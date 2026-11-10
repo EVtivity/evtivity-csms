@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db, isVdv463Enabled } from '@evtivity/database';
+import { db, isVdv463Enabled, operatorStationSql } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import {
   workerJobsLastHour,
@@ -26,6 +26,7 @@ import {
   depotSystemsEnabled,
   depotSystemsAuthLocked,
   depotSystemRefusedRequests,
+  securityEventsCriticalLastHour,
 } from '../plugins/metrics.js';
 
 const logger = createLogger('feature-metrics-collector');
@@ -47,7 +48,8 @@ function num(row: Row | undefined, key: string): number {
 
 /**
  * The gauges of the worker jobs and crons, load management, route-aware
- * charging, batteries and solar, and the bus depot interface. Every value
+ * charging, batteries and solar, the bus depot interface and critical station
+ * security events. Every value
  * comes from the database (the worker exposes no metrics endpoint), so each
  * API task exports the same value and dashboards aggregate with max(). Labels
  * are bounded: queue and cron names, readiness, outcome, notice kind, asset
@@ -81,6 +83,7 @@ async function runFeatureCollection(): Promise<void> {
       depotRows,
       refusedRows,
       interfaceOn,
+      securityRows,
     ] = await Promise.all([
       // idx_worker_job_logs_started_at serves the window.
       db.execute(sql`
@@ -182,6 +185,16 @@ async function runFeatureCollection(): Promise<void> {
         GROUP BY r.reason
       `),
       isVdv463Enabled(),
+      // idx_security_events_created_at serves the window (receipt time).
+      // Operator stations only, like the dashboard card: conformance (OCTT)
+      // stations send critical events on purpose.
+      db.execute(sql`
+        SELECT count(*)::int AS critical
+        FROM security_events e
+        INNER JOIN charging_stations s ON s.id = e.station_id
+        WHERE e.severity = 'critical' AND e.created_at > NOW() - INTERVAL '1 hour'
+          AND ${sql.raw(operatorStationSql('s'))}
+      `),
     ]);
 
     // Reset first, so a label that no longer has rows drops out.
@@ -248,6 +261,8 @@ async function runFeatureCollection(): Promise<void> {
     for (const row of rows(refusedRows)) {
       depotSystemRefusedRequests.set({ reason: String(row['reason']) }, num(row, 'count'));
     }
+
+    securityEventsCriticalLastHour.set(num(rows(securityRows)[0], 'critical'));
   } catch (err) {
     // fail-open: the gauges keep their previous values until the next tick.
     logger.error(err, 'Failed to collect feature metrics');

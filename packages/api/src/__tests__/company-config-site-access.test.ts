@@ -82,6 +82,7 @@ const cases: Array<[string, string, string]> = [
   ['DELETE', '/ocpp-event-settings?eventType=x&channel=email', 'SETTING_NOT_FOUND'],
   ['GET', '/notifications', 'MESSAGE_NOT_FOUND'],
   ['PUT', '/driver-event-settings', 'SETTING_NOT_FOUND'],
+  ['PUT', '/driver-event-settings/mandatory', 'SETTING_NOT_FOUND'],
   ['PUT', '/notification-templates', 'TEMPLATE_NOT_FOUND'],
   ['DELETE', '/notification-templates?eventType=x&channel=email&language=en', 'TEMPLATE_NOT_FOUND'],
   ['POST', '/event-alert-rules', 'RULE_NOT_FOUND'],

@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { CAR_PROFILES, type CarBodyType } from '../site-layout-car';
 import { CAR_PORTS, carPortInStation, parksBackedIn, routeLength } from '../site-layout-cable';
-import { handleCableEntry, holsterPose, plugYaw } from '../site-layout-connectors';
+import { handleCableEntry, plugYaw } from '../site-layout-connectors';
 import {
   SURFACE_M,
   bodyRect,
@@ -19,13 +19,14 @@ import { carNoseAtStop, carTailAtStop, wallBoxOffset, wheelStopNearZ } from '../
 import {
   COIL_GROUND_CLEARANCE_M,
   WALL_BOX_CABLE_M,
-  WALL_BOX_HANGER,
+  WALL_BOX_HOOK,
   wallBoxChargingCable,
   wallBoxCoilPlace,
   wallBoxGlandRun,
+  wallBoxDockEntry,
   wallBoxIdleCable,
 } from '../site-layout-wall-box-cable';
-import { AC_WALL_BOX, wallBoxDisplay, wallBoxDock } from '../site-layout-model-wall-box';
+import { AC_WALL_BOX, wallBoxDisplay } from '../site-layout-model-wall-box';
 import { WALL_BOX_BOTTOM_M } from '../site-layout-marker';
 import { WHEEL_STOP } from '@evtivity/lib/site-layout';
 import type { Vec3 } from '../site-layout-model-kit';
@@ -36,10 +37,8 @@ const wallZ = wallBoxOffset();
 const surface = officeRowSurface();
 
 function dockEntry(): { lead: Vec3; end: Vec3 } {
-  // The handle in the front middle dock, its nose into the box.
-  const dock = wallBoxDock(WALL_BOX_BOTTOM_M);
-  const pose = holsterPose({ x: dock.x, y: dock.y, z: wallZ + dock.z }, { x: 0, z: 1 });
-  const e = handleCableEntry(pose.handle, pose.handleYaw, 'type1');
+  // The handle in the front middle dock, angled down along the face.
+  const e = wallBoxDockEntry({ wallZ, boxBottomM: WALL_BOX_BOTTOM_M, kind: 'type1' });
   return { lead: e.lead, end: e.end };
 }
 
@@ -54,7 +53,7 @@ function maxGap(points: readonly Vec3[]): number {
 }
 
 describe('wall box cable', () => {
-  it('is one piece from the gland over the hanger in three turns into the front dock, 7.62 m long', () => {
+  it('is one piece from the gland over the hanger in four turns into the front dock, 7.62 m long', () => {
     const dock = dockEntry();
     const idle = wallBoxIdleCable({
       wallZ,
@@ -63,7 +62,7 @@ describe('wall box cable', () => {
       dock,
       sidewalkY: SURFACE_M.sidewalk,
     });
-    expect(idle.turns).toBe(WALL_BOX_HANGER.turns);
+    expect(idle.turns).toBe(WALL_BOX_HOOK.turns);
     expect(Math.abs(routeLength(idle.points) - WALL_BOX_CABLE_M) / WALL_BOX_CABLE_M).toBeLessThan(
       0.02,
     );
@@ -74,7 +73,7 @@ describe('wall box cable', () => {
     expect(maxGap(idle.points)).toBeLessThan(0.12);
     // The turns rest on the saddle: the highest point is the saddle top (cable center).
     const top = Math.max(...idle.points.map((p) => p[1]));
-    expect(top).toBeCloseTo(WALL_BOX_HANGER.saddleTopY, 2);
+    expect(top).toBeCloseTo(WALL_BOX_HOOK.saddleTopY, 2);
     // Never touching the ground: every point clears the sidewalk by the clearance.
     for (const p of idle.points) {
       expect(p[1]).toBeGreaterThan(restHeight(surface, p[0], p[2], R));

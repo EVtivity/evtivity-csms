@@ -811,6 +811,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'POST /webhooks/payments/*': { allow: 'provider-signed webhook, no operator (see section 3)' },
   'PUT /driver-event-settings': { audited: 'notification_template' },
+  'PUT /driver-event-settings/mandatory': { audited: 'notification_template' },
   'PUT /nevi/station-data/:stationId': { audited: 'station' },
   'PUT /notification-templates': { audited: 'notification_template' },
   'PUT /ocpi/locations/:siteId': { audited: ['site', 'ocpi_partner'] },

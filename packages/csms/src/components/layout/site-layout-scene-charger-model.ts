@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // The charger itself in the 3D site scene: the body of its model, every
-// holster with its handle, the cable hangers and each idle cable from its
-// gland over its hanger into the handle. The station model adds the pad,
+// holster with its handle, the J cable hooks and each idle cable from its
+// gland over its hook into the handle. The station model adds the pad,
 // signs, props and readers around it; the 2D card pictures build it alone
 // (`buildIdleChargerModel`).
 
@@ -13,25 +13,33 @@ import { SURFACE_M } from './site-layout-cable-surface';
 import {
   DC_HOLSTER,
   acCoilPlace,
-  acHangerSpec,
+  acHookSpec,
   acHolsterCable,
   dcCoilPlace,
-  dcHangerSpec,
+  dcHookSpec,
   dcHolsterCable,
+  DC_CABLE_M,
 } from './site-layout-charger-cables';
 import { SCENE_COLORS } from './site-layout-colors';
-import { CONNECTOR_SPECS, holsterSlots } from './site-layout-connectors';
+import { CONNECTOR_SPECS, chargerCableDiameterM, holsterSlots } from './site-layout-connectors';
 import { DC_BOLLARD } from './site-layout-dc-bollards';
 import { dispenserHolsters, wallBoxOffset } from './site-layout-grid';
 import { WALL_BOX_BOTTOM_M, chargerModelTopM, markerY } from './site-layout-marker';
-import { AC_PEDESTAL, acGlandX, createAcPedestalKit } from './site-layout-model-ac-pedestal';
+import {
+  AC_PEDESTAL,
+  acGlandX,
+  acLensAt,
+  acLensGeometry,
+  acRfidPads,
+  createAcPedestalKit,
+} from './site-layout-model-ac-pedestal';
 import { createCurbPostKit } from './site-layout-model-curb-post';
-import { DC_DISPENSER, createDcDispenserKit } from './site-layout-model-dc-dispenser';
-import { createSplitSatelliteKit } from './site-layout-model-split-satellite';
+import { DC_DISPENSER, DC_RFID_PAD, createDcDispenserKit } from './site-layout-model-dc-dispenser';
+import { SATELLITE_RFID_PAD, createSplitSatelliteKit } from './site-layout-model-split-satellite';
 import {
   satelliteCoilPlace,
   satelliteGland,
-  satelliteHangerSpec,
+  satelliteHookSpec,
   satelliteHolster,
   satelliteHolsterCable,
   satelliteSurface,
@@ -40,15 +48,13 @@ import {
   AC_WALL_BOX,
   createAcWallBoxKit,
   wallBoxDisplay,
-  wallBoxDock,
-  wallBoxFrontZ,
+  wallBoxHolsterMount,
+  wallBoxRingReaders,
+  wallBoxRingGeometry,
+  wallBoxRings,
+  type WallBoxPorts,
 } from './site-layout-model-wall-box';
-import {
-  WALL_BOX_HANGER,
-  wallBoxCoilPlace,
-  wallBoxHangerSpec,
-  wallBoxIdleCable,
-} from './site-layout-wall-box-cable';
+import { wallBoxCoilPlace, wallBoxHookSpec, wallBoxIdleCable } from './site-layout-wall-box-cable';
 
 import type { SceneCtx, SceneSlice } from './site-layout-scene-context';
 import {
@@ -57,6 +63,7 @@ import {
   DC_BOLLARD_Z,
   DC_HOLSTER_X,
   DC_HOLSTER_Y,
+  dcDispenserCableOf,
   slotInUse,
   slotKind,
 } from './site-layout-scene-station-slots';
@@ -69,6 +76,15 @@ import { installConnectors } from './site-layout-scene-connectors';
 import { installDressing } from './site-layout-scene-dressing';
 import { installKit } from './site-layout-scene-kit';
 import { installLargeChargers } from './site-layout-scene-large-chargers';
+import { installRfidPads } from './site-layout-scene-rfid';
+import { installEvsePlates } from './site-layout-scene-evse-plates';
+import {
+  SATELLITE_EVSE_PLATE,
+  acEvsePlate,
+  dcEvsePlate,
+  wallBoxEvsePlate,
+  type EvsePlateMount,
+} from './site-layout-model-evse-plate';
 import type { StationMaterials } from './site-layout-scene-types';
 import { ENGLISH_SIGN_TEXTS } from './site-layout-signs';
 
@@ -76,10 +92,14 @@ type ChargerModelCtx = SceneSlice<
   | 'M'
   | 'addGlow'
   | 'addScreenMessage'
+  | 'addRfidPad'
+  | 'addRingReader'
+  | 'addEvsePlate'
+  | 'addEvsePortLight'
   | 'buildLargeCharger'
   | 'cable'
   | 'cableGround'
-  | 'cableHanger'
+  | 'cableHook'
   | 'chargerKit'
   | 'chargerMaterials'
   | 'holsteredConnector'
@@ -91,6 +111,11 @@ type ChargerModelCtx = SceneSlice<
   | 'socketRing',
   'chargerBody'
 >;
+
+/** A plate mount of the wall box frame moved out to the facade face `wallZ`. */
+function withWallZ(mount: EvsePlateMount, wallZ: number): EvsePlateMount {
+  return { at: [mount.at[0], mount.at[1], wallZ + mount.at[2]], turnY: mount.turnY };
+}
 
 export function installChargerModel(scn: ChargerModelCtx): void {
   function chargerBody(
@@ -120,16 +145,17 @@ export function installChargerModel(scn: ChargerModelCtx): void {
       top = built.top;
       glow = built.glow;
     } else if (wall) {
-      // The wall box on the facade (site-layout-model-wall-box.ts), its back on the wall.
-      const wallKind = slotKind(s, 0, 0);
-      const wallCable = CONNECTOR_SPECS[wallKind].cableDiameterM;
+      // The wall box on the facade (site-layout-model-wall-box.ts), its back on the wall:
+      // one port, or two side by side (CHARGER_PORT_LIMITS.ac: at most two).
+      const wallPorts: WallBoxPorts = Math.min(2, s.evseConnectors?.length ?? 1) === 2 ? 2 : 1;
+      const wallCable = chargerCableDiameterM(slotKind(s, 0, 0), true);
       const wb = AC_WALL_BOX;
       const box3 = new THREE.Group();
       box3.position.z = w;
       box3.add(
         scn.modelOf(
-          scn.modelKit(`wall-box:${String(wallCable)}`, () =>
-            createAcWallBoxKit(WALL_BOX_BOTTOM_M, wallCable),
+          scn.modelKit(`wall-box:${String(wallPorts)}:${String(wallCable)}`, () =>
+            createAcWallBoxKit(WALL_BOX_BOTTOM_M, wallCable, wallPorts),
           ),
           'ac-wall-box',
           {
@@ -150,50 +176,85 @@ export function installChargerModel(scn: ChargerModelCtx): void {
         display.center[1],
         w + display.center[2],
       ]);
-      // The dock in the front middle of the box, its connector seated unless plugged into the car.
-      const wallPlugged = slotInUse(s, 0, 0);
-      const dock = wallBoxDock(WALL_BOX_BOTTOM_M);
-      const wallEntry = scn.holsteredConnector(
-        g,
-        wallKind,
-        { x: dock.x, y: dock.y, z: w + dock.z },
-        { x: 0, z: 1 },
-        wallPlugged,
-      );
-      // The cable hanger beside the box (a peg, site-layout-model-cable-hanger.ts).
-      const coil = wallBoxCoilPlace(w, wallCable);
-      g.add(
-        scn.cableHanger(wallBoxHangerSpec(wallCable), [WALL_BOX_HANGER.x, coil.cy, w], 0, rubber),
-      );
-      // Its cable out of the gland under the box, coiled over the hanger, into the docked handle.
-      if (!wallPlugged) {
-        const idle = wallBoxIdleCable({
-          wallZ: w,
-          boxBottomM: WALL_BOX_BOTTOM_M,
-          cableDiameterM: wallCable,
-          dock: { lead: wallEntry.lead, end: wallEntry.end },
-          sidewalkY: SURFACE_M.sidewalk,
-        });
-        g.add(
-          scn.cable(
-            idle.points.map((p) => [p[0], p[1], p[2]] as [number, number, number]),
-            rubber,
-            wallCable / 2,
-          ),
-        );
+      // The ring is the reader: each port's status ring holds its RFID reader,
+      // the tap pictogram inside it and the tap line under it (no separate pad).
+      for (const reader of wallBoxRingReaders(WALL_BOX_BOTTOM_M, wallPorts)) {
+        scn.addRingReader(g, reader, w);
       }
-      // The charging glow: a ring around the status light ring.
-      const ringT = wb.ring.centerFromBottomM;
+      // Each port: its dock on the front, its connector seated unless plugged into the car;
+      // two ports also get their number plate and their own status ring in their EVSE's state.
+      const rings = wallBoxRings(WALL_BOX_BOTTOM_M, wallPorts);
+      for (const evse of wallPorts === 2 ? [0, 1] : [0]) {
+        const side: -1 | 1 = wallPorts === 2 ? (evse === 0 ? -1 : 1) : 1;
+        const port = { ports: wallPorts, side };
+        const kind = slotKind(s, evse, 0);
+        const cableD = chargerCableDiameterM(kind, true);
+        const plugged = slotInUse(s, evse, 0);
+        if (wallPorts === 2) {
+          const { light: lamp } = scn.addEvsePlate(
+            g,
+            s,
+            evse,
+            withWallZ(wallBoxEvsePlate(WALL_BOX_BOTTOM_M, side), w),
+          );
+          const ring = rings[evse];
+          if (ring != null) {
+            scn.addEvsePortLight(
+              g,
+              lamp,
+              wallBoxRingGeometry(),
+              [ring.at[0], ring.at[1], w + ring.at[2]],
+              ring.tiltX,
+            );
+          }
+        }
+        // The handle docks angled down along the face (`wallBoxHolsterMount`).
+        const dock = wallBoxHolsterMount(WALL_BOX_BOTTOM_M, wallPorts, side);
+        const entry = scn.holsteredConnector(
+          g,
+          kind,
+          { x: dock.mount.x, y: dock.mount.y, z: w + dock.mount.z },
+          dock.facing,
+          plugged,
+          dock.noseUp,
+        );
+        // The port's J hook beside the box on its side (site-layout-model-cable-hook.ts).
+        g.add(scn.cableHook(wallBoxHookSpec(cableD), wallBoxCoilPlace(w, cableD, port).mount, 0));
+        // Its cable out of its gland under the box, coiled over its hook, into its docked handle.
+        if (!plugged) {
+          const idle = wallBoxIdleCable({
+            wallZ: w,
+            boxBottomM: WALL_BOX_BOTTOM_M,
+            cableDiameterM: cableD,
+            dock: { lead: entry.lead, end: entry.end },
+            sidewalkY: SURFACE_M.sidewalk,
+            port,
+          });
+          g.add(
+            scn.cable(
+              idle.points.map((p) => [p[0], p[1], p[2]] as [number, number, number]),
+              rubber,
+              cableD / 2,
+            ),
+          );
+        }
+      }
+      // The charging glow: a ring around the (first port's) status light ring.
+      const glowRing = rings[0];
+      const ringAt: [number, number, number] =
+        glowRing != null
+          ? [glowRing.at[0], glowRing.at[1], w + glowRing.at[2]]
+          : [0, WALL_BOX_BOTTOM_M + wb.ring.centerFromBottomM, w];
       glow = scn.addGlow(
         g,
         s,
         [
           {
             geometry: scn.socketRing(wb.ring.radiusM + 0.012),
-            position: [0, WALL_BOX_BOTTOM_M + ringT, w + wallBoxFrontZ(ringT) + 0.008],
+            position: [ringAt[0], ringAt[1], ringAt[2] + 0.002],
           },
         ],
-        { size: 0.45, position: [0, WALL_BOX_BOTTOM_M + ringT, w + wallBoxFrontZ(ringT) + 0.02] },
+        { size: 0.45, position: [ringAt[0], ringAt[1], ringAt[2] + 0.014] },
       );
       // The status marker floats just above the wall box, in front of the facade.
       top = markerY(chargerModelTopM('wall'));
@@ -208,19 +269,14 @@ export function installChargerModel(scn: ChargerModelCtx): void {
       s.dispensers.forEach((dx, i) => {
         const unit = new THREE.Group();
         unit.position.x = dx;
+        // At most two holsters, one on each side (`CHARGER_PORT_LIMITS.dc.satelliteConnectors`).
         const holsters = dispenserHolsters(s.cables?.[i] ?? 1).map((h, k) => ({
           ...h,
           k,
           kind: slotKind(s, i, k),
-          // Its place on its side's hanger peg: the front holster first.
-          slot: dispenserHolsters(s.cables?.[i] ?? 1)
-            .slice(0, k)
-            .filter((o) => o.side === h.side).length,
         }));
-        const sideKinds = (side: -1 | 1): ConnectorKind[] =>
-          holsters.filter((h) => h.side === side).map((h) => h.kind);
         const glands = holsters.map((h) => ({
-          ...satelliteGland(h.side, h.slot),
+          ...satelliteGland(h.side),
           cableDiameterM: CONNECTOR_SPECS[h.kind].cableDiameterM,
         }));
         const kit = scn.modelKit(
@@ -242,34 +298,34 @@ export function installChargerModel(scn: ChargerModelCtx): void {
           }),
         );
         if (i === 0) scn.addScreenMessage(unit, s, 'ac', [0, 1.3, sat.depthM / 2 + 0.017]);
+        // Every satellite has its own RFID pad under its screen, and its EVSE's number plate.
+        scn.addRfidPad(unit, SATELLITE_RFID_PAD);
+        scn.addEvsePlate(unit, s, i, SATELLITE_EVSE_PLATE);
         // The ground under this satellite, in its own frame.
         const ground = scn.cableGround;
         const surface =
           ground != null ? (x: number, z: number) => ground(x + dx, z) : satelliteSurface;
-        // One hanger peg on each side wall that holds a cable (empty while its cables are plugged in).
-        for (const side of [-1, 1] as const) {
-          const kinds = sideKinds(side);
-          if (kinds.length === 0) continue;
+        // One J hook on each side wall that holds a cable (empty while its cables are plugged in).
+        for (const { side, kind } of holsters) {
           unit.add(
-            scn.cableHanger(
-              satelliteHangerSpec(kinds),
-              satelliteCoilPlace(side, kinds, 0).mount,
+            scn.cableHook(
+              satelliteHookSpec(kind),
+              satelliteCoilPlace(side, kind).mount,
               (side * Math.PI) / 2,
-              rubber,
             ),
           );
         }
-        for (const { side, backM, k, kind, slot } of holsters) {
+        for (const { side, backM, k, kind } of holsters) {
           // The holster on the satellite's side wall, the plug's nose in it and its grip out to the side.
           const [hx, hy, hz] = satelliteHolster(side, backM);
           // Satellite i is EVSE i; a handle plugged into its stall's car leaves the holster empty.
           const plugged = slotInUse(s, i, k);
           scn.holsteredConnector(unit, kind, { x: hx, y: hy, z: hz }, { x: side, z: 0 }, plugged);
-          // Out of its gland, looped over the peg, up into the handle.
+          // Out of its gland, looped over the hook, up into the handle.
           if (!plugged) {
             unit.add(
               scn.cable(
-                satelliteHolsterCable(side, sideKinds(side), slot, backM, surface).map(
+                satelliteHolsterCable(side, kind, backM, surface).map(
                   (p) => [p[0], p[1], p[2]] as [number, number, number],
                 ),
                 rubber,
@@ -315,6 +371,23 @@ export function installChargerModel(scn: ChargerModelCtx): void {
       const sc = DC_DISPENSER.screen;
       const front = DC_DISPENSER.frontZ;
       scn.addScreenMessage(g, s, 'dc7in', [0, sc.y, front + 0.0225]);
+      scn.addRfidPad(g, DC_RFID_PAD);
+      // Two EVSEs: each one's number plate and light over its holsters, EVSE 1 on the left.
+      if ((s.evseConnectors?.length ?? 1) >= 2) {
+        for (const evse of [0, 1]) {
+          const own = slots.filter((h) => h.evse === evse);
+          const side = own[0]?.side ?? (evse === 0 ? -1 : 1);
+          scn.addEvsePlate(
+            g,
+            s,
+            evse,
+            dcEvsePlate(
+              side,
+              own.map((h) => h.backM),
+            ),
+          );
+        }
+      }
       // The charging glow: a frame around the screen bezel.
       const fw = sc.widthM + 0.1;
       const fh = sc.heightM + 0.1;
@@ -357,22 +430,25 @@ export function installChargerModel(scn: ChargerModelCtx): void {
           { x: side, z: 0 },
           plugged,
         );
-        // Its cable hanger on the side wall (empty while the cable is plugged in).
+        // Its J hook low on the side wall (empty while the cable is plugged in).
         g.add(
-          scn.cableHanger(
-            dcHangerSpec(kind),
+          scn.cableHook(
+            dcHookSpec(kind),
             dcCoilPlace(side, backM, kind).mount,
             (side * Math.PI) / 2,
-            rubber,
           ),
         );
-        // Out of its gland, looped over the hanger, up into the handle (site-layout-charger-cables.ts).
+        // Out of its gland, looped over the hook, up into the handle (site-layout-charger-cables.ts).
         if (!plugged) {
           g.add(
             scn.cable(
-              dcHolsterCable(side, backM, kind, scn.cableGround ?? undefined).map(
-                (p) => [p[0], p[1], p[2]] as [number, number, number],
-              ),
+              dcHolsterCable(
+                side,
+                backM,
+                kind,
+                scn.cableGround ?? undefined,
+                dcDispenserCableOf(s) ?? DC_CABLE_M,
+              ).map((p) => [p[0], p[1], p[2]] as [number, number, number]),
               rubber,
               CONNECTOR_SPECS[kind].cableDiameterM / 2,
             ),
@@ -385,7 +461,7 @@ export function installChargerModel(scn: ChargerModelCtx): void {
       // Ports per EVSE (CHARGER_PORT_LIMITS.ac: at most two).
       const ports = Math.min(2, s.evseConnectors?.length ?? 1) === 2 ? 2 : 1;
       const curbPost = scn.layout.lot.siteType === 'curbside' && ports === 1;
-      const acCable = CONNECTOR_SPECS[slotKind(s, 0, 0)].cableDiameterM;
+      const acCable = chargerCableDiameterM(slotKind(s, 0, 0), true);
       const kit = curbPost
         ? scn.chargerKit(`curb-post:${String(acCable)}`, () => createCurbPostKit(acCable))
         : scn.chargerKit(`ac:${String(ports)}:${String(acCable)}`, () =>
@@ -402,6 +478,18 @@ export function installChargerModel(scn: ChargerModelCtx): void {
       g.add(scn.marker('coil', [coilAt[0], coilAt[1] - 0.14, coilAt[2]]));
       const ap = AC_PEDESTAL;
       scn.addScreenMessage(g, s, 'ac57in', [0, ap.screen.y, ap.frontZ + 0.0145]);
+      // One RFID pad per port, under its status lens.
+      for (const at of acRfidPads(ports)) scn.addRfidPad(g, at);
+      // Two ports: each one's number plate and light over its holster, port 1 on the
+      // left, and its status lens on the head front in that EVSE's own state.
+      if (ports === 2) {
+        const lenses = acLensAt(2);
+        for (const evse of [0, 1]) {
+          const { light: lamp } = scn.addEvsePlate(g, s, evse, acEvsePlate(evse === 0 ? -1 : 1));
+          const at = lenses[evse];
+          if (at != null) scn.addEvsePortLight(g, lamp, acLensGeometry(), at);
+        }
+      }
       // The charging glow: a ring around the first port's status lens.
       const lensX = ports === 2 ? -0.075 : 0;
       glow = scn.addGlow(
@@ -416,11 +504,11 @@ export function installChargerModel(scn: ChargerModelCtx): void {
         { size: 0.55, position: [0, ap.lensY + 0.06, ap.frontZ + 0.03] },
       );
       // A holster and its connector on each side of the head, one per port, each
-      // with a cable hanger peg on the column under it (empty while plugged in).
+      // with a J hook on the column under it (empty while plugged in).
       for (const slot of holsterSlots(ports === 2 ? [1, 1] : [1])) {
         const kind = slotKind(s, slot.evse, 0);
         const plugged = slotInUse(s, slot.evse, 0);
-        const d = CONNECTOR_SPECS[kind].cableDiameterM;
+        const d = chargerCableDiameterM(kind, true);
         const end = scn.holsteredConnector(
           g,
           kind,
@@ -429,14 +517,9 @@ export function installChargerModel(scn: ChargerModelCtx): void {
           plugged,
         );
         g.add(
-          scn.cableHanger(
-            acHangerSpec(d),
-            acCoilPlace(slot.side, d).mount,
-            (slot.side * Math.PI) / 2,
-            rubber,
-          ),
+          scn.cableHook(acHookSpec(d), acCoilPlace(slot.side, d).mount, (slot.side * Math.PI) / 2),
         );
-        // Out of its gland, looped over the hanger, up into the handle (site-layout-charger-cables.ts).
+        // Out of its gland, looped over the hook, up into the handle (site-layout-charger-cables.ts).
         if (!plugged) {
           g.add(
             scn.cable(
@@ -463,10 +546,13 @@ export function installChargerModel(scn: ChargerModelCtx): void {
 /** The charger models a 2D card pictures. */
 export type IdleChargerModel =
   | 'dc-dispenser'
+  | 'dc-dispenser-dual'
+  | 'dc-dispenser-dual-four'
   | 'ac-pedestal'
   | 'ac-pedestal-dual'
   | 'curb-post'
   | 'wall-box'
+  | 'wall-box-dual'
   | 'split-satellite'
   | 'bus-dispenser'
   | 'mcs-dispenser'
@@ -490,6 +576,24 @@ function idleStation(model: IdleChargerModel, lightColor: string): SceneStation 
   switch (model) {
     case 'dc-dispenser':
       return { ...base, kind: 'dc', cables: [2], evseConnectors: [2], connectorKinds: [dcKinds] };
+    case 'dc-dispenser-dual':
+      // Two EVSEs, a CCS1 cable each.
+      return {
+        ...base,
+        kind: 'dc',
+        cables: [2],
+        evseConnectors: [1, 1],
+        connectorKinds: [['ccs1'], ['ccs1']],
+      };
+    case 'dc-dispenser-dual-four':
+      // Two EVSEs, a CCS1 and a CHAdeMO cable each (4 cables, `CHARGER_PORT_LIMITS.dc`).
+      return {
+        ...base,
+        kind: 'dc',
+        cables: [4],
+        evseConnectors: [2, 2],
+        connectorKinds: [dcKinds, dcKinds],
+      };
     case 'split-satellite':
       return { ...base, kind: 'dc', dispensers: [0], cables: [2], connectorKinds: [dcKinds] };
     case 'ac-pedestal':
@@ -511,6 +615,15 @@ function idleStation(model: IdleChargerModel, lightColor: string): SceneStation 
         cables: [1],
         evseConnectors: [1],
         connectorKinds: [['type1']],
+      };
+    case 'wall-box-dual':
+      return {
+        ...base,
+        kind: 'ac',
+        wall: true,
+        cables: [2],
+        evseConnectors: [1, 1],
+        connectorKinds: [['type1'], ['type1']],
       };
     case 'bus-dispenser':
       return {
@@ -541,15 +654,20 @@ function idleStation(model: IdleChargerModel, lightColor: string): SceneStation 
 
 /**
  * The charger of `model` as the scene builds it for an idle, lit station:
- * its body, every holster with its handle seated, the cable hangers and each
- * idle cable looped over its hanger into the handle (the MCS dispenser with
+ * its body, every holster with its handle seated, the J cable hooks and each
+ * idle cable looped over its hook into the handle (the MCS dispenser with
  * its cable management arm stowed). No pad, signs, wheel stops, bollards,
- * vehicles, glow, logo, card readers or screen text. Station frame at the
+ * vehicles, glow, logo, payment card readers or screen text (the RFID pads are part of the charger). Station frame at the
  * origin, facing +z. `dispose` frees every geometry, material and texture it made.
  */
 export function buildIdleChargerModel(
   model: IdleChargerModel,
-  options: { plateColor: string; dark: boolean },
+  options: {
+    plateColor: string;
+    dark: boolean;
+    /** Each EVSE's own status color (its plate light and port light), EVSE order. */
+    evseColors?: readonly string[];
+  },
 ): { group: THREE.Group; dispose: () => void } {
   // The status light in the available color, as an idle station shows it.
   const lightColor = STATUS_COLORS['available'] ?? options.plateColor;
@@ -593,6 +711,8 @@ export function buildIdleChargerModel(
   installConnectors(scn);
   installDressing(scn);
   installLargeChargers(scn);
+  installRfidPads(scn);
+  installEvsePlates(scn);
   installChargerModel(scn);
   scn.cableGround = null;
   // Only the charger: no screen text, glow, logo or bollards.
@@ -602,7 +722,19 @@ export function buildIdleChargerModel(
   scn.logoPanel = () => new THREE.Group();
   scn.pipeBollard = () => new THREE.Group();
   const palette = options.dark ? SCENE_COLORS.dark : SCENE_COLORS.light;
-  const s = idleStation(model, lightColor);
+  const idle = idleStation(model, lightColor);
+  const s: SceneStation =
+    options.evseColors != null
+      ? {
+          ...idle,
+          evseLamps: options.evseColors.map((color, i) => ({
+            number: i + 1,
+            color,
+            pulsing: false,
+            blinking: false,
+          })),
+        }
+      : idle;
   const g = new THREE.Group();
   scn.chargerBody(g, s, palette, {
     shell: scn.M(palette.shell, { roughness: 0.35, metalness: 0.25 }),

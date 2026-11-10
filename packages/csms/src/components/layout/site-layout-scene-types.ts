@@ -123,6 +123,20 @@ export interface SceneStation {
   pluggedSlot?: { evse: number; connector: number } | undefined;
   /** Per EVSE, the connector index that is plugged in (dual-port pedestals and split systems). */
   stallPlugged?: readonly number[] | undefined;
+  /** Each EVSE's number and own status light, EVSE order: the EVSE plates of a charger with more than one EVSE. */
+  evseLamps?: readonly EvseLamp[] | undefined;
+}
+
+/** The number and status light of one EVSE (`evseLampState`). */
+export interface EvseLamp {
+  /** The OCPP EVSE id. */
+  number: number;
+  /** The light color (a CSS color three.js can parse). */
+  color: string;
+  /** Charging: the light pulses unless reduced motion is on. */
+  pulsing: boolean;
+  /** Faulted: the light blinks, steady with reduced motion. */
+  blinking: boolean;
 }
 
 export interface SceneTransformer {
@@ -311,6 +325,12 @@ export interface SiteScene {
   /** Moves the camera by one keyboard, wheel or trackpad step (applied at once, then clamped). */
   nudgeCamera: (n: CameraNudge) => void;
   /**
+   * Zooms by `zoom` (positive: closer) toward the point under the pointer at
+   * `at` (client px), the orbit center following it, like a map
+   * (`zoomTowardPoint`); above the horizon, toward the orbit center.
+   */
+  zoomAt: (zoom: number, at: { clientX: number; clientY: number }) => void;
+  /**
    * Renders while true. False stops the frame loop (the view is off screen or
    * the tab is hidden); true starts it again.
    */
@@ -323,6 +343,8 @@ export interface SiteScene {
   linkLabelPoint: (labelId: string) => ScreenPoint | null;
   /** Where the time window of a station's virtual status sign goes (null: none). */
   virtualSignPoint: (stationId: string) => ScreenPoint | null;
+  /** Where the label of a station's EVSE plate goes (EVSE order; null: no such plate). */
+  evsePlatePoint: (stationId: string, index: number) => ScreenPoint | null;
   dispose: () => void;
 }
 
@@ -423,6 +445,10 @@ export interface Templates {
       glandX?: number;
       /** A dual-port pedestal's stall: the x range its cable keeps to (`plugRoute` bounds). */
       bounds?: { minX: number; maxX: number };
+      /** A wall box's ports: two ports run the cable of `side` from that port's gland. */
+      wallPorts?: 1 | 2;
+      /** The cable's length (default: the charger class's, a DC dispenser's 3.6 m). */
+      lengthM?: number;
     },
   ) => THREE.Group;
   /** A precast concrete wheel stop (WHEEL_STOP), centered on the origin, across x. */

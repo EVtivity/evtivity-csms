@@ -40,7 +40,7 @@
     "octt:cs:1.6": "node --env-file-if-exists=.env --import tsx packages/octt/src/cs-cli.ts --version ocpp1.6",
     "test": "vitest run --config vitest.workspace.ts",
     "test:integration": "vitest run --config vitest.integration.ts",
-    "test:release": "bash scripts/release-version.test.sh",
+    "test:release": "bash scripts/release-version.test.sh && bash scripts/release-build.test.sh",
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc -b && node scripts/typecheck-e2e.mjs",
     "build:prod": "node scripts/build.mjs all",

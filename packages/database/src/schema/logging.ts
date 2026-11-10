@@ -160,5 +160,7 @@ export const portStatusLog = pgTable(
     index('idx_port_status_log_station_timestamp').on(table.stationId, table.timestamp),
     index('idx_port_status_log_timestamp').on(table.timestamp),
     index('idx_port_status_log_station_evse').on(table.stationId, table.evseId),
+    // The retention prune filters by receipt time, never the station time.
+    index('idx_port_status_log_created_at').on(table.createdAt),
   ],
 );

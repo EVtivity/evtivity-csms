@@ -6,16 +6,32 @@ import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
-import { simulateRequest, type FaultMode, type SimulateAction } from '@/lib/simulate-actions';
+import {
+  simulateRequest,
+  type FaultCode,
+  type FaultMode,
+  type SimulateAction,
+  type SimulateRunAction,
+} from '@/lib/simulate-actions';
 
 /** Actions that send the driver's ID token with them. */
 export const TOKEN_ACTIONS: ReadonlySet<SimulateAction> = new Set(['authorize', 'startCharging']);
 /** Actions of the whole station (no EVSE). */
-export const STATION_ACTIONS: ReadonlySet<SimulateAction> = new Set([
+export const STATION_ACTIONS: ReadonlySet<SimulateRunAction> = new Set([
   'powerCycle',
   'goOffline',
   'comeOnline',
+  'securityEvent',
 ]);
+
+export interface SimulateRunOptions {
+  evseId: number;
+  idToken?: string;
+  faultMode?: FaultMode;
+  faultCode?: FaultCode;
+  /** The event of the securityEvent action: an OCPP or vendor type and optional tech info. */
+  securityEvent?: { type: string; techInfo?: string };
+}
 
 /** Whether a driver token with exactly this ID exists (the simulator's Authorize needs one). */
 export async function simulatorTokenIsKnown(token: string): Promise<boolean> {
@@ -36,18 +52,15 @@ export async function simulatorTokenIsKnown(token: string): Promise<boolean> {
  * use it. `stationId` is the OCPP station ID.
  */
 export function useSimulateAction(stationId: string): {
-  run: (
-    action: SimulateAction,
-    options: { evseId: number; idToken?: string; faultMode?: FaultMode },
-  ) => Promise<void>;
+  run: (action: SimulateRunAction, options: SimulateRunOptions) => Promise<void>;
   isPending: boolean;
-  activeAction: SimulateAction | null;
+  activeAction: SimulateRunAction | null;
   tokenError: string | null;
   clearTokenError: () => void;
 } {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [activeAction, setActiveAction] = useState<SimulateAction | null>(null);
+  const [activeAction, setActiveAction] = useState<SimulateRunAction | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -57,7 +70,7 @@ export function useSimulateAction(stationId: string): {
     }: {
       action: string;
       body: Record<string, unknown>;
-      button: SimulateAction;
+      button: SimulateRunAction;
     }) => api.post<{ commandId: string }>(`/v1/css/actions/${action}`, body),
     onSuccess: (_data, variables) => {
       toast({
@@ -76,11 +89,20 @@ export function useSimulateAction(stationId: string): {
     },
   });
 
-  async function run(
-    action: SimulateAction,
-    options: { evseId: number; idToken?: string; faultMode?: FaultMode },
-  ): Promise<void> {
+  async function run(action: SimulateRunAction, options: SimulateRunOptions): Promise<void> {
     setTokenError(null);
+    if (action === 'securityEvent') {
+      const event = options.securityEvent;
+      if (event == null) return;
+      const techInfo = event.techInfo?.trim() ?? '';
+      setActiveAction(action);
+      mutation.mutate({
+        action: 'securityEvent',
+        body: { stationId, type: event.type, ...(techInfo !== '' ? { techInfo } : {}) },
+        button: action,
+      });
+      return;
+    }
     const needsToken = TOKEN_ACTIONS.has(action);
     const token = options.idToken?.trim() ?? '';
     if (needsToken) {
@@ -93,7 +115,11 @@ export function useSimulateAction(stationId: string): {
         return;
       }
     }
-    const { apiAction, params } = simulateRequest(action, options.faultMode ?? 'end');
+    const { apiAction, params } = simulateRequest(
+      action,
+      options.faultMode ?? 'end',
+      options.faultCode ?? 'InternalError',
+    );
     const body: Record<string, unknown> = { stationId, ...params };
     if (!STATION_ACTIONS.has(action)) body.evseId = options.evseId;
     if (needsToken) {

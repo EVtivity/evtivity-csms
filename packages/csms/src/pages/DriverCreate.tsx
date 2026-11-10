@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
@@ -11,6 +11,8 @@ import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LanguageSelect } from '@/components/ui/language-select';
+import { DistanceUnitSelect } from '@/components/ui/distance-unit-select';
+import { TimezoneSelect } from '@/components/ui/timezone-select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -33,6 +35,15 @@ interface CreateDriverBody {
   email?: string;
   phone?: string;
   language: string;
+  timezone: string;
+  distanceUnit: string;
+}
+
+/** The preferences new drivers start with (Settings > Company). */
+interface DriverDefaults {
+  timezone: string;
+  distanceUnit: string;
+  language: string;
 }
 
 export function DriverCreate(): React.JSX.Element {
@@ -44,10 +55,24 @@ export function DriverCreate(): React.JSX.Element {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [language, setLanguage] = useState('en');
+  // Null: the company default (below) until the user picks a value.
+  const [languagePick, setLanguage] = useState<string | null>(null);
+  const [timezonePick, setTimezone] = useState<string | null>(null);
+  const [distanceUnitPick, setDistanceUnit] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [avatar, setAvatar] = useState<AvatarChoice | null>(null);
   const { toast } = useToast();
+
+  // The company defaults (Settings > Company) preselect the language,
+  // timezone and distance unit; a value the user picks wins.
+  const { data: defaults } = useQuery({
+    queryKey: ['drivers', 'defaults'],
+    queryFn: () => api.get<DriverDefaults>('/v1/drivers/defaults'),
+    staleTime: 60_000,
+  });
+  const language = languagePick ?? defaults?.language ?? 'en';
+  const timezone = timezonePick ?? defaults?.timezone ?? 'America/New_York';
+  const distanceUnit = distanceUnitPick ?? defaults?.distanceUnit ?? 'miles';
 
   const createMutation = useMutation({
     // The avatar is stored right after the driver exists; a failure there
@@ -91,7 +116,7 @@ export function DriverCreate(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
-    const body: CreateDriverBody = { firstName, lastName, language };
+    const body: CreateDriverBody = { firstName, lastName, language, timezone, distanceUnit };
     if (email.trim() !== '') body.email = email;
     if (phone.trim() !== '') body.phone = phone;
     createMutation.mutate(body);
@@ -184,6 +209,33 @@ export function DriverCreate(): React.JSX.Element {
               </Label>
               <LanguageSelect id="driver-language" value={language} onChange={setLanguage} />
               <p className="text-sm text-muted-foreground">{t('drivers.languageHelp')}</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              <div className="space-y-2">
+                <Label htmlFor="driver-timezone" className="leading-6">
+                  {t('drivers.timezone')}
+                </Label>
+                <TimezoneSelect
+                  id="driver-timezone"
+                  value={timezone}
+                  onChange={(value) => {
+                    setTimezone(value);
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="driver-distance-unit" className="leading-6">
+                  {t('drivers.distanceUnit')}
+                </Label>
+                <DistanceUnitSelect
+                  id="driver-distance-unit"
+                  value={distanceUnit}
+                  onChange={(value) => {
+                    setDistanceUnit(value);
+                  }}
+                />
+                <p className="text-sm text-muted-foreground">{t('drivers.distanceUnitHelp')}</p>
+              </div>
             </div>
             {createMutation.isError && (
               <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>

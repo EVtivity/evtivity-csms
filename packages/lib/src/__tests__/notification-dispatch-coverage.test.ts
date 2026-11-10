@@ -127,7 +127,8 @@ beforeAll(async () => {
 describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
   let sql: ReturnType<typeof createSqlMock>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    (await import('../notification-dispatch.js')).clearDriverEventSettingsCache();
     sql = createSqlMock();
     sqlCalls.length = 0;
     sqlResults = [];
@@ -1021,12 +1022,15 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [{ email_enabled: false, sms_enabled: false }],
         [{ key: 'company.name', value: 'SecureCo' }],
         [],
+        [], // INSERT email (recipient_missing)
         // sms DB template carrying a 6-digit code, used for the push render
         [{ subject: 'Your code', body_html: 'Your code is 123456 now' }],
+        [], // INSERT sms (recipient_missing)
         [], // INSERT push
       );
 
-      // driver.Welcome is sensitive but not required, so the driver's opt-outs apply.
+      // driver.Welcome holds a link, so it is no driver choice: the opt-outs do not
+      // apply (discussion 56) and every channel records an attempt.
       await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_mfa', {}, []);
 
       const push = decodeInsert(findInsert('push')!);
@@ -1110,7 +1114,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
     it('skips a driver event it sends when the Driver Events switch is off', async () => {
       const { dispatchSystemNotification } = notificationDispatchModule;
-      setupSqlResults([{ is_enabled: false }]);
+      setupSqlResults([{ event_type: 'session.Receipt', is_enabled: false }]);
 
       const result = await dispatchSystemNotification(
         sql as never,
@@ -1673,7 +1677,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
   describe('isDriverEventDisabled', () => {
     it('is off when the driver_event_settings row is disabled', async () => {
       const { isDriverEventDisabled } = notificationDispatchModule;
-      setupSqlResults([{ is_enabled: false }]);
+      setupSqlResults([{ event_type: 'session.Receipt', is_enabled: false }]);
 
       await expect(isDriverEventDisabled(sql as never, 'session.Receipt')).resolves.toBe(true);
       const query = sqlCalls[0]?.strings.join('') ?? '';
@@ -1685,7 +1689,8 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const { isDriverEventDisabled } = notificationDispatchModule;
       setupSqlResults([]);
       await expect(isDriverEventDisabled(sql as never, 'session.Receipt')).resolves.toBe(false);
-      setupSqlResults([{ is_enabled: true }]);
+      notificationDispatchModule.clearDriverEventSettingsCache();
+      setupSqlResults([{ event_type: 'session.Receipt', is_enabled: true }]);
       await expect(isDriverEventDisabled(sql as never, 'session.Receipt')).resolves.toBe(false);
     });
 

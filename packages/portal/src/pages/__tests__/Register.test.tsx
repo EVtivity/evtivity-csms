@@ -6,7 +6,8 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
-const { registerMock, getMock, recaptchaMock } = vi.hoisted(() => ({
+const { registerMock, getMock, recaptchaMock, i18nState } = vi.hoisted(() => ({
+  i18nState: { language: 'en' },
   registerMock: vi.fn(),
   getMock: vi.fn(),
   recaptchaMock: vi.fn(),
@@ -47,7 +48,7 @@ vi.mock('react-i18next', () => ({
           : key.startsWith('errors.')
             ? `translated:${key}`
             : key,
-    i18n: { language: 'en', changeLanguage: vi.fn() },
+    i18n: { language: i18nState.language, changeLanguage: vi.fn() },
   }),
 }));
 
@@ -177,6 +178,22 @@ describe('Register', () => {
       );
     });
     expect(recaptchaMock).toHaveBeenCalledWith('site-key', 'register');
+  });
+
+  it('sends the portal language the visitor uses', async () => {
+    i18nState.language = 'zh-Hant';
+    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    registerMock.mockResolvedValue(undefined);
+    try {
+      renderPage();
+      fill('Abcdefghijk1');
+      await submitWhenReady();
+      await waitFor(() => {
+        expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({ language: 'zh-TW' }));
+      });
+    } finally {
+      i18nState.language = 'en';
+    }
   });
 
   it('sends the generated avatar chosen in the editor', async () => {

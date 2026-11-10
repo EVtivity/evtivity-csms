@@ -144,8 +144,8 @@ describe('screenTextPlan', () => {
   const kinds = Object.keys(SCREEN_MESSAGE) as ScreenKind[];
 
   it('keeps every screen font at the readable size or one full-height line', () => {
-    expect(SCREEN_TEXT_READABLE_M).toBeGreaterThan(0.025);
-    expect(SCREEN_TEXT_READABLE_M).toBeLessThan(0.027);
+    expect(SCREEN_TEXT_READABLE_M).toBeGreaterThan(0.0087);
+    expect(SCREEN_TEXT_READABLE_M).toBeLessThan(0.0089);
     for (const kind of kinds) {
       const floor = Math.min(screenReadableFontPx(kind), screenOneLineFontPx(kind));
       for (const text of ['Welcome to Acme', 'Plug in', 'word '.repeat(60)]) {
@@ -156,9 +156,14 @@ describe('screenTextPlan', () => {
         if (plan.mode === 'static') expect(plan.fit.truncated).toBe(false);
       }
     }
-    // The wall box display is too small for a readable line of this text: it scrolls.
+    // Readable at the 1 m nearest zoom, the wall box display holds a short welcome;
+    // a long text is too much for it at a readable size: it scrolls.
     expect(
       screenTextPlan('Welcome to Acme', 'wallbox', measure, { reducedMotion: false }).mode,
+    ).toBe('static');
+    expect(
+      screenTextPlan('Welcome to Acme. '.repeat(8), 'wallbox', measure, { reducedMotion: false })
+        .mode,
     ).toBe('scroll');
     expect(screenTextPlan('Welcome to Acme', 'dc', measure, { reducedMotion: false }).mode).toBe(
       'static',
@@ -166,7 +171,7 @@ describe('screenTextPlan', () => {
   });
 
   it('wraps a text that fits and scrolls a long one as one line', () => {
-    const long = 'Idle fees of 0.40 per minute apply 15 minutes after charging ends.';
+    const long = 'Idle fees of 0.40 per minute apply 15 minutes after charging ends. '.repeat(2);
     const short = screenTextPlan('Plug in\nto start', 'dc', measure, { reducedMotion: false });
     expect(short.mode).toBe('static');
     const plan = screenTextPlan(`Acme\n${long}`, 'ac57in', measure, { reducedMotion: false });

@@ -47,6 +47,18 @@ export {
 } from './lib/reservation-fee-terms.js';
 export type { ReservationFeeSnapshot, ReservationFeeTerms } from './lib/reservation-fee-terms.js';
 export { isSupportEnabled, clearSupportCache } from './lib/support-setting.js';
+export {
+  isDriverRfidSelfServiceEnabled,
+  clearDriverRfidSelfServiceCache,
+  RFID_SELF_SERVICE_SETTING_KEY,
+} from './lib/rfid-self-service-setting.js';
+export {
+  isCsmsUpdateCheckEnabled,
+  clearCsmsUpdateCheckSettingCache,
+  readCsmsUpdateCheck,
+  recordCsmsUpdateCheck,
+} from './lib/csms-update-check.js';
+export type { CsmsUpdateCheckState } from './lib/csms-update-check.js';
 export { getPlatformFeePercent, clearPlatformFeeCache } from './lib/payment-settings.js';
 export { writeReservationAudit, reservationDiffChanged } from './lib/reservation-audit.js';
 export { writeCsmsSessionAudit } from './lib/session-csms-audit.js';
@@ -456,6 +468,7 @@ export {
 export type { CsmsSessionEndReason, SessionEndRequestMessage } from './lib/session-end-request.js';
 export {
   getSystemTimezone,
+  getDriverDefaults,
   getCompanyCurrency,
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
@@ -722,6 +735,22 @@ export type {
   DepotSystemDb,
   DepotSystemRefusal,
 } from './lib/depot-systems.js';
+export {
+  listDriverEventSettings,
+  getDriverEventSettingRow,
+  setDriverEventSwitch,
+  setDriverEventMandatory,
+  readDriverNotificationState,
+  applyDriverNotificationPreferences,
+  deleteDriverNotificationPreferences,
+} from './lib/driver-notification-settings.js';
+export type {
+  DriverNotificationDb,
+  DriverEventSettingRow,
+  DriverChannelSwitches,
+  DriverNotificationState,
+  DriverEventChoice,
+} from './lib/driver-notification-settings.js';
 export type {
   DeparturePreconditioning,
   DeparturePreconditioningValues,

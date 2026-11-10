@@ -25,6 +25,8 @@ import type { SceneCtx } from '../site-layout-scene-context';
 import { installDressing } from '../site-layout-scene-dressing';
 import { installFreeSpots } from '../site-layout-scene-free-spots';
 import { installKit } from '../site-layout-scene-kit';
+import { installEvsePlates } from '../site-layout-scene-evse-plates';
+import { installRfidPads } from '../site-layout-scene-rfid';
 import { installLargeChargers } from '../site-layout-scene-large-chargers';
 import { installMerge } from '../site-layout-scene-merge';
 import { installStationModel } from '../site-layout-scene-station-model';
@@ -90,6 +92,8 @@ function sceneCtx(lot: Lot): SceneCtx {
   installTemplates(scn);
   installDressing(scn);
   installLargeChargers(scn);
+  installRfidPads(scn);
+  installEvsePlates(scn);
   installChargerModel(scn);
   installStationModel(scn);
   installMerge(scn);
@@ -444,4 +448,163 @@ describe('which connector carries the flow', () => {
     expect(evseFlows({ connectors: [{ status: 'suspended_ev' }] })).toBe(false);
     expect(evseFlows({ connectors: [{ status: 'available' }, { status: 'charging' }] })).toBe(true);
   });
+});
+
+// Owner requirement 2026-11-10: after the cable, gland and wall box rework the
+// charge flow still shows on every charging cable of every reworked charger
+// and port, follows the charging route from its gland to the vehicle, and is
+// absent while the connector is plugged in but suspended.
+describe('the charge flow follows every reworked charging route', () => {
+  const STALLS = [
+    { x: -1.3, width: 2.6 },
+    { x: 1.3, width: 2.6 },
+  ];
+  const ROUTE_CASES: Array<Case & { lengthM?: number }> = [
+    {
+      name: 'DC dispenser, one EVSE, two cables',
+      station: { kind: 'dc', cables: [2], evseConnectors: [2], connectorKinds: [DC] },
+      cables: 1,
+      lengthM: 3.6,
+    },
+    {
+      name: 'DC dispenser, two EVSEs, one cable each (the 6 m cable)',
+      station: {
+        kind: 'dc',
+        stalls: STALLS,
+        cables: [2],
+        evseConnectors: [1, 1],
+        connectorKinds: [['ccs1'], ['ccs1']],
+      },
+      cables: 2,
+      lengthM: 6,
+    },
+    {
+      name: 'DC dispenser, two EVSEs, four cables (the 6 m cable)',
+      station: {
+        kind: 'dc',
+        stalls: STALLS,
+        cables: [4],
+        evseConnectors: [2, 2],
+        connectorKinds: [DC, DC],
+      },
+      cables: 2,
+      lengthM: 6,
+    },
+    {
+      name: 'split satellites, one per EVSE',
+      station: {
+        kind: 'dc',
+        dispensers: [-1.3, 1.3],
+        stalls: STALLS,
+        cables: [2, 2],
+        connectorKinds: [DC, DC],
+      },
+      cables: 2,
+    },
+    {
+      name: 'AC pedestal, one port',
+      station: { kind: 'ac', cables: [1], evseConnectors: [1], connectorKinds: [['type1']] },
+      cables: 1,
+      lengthM: 5.79,
+    },
+    {
+      name: 'AC pedestal, two ports',
+      station: {
+        kind: 'ac',
+        stalls: STALLS,
+        shiftX: 1.3,
+        cables: [2],
+        evseConnectors: [1, 1],
+        connectorKinds: [['type1'], ['type1']],
+      },
+      cables: 2,
+      lengthM: 5.79,
+    },
+    {
+      name: 'AC curb post',
+      lot: { siteType: 'curbside', rowLengths: [2, 2] },
+      station: { kind: 'ac', cables: [1], evseConnectors: [1], connectorKinds: [['type1']] },
+      cables: 1,
+    },
+    {
+      name: 'wall box, one port',
+      lot: { siteType: 'office_retail', mounting: 'wall' },
+      station: {
+        kind: 'ac',
+        wall: true,
+        cables: [1],
+        evseConnectors: [1],
+        connectorKinds: [['type1']],
+      },
+      cables: 1,
+      lengthM: 7.62,
+    },
+    {
+      name: 'wall box, two ports',
+      lot: { siteType: 'office_retail', mounting: 'wall' },
+      station: {
+        kind: 'ac',
+        wall: true,
+        stalls: STALLS,
+        cables: [2],
+        evseConnectors: [1, 1],
+        connectorKinds: [['type1'], ['type1']],
+      },
+      cables: 2,
+      lengthM: 7.62,
+    },
+  ];
+
+  /** The light tube cores (not the additive halos) and the cable tube each lies on. */
+  function coresWithCables(g: THREE.Object3D): Array<{ core: THREE.Mesh; cable: THREE.Mesh }> {
+    const out: Array<{ core: THREE.Mesh; cable: THREE.Mesh }> = [];
+    g.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || o.userData['chargeFlow'] !== true) return;
+      const m = o.material as THREE.MeshBasicMaterial;
+      if (m.blending === THREE.AdditiveBlending) return;
+      // chargingCable: a group of the cable tube and the flow group (halo, core).
+      const cableGroup = o.parent?.parent;
+      const cable = cableGroup?.children.find(
+        (c): c is THREE.Mesh => c instanceof THREE.Mesh && c.geometry instanceof THREE.TubeGeometry,
+      );
+      if (cable != null) out.push({ core: o, cable });
+    });
+    return out;
+  }
+  const pathOf = (m: THREE.Mesh): THREE.Curve<THREE.Vector3> =>
+    (m.geometry as THREE.TubeGeometry).parameters.path;
+
+  for (const c of ROUTE_CASES) {
+    it(`${c.name}: the flow runs the whole charging route, none while suspended`, () => {
+      const all = Array.from({ length: c.cables }, () => true);
+      const charging = build(c, all).group;
+      const pairs = coresWithCables(charging);
+      expect(pairs, c.name).toHaveLength(c.cables);
+      for (const { core, cable } of pairs) {
+        const flow = pathOf(core);
+        const route = pathOf(cable);
+        // From the charger to the vehicle, end to end on the cable's own centerline.
+        expect(flow.getPoint(0).distanceTo(route.getPoint(0)), c.name).toBeLessThan(1e-6);
+        expect(flow.getPoint(1).distanceTo(route.getPoint(1)), c.name).toBeLessThan(1e-6);
+        expect(flow.getPoint(0.5).distanceTo(route.getPoint(0.5)), c.name).toBeLessThan(1e-6);
+        if (c.lengthM != null) {
+          expect(Math.abs(route.getLength() - c.lengthM) / c.lengthM, c.name).toBeLessThan(0.03);
+        }
+      }
+      // Plugged in but suspended: the cables to the vehicles stay, the flow does not.
+      const suspended = build(
+        c,
+        all.map(() => false),
+      ).group;
+      expect(flowMeshes(suspended), c.name).toHaveLength(0);
+      if (c.cables > 1) {
+        // One port charging, the other suspended: one flow, on its own cable only.
+        const one = build(
+          c,
+          all.map((_, i) => i === 0),
+        ).group;
+        expect(coresWithCables(one), c.name).toHaveLength(1);
+      }
+    });
+  }
 });

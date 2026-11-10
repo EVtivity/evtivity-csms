@@ -34,7 +34,7 @@ vi.mock('@evtivity/database', () => {
     drivers: { name: 'drivers' },
     vehicles: { name: 'vehicles' },
     chargingSessions: { name: 'charging_sessions' },
-    driverNotificationPreferences: { name: 'driver_notification_preferences' },
+    deleteDriverNotificationPreferences: vi.fn().mockResolvedValue(undefined),
     driverPushTokens: { name: 'driver_push_tokens' },
     mfaChallenges: { name: 'mfa_challenges' },
     userTokens: { name: 'user_tokens' },
@@ -149,7 +149,14 @@ describe('eraseDriver', () => {
       billingCountry: null,
       erasedAt: expect.any(Date),
     });
-    expect(chains.filter((c) => c.kind === 'delete')).toHaveLength(5);
+    expect(chains.filter((c) => c.kind === 'delete')).toHaveLength(4);
+    // The notification preferences (channel switches and event choices) go through
+    // their one writer, in the erasure transaction.
+    const database = await import('@evtivity/database');
+    expect(vi.mocked(database.deleteDriverNotificationPreferences)).toHaveBeenCalledWith(
+      DRIVER_ID,
+      expect.anything(),
+    );
     // The recovery codes go in the same transaction as the anonymized row.
     expect(deleteCodesMock).toHaveBeenCalledWith({ driverId: DRIVER_ID }, expect.anything());
     expect(deleteCredentialsMock).toHaveBeenCalledWith({ driverId: DRIVER_ID }, expect.anything());

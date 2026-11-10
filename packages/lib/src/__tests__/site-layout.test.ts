@@ -1317,7 +1317,24 @@ describe('depot site', () => {
       bus: 1,
       truck: 0,
       spots: 3,
+      rowSpots: 3,
     });
+  });
+
+  it('counts the spots each station holds where its site type pairs or splits it', () => {
+    const ac2 = { charging: 'ac', depot: null, ports: 2 } as const;
+    const dc2 = { charging: 'dc', depot: null, ports: 2 } as const;
+    const dc4 = { charging: 'dc', depot: null, ports: 4 } as const;
+    // Parking lot: both pairs take two spots, a split system one per dispenser.
+    // Office or retail row: a two-port AC station two, a dual-outlet DC dispenser one.
+    expect(layoutStationCountsOfKinds([ac2, dc2, dc4])).toMatchObject({ spots: 8, rowSpots: 7 });
+    // An office or retail site without stored positions gets a position per held spot.
+    const office = effectiveLayoutSettings(
+      { siteType: 'office_retail', spotsPerRow: 4, rows: 1, facingDeg: 0, transformers: [] },
+      [],
+      layoutStationCountsOfKinds([ac2, ac2, { charging: 'ac', depot: null, ports: 1 }]),
+    );
+    expect(office.chargers).toBe(5);
   });
 
   it('defaults the bus bays and truck lanes from the stations by kind', () => {

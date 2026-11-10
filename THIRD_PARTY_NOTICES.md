@@ -11,3 +11,7 @@ Remix of „Avataaars” (https://avataaars.com/) by „Pablo Stanley”, licens
 ## libcbv2g
 
 The ISO 15118 EXI codec in `packages/v2g-exi` is built from libcbv2g (Apache-2.0). See `packages/v2g-exi/NOTICE` and `packages/v2g-exi/LICENSE-libcbv2g`.
+
+## Inter (UI font)
+
+The CSMS and the driver portal bundle the Inter typeface through `@fontsource/inter` and serve it from their own origin. Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter), licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).

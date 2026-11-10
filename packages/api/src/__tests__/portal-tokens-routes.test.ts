@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -76,6 +76,7 @@ vi.mock('@evtivity/database', () => ({
   stationLocalAuthVersions: {},
   vehicles: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),
+  isDriverRfidSelfServiceEnabled: vi.fn(async () => true),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -111,6 +112,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
+import { db, isDriverRfidSelfServiceEnabled } from '@evtivity/database';
 import { portalTokenRoutes } from '../routes/portal/tokens.js';
 
 const DRIVER_ID = 'drv_000000000001';
@@ -356,6 +358,118 @@ describe('Portal token routes', () => {
       });
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('TOKEN_NOT_FOUND');
+    });
+  });
+
+  describe('RFID self-service off (portal.rfidSelfServiceEnabled)', () => {
+    const OTHER_ID = 'dtk_000000000099';
+
+    beforeEach(() => {
+      vi.mocked(isDriverRfidSelfServiceEnabled).mockResolvedValue(false);
+    });
+
+    afterEach(() => {
+      vi.mocked(isDriverRfidSelfServiceEnabled).mockResolvedValue(true);
+    });
+
+    function expectRefused(response: { statusCode: number; json: () => { code: string } }) {
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('RFID_SELF_SERVICE_DISABLED');
+    }
+
+    it('refuses a new card before any query', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/tokens',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { idToken: 'NEWTOKEN01' },
+      });
+      expectRefused(response);
+      expect(db.select).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a rename', { label: 'Work' }],
+      ['a reactivation', { isActive: true }],
+      ['a deactivation', { isActive: false }],
+      ['a rename and a deactivation', { isActive: false, label: 'Lost' }],
+    ])(
+      'refuses %s for an own, a foreign or an unknown id alike, before the lookup',
+      async (_n, payload) => {
+        for (const id of [TOKEN_ID, OTHER_ID]) {
+          const response = await app.inject({
+            method: 'PATCH',
+            url: `/portal/tokens/${id}`,
+            headers: { authorization: `Bearer ${driverToken}` },
+            payload,
+          });
+          expectRefused(response);
+        }
+        expect(db.select).not.toHaveBeenCalled();
+      },
+    );
+
+    it('still answers 400 for an empty PATCH body', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('refuses a removal for any id before the lookup', async () => {
+      for (const id of [TOKEN_ID, OTHER_ID]) {
+        const response = await app.inject({
+          method: 'DELETE',
+          url: `/portal/tokens/${id}`,
+          headers: { authorization: `Bearer ${driverToken}` },
+        });
+        expectRefused(response);
+      }
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('still lists the cards', async () => {
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/tokens',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('answers 403 when the setting turns off between the route check and the write', async () => {
+      const ownRow = {
+        id: TOKEN_ID,
+        driverId: DRIVER_ID,
+        idToken: 'ABCD1234',
+        tokenType: 'ISO14443',
+        isActive: true,
+        expiresAt: null,
+        label: null,
+        deactivatedBy: null,
+        createdAt: new Date(),
+      };
+      for (const request of [
+        { method: 'PATCH' as const, url: `/portal/tokens/${TOKEN_ID}`, payload: { label: 'X' } },
+        { method: 'DELETE' as const, url: `/portal/tokens/${TOKEN_ID}` },
+        { method: 'POST' as const, url: '/portal/tokens', payload: { idToken: 'NEWTOKEN02' } },
+      ]) {
+        setupDbResults([ownRow]);
+        vi.mocked(isDriverRfidSelfServiceEnabled)
+          .mockResolvedValueOnce(true)
+          .mockResolvedValueOnce(false);
+        const response = await app.inject({
+          ...request,
+          headers: { authorization: `Bearer ${driverToken}` },
+        });
+        expectRefused(response);
+      }
+      expect(db.transaction).not.toHaveBeenCalled();
     });
   });
 });

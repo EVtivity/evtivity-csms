@@ -432,6 +432,14 @@ export const energyAssetsReadingStale = new Gauge({
   registers: [register],
 });
 
+// --- Station security events ---
+
+export const securityEventsCriticalLastHour = new Gauge({
+  name: 'security_events_critical_last_hour',
+  help: 'Critical OCPP station security events received in the last hour (all stations)',
+  registers: [register],
+});
+
 // --- Bus depot interface (VDV 463) ---
 
 export const depotInterfaceEnabled = new Gauge({

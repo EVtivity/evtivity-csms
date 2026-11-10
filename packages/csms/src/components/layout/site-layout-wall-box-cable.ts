@@ -2,23 +2,40 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // The tethered cable of an office or retail wall box (owner decisions
-// 2026-11-02): one piece out of the gland under the box. Idle, it loops over
-// the cable hanger beside the box in hanging turns and rises into the handle
-// docked in the front middle of the box. Charging, it comes off the hanger
+// 2026-11-02, 2026-11-09): one piece out of the gland under the box. Idle, it loops over
+// the J hook beside the box in hanging turns and runs up into the handle
+// docked in the front middle of the box, angled down along its face. Charging, it comes off the hook
 // (left empty) and spans to the car's port, the rest of its length resting
 // on the sidewalk and the curb.
 //
 // Frame: the station's own frame of an office row station (+z into the spot,
 // the facade at `wallZ`), x across, y up from the ground.
 
-import { wallBoxGland } from './site-layout-model-wall-box';
+import {
+  AC_WALL_BOX,
+  wallBoxGland,
+  wallBoxHolsterMount,
+  wallBoxWidth,
+  type WallBoxPorts,
+} from './site-layout-model-wall-box';
+import {
+  handleCableEntry,
+  holsterPose,
+  type CableEntry,
+  type ConnectorKind,
+} from './site-layout-connectors';
 import { cableOutOfGland } from './site-layout-model-cable-gland';
-import { cableHangerSaddleCenter, cableHangerSpec } from './site-layout-model-cable-hanger';
-import type { CableHangerSpec } from './site-layout-model-cable-hanger';
+import {
+  CABLE_HOOK,
+  cableHookSpec,
+  sidewalkHookTurns,
+  turnsWidth,
+  type CableHookSpec,
+} from './site-layout-model-cable-hook';
 import type { Vec3 } from './site-layout-model-kit';
 import { coilCable, type CoilCable, type CoilPlace } from './site-layout-cable-coil';
 import { plugRoute, type PlugRoute } from './site-layout-cable-rest';
-import { COIL_GROUND_CLEARANCE_M } from './site-layout-charger-cables';
+import { COIL_GROUND_CLEARANCE_M, hookCoilPlace } from './site-layout-charger-cables';
 
 export { COIL_GROUND_CLEARANCE_M };
 import type { GroundRect, SurfaceAt } from './site-layout-cable-surface';
@@ -41,63 +58,121 @@ import type { GroundRect, SurfaceAt } from './site-layout-cable-surface';
 export const WALL_BOX_CABLE_M = 7.62;
 
 /**
- * Where the wall box's cable hanger is (a peg, its loops hanging parallel to
- * the wall), derived: 0.36 m right of the box center (the box half width
- * 0.115 m, its plate margin 0.01 m, a turn's bottom half width 0.17 m and a
- * 0.065 m gap), its saddle top 1.2 m above grade, inside the 15 to 48 in
- * (0.38 to 1.22 m) reach range (2010 ADA Standards 308.2, 308.3) so a driver
- * lifts the loops off. Three turns of the 7.62 m cable hang about 0.6 m,
- * each open 0.34 m at its bottom (a hand-coiled loop of 12.5 mm cable), their
- * bottoms at least 0.1 m above the sidewalk. The connector docks in the
- * front middle of the box (`wallBoxDock`).
+ * Where the wall box's J hook is (its loops hanging parallel to the wall),
+ * derived: 0.46 m right of the box center (the box half width 0.115 m, its
+ * plate margin 0.01 m, room for a turn's bottom half width up to 0.3 m and a
+ * 0.035 m gap), the cable's top over it 1.2 m above grade, inside the 15 to
+ * 48 in (0.38 to 1.22 m) reach range (2010 ADA Standards 308.2, 308.3) so a
+ * driver lifts the loops off. The 7.62 m cable hangs in up to four turns,
+ * each open 0.3 m at its bottom (`bottomRadiusM` 0.15 m), a hand-coiled loop
+ * of a tethered Level 2 cable; the turns' drop is solved so the length is
+ * kept, their bottoms at least 0.1 m above the sidewalk. The turns' legs
+ * then hang almost straight, so the cable coming up from its gland reaches
+ * the first turn's plane beside them (`entryPlaneWithin` 0.4 of its way up)
+ * and never passes through them: with 0.6 m open turns the legs slanted
+ * across the way up from the gland (owner decision 2026-11-10, layout review
+ * H1; derived by a search over the bottom width, the turns and the
+ * fraction, every connector and port). Four turns of the 16.1 mm cable stand
+ * 0.0996 m out, inside the 4 in of ADA 307.2 (`sidewalkHookTurns`). The
+ * connector docks in the front middle of the box, angled down along its
+ * face (`wallBoxHolsterMount`).
  */
-export const WALL_BOX_HANGER = { x: 0.36, saddleTopY: 1.2, turns: 3, bottomRadiusM: 0.17 } as const;
+export const WALL_BOX_HOOK = {
+  x: 0.46,
+  saddleTopY: 1.2,
+  turns: 4,
+  bottomRadiusM: 0.15,
+  entryPlaneWithin: 0.4,
+} as const;
 
-/** The hanger of a cable of `cableDiameterM`. */
-export function wallBoxHangerSpec(cableDiameterM: number): CableHangerSpec {
-  return cableHangerSpec(cableDiameterM, WALL_BOX_HANGER.turns + 1, 'out');
+/** One port of a wall box: the box's ports and the side the port is on (one port: right, 1). */
+export interface WallBoxPort {
+  ports: WallBoxPorts;
+  side: -1 | 1;
 }
+
+/** The one port of a one-port box: its gland and hook on the right. */
+export const SINGLE_WALL_BOX_PORT: WallBoxPort = { ports: 1, side: 1 };
 
 /**
- * The radius the cable's center runs at over a hanger: the saddle, its 5 mm
- * half wall and 8 mm cushion, and half the cable.
+ * The x of the J hook of `port`: the one-port box `WALL_BOX_HOOK.x` right of
+ * center; a two-port box one hook on each side for the cable of the port on
+ * that side, as far out as the one-port rule gives for its wider body (half
+ * width 0.24 m, plate margin 0.01 m, a turn's bottom half width 0.3 m and a
+ * 0.035 m gap: 0.585 m). Derived.
  */
-export function hangerCableRadius(spec: CableHangerSpec, cableDiameterM: number): number {
-  return spec.radiusM + 0.013 + cableDiameterM / 2;
+export function wallBoxHookX(port: WallBoxPort = SINGLE_WALL_BOX_PORT): number {
+  if (port.ports === 1) return WALL_BOX_HOOK.x;
+  const reach = WALL_BOX_HOOK.x - AC_WALL_BOX.widthM / 2;
+  return port.side * (wallBoxWidth(2) / 2 + reach);
 }
 
-/** Where the wall box's coil hangs (the hanger group stands at x, cy, wallZ). */
-export function wallBoxCoilPlace(
-  wallZ: number,
-  cableDiameterM: number,
-): CoilPlace & { cy: number } {
-  const spec = wallBoxHangerSpec(cableDiameterM);
-  const r1 = hangerCableRadius(spec, cableDiameterM);
-  const cy = WALL_BOX_HANGER.saddleTopY - r1;
-  const c = cableHangerSaddleCenter(spec);
-  // The turns stack out along the peg from its inner end (the plate side).
-  const firstZ = wallZ + c[2] - spec.widthM / 2 + 0.02 + cableDiameterM / 2;
-  return {
-    center: [WALL_BOX_HANGER.x, cy, firstZ],
-    u: [1, 0, 0],
-    axis: [0, 0, 1],
-    r1,
-    cy,
-  };
-}
-
-/** The cable's first run: out of the gland under the box, bent toward the hanger. */
-export function wallBoxGlandRun(wallZ: number, boxBottomM: number, cableDiameterM: number): Vec3[] {
-  const gl = wallBoxGland(boxBottomM);
-  return cableOutOfGland(
-    [gl.at[0], gl.at[1], wallZ + gl.at[2]],
-    gl.axis,
-    cableDiameterM,
-    [1, 0, 0],
+/** The J hook of a cable of `cableDiameterM`: room for the coil's turns. */
+export function wallBoxHookSpec(cableDiameterM: number): CableHookSpec {
+  return cableHookSpec(
+    turnsWidth(sidewalkHookTurns(WALL_BOX_HOOK.turns, cableDiameterM), cableDiameterM),
   );
 }
 
-/** The idle cable: gland, the turns over the hanger, the handle in the front dock. */
+/** Where the coil of `port` hangs; the hook group stands at `mount` (its rod axis on the facade). */
+export function wallBoxCoilPlace(
+  wallZ: number,
+  cableDiameterM: number,
+  port: WallBoxPort = SINGLE_WALL_BOX_PORT,
+): CoilPlace & { mount: Vec3 } {
+  // The cable's center line tops out at `saddleTopY`, resting on the rod.
+  const mount: Vec3 = [
+    wallBoxHookX(port),
+    WALL_BOX_HOOK.saddleTopY - CABLE_HOOK.rodRadiusM - cableDiameterM / 2,
+    wallZ,
+  ];
+  // The turns stack out along the hook from the facade, the cable up the box side of it.
+  const place = hookCoilPlace({
+    mount,
+    out: [0, 0, 1],
+    across: [port.side, 0, 0],
+    cableDiameterM,
+    cable: 'ac',
+  });
+  return { ...place, mount };
+}
+
+/** The cable's first run: out of the gland of `port` under the box, bent toward its hook. */
+export function wallBoxGlandRun(
+  wallZ: number,
+  boxBottomM: number,
+  cableDiameterM: number,
+  port: WallBoxPort = SINGLE_WALL_BOX_PORT,
+): Vec3[] {
+  const gl = wallBoxGland(boxBottomM, port.ports, port.side);
+  return cableOutOfGland([gl.at[0], gl.at[1], wallZ + gl.at[2]], gl.axis, cableDiameterM, [
+    port.side,
+    0,
+    0,
+  ]);
+}
+
+/**
+ * Where the cable runs into the handle of `port` docked in its dock, angled
+ * down along the box face (`wallBoxHolsterMount`), in the station frame.
+ */
+export function wallBoxDockEntry(o: {
+  wallZ: number;
+  boxBottomM: number;
+  kind: ConnectorKind;
+  port?: WallBoxPort;
+}): CableEntry {
+  const port = o.port ?? SINGLE_WALL_BOX_PORT;
+  const dock = wallBoxHolsterMount(o.boxBottomM, port.ports, port.ports === 2 ? port.side : -1);
+  const pose = holsterPose(
+    { x: dock.mount.x, y: dock.mount.y, z: o.wallZ + dock.mount.z },
+    dock.facing,
+    dock.noseUp,
+  );
+  return handleCableEntry(pose.handle, pose.handleYaw, o.kind, dock.noseUp);
+}
+
+/** The idle cable of `port`: its gland, the turns over its hook, the handle in its dock. */
 export function wallBoxIdleCable(o: {
   wallZ: number;
   boxBottomM: number;
@@ -105,20 +180,29 @@ export function wallBoxIdleCable(o: {
   dock: { lead: Vec3; end: Vec3 };
   sidewalkY: number;
   lengthM?: number;
+  port?: WallBoxPort;
 }): CoilCable {
+  const port = o.port ?? SINGLE_WALL_BOX_PORT;
   return coilCable({
-    entry: wallBoxGlandRun(o.wallZ, o.boxBottomM, o.cableDiameterM),
-    place: wallBoxCoilPlace(o.wallZ, o.cableDiameterM),
+    entry: wallBoxGlandRun(o.wallZ, o.boxBottomM, o.cableDiameterM, port),
+    place: wallBoxCoilPlace(o.wallZ, o.cableDiameterM, port),
     cableDiameterM: o.cableDiameterM,
     handle: o.dock,
     floorY: o.sidewalkY + o.cableDiameterM / 2 + COIL_GROUND_CLEARANCE_M,
     lengthM: o.lengthM ?? WALL_BOX_CABLE_M,
-    preferTurns: [WALL_BOX_HANGER.turns, 4],
-    bottomRadiusM: WALL_BOX_HANGER.bottomRadiusM,
+    preferTurns: [3, 2, 4, 1].filter(
+      (n) => n <= sidewalkHookTurns(WALL_BOX_HOOK.turns, o.cableDiameterM),
+    ),
+    entryHeading: [port.side, 0, 0],
+    bottomRadiusM: WALL_BOX_HOOK.bottomRadiusM,
+    entryPlaneWithin: WALL_BOX_HOOK.entryPlaneWithin,
   });
 }
 
-/** The charging cable: off the empty hanger, gland to the car's port (`plugRoute`), its 7.62 m kept. */
+/**
+ * The charging cable of `port` (default the one port): off its empty hook,
+ * its gland to the car's port (`plugRoute`), its 7.62 m kept.
+ */
 export function wallBoxChargingCable(o: {
   wallZ: number;
   boxBottomM: number;
@@ -129,9 +213,10 @@ export function wallBoxChargingCable(o: {
   surface: SurfaceAt;
   blocked?: (p: Vec3) => boolean;
   lengthM?: number;
+  port?: WallBoxPort;
 }): PlugRoute {
   return plugRoute({
-    from: wallBoxGlandRun(o.wallZ, o.boxBottomM, o.cableDiameterM),
+    from: wallBoxGlandRun(o.wallZ, o.boxBottomM, o.cableDiameterM, o.port),
     plug: o.plug,
     car: o.car,
     nosePort: o.nosePort,

@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Nfc, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,21 @@ interface DriverToken {
   expiresAt?: string | null;
   /** The operator deactivated the card: only the operator can reactivate it. */
   blockedByOperator?: boolean;
+}
+
+interface RfidFeatures {
+  /** False: the operator manages the cards and every driver change is refused. */
+  rfidSelfServiceEnabled?: boolean;
+  supportEnabled?: boolean;
+}
+
+/** The API refused a change because the operator manages the cards. */
+function isSelfServiceRefusal(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 403 &&
+    (error.body as { code?: unknown } | null)?.code === 'RFID_SELF_SERVICE_DISABLED'
+  );
 }
 
 function isExpired(token: DriverToken): boolean {
@@ -63,6 +79,24 @@ export function AccountRfidCards(): React.JSX.Element {
     queryFn: () => api.get<DriverToken[]>('/v1/portal/tokens'),
   });
 
+  // Same key as the other feature readers, so one request serves them all.
+  const { data: features } = useQuery({
+    queryKey: ['portal-features'],
+    queryFn: () => api.get<RfidFeatures>('/v1/portal/features'),
+    staleTime: 60_000,
+  });
+  // Missing or still loading reads as on: an older API never refuses.
+  const selfService = features?.rfidSelfServiceEnabled !== false;
+
+  /** A screen opened before the operator turned self-service off: reload and close. */
+  function onRefused(): void {
+    void queryClient.invalidateQueries({ queryKey: ['portal-features'] });
+    void queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
+    setAddOpen(false);
+    setRenameToken(null);
+    setConfirmDeactivate(null);
+  }
+
   const addMutation = useMutation({
     mutationFn: (body: { idToken: string; tokenType: PortalIdTokenType; label?: string }) =>
       api.post<DriverToken>('/v1/portal/tokens', body),
@@ -75,6 +109,11 @@ export function AccountRfidCards(): React.JSX.Element {
       setAddOpen(false);
     },
     onError: (error) => {
+      if (isSelfServiceRefusal(error)) {
+        toast({ variant: 'destructive', title: getErrorMessage(error, t) });
+        onRefused();
+        return;
+      }
       setAddError(
         error instanceof ApiError && error.status === 409
           ? t('rfid.duplicate')
@@ -89,6 +128,7 @@ export function AccountRfidCards(): React.JSX.Element {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal-tokens'] }),
     onError: (error) => {
       toast({ variant: 'destructive', title: getErrorMessage(error, t, 'rfid.toggleFailed') });
+      if (isSelfServiceRefusal(error)) onRefused();
     },
   });
 
@@ -101,6 +141,7 @@ export function AccountRfidCards(): React.JSX.Element {
     },
     onError: (error) => {
       toast({ variant: 'destructive', title: getErrorMessage(error, t, 'rfid.renameFailed') });
+      if (isSelfServiceRefusal(error)) onRefused();
     },
   });
 
@@ -118,14 +159,28 @@ export function AccountRfidCards(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <CreateButton
-        label={t('rfid.addCard')}
-        fullWidth
-        onClick={() => {
-          setAddError('');
-          setAddOpen(true);
-        }}
-      />
+      {selfService ? (
+        <CreateButton
+          label={t('rfid.addCard')}
+          fullWidth
+          onClick={() => {
+            setAddError('');
+            setAddOpen(true);
+          }}
+        />
+      ) : (
+        <p className="rounded-md border p-3 text-sm text-muted-foreground" role="note">
+          {t('rfid.managedByOperator')}
+          {features.supportEnabled === true && (
+            <>
+              {' '}
+              <Link to="/support" className="font-medium text-link hover:underline">
+                {t('rfid.contactSupport')}
+              </Link>
+            </>
+          )}
+        </p>
+      )}
 
       {isLoading && <LoadingState />}
 
@@ -140,7 +195,9 @@ export function AccountRfidCards(): React.JSX.Element {
       {sortedTokens != null && sortedTokens.length === 0 && (
         <div className="flex flex-col items-center gap-2 pt-8">
           <Nfc className="h-10 w-10 text-muted-foreground" />
-          <EmptyState className="pt-0 pb-8">{t('rfid.noCards')}</EmptyState>
+          <EmptyState className="pt-0 pb-8">
+            {selfService ? t('rfid.noCards') : t('rfid.noCardsAssigned')}
+          </EmptyState>
         </div>
       )}
 
@@ -168,34 +225,36 @@ export function AccountRfidCards(): React.JSX.Element {
                   <p className="text-xs text-destructive">{t('rfid.expired')}</p>
                 ) : null}
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setRenameValue(token.label ?? '');
-                    setRenameToken(token);
-                  }}
-                  aria-label={t('rfid.renameCard')}
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Toggle
-                  checked={token.isActive}
-                  onCheckedChange={(next) => {
-                    onToggle(token, next);
-                  }}
-                  disabled={toggleMutation.isPending || token.blockedByOperator === true}
-                  aria-label={token.isActive ? t('rfid.removeCard') : t('rfid.reactivateCard')}
-                />
-              </div>
+              {selfService && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setRenameValue(token.label ?? '');
+                      setRenameToken(token);
+                    }}
+                    aria-label={t('rfid.renameCard')}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Toggle
+                    checked={token.isActive}
+                    onCheckedChange={(next) => {
+                      onToggle(token, next);
+                    }}
+                    disabled={toggleMutation.isPending || token.blockedByOperator === true}
+                    aria-label={token.isActive ? t('rfid.removeCard') : t('rfid.reactivateCard')}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}
       </div>
 
       <ConfirmDialog
-        open={addOpen}
+        open={selfService && addOpen}
         onOpenChange={(open) => {
           if (!open) setAddOpen(false);
         }}
@@ -252,7 +311,7 @@ export function AccountRfidCards(): React.JSX.Element {
       </ConfirmDialog>
 
       <ConfirmDialog
-        open={renameToken != null}
+        open={selfService && renameToken != null}
         onOpenChange={(open) => {
           if (!open) setRenameToken(null);
         }}
@@ -282,7 +341,7 @@ export function AccountRfidCards(): React.JSX.Element {
       </ConfirmDialog>
 
       <ConfirmDialog
-        open={confirmDeactivate != null}
+        open={selfService && confirmDeactivate != null}
         onOpenChange={(open) => {
           if (!open) setConfirmDeactivate(null);
         }}

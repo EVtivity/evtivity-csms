@@ -1019,7 +1019,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "이 출발은 버스 차고지 시스템이 관리합니다. 해당 시스템에서 변경하거나 차고지 시스템을 비활성화하세요.",
     "DEPOT_SYSTEM_NOT_FOUND": "버스 차고지 시스템을 찾을 수 없습니다.",
     "DEPOT_SYSTEM_ID_IN_USE": "다른 버스 차고지 시스템이 이 시스템 ID를 사용합니다.",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "버스 차고지 시스템은 차고지 사이트만 지원합니다."
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "버스 차고지 시스템은 차고지 사이트만 지원합니다.",
+    "RFID_SELF_SERVICE_DISABLED": "운영자가 RFID 카드를 관리합니다. 카드를 추가, 변경, 비활성화 또는 삭제하려면 운영자에게 문의하세요.",
+    "NOTIFICATION_EVENT_MANDATORY": "운영자가 이 채널에서 이 알림을 필수로 지정했으므로 끌 수 없습니다"
   },
   "validation": {
     "required": "필수 항목입니다",
@@ -1145,7 +1147,10 @@
     "labelPlaceholder": "라벨(선택 사항), 예: 회사 RFID 카드",
     "labelHint": "카드를 구분하는 데 도움이 되는 이름입니다. 비워 두면 카드 번호가 표시됩니다.",
     "renameCard": "RFID 카드 이름 변경",
-    "renameFailed": "카드 이름을 변경할 수 없습니다. 다시 시도하세요."
+    "renameFailed": "카드 이름을 변경할 수 없습니다. 다시 시도하세요.",
+    "managedByOperator": "운영자가 RFID 카드를 관리합니다. 카드를 추가, 변경, 삭제하거나 분실한 카드를 차단하려면 운영자에게 문의하세요.",
+    "noCardsAssigned": "할당된 RFID 카드가 없습니다.",
+    "contactSupport": "고객 지원 문의"
   },
   "vehicles": {
     "addVehicle": "차량 추가",
@@ -1531,5 +1536,91 @@
   "storageUnavailable": {
     "title": "업로드 불가",
     "description": "지금은 파일을 업로드할 수 없습니다. 나중에 다시 시도해 주시고, 문제가 계속되면 지원팀에 문의해 주세요."
+  },
+  "notificationPrefs": {
+    "intro": "채널별로 받을 알림을 선택하세요.",
+    "notification": "알림",
+    "allNotifications": "모든 알림",
+    "allChannelLabel": "모든 {{channel}} 알림",
+    "eventChannelLabel": "{{channel}}(으)로 {{event}}",
+    "channels": {
+      "email": "이메일",
+      "sms": "SMS",
+      "push": "푸시"
+    },
+    "required": "운영자가 요구한 알림",
+    "requiredNote": "자물쇠로 표시된 알림은 운영자가 요구한 알림입니다. 해당 채널로 항상 보내집니다.",
+    "alwaysSentNote": "비밀번호 재설정, 로그인 코드 같은 계정 및 보안 메시지는 항상 보내집니다.",
+    "noChannels": "운영자가 아직 이메일이나 문자 메시지 알림을 설정하지 않았습니다.",
+    "groups": {
+      "sessions": "충전 세션",
+      "payments": "결제",
+      "reservations": "예약",
+      "invoices": "청구서",
+      "supportCases": "지원 요청",
+      "rfidCards": "RFID 카드",
+      "maintenance": "유지보수",
+      "stationWatch": "충전소 알림",
+      "prepaidBalance": "선불 잔액",
+      "fleetBilling": "차량 그룹 청구"
+    },
+    "events": {
+      "session": {
+        "Started": "충전 시작",
+        "Updated": "충전 진행 상황",
+        "Completed": "충전 완료",
+        "Faulted": "오류로 충전 중지",
+        "PaymentReceived": "세션 결제 완료",
+        "IdlingStarted": "유휴 요금 시작",
+        "Receipt": "세션 영수증"
+      },
+      "payment": {
+        "Complete": "결제 완료",
+        "Refunded": "결제 환불",
+        "FeeRefunded": "예약 수수료 환불",
+        "PreAuthFailed": "결제 승인 실패",
+        "CaptureFailed": "결제 실패",
+        "MissingPaymentMethod": "등록된 결제 수단 없음",
+        "AccountCreditLimit": "차량 그룹 신용 한도 도달"
+      },
+      "reservation": {
+        "Created": "예약 확정",
+        "Cancelled": "예약 취소",
+        "CancelledForMaintenance": "유지보수로 예약 취소",
+        "Expiring": "예약 곧 종료",
+        "Expired": "예약 만료",
+        "StationFaulted": "예약한 충전소 사용 불가",
+        "TakenByOther": "예약한 충전기를 다른 사람이 사용"
+      },
+      "invoice": {
+        "Sent": "청구서 발송",
+        "CreditNote": "대변표 발행"
+      },
+      "supportCase": {
+        "Created": "지원 요청 생성",
+        "OperatorReply": "지원 요청에 대한 답변",
+        "Resolved": "지원 요청 해결",
+        "AiAnswered": "지원 요청에 대한 자동 답변"
+      },
+      "token": {
+        "Added": "RFID 카드 추가",
+        "Removed": "RFID 카드 삭제",
+        "Deactivated": "RFID 카드 비활성화",
+        "Reactivated": "RFID 카드 재활성화"
+      },
+      "maintenance": {
+        "SessionStopped": "유지보수로 충전 중지"
+      },
+      "watch": {
+        "StationAvailable": "지켜보는 충전소 사용 가능"
+      },
+      "prepaid": {
+        "LowCredit": "선불 잔액 부족",
+        "CreditExhausted": "선불 잔액 소진"
+      },
+      "fleet": {
+        "AccountBillingChanged": "차량 그룹 청구 변경"
+      }
+    }
   }
 }

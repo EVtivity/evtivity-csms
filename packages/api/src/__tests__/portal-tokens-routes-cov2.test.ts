@@ -27,6 +27,7 @@ function makeChain() {
 vi.mock('@evtivity/database', () => ({
   db: { select: vi.fn(() => makeChain()) },
   driverTokens: {},
+  isDriverRfidSelfServiceEnabled: vi.fn(async () => true),
 }));
 
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn(), and: vi.fn() }));
@@ -43,6 +44,9 @@ const { DuplicateTokenError, TokenReactivationBlockedError, PncContractTokenErro
     PncContractTokenError: class PncContractTokenError extends Error {},
   }),
 );
+const { RfidSelfServiceDisabledError } = vi.hoisted(() => ({
+  RfidSelfServiceDisabledError: class RfidSelfServiceDisabledError extends Error {},
+}));
 
 vi.mock('../services/token.service.js', () => ({
   createToken: createTokenMock,
@@ -52,6 +56,7 @@ vi.mock('../services/token.service.js', () => ({
   DuplicateTokenError,
   TokenReactivationBlockedError,
   PncContractTokenError,
+  RfidSelfServiceDisabledError,
 }));
 
 import { registerAuth } from '../plugins/auth.js';

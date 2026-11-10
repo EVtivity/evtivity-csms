@@ -18,6 +18,10 @@ import {
   getReservationSettings,
   isReservationEnabled,
   isSupportEnabled,
+  isDriverRfidSelfServiceEnabled,
+  clearDriverRfidSelfServiceCache,
+  clearCsmsUpdateCheckSettingCache,
+  RFID_SELF_SERVICE_SETTING_KEY,
   isRoamingEnabled,
   isPncEnabled,
   isFleetEnabled,
@@ -89,6 +93,12 @@ import {
   isStationMessageLanguage,
   STATION_MESSAGE_LANGUAGES,
   isTaxBasis,
+  isDistanceUnit,
+  isUiLanguage,
+  isValidTimezone,
+  SYSTEM_DISTANCE_UNIT_KEY,
+  SYSTEM_DRIVER_LANGUAGE_KEY,
+  SYSTEM_TIMEZONE_KEY,
   TAX_BASES,
   isChargerPlateColorKey,
   normalizeChargerPlateColor,
@@ -134,6 +144,7 @@ import {
   isDataPlanSettingKey,
   validateDataPlanSetting,
   normalizeMeasurandList,
+  UPDATE_CHECK_SETTING_KEY,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
@@ -174,6 +185,19 @@ function announceVdv463Switch(): void {
     .publish(DEPOT_SYSTEM_CHANGED_CHANNEL, JSON.stringify({ all: true }))
     .catch((err: unknown) => {
       logger.warn({ err }, 'Depot interface switch not published, connections recheck it');
+    });
+}
+
+// The driver RFID self-service switch: this process clears its cached value,
+// and every other API process clears its own at once (cache_invalidate kind
+// rfid_self_service), so a switch to off holds everywhere without the 60 s
+// TTL. A lost publish leaves the TTL as the fallback.
+function announceRfidSelfServiceSwitch(): void {
+  clearDriverRfidSelfServiceCache();
+  void getPubSub()
+    .publish('cache_invalidate', JSON.stringify({ kind: 'rfid_self_service' }))
+    .catch((err: unknown) => {
+      logger.warn({ err }, 'RFID self-service switch not published, peers refresh within 60s');
     });
 }
 
@@ -235,6 +259,9 @@ function isCachedSystemSetting(key: string): boolean {
     key === COMPANY_PRICE_DISPLAY_KEY ||
     key === COMPANY_TAX_BASIS_KEY ||
     key === INVOICE_EPC_QR_ENABLED_KEY ||
+    key === SYSTEM_TIMEZONE_KEY ||
+    key === SYSTEM_DISTANCE_UNIT_KEY ||
+    key === SYSTEM_DRIVER_LANGUAGE_KEY ||
     isInvoicePaymentSettingKey(key)
   );
 }
@@ -286,6 +313,12 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     return isStationMessageLanguage(value) ? { value } : null;
   }
   if (key === COMPANY_TAX_BASIS_KEY) return isTaxBasis(value) ? { value } : null;
+  // The defaults of new drivers (Settings > Company).
+  if (key === SYSTEM_TIMEZONE_KEY) {
+    return typeof value === 'string' && value !== '' && isValidTimezone(value) ? { value } : null;
+  }
+  if (key === SYSTEM_DISTANCE_UNIT_KEY) return isDistanceUnit(value) ? { value } : null;
+  if (key === SYSTEM_DRIVER_LANGUAGE_KEY) return isUiLanguage(value) ? { value } : null;
   if (isChargerPlateColorKey(key)) {
     const color = normalizeChargerPlateColor(value);
     return color != null ? { value: color } : null;
@@ -336,6 +369,10 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     return bank != null ? { value: bank } : null;
   }
   if (key === INVOICE_EPC_QR_ENABLED_KEY) return typeof value === 'boolean' ? { value } : null;
+  // A security control: a stored string would read as off, so only a boolean saves.
+  if (key === RFID_SELF_SERVICE_SETTING_KEY) return typeof value === 'boolean' ? { value } : null;
+  // The update check off switch: only false turns it off, so only a boolean saves.
+  if (key === UPDATE_CHECK_SETTING_KEY) return typeof value === 'boolean' ? { value } : null;
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
   return isSupportedCurrency(code) ? { value: code } : null;
@@ -631,7 +668,11 @@ function invalidSettingError(key: string, value?: unknown): { error: string; cod
   if (key === PDF_FOOTER_KEY) return invalidPdfFooterError;
   if (isInvoiceSellerSettingKey(key)) return invalidInvoiceSellerError(key);
   if (isInvoicePaymentSettingKey(key)) return invalidInvoicePaymentError(key);
-  if (key === INVOICE_EPC_QR_ENABLED_KEY) {
+  if (
+    key === INVOICE_EPC_QR_ENABLED_KEY ||
+    key === RFID_SELF_SERVICE_SETTING_KEY ||
+    key === UPDATE_CHECK_SETTING_KEY
+  ) {
     return { error: `${key} must be true or false`, code: 'VALIDATION_ERROR' };
   }
   if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
@@ -643,6 +684,15 @@ function invalidSettingError(key: string, value?: unknown): { error: string; cod
     return { error: `${key} must be empty or a #rrggbb hex color`, code: 'VALIDATION_ERROR' };
   }
   if (key === STATION_MESSAGE_LANGUAGE_KEY) return invalidStationMessageLanguageError;
+  if (key === SYSTEM_TIMEZONE_KEY) {
+    return { error: `${key} must be an IANA time zone`, code: 'VALIDATION_ERROR' };
+  }
+  if (key === SYSTEM_DISTANCE_UNIT_KEY) {
+    return { error: `${key} must be miles or km`, code: 'VALIDATION_ERROR' };
+  }
+  if (key === SYSTEM_DRIVER_LANGUAGE_KEY) {
+    return { error: `${key} must be one of: ${UI_LANGUAGES.join(', ')}`, code: 'VALIDATION_ERROR' };
+  }
   return invalidCurrencyError;
 }
 
@@ -686,6 +736,8 @@ function clearCachesForKey(key: string): void {
   if (key === FLEET_CREDIT_RESERVATION_KEY) clearFleetCreditSettingsCache();
   if (key === 'roaming.enabled') clearRoamingCache();
   if (key === 'support.enabled') clearSupportCache();
+  if (key === UPDATE_CHECK_SETTING_KEY) clearCsmsUpdateCheckSettingCache();
+  if (key === RFID_SELF_SERVICE_SETTING_KEY) announceRfidSelfServiceSwitch();
   if (key === 'fleet.enabled') clearFleetCache();
   if (key === 'fleetCharging.enabled') clearFleetChargingSettingCache();
   if (key === 'vdv463.enabled') announceVdv463Switch();
@@ -932,6 +984,11 @@ export function settingsRoutes(app: FastifyInstance): void {
                 supportEnabled: z
                   .boolean()
                   .describe('Whether the support case feature is enabled in the portal'),
+                rfidSelfServiceEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether drivers add, rename, deactivate, reactivate and remove their own RFID cards (portal.rfidSelfServiceEnabled). False: drivers only see their cards and the operator manages them',
+                  ),
                 roamingEnabled: z
                   .boolean()
                   .describe('Whether OCPI roaming charger search is enabled in the portal'),
@@ -1028,6 +1085,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     async (request) => {
       const reservationEnabled = await isReservationEnabled();
       const supportEnabled = await isSupportEnabled();
+      const rfidSelfServiceEnabled = await isDriverRfidSelfServiceEnabled();
       const roamingEnabled = await isRoamingEnabled();
       const pncEnabled = await isPncEnabled();
       const fleetEnabled = await isFleetEnabled();
@@ -1049,6 +1107,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       return {
         reservationEnabled,
         supportEnabled,
+        rfidSelfServiceEnabled,
         roamingEnabled,
         pncEnabled,
         fleetEnabled,
@@ -1348,7 +1407,14 @@ export function settingsRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
       if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
-      if (isServerManagedSetting(key) || isDedicatedRouteSetting(key) || isStorageSettingKey(key)) {
+      // The RFID self-service switch is set to true or false only: a delete would
+      // drop the operator's stored false (security review of v0.1.51).
+      if (
+        isServerManagedSetting(key) ||
+        isDedicatedRouteSetting(key) ||
+        isStorageSettingKey(key) ||
+        key === RFID_SELF_SERVICE_SETTING_KEY
+      ) {
         const { error } = invalidSettingError(key);
         await reply.status(400).send({ error, code: 'VALIDATION_ERROR' });
         return;

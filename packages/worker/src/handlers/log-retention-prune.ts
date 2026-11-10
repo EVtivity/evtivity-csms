@@ -19,7 +19,7 @@ import { pruneOldRows } from '../lib/prune-old-rows.js';
 // `effectiveRetentionDays`, the one reader of these settings: the default for a
 // missing or invalid value, and the 30-day floor of the security history.
 
-interface LogTable {
+export interface LogTable {
   // Postgres table name
   table: string;
   // Setting key in the `settings` table (jsonb integer days)
@@ -38,7 +38,7 @@ interface LogTable {
 // filter never fails on an enum value.
 const LOGIN_AUDIT_FILTER = sql`action::text IN ('login_succeeded', 'login_failed')`;
 
-const LOG_TABLES: readonly LogTable[] = [
+export const LOG_TABLES: readonly LogTable[] = [
   {
     table: 'access_logs',
     settingKey: 'logs.access.retentionDays',
@@ -62,16 +62,18 @@ const LOG_TABLES: readonly LogTable[] = [
   {
     table: 'security_events',
     settingKey: 'logs.securityEvents.retentionDays',
-    // `timestamp` is indexed and is the OCPP event time (set on insert, never
-    // updated). Prune by it instead of `created_at` to use the existing
-    // `idx_security_events_timestamp` btree.
-    cutoffColumn: 'timestamp',
+    // The receipt time (`idx_security_events_created_at`), never the
+    // station-reported `timestamp`: a station dating its event in 2000 would
+    // have it pruned at the next run, one dated 2100 would never be pruned
+    // (security review of v0.1.51, the case 284 rule for security history).
+    cutoffColumn: 'created_at',
   },
   {
     table: 'port_status_log',
     settingKey: 'logs.portStatus.retentionDays',
-    // Same as security_events: `timestamp` is indexed and immutable.
-    cutoffColumn: 'timestamp',
+    // The receipt time (`idx_port_status_log_created_at`), never the
+    // station-reported `timestamp`, the security events rule above.
+    cutoffColumn: 'created_at',
   },
   {
     table: 'worker_job_logs',

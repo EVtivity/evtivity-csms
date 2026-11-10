@@ -451,6 +451,7 @@ export type LayoutShape = SiteLayoutGrid &
     | 'busBays'
     | 'truckLanes'
     | 'chargerPlacement'
+    | 'mounting'
   >;
 
 /** The energy asset positions of settings: as stored, else none. */
@@ -1212,8 +1213,10 @@ export interface LayoutStationCounts {
   total: number;
   bus: number;
   truck: number;
-  /** Parking lot spots the stations take (a dual-port AC pedestal two); absent: one each. */
+  /** Parking lot spots the stations take (`heldSpotCount` on a parking lot); absent: one each. */
   spots?: number;
+  /** Office or retail row positions the stations take (`heldSpotCount` on that row); absent: one each. */
+  rowSpots?: number;
 }
 
 /** Station counts from a plain number (every station a bus station) or as given. */
@@ -1273,24 +1276,24 @@ export function layoutStationCountsOfKinds(
     total: kinds.length,
     bus: kinds.filter((k) => k == null || k.depot === 'bus').length,
     truck: kinds.filter((k) => k?.depot === 'truck').length,
-    // A dual-port AC pedestal takes two spots, a DC split system one per dispenser.
-    spots: kinds.reduce(
-      (n, k) =>
-        n +
-        (k?.charging === 'ac' && (k.ports ?? 1) >= 2
-          ? 2
-          : k?.charging === 'dc' && (k.ports ?? 1) >= SPLIT_SYSTEM.minDispensers
-            ? Math.min(SPLIT_SYSTEM.maxDispensers, k.ports ?? 1)
-            : 1),
-      0,
-    ),
+    // The spots each station holds where that site type pairs or splits it
+    // (`heldSpotCount`): on a parking lot a dual-port AC pedestal and a
+    // dual-outlet DC dispenser two, a DC split system one per dispenser; on
+    // an office or retail row a two-port AC station two, a split system one
+    // per dispenser, a dual-outlet DC dispenser one.
+    spots: kinds.reduce((n, k) => n + heldSpotCount(k, PARKING_LOT_SHAPE), 0),
+    rowSpots: kinds.reduce((n, k) => n + heldSpotCount(k, OFFICE_ROW_SHAPE), 0),
   };
 }
 
+/** A parking lot and an office or retail row, for the spots a station kind holds there. */
+const PARKING_LOT_SHAPE: LayoutShape = { ...DEFAULT_LAYOUT_GRID, siteType: 'parking_lot' };
+const OFFICE_ROW_SHAPE: LayoutShape = { ...DEFAULT_LAYOUT_GRID, siteType: 'office_retail' };
+
 /**
  * The fields of a site type filled in where absent, from the stations at the
- * site: an office or retail site gets one charger position per station (at
- * least 1) and wall boxes; a street splits the stations over both curbs (the
+ * site: an office or retail site gets one charger position per station, two
+ * for a two-port station on the line between two spots (at least 1), and wall boxes; a street splits the stations over both curbs (the
  * left one takes the odd one), at least 1 in all; a depot gets one bus bay per
  * bus station and one truck lane per truck station (one bus bay when it has
  * neither). Stored values stay as they are.
@@ -1321,7 +1324,10 @@ function withTypeDefaults(
     case 'office_retail':
       return {
         ...settings,
-        chargers: settings.chargers ?? n,
+        // One position per station, two for a two-port station between two spots.
+        chargers:
+          settings.chargers ??
+          Math.max(n, Math.min(LAYOUT_GRID_LIMITS.chargers.max, Math.round(counts.rowSpots ?? n))),
         mounting: chargerMountingOf(settings),
       };
     case 'curbside': {
@@ -1550,7 +1556,7 @@ export function groupedSpotOrder(settings: LayoutShape, charging: ChargingKind):
  */
 export type PlacedSlot = LayoutPoint & {
   charging?: ChargingKind | null | undefined;
-  /** A dual-port AC pedestal standing between its spot and the partner spot (`sharesSpotPair`). */
+  /** A dual-port AC pedestal or dual-outlet DC dispenser standing between its spot and the partner spot (`sharesSpotPair`). */
   pair?: boolean | undefined;
   /**
    * A DC split system's dispensers (`splitDispenserCount`): the spots it holds
@@ -1611,12 +1617,24 @@ export const SPLIT_SYSTEM = {
  *   outputs). Alpitronic sells up to 4 simultaneous outputs per cabinet,
  *   so 2 EVSEs is a modelling choice for one dispenser, not an industry limit;
  *   a DC station with more EVSEs is a split system (`SPLIT_SYSTEM`).
+ * - Split system satellite (one EVSE): at most 2 connectors (`satelliteConnectors`;
+ *   Kempower: "The DC fast charging satellites can be equipped with one or
+ *   two DC fast charging outlets", https://kempower.com/america/solution/kempower-satellite/,
+ *   Technical Datasheet Kempower Satellite NA Rev. 1.10, charging outputs 1
+ *   or 2; Alpitronic HYC1000 EV Dispenser: "Up to 2x CCS / NACS connectors",
+ *   https://www.alpitronic.it/us/hypercharger/hyc-1000/; research 2026-11-10).
  * The API never refuses a station with more (stations report their own over
  * OCPP); the 3D view draws the first EVSEs and connectors up to these limits.
  */
 export const CHARGER_PORT_LIMITS = {
   ac: { evses: 2, connectorsPerEvse: 1, cables: 2 },
-  dc: { evses: 2, connectorsPerEvse: 2, cables: 4, singleEvseConnectors: 3 },
+  dc: {
+    evses: 2,
+    connectorsPerEvse: 2,
+    cables: 4,
+    singleEvseConnectors: 3,
+    satelliteConnectors: 2,
+  },
 } as const;
 
 /**
@@ -1680,35 +1698,105 @@ export function spanSpots(bay: LayoutBay, span: number, settings: LayoutShape): 
 }
 
 /**
- * Whether a station of this kind is a dual-port AC pedestal that serves two
- * spots on a parking lot: an AC station with two or more EVSEs. It stands on
- * the line between its spot and the partner spot (`spotPairPartner`), one
- * port per spot, as ChargePoint lays out its dual-port CPF50 pedestals ("two
- * stations back to back centered on four spaces", CPF50 Site Design Guide,
- * Civil and Mechanical Design,
- * https://docs.chargepoint.com/cpdocs-sec/content/2-ac/cpf50/sdg/cvl-and-mchncl-dsgn.htm).
- * A DC dispenser keeps one spot (its cables reach the next stall's inlet
- * from its own spot); other site types keep one spot per station.
+ * Whether a station of this kind serves two spots on a parking lot from the
+ * line between them (`spotPairPartner`), one EVSE per spot (EVSE 1 the left
+ * one seen from the charger's front): a dual-port AC pedestal (an AC station
+ * with two or more EVSEs), as ChargePoint lays out its dual-port CPF50
+ * pedestals ("two stations back to back centered on four spaces", CPF50 Site
+ * Design Guide, Civil and Mechanical Design,
+ * https://docs.chargepoint.com/cpdocs-sec/content/2-ac/cpf50/sdg/cvl-and-mchncl-dsgn.htm),
+ * and a dual-outlet DC dispenser (a DC station with exactly two EVSEs, owner
+ * decision 2026-11-09): ChargePoint places a dual-cable Express Plus station
+ * "in front of every other parking space" (PL2000 Site Design Guidelines,
+ * https://docs.chargepoint.com/cpdocs-sec/content/3-dc/expp/sdg/pl2/site-design-guidelines.htm)
+ * (an AC guide makes the same choice for parallel spaces: "a dual holster
+ * station centered between two parallel parking spaces", CP6000 Site Design
+ * Guidelines), and the ABB Terra 184 dual outlet charges
+ * two EVs at once (Terra 124/184 NA data sheet, rev J). A DC station with one
+ * EVSE keeps one spot, a split system (three or more) a spot per dispenser
+ * (`splitDispenserCount`). On an office or retail row with wall boxes a
+ * two-port wall box (an AC station with two or more EVSEs) hangs on the
+ * facade on the line between two spots and serves both, one car per port
+ * (owner decision 2026-11-10), the pedestal rule above applied to a wall
+ * unit: the CT4000 site design guide puts dual-port stations at "adjacent
+ * parking or adjoining parking spaces" (Site Design Guidelines,
+ * https://docs.chargepoint.com/cpdocs-sec/content/2-ac/ct4000/sdg/st-dsgn-gdlns.htm),
+ * and the family has dual-port wall mounts (CT4023, CT4027, CT4000 data
+ * sheet); the guide states no wall placement between spaces, so the line
+ * between the two spots is the pedestal rule, not a cited wall rule. A
+ * two-port post on an office or retail row with posts at the stalls
+ * (`stall` mounting) stands on the line between two stalls too, behind the
+ * stall head on the sidewalk, one car per port (owner decision 2026-11-10):
+ * the dual-port pedestal rule above (CPF50 "two stations back to back
+ * centered on four spaces", one side of it on a single row). Other site
+ * types keep one spot per station (a custom site gives a station one car
+ * spot per EVSE).
  */
 export function sharesSpotPair(
   kind: Pick<LayoutStationKind, 'charging' | 'ports'> | null | undefined,
   settings: LayoutShape,
 ): boolean {
-  return (
-    kind != null &&
-    kind.charging === 'ac' &&
-    (kind.ports ?? 1) >= 2 &&
-    siteTypeOf(settings) === 'parking_lot'
-  );
+  if (kind == null) return false;
+  const ports = kind.ports ?? 1;
+  const type = siteTypeOf(settings);
+  if (type === 'office_retail') {
+    // Wall boxes and stall posts alike; DC keeps one spot on an office or retail row.
+    return kind.charging === 'ac' && ports >= 2;
+  }
+  if (type !== 'parking_lot') return false;
+  return kind.charging === 'ac' ? ports >= 2 : ports === 2;
 }
 
 /**
- * The partner spot of a parking lot spot: spots pair up along each row from
- * its first spot (columns 0 and 1, 2 and 3, ...). Null for the last spot of
- * a row of odd length, a slot off the layout and the other site types.
+ * The stations whose spot pair holds (`sharesSpotPair`): a station flagged
+ * `pair` keeps it only while its partner spot is on the layout, is no other
+ * station's own spot and no earlier station's partner (in the order given).
+ * Otherwise it serves its own spot only, so a stored position from before a
+ * kind started pairing (two dual-outlet DC dispensers side by side) stays
+ * valid instead of overlapping its neighbor. Returns the slots with `pair`
+ * settled; the input is not changed.
+ */
+export function settlePairs<T extends PlacedSlot>(
+  placed: readonly T[],
+  settings: LayoutShape,
+): T[] {
+  const own = new Set(placed.map((p) => bayKey(positionToBay(p))));
+  const claimed = new Set<string>();
+  return placed.map((p) => {
+    if (p.pair !== true) return p;
+    const partner = spotPairPartner(positionToBay(p), settings);
+    const key = partner == null ? null : bayKey(partner);
+    if (key == null || own.has(key) || claimed.has(key)) return { ...p, pair: false };
+    claimed.add(key);
+    return p;
+  });
+}
+
+/**
+ * How many grid spots a station of this kind holds on a parking lot or an
+ * office or retail row: two for a station on a spot pair (`sharesSpotPair`),
+ * one per dispenser for a split system (`splitDispenserCount`), else one.
+ */
+export function heldSpotCount(
+  kind: Pick<LayoutStationKind, 'charging' | 'ports'> | null | undefined,
+  settings: LayoutShape,
+): number {
+  const span = splitDispenserCount(kind, settings);
+  if (span > 1) return span;
+  return sharesSpotPair(kind, settings) ? 2 : 1;
+}
+
+/**
+ * The partner spot of a parking lot spot or an office or retail row spot:
+ * spots pair up along each row from its first spot (columns 0 and 1, 2 and
+ * 3, ...). Null for the last spot of a row of odd length, a slot off the
+ * layout and the other site types.
  */
 export function spotPairPartner(bay: LayoutBay, settings: LayoutShape): LayoutBay | null {
-  if (siteTypeOf(settings) !== 'parking_lot' || !bayInLayout(bay, settings)) return null;
+  const type = siteTypeOf(settings);
+  if ((type !== 'parking_lot' && type !== 'office_retail') || !bayInLayout(bay, settings)) {
+    return null;
+  }
   const partner = { col: bay.col % 2 === 0 ? bay.col + 1 : bay.col - 1, row: bay.row };
   return bayInLayout(partner, settings) ? partner : null;
 }
@@ -1748,10 +1836,13 @@ const bayKey = (b: LayoutBay): string => `${String(b.col)}:${String(b.row)}`;
  * spot nearest the electrical equipment (`groupedSpotOrder` for DC, so
  * usually a DC charger, whose cables reach either side of a car) whose
  * neighbor spot in its row (the next column, else the one before) holds no
- * station and is no dual-port pedestal's partner: that neighbor becomes the
- * striped access aisle. A dual-port pedestal serves two spots and is passed
- * over. Null on a depot, a street, a custom site, and when no station spot
- * has a free neighbor.
+ * station and is no paired station's partner: that neighbor becomes the
+ * striped access aisle. A station that serves one spot comes first; only
+ * when none has a free neighbor does one stall of a paired station (a
+ * dual-port pedestal or dual-outlet DC dispenser, `sharesSpotPair`) whose
+ * outer neighbor is free become the space, so a site whose chargers all
+ * serve two spots still has one. Null on a depot, a street, a custom site,
+ * and when no station spot has a free neighbor.
  */
 export function accessibleChargingSpace(
   placed: readonly PlacedSlot[],
@@ -1760,7 +1851,8 @@ export function accessibleChargingSpace(
   if (!modelsAccessibleSpace(settings)) return null;
   const held = new Set<string>();
   const single = new Set<string>();
-  for (const p of placed) {
+  const paired = new Set<string>();
+  for (const p of settlePairs(placed, settings)) {
     const bay = positionToBay(p);
     if (!bayInLayout(bay, settings)) continue;
     held.add(bayKey(bay));
@@ -1770,14 +1862,19 @@ export function accessibleChargingSpace(
       continue;
     }
     const partner = p.pair === true ? spotPairPartner(bay, settings) : null;
-    if (partner != null) held.add(bayKey(partner));
-    else single.add(bayKey(bay));
+    if (partner != null) {
+      held.add(bayKey(partner));
+      paired.add(bayKey(bay)).add(bayKey(partner));
+    } else single.add(bayKey(bay));
   }
-  for (const bay of groupedSpotOrder(settings, 'dc')) {
-    if (!single.has(bayKey(bay))) continue;
-    for (const col of [bay.col + 1, bay.col - 1]) {
-      const aisle = { col, row: bay.row };
-      if (bayInLayout(aisle, settings) && !held.has(bayKey(aisle))) return { stall: bay, aisle };
+  // The partner spot is held, so a paired stall's aisle is always its outer neighbor.
+  for (const candidates of [single, paired]) {
+    for (const bay of groupedSpotOrder(settings, 'dc')) {
+      if (!candidates.has(bayKey(bay))) continue;
+      for (const col of [bay.col + 1, bay.col - 1]) {
+        const aisle = { col, row: bay.row };
+        if (bayInLayout(aisle, settings) && !held.has(bayKey(aisle))) return { stall: bay, aisle };
+      }
     }
   }
   return null;
@@ -1798,7 +1895,7 @@ export function heldSpots(
   withAisle = true,
 ): Map<string, ChargingKind | null> {
   const held = new Map<string, ChargingKind | null>();
-  for (const p of placed) {
+  for (const p of settlePairs(placed, settings)) {
     const bay = positionToBay(p);
     held.set(bayKey(bay), p.charging ?? null);
     const partner = p.pair === true ? spotPairPartner(bay, settings) : null;
@@ -1909,10 +2006,10 @@ export function fitGroupedPositions<K>(
   // No station's connectors known yet: nothing to group (the positions rule).
   if (stations.every((s) => s.kind == null)) return fitPositionsToGrid(stations, settings);
   const lengths = layoutRowLengths(settings);
-  // The DC group's spots: one per dispenser (a split system holds several).
+  // The DC group's spots: a split system holds one per dispenser, a dual-outlet dispenser two.
   const dcCount = stations
     .filter((s) => s.kind?.charging === 'dc')
-    .reduce((n, s) => n + splitDispenserCount(s.kind, settings), 0);
+    .reduce((n, s) => n + heldSpotCount(s.kind, settings), 0);
   const spotKey = (b: LayoutBay): string => `${String(b.col)}:${String(b.row)}`;
   const dcSpots = new Set(groupedSpotOrder(settings, 'dc').slice(0, dcCount).map(spotKey));
   const groupOf = (b: LayoutBay): ChargingKind | null =>

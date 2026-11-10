@@ -31,6 +31,7 @@ import {
   CHARGER_LOGO_FACES,
   chargingGlowLevel,
   wallBoxOffset,
+  FACADE_BASE_PROUD_M,
   wallMounted,
   MAX_DISTANCE_MIN,
   MAX_POLAR_ANGLE,
@@ -39,6 +40,7 @@ import {
   FRONT_TARGET_Y,
   OVERVIEW_CAMERA_OFFSET,
   MIN_DISTANCE,
+  cameraNearM,
   STATION_BACK_OFFSET,
   bayToWorld,
   bayTurn,
@@ -211,8 +213,8 @@ describe('site layout 3D lot', () => {
     expect(wallMounted({ col: 3, row: 0 }, officeStall, 'ac')).toBe(false);
     expect(wallMounted({ col: 3, row: 0 }, lot, 'ac')).toBe(false);
     expect(wallMounted({ col: 3, row: 0 }, street, 'ac')).toBe(false);
-    // The wall box is on the facade behind its spot.
-    expect(BAY_STATION_Z + wallBoxOffset()).toBeCloseTo(FACADE_Z);
+    // The wall box is on the facade behind its spot, on the face of the stone base.
+    expect(BAY_STATION_Z + wallBoxOffset()).toBeCloseTo(FACADE_Z + FACADE_BASE_PROUD_M);
   });
 
   it('puts the building along the front of the office or retail row past the sidewalk', () => {
@@ -329,6 +331,15 @@ describe('site layout 3D lot', () => {
         expect(target.z + reach).toBeLessThan(g.maxZ);
       }
     }
+  });
+
+  it('comes as close as 1 m, the near plane never cutting a model that close', () => {
+    expect(MIN_DISTANCE).toBe(1);
+    // The near plane stays well inside the nearest view distance and never under 0.1 m.
+    expect(cameraNearM(MIN_DISTANCE)).toBeLessThanOrEqual(MIN_DISTANCE * 0.25);
+    expect(cameraNearM(0)).toBe(0.1);
+    expect(cameraNearM(400)).toBe(0.5);
+    expect(cameraNearM(Number.NaN)).toBe(0.5);
   });
 
   it('fades the ground with the camera distance, clear around the target', () => {

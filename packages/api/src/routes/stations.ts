@@ -49,6 +49,7 @@ import {
 import type { StationInsightSuppressionSource } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { AI_INSIGHT_SCOPE_REASONS } from '@evtivity/lib/ai-insights';
+import { SECURITY_SEVERITIES } from '@evtivity/lib/security-severity';
 import {
   isOutsideAiInsightScope,
   stationAiInsightsScopeStatus,
@@ -79,6 +80,7 @@ import {
 import { isSimFeatureOn, readSimSettings } from '../lib/sim.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { listStationMessageLog } from '../lib/station-message-log.js';
+import { hiddenOcppLogActions } from '../lib/ocpp-log-visibility.js';
 import { stationLogSince } from '../lib/station-log-window.js';
 import {
   chargingStations,
@@ -206,6 +208,7 @@ import {
   CONNECTOR_TYPES,
   DATA_PLANS,
   DATA_PLAN_SOURCES,
+  escapeLikePattern,
 } from '@evtivity/lib';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import {
@@ -218,7 +221,7 @@ import {
   METRICS_MONEY_FIELDS,
   REVENUE_HISTORY_MONEY_FIELDS,
 } from '../lib/money-visibility.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { sessionsAtSites } from '../lib/session-site-scope.js';
 import { refuseSecurityProfileChange } from '../lib/security-profile-permission.js';
 import { ocppCommandRoutePermissions } from '@evtivity/lib/ocpp-command-permissions';
@@ -4248,6 +4251,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Get OCPP message logs for a station',
+        description:
+          'The processed OCPP messages and the queued commands of a station, newest first, with credentials and URL passwords masked. SecurityEventNotification messages (station security events) and their replies are left out of the rows, the total and the action list unless the caller holds securityEvents:read.',
         operationId: 'getStationOcppLogs',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -4268,7 +4273,11 @@ export function stationRoutes(app: FastifyInstance): void {
       const query = request.query as z.infer<typeof ocppLogsQuery>;
       const since = await stationLogSince(id, userId);
       if (since === 'closed') return { data: [], total: 0, actions: [] };
-      return listStationMessageLog(id, { ...query, since });
+      return listStationMessageLog(id, {
+        ...query,
+        since,
+        hiddenActions: await hiddenOcppLogActions(request),
+      });
     },
   );
 
@@ -4408,7 +4417,7 @@ export function stationRoutes(app: FastifyInstance): void {
       .optional()
       .describe('Restrict to a single source table'),
     severity: z
-      .enum(['critical', 'high', 'medium', 'low', 'info'])
+      .enum(SECURITY_SEVERITIES)
       .optional()
       .describe(
         'Filter by severity level. Only security source rows carry a severity, so this returns security rows only',
@@ -4424,6 +4433,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Get security event logs for a station',
+        description:
+          'Connection log rows (stations:read) and OCPP security event rows of the station. The security event rows (source security) are included only for a caller with securityEvents:read; without it the feed holds the connection rows only.',
         operationId: 'getStationSecurityLogs',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -4437,6 +4448,9 @@ export function stationRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof stationParams>;
       const { userId } = request.user as JwtPayload;
+      // OCPP security event rows need securityEvents:read; without it the feed
+      // holds the connection rows only (owner decision 2026-11-10).
+      const canReadSecurityEvents = await requestHasPermission(request, 'securityEvents:read');
       if (!(await checkStationSiteAccess(id, userId))) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
@@ -4461,7 +4475,8 @@ export function stationRoutes(app: FastifyInstance): void {
       // Connection rows have no severity, so a severity filter leaves them out.
       const wantConnection =
         severityFilter == null && (query.source == null || query.source === 'connection');
-      const wantSecurity = query.source == null || query.source === 'security';
+      const wantSecurity =
+        canReadSecurityEvents && (query.source == null || query.source === 'security');
 
       const eventList = sql.join(
         CONNECTION_LOG_EVENTS.map((e) => sql`${e}`),
@@ -5217,17 +5232,14 @@ export function stationRoutes(app: FastifyInstance): void {
 
   const securityEventsQuery = paginationQuery.extend(
     z.object({
-      severity: z
-        .enum(['critical', 'high', 'medium', 'low', 'info'])
-        .optional()
-        .describe('Filter by severity level'),
+      severity: z.enum(SECURITY_SEVERITIES).optional().describe('Filter by severity level'),
     }).shape,
   );
 
   app.get(
     '/stations/:id/security-events',
     {
-      onRequest: [authorize('stations:read')],
+      onRequest: [authorize('stations:read', 'securityEvents:read')],
       schema: {
         tags: ['Stations'],
         summary: 'List security events for a station',
@@ -5249,13 +5261,18 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const query = request.query as z.infer<typeof securityEventsQuery>;
+      // A site user reads a moved station's events from its time at the site
+      // only, by receipt time (security case 284).
+      const since = await stationLogSince(id, userId);
+      if (since === 'closed') return { data: [], total: 0 };
 
       const conditions = [eq(securityEvents.stationId, id)];
+      if (since != null) conditions.push(gte(securityEvents.createdAt, since));
       if (query.severity != null) {
         conditions.push(eq(securityEvents.severity, query.severity));
       }
       if (query.search != null && query.search.length > 0) {
-        conditions.push(ilike(securityEvents.type, `%${query.search}%`));
+        conditions.push(ilike(securityEvents.type, `%${escapeLikePattern(query.search)}%`));
       }
 
       const where = and(...conditions);

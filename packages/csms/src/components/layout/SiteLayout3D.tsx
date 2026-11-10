@@ -15,6 +15,7 @@ import { Keyboard, List, Maximize2, Minimize2, Scan, Sparkles, User, X } from 'l
 import {
   assignBays,
   bayToPosition,
+  CHARGER_PORT_LIMITS,
   drawnConnectorCounts,
   freeFootprintsOverlap,
   freeSolarPlacement,
@@ -82,6 +83,7 @@ import {
   wallMounted,
 } from './site-layout-grid';
 import { carPortOf, evseFlows } from './site-layout-cable';
+import { evseLampState, evsePlateLabel } from './site-layout-evse-lamp';
 import { connectorKindOf } from './site-layout-connectors';
 import {
   assetConnections,
@@ -137,6 +139,7 @@ import { accessibleSpaceBoxes, stationStalls } from './site-layout-stalls';
 import {
   accessibleChargingSpace,
   heldSpots,
+  settlePairs,
   sharesSpotPair,
   splitDispenserCount,
   spanSpots,
@@ -526,6 +529,8 @@ export default function SiteLayout3D({
   const linkLabelRefs = useRef(new Map<string, HTMLDivElement>());
   // The time window of each virtual status sign (hover or tap).
   const virtualSignRefs = useRef(new Map<string, HTMLDivElement>());
+  // The label of each EVSE plate (hover or tap), keyed `<stationId>:<index>`.
+  const evsePlateRefs = useRef(new Map<string, HTMLDivElement>());
   const avatarRefs = useRef(new Map<string, HTMLDivElement>());
   // The state marker of every station (custom site in Edit Layout: it takes the keyboard focus).
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -564,8 +569,8 @@ export default function SiteLayout3D({
   const pageVisible = usePageVisible();
   const lot = useMemo(() => lotOf(settings), [settings]);
   const bays = useMemo(() => stationBays(stations, settings), [stations, settings]);
-  // Dual-port AC pedestals (two spots each) and the accessible charging space.
-  const pairIds = useMemo(
+  // Dual-port AC pedestals and dual-outlet DC dispensers (two spots each) and the accessible charging space.
+  const sharesPair = useMemo(
     () =>
       new Set(
         stations.filter((s) => sharesSpotPair(stationLayoutKindOf(s), settings)).map((s) => s.id),
@@ -585,23 +590,32 @@ export default function SiteLayout3D({
   );
   // AC or DC by station, for where its charger stands in its spot.
   const kinds = useMemo(() => new Map(stations.map((s) => [s.id, s.chargingKind])), [stations]);
+  // A pair holds only while its partner spot is free (`settlePairs`): a stored
+  // position from before a kind paired stays valid.
   const placedSlots = useMemo(
     () =>
-      stations.flatMap((s) => {
-        const bay = bays.get(s.id);
-        return bay == null
-          ? []
-          : [
-              {
-                id: s.id,
-                ...bayToPosition(bay),
-                charging: s.chargingKind,
-                pair: pairIds.has(s.id),
-                span: splitSpans.get(s.id) ?? 1,
-              },
-            ];
-      }),
-    [stations, bays, pairIds, splitSpans],
+      settlePairs(
+        stations.flatMap((s) => {
+          const bay = bays.get(s.id);
+          return bay == null
+            ? []
+            : [
+                {
+                  id: s.id,
+                  ...bayToPosition(bay),
+                  charging: s.chargingKind,
+                  pair: sharesPair.has(s.id),
+                  span: splitSpans.get(s.id) ?? 1,
+                },
+              ];
+        }),
+        settings,
+      ),
+    [stations, bays, sharesPair, splitSpans, settings],
+  );
+  const pairIds = useMemo(
+    () => new Set(placedSlots.filter((p) => p.pair).map((p) => p.id)),
+    [placedSlots],
   );
   const access = useMemo(
     () => accessibleChargingSpace(placedSlots, settings),
@@ -989,7 +1003,13 @@ export default function SiteLayout3D({
               dispensers,
               cables: perEvse
                 .slice(0, dispensers.length)
-                .map((n) => drawnConnectorCounts('dc', [n])[0] ?? 1),
+                // A satellite carries one or two cables (`satelliteConnectors`).
+                .map((n) =>
+                  Math.min(
+                    CHARGER_PORT_LIMITS.dc.satelliteConnectors,
+                    drawnConnectorCounts('dc', [n])[0] ?? 1,
+                  ),
+                ),
             };
           }
           // One unit: its EVSEs and connectors up to CHARGER_PORT_LIMITS.
@@ -1005,6 +1025,16 @@ export default function SiteLayout3D({
             ? stationBackShift(bay, lot, s.chargingKind, wallMounted(bay, lot, s.chargingKind))
             : 0,
         lightColor: resolveCssColor(stationStateColor(state)),
+        // Each EVSE's number and own light (the plates of a charger with more than one EVSE).
+        evseLamps: evses.map((e) => {
+          const lamp = evseLampState({ status: s.status, state }, e);
+          return {
+            number: e.evseId,
+            color: resolveCssColor(stationStateColor(lamp.state)),
+            pulsing: lamp.pulsing,
+            blinking: lamp.blinking,
+          };
+        }),
         lit: state !== 'offline',
         pulsing: state === 'charging',
         glow: state === 'charging',
@@ -1293,6 +1323,12 @@ export default function SiteLayout3D({
             }
             for (const [id, el] of virtualSignRefs.current) {
               placeEquipment(`virtual:${id}`, el, () => current.virtualSignPoint(id));
+            }
+            for (const [key, el] of evsePlateRefs.current) {
+              const at = key.lastIndexOf(':');
+              const stationId = key.slice(0, at);
+              const index = Number(key.slice(at + 1));
+              placeEquipment(`evse:${key}`, el, () => current.evsePlatePoint(stationId, index));
             }
             const popup = popupRef.current;
             const selected = selectedRef.current;
@@ -1686,6 +1722,30 @@ export default function SiteLayout3D({
               })()}
           </div>
         ))}
+        {stations.flatMap((s) =>
+          s.evses.length < 2
+            ? []
+            : [...s.evses]
+                .sort((a, b) => a.evseId - b.evseId)
+                .map((e, index) => {
+                  const key = `${s.id}:${String(index)}`;
+                  return (
+                    <div
+                      key={`evse-${key}`}
+                      ref={(el) => {
+                        if (el == null) evsePlateRefs.current.delete(key);
+                        else evsePlateRefs.current.set(key, el);
+                      }}
+                      role="tooltip"
+                      data-testid={`site-layout-3d-evse-plate-${key}`}
+                      className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-semibold shadow-xs"
+                      style={{ left: 0, top: 0, visibility: 'hidden' }}
+                    >
+                      {evsePlateLabel(t, i18n.language, e, s.chargingKind === 'dc')}
+                    </div>
+                  );
+                }),
+        )}
         {stations.map((s) => {
           const sign = virtualSignOf(stationDisplayState(s));
           if (sign == null) return null;
@@ -1801,8 +1861,10 @@ export default function SiteLayout3D({
                   hoveredRef.current = null;
                   setHoveredId(null);
                 }}
-                onClick={() => {
+                onClick={(e) => {
                   if (selectable) setSelectedId(s.id);
+                  // Enter or Space on the focused marker (a click with no pointer) centers the station.
+                  if (e.detail === 0 && !editing) sceneRef.current?.focus(s.id);
                 }}
               >
                 <StationStateIcon state={state} decorative className="h-5 w-5" />

@@ -7,7 +7,7 @@ import { facadeOpenings } from '../site-layout-facade-openings';
 import { lotOf } from '../site-layout-grid';
 import { WALL_BOX_BOTTOM_M } from '../site-layout-marker';
 import { AC_WALL_BOX } from '../site-layout-model-wall-box';
-import { WALL_BOX_HANGER, wallBoxHangerSpec } from '../site-layout-wall-box-cable';
+import { WALL_BOX_HOOK } from '../site-layout-wall-box-cable';
 import { WALL_SIGN } from '../site-layout-signs';
 
 type Rect = { name: string; minX: number; maxX: number; minY: number; maxY: number };
@@ -37,13 +37,13 @@ function stationItems(x: number, spotW: number): Rect[] {
       maxY: WALL_BOX_BOTTOM_M,
     },
     {
-      // The cable hanger, with the coil hanging from its saddle to its lowest turn
-      // (the turns at most 0.12 m to each side, the saddle with its lips at most 0.13 m).
+      // The J hook, with the coil hanging from it to its lowest turn (the turns'
+      // bottoms 0.17 m to each side, `WALL_BOX_HOOK.bottomRadiusM`).
       name: 'hanger',
-      minX: x + WALL_BOX_HANGER.x - Math.max(0.12, wallBoxHangerSpec(0.0125).radiusM + 0.03),
-      maxX: x + WALL_BOX_HANGER.x + Math.max(0.12, wallBoxHangerSpec(0.0125).radiusM + 0.03),
+      minX: x + WALL_BOX_HOOK.x - WALL_BOX_HOOK.bottomRadiusM,
+      maxX: x + WALL_BOX_HOOK.x + WALL_BOX_HOOK.bottomRadiusM,
       minY: 0.2,
-      maxY: WALL_BOX_HANGER.saddleTopY + 0.04,
+      maxY: WALL_BOX_HOOK.saddleTopY + 0.04,
     },
     {
       name: 'signs',

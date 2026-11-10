@@ -73,13 +73,15 @@ const TABLE_DEFAULTS = [
     table: 'security_events',
     settingKey: 'logs.securityEvents.retentionDays',
     defaultDays: 365,
-    cutoffColumn: 'timestamp',
+    // The receipt time, never the station-reported time.
+    cutoffColumn: 'created_at',
   },
   {
     table: 'port_status_log',
     settingKey: 'logs.portStatus.retentionDays',
     defaultDays: 30,
-    cutoffColumn: 'timestamp',
+    // The receipt time, never the station-reported time.
+    cutoffColumn: 'created_at',
   },
   {
     table: 'worker_job_logs',

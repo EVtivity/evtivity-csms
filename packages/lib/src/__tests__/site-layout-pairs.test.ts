@@ -14,6 +14,7 @@ import {
   freeSlotsFor,
   heldSpots,
   positionToBay,
+  settlePairs,
   sharesSpotPair,
   spotPairPartner,
   type LayoutBay,
@@ -23,6 +24,7 @@ import {
 const AC1 = { charging: 'ac', depot: null, ports: 1 } as const;
 const AC2 = { charging: 'ac', depot: null, ports: 2 } as const;
 const DC = { charging: 'dc', depot: 'bus', ports: 2 } as const;
+const DC1 = { charging: 'dc', depot: 'bus', ports: 1 } as const;
 
 const lot = (placement: 'islands' | 'lot_edge', rows = 4): SiteLayoutSettings =>
   effectiveLayoutSettings({
@@ -37,28 +39,103 @@ const lot = (placement: 'islands' | 'lot_edge', rows = 4): SiteLayoutSettings =>
 const bayOf = (p: { x: number; y: number }): LayoutBay => positionToBay(p);
 
 describe('dual-port AC pedestals share two spots', () => {
-  it('pairs the spots of a row from its first spot, on a parking lot only', () => {
+  it('pairs the spots of a row from its first spot, on a parking lot and an office or retail row', () => {
     const s = lot('islands');
     expect(spotPairPartner({ col: 0, row: 0 }, s)).toEqual({ col: 1, row: 0 });
     expect(spotPairPartner({ col: 5, row: 2 }, s)).toEqual({ col: 4, row: 2 });
     expect(spotPairPartner({ col: 0, row: 9 }, s)).toBeNull();
     const office = effectiveLayoutSettings({
       siteType: 'office_retail',
+      chargers: 5,
       spotsPerRow: 6,
       rows: 1,
       facingDeg: 0,
       transformers: [],
     });
-    expect(spotPairPartner({ col: 0, row: 0 }, office)).toBeNull();
-    expect(sharesSpotPair(AC2, office)).toBe(false);
+    expect(spotPairPartner({ col: 0, row: 0 }, office)).toEqual({ col: 1, row: 0 });
+    expect(spotPairPartner({ col: 3, row: 0 }, office)).toEqual({ col: 2, row: 0 });
+    // The last spot of an odd row has no partner.
+    expect(spotPairPartner({ col: 4, row: 0 }, office)).toBeNull();
+    const street = effectiveLayoutSettings({
+      siteType: 'curbside',
+      chargersLeft: 4,
+      spotsPerRow: 4,
+      rows: 1,
+      facingDeg: 0,
+      transformers: [],
+    });
+    expect(spotPairPartner({ col: 0, row: 0 }, street)).toBeNull();
+    expect(sharesSpotPair(AC2, street)).toBe(false);
   });
 
-  it('shares a pair for AC stations with two ports only', () => {
+  it('pairs a two-port wall box or stall post on an office or retail row', () => {
+    const wall = effectiveLayoutSettings({
+      siteType: 'office_retail',
+      chargers: 6,
+      mounting: 'wall',
+      spotsPerRow: 6,
+      rows: 1,
+      facingDeg: 0,
+      transformers: [],
+    });
+    expect(sharesSpotPair(AC2, wall)).toBe(true);
+    expect(sharesSpotPair(AC1, wall)).toBe(false);
+    // Wall mounting is the default.
+    expect(sharesSpotPair(AC2, { ...wall, mounting: undefined })).toBe(true);
+    // A two-port post at the stalls stands on the line between two stalls too (owner decision 2026-11-10).
+    expect(sharesSpotPair(AC2, { ...wall, mounting: 'stall' })).toBe(true);
+    expect(sharesSpotPair(AC1, { ...wall, mounting: 'stall' })).toBe(false);
+    expect(sharesSpotPair({ charging: 'dc', ports: 2 }, { ...wall, mounting: 'stall' })).toBe(
+      false,
+    );
+    // New two-port wall boxes each take a free pair; a one-port box one spot.
+    const slots = freeSlotsFor([AC2, AC1, AC2], [], wall).map(bayOf);
+    const held = heldSpots(
+      slots.map((b, i) => ({
+        ...bayToPosition(b),
+        charging: 'ac' as const,
+        pair: i !== 1,
+      })),
+      wall,
+      false,
+    );
+    expect(held.size).toBe(5);
+    for (const [i, b] of slots.entries()) {
+      if (i === 1) continue;
+      const partner = spotPairPartner(b, wall);
+      expect(partner).not.toBeNull();
+      expect(slots.some((o) => o.col === partner?.col)).toBe(false);
+    }
+    // A stored box whose partner spot another station holds keeps its one spot.
+    const settled = settlePairs(
+      [
+        { ...bayToPosition({ col: 0, row: 0 }), charging: 'ac', pair: true },
+        { ...bayToPosition({ col: 1, row: 0 }), charging: 'ac', pair: false },
+      ],
+      wall,
+    );
+    expect(settled.map((p) => p.pair)).toEqual([false, false]);
+  });
+
+  it('shares a pair for AC stations with two ports and DC stations with exactly two', () => {
     const s = lot('islands');
     expect(sharesSpotPair(AC2, s)).toBe(true);
     expect(sharesSpotPair(AC1, s)).toBe(false);
     expect(sharesSpotPair({ charging: 'ac' }, s)).toBe(false);
-    expect(sharesSpotPair(DC, s)).toBe(false);
+    // A dual-outlet DC dispenser (two EVSEs) too; one EVSE or a split system does not.
+    expect(sharesSpotPair(DC, s)).toBe(true);
+    expect(sharesSpotPair({ charging: 'dc', ports: 1 }, s)).toBe(false);
+    expect(sharesSpotPair({ charging: 'dc' }, s)).toBe(false);
+    expect(sharesSpotPair({ charging: 'dc', ports: 3 }, s)).toBe(false);
+    const office = effectiveLayoutSettings({
+      siteType: 'office_retail',
+      chargers: 6,
+      spotsPerRow: 6,
+      rows: 1,
+      facingDeg: 0,
+      transformers: [],
+    });
+    expect(sharesSpotPair(DC, office)).toBe(false);
   });
 
   for (const placement of ['islands', 'lot_edge'] as const) {
@@ -161,7 +238,7 @@ describe('accessible charging space', () => {
 
   it('puts the accessible space and its aisle at the end of a continuous run of chargers', () => {
     const s = lot('islands');
-    const slots = freeSlotsFor([DC, DC, DC], [], s);
+    const slots = freeSlotsFor([DC1, DC1, DC1], [], s);
     const placed = slots.map((p) => ({ ...p, charging: 'dc' as const }));
     const space = accessibleChargingSpace(placed, s);
     expect(space).not.toBeNull();
@@ -177,12 +254,20 @@ describe('accessible charging space', () => {
     for (const p of slots) expect(bayOf(p)).not.toEqual(space!.aisle);
   });
 
-  it('passes over 2-port pedestals and has none on a depot, a street or a custom site', () => {
+  it('prefers a one-spot station, else a paired stall with a free outer neighbor', () => {
     const s = lot('islands');
-    const pedestal = [
-      { ...bayToPosition({ col: 0, row: 0 }), charging: 'ac' as const, pair: true },
-    ];
-    expect(accessibleChargingSpace(pedestal, s)).toBeNull();
+    const pedestal = { ...bayToPosition({ col: 0, row: 0 }), charging: 'ac' as const, pair: true };
+    // Only a paired station: its stall next to a free spot (never its partner) is the space.
+    expect(accessibleChargingSpace([pedestal], s)).toEqual({
+      stall: { col: 1, row: 0 },
+      aisle: { col: 2, row: 0 },
+    });
+    // A one-spot station with a free neighbor comes first.
+    const single = { ...bayToPosition({ col: 4, row: 0 }), charging: 'dc' as const };
+    expect(accessibleChargingSpace([pedestal, single], s)?.stall).toEqual({ col: 4, row: 0 });
+  });
+
+  it('has none on a depot, a street or a custom site', () => {
     for (const siteType of ['curbside', 'custom', 'depot'] as const) {
       const other = effectiveLayoutSettings({
         siteType,
@@ -212,5 +297,36 @@ describe('accessible charging space', () => {
       stall: { col: 2, row: 0 },
       aisle: { col: 3, row: 0 },
     });
+  });
+});
+
+describe('settled spot pairs', () => {
+  it('keeps a pair only while its partner spot is free, so stored neighbors stay valid', () => {
+    const s = lot('islands');
+    const at = (col: number) => ({
+      ...bayToPosition({ col, row: 0 }),
+      charging: 'dc' as const,
+      pair: true,
+    });
+    // Two dual-outlet dispensers stored side by side (before DC paired): each keeps its own spot.
+    const settled = settlePairs([at(0), at(1)], s);
+    expect(settled.map((p) => p.pair)).toEqual([false, false]);
+    const held = heldSpots([at(0), at(1)], s, false);
+    expect([...held.keys()].sort()).toEqual(['0:0', '1:0']);
+    // Apart, both pair.
+    expect(settlePairs([at(0), at(2)], s).map((p) => p.pair)).toEqual([true, true]);
+    // A dispenser stored on another's partner spot: neither pairs, each keeps its own spot.
+    const partner = { ...bayToPosition({ col: 3, row: 0 }), charging: 'dc' as const, pair: true };
+    expect(settlePairs([at(2), partner], s).map((p) => p.pair)).toEqual([false, false]);
+  });
+
+  it('places a new dual-outlet DC dispenser on a free pair of its group', () => {
+    const s = lot('islands');
+    const first = firstFreeSlotFor([], s, DC);
+    const bay = bayOf(first);
+    const partner = spotPairPartner(bay, s);
+    expect(partner).not.toBeNull();
+    const second = firstFreeSlotFor([{ ...first, charging: 'dc', pair: true }], s, DC);
+    expect([bay.col, partner!.col]).not.toContain(bayOf(second).col);
   });
 });

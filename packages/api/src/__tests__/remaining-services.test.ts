@@ -78,6 +78,9 @@ vi.mock('@evtivity/database', async () => ({
       return fn(tx);
     }),
   },
+  getDriverDefaults: vi.fn(() =>
+    Promise.resolve({ timezone: 'Europe/Berlin', distanceUnit: 'km', language: 'de' }),
+  ),
   fleets: {},
   fleetDrivers: {},
   fleetStations: {},
@@ -241,6 +244,20 @@ describe('Driver Service', () => {
       const result = await createDriver({ firstName: 'Alice', lastName: 'Smith' });
 
       expect(result).toEqual(driver);
+    });
+
+    it('gives a new driver the company defaults', async () => {
+      const { db } = await import('@evtivity/database');
+      setupDbResults([{ id: 'd1' }]);
+      const insert = vi.mocked(db.insert);
+      insert.mockClear();
+
+      await createDriver({ firstName: 'Alice', lastName: 'Smith' });
+
+      const chain = insert.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> };
+      expect(chain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ timezone: 'Europe/Berlin', distanceUnit: 'km', language: 'de' }),
+      );
     });
   });
 

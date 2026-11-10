@@ -531,6 +531,15 @@ export class SimulatorManager {
         case 'clearFault':
           await sim.clearFault(params.evseId as number);
           break;
+        case 'securityEvent':
+          // Station-reported time: now. The type was checked by the API against
+          // the station's OCPP version (securityEventTypesFor).
+          await sim.sendSecurityEventNotification(
+            params.type as string,
+            undefined,
+            params.techInfo as string | undefined,
+          );
+          break;
         case 'reservationReply':
           sim.setNextReservationReply(params.reply as ReservationReply);
           break;

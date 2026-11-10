@@ -82,7 +82,8 @@ describe('notification-dispatch (full coverage)', () => {
     await freshImport();
   }, 30_000);
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    (await import('../notification-dispatch.js')).clearDriverEventSettingsCache();
     sql = createSqlMock();
     sqlCalls.length = 0;
     sqlResults = [];

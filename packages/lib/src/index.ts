@@ -262,6 +262,18 @@ export type { MfaConfig, MfaRequiredMode } from './mfa-config.js';
 export { UI_LANGUAGES, isUiLanguage, toUiLanguage } from './languages.js';
 export type { UiLanguage } from './languages.js';
 export {
+  DEFAULT_DISTANCE_UNIT,
+  DEFAULT_DRIVER_LANGUAGE,
+  DISTANCE_UNITS,
+  SYSTEM_DISTANCE_UNIT_KEY,
+  SYSTEM_DRIVER_LANGUAGE_KEY,
+  SYSTEM_TIMEZONE_KEY,
+  isDistanceUnit,
+  newDriverPreferences,
+  readDriverDefaults,
+} from './driver-defaults.js';
+export type { DistanceUnit, DriverDefaults } from './driver-defaults.js';
+export {
   REQUIRED_DRIVER_EVENT_TYPES,
   isRequiredDriverEventType,
   OCPP_NOTIFICATION_EVENTS,
@@ -452,6 +464,12 @@ export {
   dispatchDriverNotification,
   dispatchSystemNotification,
   clearNotificationSettingsCache,
+  clearDriverEventSettingsCache,
+  getDriverEventSettings,
+  mandatoryChannelsOf,
+  resolveDriverChannels,
+  driverNotificationChannels,
+  isDriverEventDisabled,
   recordNotificationAttempt,
   DATE_VARIABLE_NAMES,
   formatDateVariables,
@@ -470,6 +488,7 @@ export type {
   DriverNotificationOptions,
   NotificationDelivery,
   NotificationDispatchResult,
+  DriverEventSetting,
 } from './notification-dispatch.js';
 
 export {
@@ -542,6 +561,14 @@ export {
 } from './safe-fetch.js';
 export type { GuardOptions, SafeFetchInit, SafeFetchResponse } from './safe-fetch.js';
 export { readCappedBody, readBodyPrefix, ResponseTooLargeError } from './read-capped-body.js';
+export {
+  CSMS_VERSION_URL,
+  UPDATE_CHECK_SETTING_KEY,
+  UPDATE_CHECK_MIN_INTERVAL_MS,
+  UPDATE_CHECK_MAX_BYTES,
+  UPDATE_CHECK_TIMEOUT_MS,
+  parseReleasedCsmsVersion,
+} from './csms-update-check.js';
 
 export { sendExpoPush, isExpoPushToken } from './push-send.js';
 export type { ExpoPushMessage, ExpoPushResult, PushSendContext } from './push-send.js';

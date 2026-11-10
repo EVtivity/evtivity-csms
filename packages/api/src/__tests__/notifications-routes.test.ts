@@ -17,6 +17,15 @@ import {
 
 // DB mock helpers
 const mockWriteAudit = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const driverSettingMocks = vi.hoisted(() => ({
+  listDriverEventSettings: vi.fn(),
+  getDriverEventSettingRow: vi.fn(),
+  setDriverEventSwitch: vi.fn(),
+  setDriverEventMandatory: vi.fn(),
+  clearNotificationSettingsCache: vi.fn(),
+  getNotificationSettings: vi.fn(),
+  publish: vi.fn(() => Promise.resolve()),
+}));
 
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
@@ -79,6 +88,11 @@ vi.mock('../middleware/rbac.js', () => ({
 
 vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  client: {},
+  listDriverEventSettings: driverSettingMocks.listDriverEventSettings,
+  getDriverEventSettingRow: driverSettingMocks.getDriverEventSettingRow,
+  setDriverEventSwitch: driverSettingMocks.setDriverEventSwitch,
+  setDriverEventMandatory: driverSettingMocks.setDriverEventMandatory,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -150,6 +164,9 @@ vi.mock('@evtivity/lib', async () => {
     notificationUnitPrice: actual.notificationUnitPrice,
     notificationTaxRate: actual.notificationTaxRate,
     loadSubjectTemplate: mockLoadSubjectTemplate,
+    clearNotificationSettingsCache: driverSettingMocks.clearNotificationSettingsCache,
+    getNotificationSettings: driverSettingMocks.getNotificationSettings,
+    driverNotificationChannels: actual.driverNotificationChannels,
     decryptString: vi.fn().mockReturnValue('decrypted'),
     wrapEmailHtml: vi.fn(
       (html: string, _company: string, _wrapper: string | null, _vars: unknown) =>
@@ -452,18 +469,24 @@ describe('Notification routes', () => {
   });
 
   it('GET /v1/driver-event-settings returns all driver event settings', async () => {
-    setupDbResults([
+    driverSettingMocks.listDriverEventSettings.mockResolvedValueOnce([
       {
-        id: '1',
+        id: 1,
         eventType: 'session.Started',
         isEnabled: true,
+        emailMandatory: false,
+        smsMandatory: false,
+        pushMandatory: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
       {
-        id: '2',
+        id: 1,
         eventType: 'session.Completed',
         isEnabled: false,
+        emailMandatory: true,
+        smsMandatory: false,
+        pushMandatory: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
@@ -475,23 +498,31 @@ describe('Notification routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBe(2);
+    expect(body).toHaveLength(2);
+    expect(body[1]).toMatchObject({ isEnabled: false, emailMandatory: true });
   });
 
   it('PUT /v1/driver-event-settings upserts a driver event setting', async () => {
-    setupDbResults(
-      [{ isEnabled: true }],
-      [
-        {
-          id: '1',
-          eventType: 'session.Started',
-          isEnabled: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-    );
+    driverSettingMocks.getDriverEventSettingRow.mockResolvedValueOnce({
+      id: 1,
+      eventType: 'session.Started',
+      isEnabled: true,
+      emailMandatory: false,
+      smsMandatory: false,
+      pushMandatory: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    driverSettingMocks.setDriverEventSwitch.mockResolvedValueOnce({
+      id: 1,
+      eventType: 'session.Started',
+      isEnabled: true,
+      emailMandatory: false,
+      smsMandatory: false,
+      pushMandatory: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     const response = await app.inject({
       method: 'PUT',
       url: '/driver-event-settings',
@@ -502,23 +533,34 @@ describe('Notification routes', () => {
     const body = JSON.parse(response.body);
     expect(body.eventType).toBe('session.Started');
     expect(body.isEnabled).toBe(true);
+    expect(driverSettingMocks.setDriverEventSwitch).toHaveBeenCalledWith('session.Started', true);
+    // Every process drops its cached switch at once.
+    expect(driverSettingMocks.clearNotificationSettingsCache).toHaveBeenCalled();
     // Unchanged: no audit row.
     expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('PUT /v1/driver-event-settings turns a driver event type off', async () => {
-    setupDbResults(
-      [{ isEnabled: true }],
-      [
-        {
-          id: '2',
-          eventType: 'session.Receipt',
-          isEnabled: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-    );
+    driverSettingMocks.getDriverEventSettingRow.mockResolvedValueOnce({
+      id: 1,
+      eventType: 'session.Receipt',
+      isEnabled: true,
+      emailMandatory: false,
+      smsMandatory: false,
+      pushMandatory: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    driverSettingMocks.setDriverEventSwitch.mockResolvedValueOnce({
+      id: 1,
+      eventType: 'session.Receipt',
+      isEnabled: false,
+      emailMandatory: false,
+      smsMandatory: false,
+      pushMandatory: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     const response = await app.inject({
       method: 'PUT',
       url: '/driver-event-settings',
@@ -533,6 +575,86 @@ describe('Notification routes', () => {
       before: { setting: 'driver', isEnabled: true },
       after: { setting: 'driver', isEnabled: false },
     });
+  });
+
+  it('PUT /v1/driver-event-settings/mandatory makes a channel mandatory and audits it', async () => {
+    driverSettingMocks.getDriverEventSettingRow.mockResolvedValueOnce(null);
+    driverSettingMocks.setDriverEventMandatory.mockResolvedValueOnce({
+      id: 1,
+      eventType: 'session.Faulted',
+      isEnabled: true,
+      emailMandatory: true,
+      smsMandatory: false,
+      pushMandatory: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/driver-event-settings/mandatory',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { eventType: 'session.Faulted', email: true },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).emailMandatory).toBe(true);
+    expect(driverSettingMocks.setDriverEventMandatory).toHaveBeenCalledWith('session.Faulted', {
+      email: true,
+    });
+    expect(driverSettingMocks.clearNotificationSettingsCache).toHaveBeenCalled();
+    expect(auditArgs()).toMatchObject({
+      entityId: 'session.Faulted',
+      action: 'event_settings_changed',
+      before: { setting: 'driver_mandatory', emailMandatory: false },
+      after: { setting: 'driver_mandatory', emailMandatory: true },
+    });
+  });
+
+  it.each([
+    'driver.ForgotPassword',
+    'mfa.VerificationCode',
+    'driver.Welcome',
+    'driver.PasswordChanged',
+    'security.FactorAdded',
+    'session.AutochargeStarted',
+    'session.EndRequestFailed',
+  ])(
+    'PUT /v1/driver-event-settings/mandatory refuses %s, which is no driver choice',
+    async (eventType) => {
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/driver-event-settings/mandatory',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { eventType, email: true },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+      expect(driverSettingMocks.setDriverEventMandatory).not.toHaveBeenCalled();
+    },
+  );
+
+  it('PUT /v1/driver-event-settings/mandatory needs a channel', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/driver-event-settings/mandatory',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { eventType: 'session.Faulted' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(driverSettingMocks.setDriverEventMandatory).not.toHaveBeenCalled();
+  });
+
+  it('GET /v1/driver-event-settings/channels reports the configured channels', async () => {
+    driverSettingMocks.getNotificationSettings.mockResolvedValueOnce({
+      smtp: { host: 'mail.example.com' },
+      twilio: null,
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/driver-event-settings/channels',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ email: true, sms: false, push: true });
   });
 
   it.each([

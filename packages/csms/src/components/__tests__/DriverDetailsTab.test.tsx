@@ -25,7 +25,7 @@ vi.mock('../driver/DriverPortalAccessCard', () => ({ DriverPortalAccessCard: () 
 
 import { DriverDetailsTab } from '../driver/DriverDetailsTab';
 
-function renderTab(language = 'de'): void {
+function renderTab(language = 'de', distanceUnit = 'miles'): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -37,6 +37,8 @@ function renderTab(language = 'de'): void {
           email: 'jane@example.com',
           phone: null,
           language,
+          distanceUnit,
+          timezone: 'Europe/Berlin',
           isActive: true,
           createdAt: '2026-10-01T00:00:00Z',
           updatedAt: '2026-10-01T00:00:00Z',
@@ -73,6 +75,45 @@ describe('DriverDetailsTab', () => {
       expect(patchMock).toHaveBeenCalledWith(
         '/v1/drivers/drv_1',
         expect.objectContaining({ language: 'ko' }),
+      );
+    });
+  });
+
+  it('shows the distance unit, edits it and sends it with the update', async () => {
+    patchMock.mockResolvedValue({});
+    renderTab('en', 'km');
+    expect(screen.getByText('drivers.distanceUnit')).toBeTruthy();
+    expect(screen.getByText('drivers.distanceUnitKm')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /common\.edit/ }));
+    const select = screen.getByLabelText<HTMLSelectElement>('drivers.distanceUnit');
+    expect(select.value).toBe('km');
+    fireEvent.change(select, { target: { value: 'miles' } });
+    fireEvent.submit(select.closest('form') as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith(
+        '/v1/drivers/drv_1',
+        expect.objectContaining({ distanceUnit: 'miles' }),
+      );
+    });
+  });
+
+  it('shows the timezone, edits it and sends it with the update', async () => {
+    patchMock.mockResolvedValue({});
+    renderTab('en', 'km');
+    expect(screen.getByText('drivers.timezone')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /common\.edit/ }));
+    const select = screen.getByLabelText<HTMLSelectElement>('drivers.timezone');
+    expect(select.value).toBe('Europe/Berlin');
+    fireEvent.change(select, { target: { value: 'Asia/Seoul' } });
+    fireEvent.submit(select.closest('form') as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith(
+        '/v1/drivers/drv_1',
+        expect.objectContaining({ timezone: 'Asia/Seoul' }),
       );
     });
   });

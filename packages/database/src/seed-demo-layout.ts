@@ -358,12 +358,16 @@ async function seedSite(
       type,
       css: mapConnectorTypeToCss(type),
     }));
+    // EVSEs a rerun adds to a station seeded before with fewer (a one-port box made two-port).
+    let addedEvses = 0;
     for (let e = 1; e <= evseCount; e++) {
-      await sql`
+      const addedEvse = await sql`
         INSERT INTO evses (id, station_id, evse_id)
         VALUES (${`evs_demolayout${n}${String(e)}`}, ${station.id}, ${e})
         ON CONFLICT DO NOTHING
+        RETURNING id
       `;
+      if (created.length === 0 && e >= 2) addedEvses += addedEvse.length;
       await sql`
         INSERT INTO connectors (id, evse_id, connector_id, status, connector_type, max_power_kw,
           max_current_amps)
@@ -382,6 +386,23 @@ async function seedSite(
           ON CONFLICT DO NOTHING
         `;
       }
+    }
+    if (addedEvses > 0) {
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: station.id,
+          entityIdSnapshot: station.stationId,
+          action: 'updated',
+          ...auditActor(ctx),
+          before: { evses: evseCount - addedEvses },
+          after: { evses: evseCount },
+          notes:
+            station.kind === 'ac'
+              ? 'Site layout demo: Level 2 charger with two ports'
+              : 'Site layout demo: EVSE added',
+        },
+      );
     }
     // Connectors still on the earlier European defaults take the North American plugs.
     if (station.connectorType == null && station.maxPowerKw == null) {
@@ -919,9 +940,12 @@ async function regroupLayout(
       notes:
         site.settings.siteType === 'custom'
           ? 'Site layout demo: AC and DC chargers grouped'
-          : planned.some((s) => (s.evses ?? 1) >= 2 && s.kind === 'ac')
-            ? 'Site layout demo: dual-port Level 2 pedestals between two spots'
-            : 'Site layout demo: chargers moved into one continuous run',
+          : site.settings.siteType === 'office_retail' &&
+              site.stations.some((s) => (s.evses ?? 1) >= 2 && s.kind === 'ac')
+            ? 'Site layout demo: a two-port wall box between two spots'
+            : planned.some((s) => (s.evses ?? 1) >= 2 && s.kind === 'ac')
+              ? 'Site layout demo: dual-port Level 2 pedestals between two spots'
+              : 'Site layout demo: chargers moved into one continuous run',
     },
   );
   return true;
@@ -1055,6 +1079,8 @@ export interface LayoutDemoCounts {
   fleetDrivers: number;
   /** Weekly departure schedules created for the depot vehicles. */
   departureSchedules: number;
+  /** Station security events created on the demo layout sites (the dashboard card). */
+  securityEvents: number;
 }
 
 type DepotDriver = (typeof LAYOUT_DEMO.fleet.drivers)[number];
@@ -1412,6 +1438,72 @@ async function seedDepotFleet(
 }
 
 /** Seeds the site layout demo; a rerun adds nothing. */
+/** The tech info of every demo security event: the marker a rerun checks. */
+export const DEMO_SECURITY_EVENT_MARKER = 'demo-seed';
+/** Stations per demo layout site that get the non-critical demo events. */
+const DEMO_SECURITY_STATIONS_PER_SITE = 3;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The dashboard Security Events card demo: on each layout site two to three
+ * stations report one event of each of high, medium, low and info, and one
+ * station of the first site reports a critical tamper event (exactly one
+ * critical station of the demo). Received inside the last 6 days, some inside
+ * 24 hours, so the default 7-day range shows all of them. Raw inserts: the
+ * security event table is station-reported log data with no audit table, as
+ * in the base seed. Idempotent per station and type by the tech info marker.
+ */
+async function seedDemoSecurityEvents(
+  sql: postgres.Sql,
+  present: Map<string, string[]>,
+  now: Date,
+): Promise<number> {
+  const events: Array<{ type: string; severity: string; ageMs: number }> = [
+    { type: 'FailedToAuthenticateAtCsms', severity: 'high', ageMs: 4 * DAY_MS },
+    { type: 'InvalidMessages', severity: 'medium', ageMs: 2 * DAY_MS },
+    { type: 'ResetOrReboot', severity: 'low', ageMs: 30 * HOUR_MS },
+    { type: 'FirmwareUpdated', severity: 'info', ageMs: 3 * HOUR_MS },
+  ];
+  const rows: Array<{ stationId: string; type: string; severity: string; at: Date }> = [];
+  LAYOUT_DEMO.sites.forEach((site, siteIndex) => {
+    const ids = [...(present.get(site.id) ?? [])].sort();
+    const chosen = ids.slice(0, Math.min(DEMO_SECURITY_STATIONS_PER_SITE, ids.length));
+    chosen.forEach((stationId, i) => {
+      for (const e of events) {
+        rows.push({
+          stationId,
+          type: e.type,
+          severity: e.severity,
+          at: new Date(now.getTime() - e.ageMs - i * HOUR_MS),
+        });
+      }
+      if (siteIndex === 0 && i === 0) {
+        rows.push({
+          stationId,
+          type: 'TamperDetectionActivated',
+          severity: 'critical',
+          at: new Date(now.getTime() - 5 * HOUR_MS),
+        });
+      }
+    });
+  });
+  let created = 0;
+  for (const row of rows) {
+    const inserted = await sql`
+      INSERT INTO security_events (station_id, type, severity, timestamp, tech_info, created_at)
+      SELECT ${row.stationId}, ${row.type}, ${row.severity}, ${row.at}, ${DEMO_SECURITY_EVENT_MARKER}, ${row.at}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM security_events
+        WHERE station_id = ${row.stationId} AND type = ${row.type}
+          AND tech_info = ${DEMO_SECURITY_EVENT_MARKER}
+      )
+      RETURNING id
+    `;
+    created += inserted.length;
+  }
+  return created;
+}
+
 export async function seedLayoutDemo(
   sql: postgres.Sql,
   ctx: DemoFeatureContext,
@@ -1482,6 +1574,7 @@ export async function seedLayoutDemo(
   }
   const fleetDrivers = await seedDepotFleet(sql, present.get(LAYOUT_DEMO.fleet.siteId) ?? [], ctx);
   const departureSchedules = await seedDepotDepartures(sql, ctx);
+  const securityEvents = await seedDemoSecurityEvents(sql, present, ctx.now);
   return {
     stations,
     moved,
@@ -1491,5 +1584,6 @@ export async function seedLayoutDemo(
     messages,
     fleetDrivers,
     departureSchedules,
+    securityEvents,
   };
 }

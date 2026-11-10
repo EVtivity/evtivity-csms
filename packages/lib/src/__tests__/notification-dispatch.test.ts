@@ -54,7 +54,8 @@ beforeAll(async () => {
 describe('notification-dispatch', () => {
   let sql: ReturnType<typeof createSqlMock>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    (await import('../notification-dispatch.js')).clearDriverEventSettingsCache();
     sql = createSqlMock();
     sqlCalls.length = 0;
     sqlResults = [];
@@ -652,7 +653,7 @@ describe('notification-dispatch', () => {
     it('skips when event type is disabled', async () => {
       const { dispatchDriverNotification } = notificationDispatchModule;
       setupSqlResults(
-        [{ is_enabled: false }], // disabled
+        [{ event_type: 'session.Started', is_enabled: false }], // disabled
       );
 
       await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {}, []);

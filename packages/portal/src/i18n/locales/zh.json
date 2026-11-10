@@ -1019,7 +1019,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "此出发计划由公交车场系统管理，请在该系统中更改，或停用车场系统。",
     "DEPOT_SYSTEM_NOT_FOUND": "未找到公交车场系统。",
     "DEPOT_SYSTEM_ID_IN_USE": "另一个公交车场系统已使用此系统 ID。",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公交车场系统仅服务车场充电站。"
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公交车场系统仅服务车场充电站。",
+    "RFID_SELF_SERVICE_DISABLED": "您的 RFID 卡由运营商管理。如需添加、更改、停用或移除卡片，请联系运营商。",
+    "NOTIFICATION_EVENT_MANDATORY": "运营商要求在此渠道接收此通知，因此无法关闭"
   },
   "validation": {
     "required": "此字段为必填项",
@@ -1145,7 +1147,10 @@
     "labelPlaceholder": "标签（可选），例如：公司 RFID 卡",
     "labelHint": "用于区分您的卡片的名称。留空则显示卡号。",
     "renameCard": "重命名 RFID 卡",
-    "renameFailed": "无法重命名该卡。请重试。"
+    "renameFailed": "无法重命名该卡。请重试。",
+    "managedByOperator": "您的 RFID 卡由运营商管理。如需添加、更改或移除卡片，或停用丢失的卡，请联系运营商。",
+    "noCardsAssigned": "您没有分配的 RFID 卡。",
+    "contactSupport": "联系支持"
   },
   "vehicles": {
     "addVehicle": "添加车辆",
@@ -1531,5 +1536,91 @@
   "storageUnavailable": {
     "title": "无法上传",
     "description": "目前无法上传文件。请稍后重试，如果问题仍然存在，请联系支持人员。"
+  },
+  "notificationPrefs": {
+    "intro": "选择您在每个渠道接收哪些通知。",
+    "notification": "通知",
+    "allNotifications": "全部通知",
+    "allChannelLabel": "全部{{channel}}通知",
+    "eventChannelLabel": "通过{{channel}}接收{{event}}",
+    "channels": {
+      "email": "电子邮件",
+      "sms": "短信",
+      "push": "推送"
+    },
+    "required": "运营商要求",
+    "requiredNote": "带锁标记的通知是运营商要求的通知，始终通过该渠道发送。",
+    "alwaysSentNote": "账户和安全消息（例如密码重置和登录验证码）始终会发送。",
+    "noChannels": "运营商尚未设置电子邮件或短信通知。",
+    "groups": {
+      "sessions": "充电会话",
+      "payments": "付款",
+      "reservations": "预约",
+      "invoices": "发票",
+      "supportCases": "支持请求",
+      "rfidCards": "RFID 卡",
+      "maintenance": "维护",
+      "stationWatch": "充电桩关注",
+      "prepaidBalance": "预付余额",
+      "fleetBilling": "车队账单"
+    },
+    "events": {
+      "session": {
+        "Started": "充电已开始",
+        "Updated": "充电进度",
+        "Completed": "充电已完成",
+        "Faulted": "充电因故障停止",
+        "PaymentReceived": "已收到会话付款",
+        "IdlingStarted": "占位费已开始",
+        "Receipt": "会话收据"
+      },
+      "payment": {
+        "Complete": "付款完成",
+        "Refunded": "付款已退款",
+        "FeeRefunded": "预约费已退款",
+        "PreAuthFailed": "付款授权失败",
+        "CaptureFailed": "付款失败",
+        "MissingPaymentMethod": "没有付款方式",
+        "AccountCreditLimit": "已达到车队信用额度"
+      },
+      "reservation": {
+        "Created": "预约已确认",
+        "Cancelled": "预约已取消",
+        "CancelledForMaintenance": "因维护取消预约",
+        "Expiring": "预约即将结束",
+        "Expired": "预约已过期",
+        "StationFaulted": "预约的充电桩停止服务",
+        "TakenByOther": "预约的充电枪被他人占用"
+      },
+      "invoice": {
+        "Sent": "发票已发送",
+        "CreditNote": "已开具红字发票"
+      },
+      "supportCase": {
+        "Created": "支持请求已创建",
+        "OperatorReply": "支持请求有新回复",
+        "Resolved": "支持请求已解决",
+        "AiAnswered": "支持请求的自动回复"
+      },
+      "token": {
+        "Added": "RFID 卡已添加",
+        "Removed": "RFID 卡已删除",
+        "Deactivated": "RFID 卡已停用",
+        "Reactivated": "RFID 卡已重新启用"
+      },
+      "maintenance": {
+        "SessionStopped": "因维护停止充电"
+      },
+      "watch": {
+        "StationAvailable": "关注的充电桩可用"
+      },
+      "prepaid": {
+        "LowCredit": "预付余额不足",
+        "CreditExhausted": "预付余额已用完"
+      },
+      "fleet": {
+        "AccountBillingChanged": "车队账单已更改"
+      }
+    }
   }
 }

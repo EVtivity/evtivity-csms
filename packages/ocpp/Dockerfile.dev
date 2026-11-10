@@ -43,6 +43,8 @@ COPY packages/ocpp/ packages/ocpp/
 COPY packages/api/src/templates/ packages/api/src/templates/
 # The database package tests import scripts/lib (the migration file helpers).
 COPY scripts/lib/ scripts/lib/
+# The lib tests import the dependency manifests helper of the production images.
+COPY scripts/docker-dependency-manifests.mjs scripts/docker-dependency-manifests.d.mts scripts/
 # Live mode (mounted sources): node scripts/dev-live.mjs <entry> <dist packages>.
 COPY scripts/dev-live.mjs scripts/dev-live.mjs
 RUN npx tsc -b --force packages/lib packages/database packages/payments packages/v2g-exi

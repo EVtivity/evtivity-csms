@@ -604,6 +604,7 @@ export function StationDetail(): React.JSX.Element {
               evseIds={connectorsData?.map((e) => e.evseId) ?? [1]}
               evses={connectorsData}
               isOnline={station.isOnline}
+              ocppProtocol={station.ocppProtocol}
             />
           </TabsContent>
         )}

@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { toUiLanguage } from '@evtivity/lib/languages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -82,6 +83,8 @@ export function Register(): React.JSX.Element {
         email,
         password,
         ...(phone !== '' ? { phone } : {}),
+        // The new account keeps the language the visitor uses in the portal.
+        language: toUiLanguage(i18n.language),
         ...(avatar != null ? { avatar } : {}),
         ...(recaptchaToken != null ? { recaptchaToken } : {}),
       });

@@ -20,7 +20,7 @@ import { CAR_PROFILES, isLargeBodyType, vehicleSize, type CarBodyType } from './
 import { AC_CABLE_M, DC_CABLE_M, acGlandOut, dcGlandOut } from './site-layout-charger-cables';
 import { SCENE_COLORS } from './site-layout-colors';
 import {
-  CONNECTOR_SPECS,
+  chargerCableDiameterM,
   handleCableEntry,
   plugYaw,
   type CableEntry,
@@ -232,7 +232,7 @@ export function installTemplates(scn: TemplatesCtx): void {
       // From the plugged connector's holster to the handle in the car's port (`carPortInStation`).
       cable: (kind, look, offsetX = 0, frontZ = CAR_FRONT, flowing = true, plug = {}) =>
         perStation(
-          `cable-${kind}-${look.bodyType}-${carLookPort(look)}-${String(offsetX)}-${String(frontZ)}-${String(flowing)}-${plug.connector ?? ''}-${String(plug.side ?? '')}-${String(plug.backM ?? 0)}-${plug.mouth == null ? '' : `${String(plug.mouth.x)},${String(plug.mouth.y)},${String(plug.mouth.z)}`}-${plug.bounds == null ? '' : `${String(plug.bounds.minX)},${String(plug.bounds.maxX)}`}`,
+          `cable-${kind}-${look.bodyType}-${carLookPort(look)}-${String(offsetX)}-${String(frontZ)}-${String(flowing)}-${plug.connector ?? ''}-${String(plug.side ?? '')}-${String(plug.backM ?? 0)}-${plug.mouth == null ? '' : `${String(plug.mouth.x)},${String(plug.mouth.y)},${String(plug.mouth.z)}`}-${plug.bounds == null ? '' : `${String(plug.bounds.minX)},${String(plug.bounds.maxX)}`}-${String(plug.wallPorts ?? 1)}-${String(plug.lengthM ?? '')}`,
           () => {
             const bodyType = look.bodyType;
             const legacy = portAt(bodyType, frontZ);
@@ -242,7 +242,7 @@ export function installTemplates(scn: TemplatesCtx): void {
               : carPortInStation(CAR_PROFILES[bodyType], carPort, { x: offsetX, z: frontZ });
             const dcKind = kind === 'dc' || kind === 'curb-dc';
             const connector = plug.connector ?? (dcKind ? 'ccs1' : 'type1');
-            const radius = CONNECTOR_SPECS[connector].cableDiameterM / 2;
+            const radius = chargerCableDiameterM(connector, !dcKind) / 2;
             const rubber = scn.M(SCENE_COLORS.rubber, { roughness: 0.9 });
             const g = new THREE.Group();
             // The handle in the port, its face into the car; the cable leaves its grip.
@@ -261,7 +261,7 @@ export function installTemplates(scn: TemplatesCtx): void {
               const from = (
                 kind === 'curb-dc'
                   ? dcGlandOut(-1, 0, connector)
-                  : acGlandOut(plug.glandX ?? 0, CONNECTOR_SPECS[connector].cableDiameterM)
+                  : acGlandOut(plug.glandX ?? 0, chargerCableDiameterM(connector, !dcKind))
               ).map((p) => [p[0], p[1], p[2]] as const);
               const profile = CAR_PROFILES[bodyType as CarBodyType];
               const place = parallelPlace(profile, carPort);
@@ -273,7 +273,7 @@ export function installTemplates(scn: TemplatesCtx): void {
                 port: carPort,
                 place,
                 surface: curbsideSurface(),
-                cableDiameterM: CONNECTOR_SPECS[connector].cableDiameterM,
+                cableDiameterM: chargerCableDiameterM(connector, !dcKind),
               });
               g.add(
                 scn.chargingCable(
@@ -291,7 +291,7 @@ export function installTemplates(scn: TemplatesCtx): void {
               // From the hanger coil across the sidewalk to the port, its length kept
               // (site-layout-wall-box-cable.ts).
               const profile = CAR_PROFILES[bodyType as CarBodyType];
-              const d = CONNECTOR_SPECS[connector].cableDiameterM;
+              const d = chargerCableDiameterM(connector, !dcKind);
               const car = {
                 minX: offsetX - profile.width / 2,
                 maxX: offsetX + profile.width / 2,
@@ -310,6 +310,10 @@ export function installTemplates(scn: TemplatesCtx): void {
                 plug: { lead: entry.lead, end: entry.end },
                 car,
                 nosePort: nose,
+                // A two-port box: from the gland of the plugged port.
+                ...(plug.wallPorts === 2
+                  ? { port: { ports: 2 as const, side: plug.side ?? (-1 as const) } }
+                  : {}),
                 surface: scn.cableGround ?? officeRowSurface(),
                 blocked: cableBlocked({
                   body: car,
@@ -338,14 +342,14 @@ export function installTemplates(scn: TemplatesCtx): void {
                 ? [[plug.mouth.x, plug.mouth.y, plug.mouth.z] as const]
                 : kind === 'dc'
                   ? dcGlandOut(side, back, connector)
-                  : acGlandOut(plug.glandX ?? 0, CONNECTOR_SPECS[connector].cableDiameterM)
+                  : acGlandOut(plug.glandX ?? 0, chargerCableDiameterM(connector, !dcKind))
             ).map((p) => [p[0], p[1], p[2]]);
             // Down to the ground, along it outside the car and its tires, up into the
             // handle (site-layout-cable-rest.ts); a DC cable keeps its 3.6 m.
             const profile = isLargeBodyType(bodyType) ? null : CAR_PROFILES[bodyType];
             const width = profile?.width ?? vehicleSize(bodyType).width;
             const length = profile?.length ?? vehicleSize(bodyType).length;
-            const d = CONNECTOR_SPECS[connector].cableDiameterM;
+            const d = chargerCableDiameterM(connector, !dcKind);
             const toCar = carToStation(
               { x: offsetX, z: frontZ },
               length,
@@ -383,7 +387,9 @@ export function installTemplates(scn: TemplatesCtx): void {
               surface: scn.cableGround ?? ((): number => SURFACE_M.paving),
               radiusM: d / 2,
               bendM: CABLE_MIN_BEND_RATIO * d,
-              ...(plug.mouth == null ? { lengthM: dcKind ? DC_CABLE_M : AC_CABLE_M } : {}),
+              ...(plug.mouth == null
+                ? { lengthM: plug.lengthM ?? (dcKind ? DC_CABLE_M : AC_CABLE_M) }
+                : {}),
               ...(plug.bounds != null ? { bounds: plug.bounds } : {}),
             });
             g.add(
@@ -416,61 +422,71 @@ export function installTemplates(scn: TemplatesCtx): void {
           return stop;
         }),
       evSigns: (mount: StationSigns) =>
-        once(`evSigns:${String(mount.onWall)}:${String(mount.towAwayBottomM)}`, () => {
-          // A wall sign is placed at the facade by the caller (mount.z).
-          const g = new THREE.Group();
-          const backing = scn.M(SCENE_COLORS.signBack, { roughness: 0.6, metalness: 0.5 });
-          // A sign panel: a thin aluminum blank with its face in front.
-          const panel = (w: number, h: number, bottom: number, face: THREE.CanvasTexture): void => {
-            const blank = scn.box(w, h, 0.004, backing);
-            blank.position.set(0, bottom + h / 2, mount.onWall ? 0.004 : 0.03);
-            // Sign faces are retroreflective sheeting (MUTCD 11th Edition,
-            // Section 2A.21). Drawing them unlit is a display choice, so the
-            // legend reads in the dark theme and in the shade of a canopy.
-            const plate = new THREE.Mesh(
-              scn.track(new THREE.PlaneGeometry(w, h)),
-              scn.track(new THREE.MeshBasicMaterial({ map: face, toneMapped: false })),
-            );
-            plate.position.set(0, bottom + h / 2, mount.onWall ? 0.0065 : 0.0325);
-            g.add(blank, plate);
-          };
-          panel(
-            EV_SIGNS.chargingOnly.widthM,
-            EV_SIGNS.chargingOnly.heightM,
-            mount.chargingOnlyBottomM,
-            scn.evSignTexture('chargingOnly'),
-          );
-          if (mount.towAwayBottomM != null) {
+        once(
+          `evSigns:${String(mount.onWall)}:${String(mount.chargingOnlyBottomM)}:${String(mount.towAwayBottomM)}:${String(mount.towAwayDxM)}`,
+          () => {
+            // A wall sign is placed at the facade by the caller (mount.z).
+            const g = new THREE.Group();
+            const backing = scn.M(SCENE_COLORS.signBack, { roughness: 0.6, metalness: 0.5 });
+            // A sign panel: a thin aluminum blank with its face in front, `dx` right of the mount.
+            const panel = (
+              w: number,
+              h: number,
+              bottom: number,
+              face: THREE.CanvasTexture,
+              dx = 0,
+            ): void => {
+              const blank = scn.box(w, h, 0.004, backing);
+              blank.position.set(dx, bottom + h / 2, mount.onWall ? 0.004 : 0.03);
+              // Sign faces are retroreflective sheeting (MUTCD 11th Edition,
+              // Section 2A.21). Drawing them unlit is a display choice, so the
+              // legend reads in the dark theme and in the shade of a canopy.
+              const plate = new THREE.Mesh(
+                scn.track(new THREE.PlaneGeometry(w, h)),
+                scn.track(new THREE.MeshBasicMaterial({ map: face, toneMapped: false })),
+              );
+              plate.position.set(dx, bottom + h / 2, mount.onWall ? 0.0065 : 0.0325);
+              g.add(blank, plate);
+            };
             panel(
-              EV_SIGNS.towAway.widthM,
-              EV_SIGNS.towAway.heightM,
-              mount.towAwayBottomM,
-              scn.evSignTexture('towAway'),
+              EV_SIGNS.chargingOnly.widthM,
+              EV_SIGNS.chargingOnly.heightM,
+              mount.chargingOnlyBottomM,
+              scn.evSignTexture('chargingOnly'),
             );
-          }
-          const support = signSupport(mount);
-          if (support.kind === 'post') {
-            const steel = scn.M(SCENE_COLORS.signPost, { roughness: 0.5, metalness: 0.7 });
-            // The galvanized square tube from the ground to the top sign.
-            const post = scn.box(
-              EV_SIGNS.postWidthM,
-              support.topM - support.bottomM,
-              EV_SIGNS.postWidthM,
-              steel,
-            );
-            post.position.y = (support.topM + support.bottomM) / 2;
-            // The anchor post it slides into, driven into the ground.
-            const anchor = scn.box(
-              EV_SIGNS.anchorWidthM,
-              support.anchorTopM,
-              EV_SIGNS.anchorWidthM,
-              steel,
-            );
-            anchor.position.y = support.anchorTopM / 2;
-            g.add(post, anchor);
-          }
-          return g;
-        }),
+            if (mount.towAwayBottomM != null) {
+              panel(
+                EV_SIGNS.towAway.widthM,
+                EV_SIGNS.towAway.heightM,
+                mount.towAwayBottomM,
+                scn.evSignTexture('towAway'),
+                mount.towAwayDxM,
+              );
+            }
+            const support = signSupport(mount);
+            if (support.kind === 'post') {
+              const steel = scn.M(SCENE_COLORS.signPost, { roughness: 0.5, metalness: 0.7 });
+              // The galvanized square tube from the ground to the top sign.
+              const post = scn.box(
+                EV_SIGNS.postWidthM,
+                support.topM - support.bottomM,
+                EV_SIGNS.postWidthM,
+                steel,
+              );
+              post.position.y = (support.topM + support.bottomM) / 2;
+              // The anchor post it slides into, driven into the ground.
+              const anchor = scn.box(
+                EV_SIGNS.anchorWidthM,
+                support.anchorTopM,
+                EV_SIGNS.anchorWidthM,
+                steel,
+              );
+              anchor.position.y = support.anchorTopM / 2;
+              g.add(post, anchor);
+            }
+            return g;
+          },
+        ),
       cone: () =>
         once('cone', () => {
           const g = new THREE.Group();

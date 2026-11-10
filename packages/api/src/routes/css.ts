@@ -22,6 +22,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { VEHICLE_BODY_TYPES } from '@evtivity/lib/vehicle-appearance';
+import { getSecuritySeverity, securityEventTypesFor } from '@evtivity/lib/security-severity';
 import {
   bootReasonEnum,
   certificateActionEnum,
@@ -133,6 +134,7 @@ export const HIGH_LEVEL_ACTIONS = [
   'unplug',
   'injectFault',
   'clearFault',
+  'securityEvent',
   'suspendCharging',
   'resumeCharging',
   'evFull',
@@ -177,6 +179,7 @@ export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
   unplug: 'all',
   injectFault: 'all',
   clearFault: 'all',
+  securityEvent: 'all',
   suspendCharging: 'all',
   resumeCharging: 'all',
   evFull: 'all',
@@ -519,6 +522,21 @@ const clearFaultBody = z.object({
   evseId: z.number().int().describe('EVSE ID'),
 });
 
+const securityEventBody = z.object({
+  type: z
+    .string()
+    .min(1)
+    .max(50)
+    .describe(
+      'Security event type: one of the OCPP security events of the station version (2.0.1 and 2.1 list, or the 1.6 Security Whitepaper list) or a vendor tamper type (TiltDetected, CableCutDetected); any other answers 400 VALIDATION_ERROR',
+    ),
+  techInfo: z
+    .string()
+    .max(255)
+    .optional()
+    .describe('Technical information the station adds to the event (OCPP techInfo)'),
+});
+
 const suspendChargingBody = z.object({
   evseId: z.number().int().describe('EVSE ID'),
   by: z
@@ -719,11 +737,17 @@ const sendLogStatusNotificationBody = z.object({
 const sendSecurityEventNotificationBody = z.object({
   type: z
     .string()
+    .min(1)
+    .max(50)
     .describe(
-      'Security event type (FirmwareUpdated, SettingSystemTime, MemoryExhaustion, TamperDetectionActivated, etc.)',
+      'Security event type: one of the OCPP security events of the station version or a vendor tamper type (TiltDetected, CableCutDetected); any other answers 400 VALIDATION_ERROR',
     ),
-  timestamp: z.string().describe('ISO 8601 timestamp'),
-  techInfo: z.string().optional().describe('Additional information about the security event'),
+  timestamp: z.iso.datetime({ offset: true }).describe('ISO 8601 date-time with an offset'),
+  techInfo: z
+    .string()
+    .max(255)
+    .optional()
+    .describe('Additional information about the security event (at most 255 characters)'),
 });
 
 const setSignalStrengthBody = z.object({
@@ -1125,6 +1149,18 @@ function actionRoute(
         }
       }
 
+      // A simulated security event uses a type of the station's OCPP version
+      // (the 1.6 Security Whitepaper names differ from the 2.x names).
+      if (actionName === 'securityEvent' || actionName === 'sendSecurityEventNotification') {
+        const type = (params as { type?: string }).type ?? '';
+        if (!securityEventTypesFor(station.ocppProtocol).includes(type)) {
+          return reply.status(400).send({
+            error: `Security event ${type} is not an event of ${station.ocppProtocol ?? 'unknown'}`,
+            code: 'VALIDATION_ERROR',
+          });
+        }
+      }
+
       // Pre-check connector status for startCharging so the dashboard Simulate
       // tab returns a fast, explicit 400 when the cable isn't plugged in. The
       // simulator no longer hard-rejects this case; without the API guard the
@@ -1202,12 +1238,43 @@ function actionRoute(
           code: 'CSS_ACTION_REJECTED',
         });
       }
+      await auditSimulatedStationEvent(request, station.chargingStationId, actionName, params);
       return reply.status(200).send({
         commandId,
         ...(result.data != null ? { data: result.data } : {}),
       });
     },
   );
+}
+
+/**
+ * A simulated security event or fault leaves the same rows as a real one (a
+ * security event can disable the station, a fault shows on the station), so
+ * the request that made it is audited on the station in the caller's name.
+ */
+async function auditSimulatedStationEvent(
+  request: FastifyRequest,
+  chargingStationId: string,
+  actionName: string,
+  params: Record<string, unknown>,
+): Promise<void> {
+  if (actionName === 'securityEvent' || actionName === 'sendSecurityEventNotification') {
+    const type = typeof params['type'] === 'string' ? params['type'] : '';
+    const severity = getSecuritySeverity(type);
+    await auditStationChange(request, chargingStationId, 'updated', {
+      after: { simulatedSecurityEvent: { type, severity } },
+      notes: `Simulated security event ${type} (${severity})`,
+    });
+    return;
+  }
+  if (actionName === 'injectFault') {
+    const errorCode = typeof params['errorCode'] === 'string' ? params['errorCode'] : '';
+    const evseId = typeof params['evseId'] === 'number' ? params['evseId'] : null;
+    await auditStationChange(request, chargingStationId, 'updated', {
+      after: { simulatedFault: { errorCode, evseId } },
+      notes: `Simulated fault ${errorCode}${evseId != null ? ` on EVSE ${String(evseId)}` : ''}`,
+    });
+  }
 }
 
 interface CssCommandResultMessage {
@@ -1957,6 +2024,13 @@ export function cssRoutes(app: FastifyInstance): void {
   actionRoute(app, 'unplug', 'all', 'Unplug charging cable', unplugBody);
   actionRoute(app, 'injectFault', 'all', 'Inject a fault on an EVSE', injectFaultBody);
   actionRoute(app, 'clearFault', 'all', 'Clear a fault on an EVSE', clearFaultBody);
+  actionRoute(
+    app,
+    'securityEvent',
+    'all',
+    'Send a security event (SecurityEventNotification) from the station',
+    securityEventBody,
+  );
   actionRoute(
     app,
     'suspendCharging',

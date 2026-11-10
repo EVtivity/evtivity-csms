@@ -11,8 +11,15 @@ import {
   createLogger,
   DEFAULT_CURRENCY,
   DEFAULT_PRICE_DISPLAY,
+  DEFAULT_DISTANCE_UNIT,
+  DEFAULT_DRIVER_LANGUAGE,
   DEFAULT_TIMEZONE,
   DEFAULT_TAX_BASIS,
+  readDriverDefaults,
+  SYSTEM_DISTANCE_UNIT_KEY,
+  SYSTEM_DRIVER_LANGUAGE_KEY,
+  SYSTEM_TIMEZONE_KEY,
+  type DriverDefaults,
   isPriceDisplay,
   isSupportedCurrency,
   isTaxBasis,
@@ -50,6 +57,9 @@ let cachedSupportPhoneAt = 0;
 
 let cachedInvoicePayment: InvoicePaymentSettings | undefined;
 let cachedInvoicePaymentAt = 0;
+
+let cachedDriverDefaults: DriverDefaults | undefined;
+let cachedDriverDefaultsAt = 0;
 
 /**
  * Cached reader for the `system.timezone` setting. Used by dashboard
@@ -340,7 +350,52 @@ export async function getInvoicePaymentSettings(): Promise<InvoicePaymentSetting
   }
 }
 
+const DRIVER_DEFAULT_KEYS = [
+  SYSTEM_TIMEZONE_KEY,
+  SYSTEM_DISTANCE_UNIT_KEY,
+  SYSTEM_DRIVER_LANGUAGE_KEY,
+];
+
+const FALLBACK_DRIVER_DEFAULTS: DriverDefaults = {
+  timezone: DEFAULT_TIMEZONE,
+  distanceUnit: DEFAULT_DISTANCE_UNIT,
+  language: DEFAULT_DRIVER_LANGUAGE,
+};
+
+/**
+ * Cached reader (60 s) for the preferences a new driver starts with:
+ * `system.timezone`, `system.distanceUnit` and `system.driverLanguage`. An
+ * unset or invalid value falls back to America/New_York, miles and en; on
+ * error the cached value, else those fallbacks.
+ */
+export async function getDriverDefaults(): Promise<DriverDefaults> {
+  const now = Date.now();
+  if (cachedDriverDefaults !== undefined && now - cachedDriverDefaultsAt < TTL_MS) {
+    return cachedDriverDefaults;
+  }
+
+  try {
+    const rows = await db
+      .select({ key: settings.key, value: settings.value })
+      .from(settings)
+      .where(inArray(settings.key, DRIVER_DEFAULT_KEYS));
+    const values: Record<string, unknown> = {};
+    for (const row of rows) values[row.key] = row.value;
+    cachedDriverDefaults = readDriverDefaults(values);
+    cachedDriverDefaultsAt = now;
+    return cachedDriverDefaults;
+  } catch (err) {
+    logger.warn(
+      { err, keys: DRIVER_DEFAULT_KEYS },
+      'getDriverDefaults failed, using the cached value or defaults',
+    );
+    return cachedDriverDefaults ?? FALLBACK_DRIVER_DEFAULTS;
+  }
+}
+
 export function clearSystemSettingsCache(): void {
+  cachedDriverDefaults = undefined;
+  cachedDriverDefaultsAt = 0;
   cachedInvoicePayment = undefined;
   cachedInvoicePaymentAt = 0;
   cachedTimezone = undefined;

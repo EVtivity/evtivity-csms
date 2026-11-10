@@ -11,6 +11,8 @@ import {
   effectiveDataPlanSql,
   getOcppFleetHealth,
   isOperatorStation,
+  isCsmsUpdateCheckEnabled,
+  readCsmsUpdateCheck,
   settings,
   sites,
   chargingStations,
@@ -342,6 +344,25 @@ const systemInfoResponse = z
   })
   .loose();
 
+const updateCheckResponse = z
+  .object({
+    enabled: z
+      .boolean()
+      .describe('Whether the daily update check runs (system.updateCheckEnabled)'),
+    currentVersion: z.string().describe('The version this API runs'),
+    latestVersion: z
+      .string()
+      .nullable()
+      .describe(
+        'The latest stable release without the leading v, or null while the check is off or before its first successful read',
+      ),
+    checkedAt: z
+      .string()
+      .nullable()
+      .describe('When the latest version was last read (ISO 8601), or null'),
+  })
+  .loose();
+
 export function systemRoutes(app: FastifyInstance): void {
   app.get(
     '/system/info',
@@ -486,6 +507,34 @@ export function systemRoutes(app: FastifyInstance): void {
             integration.get('sim.1nce.clientSecretEnc'),
           ),
         },
+      };
+    },
+  );
+
+  // The CSMS update notice reads the latest release the worker stored
+  // (security review case 385), so no browser contacts the EVtivity website.
+  app.get(
+    '/system/update-check',
+    {
+      onRequest: [authorize('users:write')],
+      schema: {
+        tags: ['Settings'],
+        summary: 'Latest released CSMS version found by the daily update check',
+        description:
+          'The worker reads the latest stable release from the EVtivity website once a day while system.updateCheckEnabled is on. While it is off, latestVersion is null.',
+        operationId: 'getUpdateCheck',
+        security: [{ bearerAuth: [] }],
+        response: { 200: itemResponse(updateCheckResponse) },
+      },
+    },
+    async () => {
+      const enabled = await isCsmsUpdateCheckEnabled();
+      const state = enabled ? await readCsmsUpdateCheck() : null;
+      return {
+        enabled,
+        currentVersion: APP_VERSION,
+        latestVersion: state?.latestVersion ?? null,
+        checkedAt: state?.checkedAt?.toISOString() ?? null,
       };
     },
   );

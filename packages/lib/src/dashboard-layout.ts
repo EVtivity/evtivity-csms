@@ -54,6 +54,14 @@ export interface DashboardLayout {
 export const DASHBOARD_WIDGETS: readonly DashboardWidget[] = [
   { id: 'chart.aiInsights', defaultHidden: false, span: 'full' },
   { id: 'chart.stationStatus', defaultHidden: false, span: 'half' },
+  // Station security events (v0.1.51): enters a saved layout before the
+  // utilization chart, which follows the station status chart by default.
+  {
+    id: 'chart.securityEvents',
+    defaultHidden: false,
+    span: 'full',
+    enterBefore: 'chart.utilization',
+  },
   { id: 'chart.utilization', defaultHidden: false, span: 'half' },
   { id: 'chart.energy', defaultHidden: false, span: 'half' },
   { id: 'chart.sessions', defaultHidden: false, span: 'half' },

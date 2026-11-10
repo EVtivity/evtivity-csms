@@ -7,10 +7,11 @@ import { freeSpotRects, freeSpotTypeOf, freeSpotsExtent } from '@evtivity/lib/si
 import * as THREE from 'three';
 import { isLargeBodyType, sceneCar } from './site-layout-car';
 import { SCENE_COLORS } from './site-layout-colors';
-import { holsterPose } from './site-layout-connectors';
+import { holsterPose, holsterSlots } from './site-layout-connectors';
 import { curbPortOf } from './site-layout-curb-cable';
 import {
   CURB_POST_BACK_M,
+  FACADE_BASE_PROUD_M,
   FACADE_SIGN_STANDOFF_M,
   dispenserHolsters,
   isSpot,
@@ -31,6 +32,7 @@ import {
   carFrontAtStop,
   carFrontWithoutStop,
   carLookPort,
+  dcDispenserCableOf,
   pluggedHolster,
   satelliteHolsterMount,
   slotKind,
@@ -98,6 +100,14 @@ export function installStationModel(scn: StationModelCtx): void {
     }
   }
   scn.buildModel = buildModel;
+  // Where a driver avatar floats over a car: above the middle of its roof.
+  function roofAnchor(car: THREE.Object3D): THREE.Vector3 | null {
+    car.updateMatrixWorld(true);
+    const roof = new THREE.Box3().setFromObject(car);
+    if (roof.isEmpty()) return null;
+    const c = roof.getCenter(new THREE.Vector3());
+    return new THREE.Vector3(c.x, roof.max.y + AVATAR_ABOVE_ROOF_M, c.z);
+  }
   function buildStationModel(s: SceneStation, palette: Palette, t: Templates): StationObject {
     const g = new THREE.Group();
     if (s.free != null) scn.addFreeSpots(g, s, palette);
@@ -147,7 +157,15 @@ export function installStationModel(scn: StationModelCtx): void {
     s.terminals.forEach((terminal, i) => {
       const reader = t.terminal(terminal.hasDisplay, terminal.online);
       // Where real installs mount it, its card interface within reach (`readerMount`).
-      const at = readerMount(dc ? 'dc' : 'ac', wall, terminal.side, i, w);
+      const at = readerMount(
+        dc ? 'dc' : 'ac',
+        wall,
+        terminal.side,
+        i,
+        w,
+        wall && (s.evseConnectors?.length ?? 1) >= 2 ? 2 : 1,
+        s.terminals.filter((o) => o.side === 0).length,
+      );
       reader.position.set(at.x, at.y, at.z);
       // A little larger than life, so the reader reads at site scale.
       reader.scale.setScalar(READER_SCENE_SCALE);
@@ -172,6 +190,8 @@ export function installStationModel(scn: StationModelCtx): void {
     // on the model in the station's own frame (before the group moves or merges).
     let avatarAnchor: THREE.Vector3 | null = null;
     const curbside = scn.layout.lot.siteType === 'curbside' && isSpot(s.bay, scn.layout.lot);
+    // A DC dispenser's cable length (a two-EVSE dispenser's 6 m, `dcDispenserCableOf`).
+    const cableM = dcDispenserCableOf(s);
     const largeSpot = s.free != null && freeSpotTypeOf(s.free) !== 'car';
     // A concrete wheel stop in front of each AC spot (WHEEL_STOP, wheelStopMount).
     const stopMount = wheelStopMount({
@@ -189,7 +209,9 @@ export function installStationModel(scn: StationModelCtx): void {
       freeSpots: s.free != null ? (s.spots ?? 1) : null,
       largeSpot,
       california: scn.layout.california === true,
-      wallZ: wallBoxOffset() + FACADE_SIGN_STANDOFF_M,
+      // The sign's back on the facade (the sign standoff counts from FACADE_Z).
+      wallZ: wallBoxOffset() - FACADE_BASE_PROUD_M + FACADE_SIGN_STANDOFF_M,
+      wallPorts: wall && (s.evseConnectors?.length ?? 1) >= 2 ? 2 : 1,
     });
     if (signMount != null) {
       // One R7-113 per stall: a pedestal's two stalls put their posts at the
@@ -238,8 +260,10 @@ export function installStationModel(scn: StationModelCtx): void {
         const anchor = scn.placeLargeSpotProp(g, s, t, rect, s.charger ?? 'standard', palette);
         if (anchor != null) avatarAnchor = anchor;
       }
-    } else if (s.stallCars != null && s.stalls != null && !curbside && !wall) {
-      // A dual-port pedestal: a vehicle in each stall with a session, each on its own cable.
+    } else if (s.stallCars != null && s.stalls != null && !curbside) {
+      // A dual-port pedestal, a dual-outlet DC dispenser or a two-port wall box on the
+      // line between its stalls: a vehicle in each stall with a session, each on its
+      // own EVSE's cable (a wall box: from its own port's gland, EVSE 1 on the left).
       const stationKinds = s.connectorKinds?.flat() ?? [];
       s.stallCars.forEach((stallLook, i) => {
         const stall = s.stalls?.[i];
@@ -253,15 +277,36 @@ export function installStationModel(scn: StationModelCtx): void {
         const noseZ =
           stopMount != null && !isLargeBodyType(look.bodyType)
             ? carFrontAtStop(stopMount, look)
-            : carFrontWithoutStop(s, look);
+            : wall
+              ? undefined
+              : carFrontWithoutStop(s, look);
         const car = t.car(look, noseZ);
         car.position.x += stall.x;
+        if (wall) {
+          g.add(
+            car,
+            t.cable('wall', look, stall.x, noseZ, s.stallFlows?.[i] ?? true, {
+              connector: slotKind(s, i, s.stallPlugged?.[i] ?? 0),
+              side: i === 0 ? -1 : 1,
+              wallPorts: 2,
+            }),
+          );
+          if (avatarAnchor == null) avatarAnchor = roofAnchor(car);
+          return;
+        }
         const connector = s.stallPlugged?.[i] ?? 0;
         // EVSE i hangs in its own holster: the first left, the second right; a
         // split system's on the side wall of the satellite in that stall.
         const satellite =
           s.dispensers != null && s.dispensers.length > 1 ? s.dispensers[i] : undefined;
         const slot = dispenserHolsters(s.cables?.[i] ?? 1)[connector];
+        // A dual-outlet DC dispenser on the line between its stalls: EVSE i's own holster.
+        const dcSlot =
+          satellite == null && s.kind === 'dc'
+            ? holsterSlots(s.evseConnectors ?? [1, 1]).find(
+                (h) => h.evse === i && h.connector === connector,
+              )
+            : undefined;
         const mouth =
           satellite != null && slot != null
             ? holsterPose(satelliteHolsterMount(satellite, slot.side, slot.backM), {
@@ -273,27 +318,24 @@ export function installStationModel(scn: StationModelCtx): void {
           car,
           t.cable(s.kind, look, stall.x, noseZ, s.stallFlows?.[i] ?? true, {
             connector: slotKind(s, i, connector),
-            side: i === 0 ? -1 : 1,
+            side: dcSlot?.side ?? (i === 0 ? -1 : 1),
+            ...(dcSlot != null ? { backM: dcSlot.backM } : {}),
+            // A two-EVSE dispenser's 6 m cable reaches every port in either stall.
+            ...(dcSlot != null && cableM != null ? { lengthM: cableM } : {}),
             glandX: acGlandX(2, i === 0 ? -1 : 1),
             // Each stall's cable keeps to its own stall, clear of the other stall and its car.
             bounds: { minX: stall.x - stall.width / 2, maxX: stall.x + stall.width / 2 },
             ...(mouth != null ? { mouth } : {}),
           }),
         );
-        if (avatarAnchor == null) {
-          car.updateMatrixWorld(true);
-          const roof = new THREE.Box3().setFromObject(car);
-          if (!roof.isEmpty()) {
-            const c = roof.getCenter(new THREE.Vector3());
-            avatarAnchor = new THREE.Vector3(c.x, roof.max.y + AVATAR_ABOVE_ROOF_M, c.z);
-          }
-        }
+        if (avatarAnchor == null) avatarAnchor = roofAnchor(car);
       });
     } else if (s.prop === 'car') {
       // The car's own port decides: a car with a rear port backs in (at a wall
       // box its tail to the building). A curb car parks parallel, never backed in,
       // its port mirrored to the curb side (`curbPortOf`).
-      const plugged = withAcGland(s, pluggedHolster(s));
+      const own0 = withAcGland(s, pluggedHolster(s));
+      const plugged = !curbside && cableM != null ? { ...own0, lengthM: cableM } : own0;
       const own = withVehicleInlet(
         s.car ?? sceneCar(null),
         plugged.connector,
@@ -318,7 +360,7 @@ export function installStationModel(scn: StationModelCtx): void {
           offsetX,
           noseZ,
           s.cableFlow ?? true,
-          plugged,
+          wall && (s.evseConnectors?.length ?? 1) >= 2 ? { ...plugged, wallPorts: 2 } : plugged,
         ),
       );
       car.updateMatrixWorld(true);

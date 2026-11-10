@@ -21,26 +21,61 @@ vi.mock('@/lib/version', () => ({
 vi.mock('@/lib/auth', () => ({ useHasPermission: () => perm.admin }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t }) }));
+const fetchMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/api', () => ({ api: { get: fetchMock } }));
 
 import { useUpdateCheck } from '../use-update-check';
 
-const fetchMock = vi.fn();
-
-function serveLatest(body: string): void {
-  fetchMock.mockResolvedValue({ ok: true, text: () => Promise.resolve(body) });
+// The latest version the API stored, as GET /v1/system/update-check returns it.
+function serveLatest(latestVersion: string | null, enabled = true): void {
+  fetchMock.mockResolvedValue({ enabled, latestVersion, checkedAt: '2026-11-10T03:41:00Z' });
 }
+
+const browserFetch = vi.fn();
 
 describe('useUpdateCheck', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', browserFetch);
     localStorage.clear();
     toastMock.mockReset();
     fetchMock.mockReset();
+    browserFetch.mockReset();
     perm.admin = true;
   });
 
   afterEach(() => {
+    // The browser never contacts the EVtivity website (security review case 385).
+    expect(browserFetch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+
+  it('asks only the own API for the stored version', async () => {
+    version.current = '0.1.37';
+    serveLatest('0.1.38');
+    renderHook(() => {
+      useUpdateCheck();
+    });
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledTimes(1);
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/v1/system/update-check');
+  });
+
+  it('stays quiet while the update check is off or has no version yet', async () => {
+    version.current = '0.1.37';
+    serveLatest('0.1.38', false);
+    renderHook(() => {
+      useUpdateCheck();
+    });
+    serveLatest(null);
+    renderHook(() => {
+      useUpdateCheck();
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    await Promise.resolve();
+    expect(toastMock).not.toHaveBeenCalled();
   });
 
   it('tells a prerelease install about the stable release of the same version', async () => {
@@ -117,8 +152,8 @@ describe('useUpdateCheck', () => {
       expect(toastMock).not.toHaveBeenCalled();
     });
 
-    it('stays quiet when the version file request fails', async () => {
-      fetchMock.mockResolvedValue({ ok: false, text: () => Promise.resolve('v9.9.9') });
+    it('stays quiet when the API request fails', async () => {
+      fetchMock.mockRejectedValue(new Error('403'));
       renderHook(() => {
         useUpdateCheck();
       });

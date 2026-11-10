@@ -1019,7 +1019,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "此出發計畫由公車車場系統管理，請在該系統中變更，或停用車場系統。",
     "DEPOT_SYSTEM_NOT_FOUND": "找不到公車車場系統。",
     "DEPOT_SYSTEM_ID_IN_USE": "另一個公車車場系統已使用此系統 ID。",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公車車場系統僅服務車場充電站。"
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公車車場系統僅服務車場充電站。",
+    "RFID_SELF_SERVICE_DISABLED": "您的 RFID 卡由營運商管理。如需新增、變更、停用或移除卡片，請聯絡營運商。",
+    "NOTIFICATION_EVENT_MANDATORY": "營運商要求在此管道接收此通知，因此無法關閉"
   },
   "validation": {
     "required": "此欄位為必填項",
@@ -1145,7 +1147,10 @@
     "labelPlaceholder": "標籤（選填），例如：公司 RFID 卡",
     "labelHint": "用於區分您的卡片的名稱。留空則顯示卡號。",
     "renameCard": "重新命名 RFID 卡",
-    "renameFailed": "無法重新命名此卡。請再試一次。"
+    "renameFailed": "無法重新命名此卡。請再試一次。",
+    "managedByOperator": "您的 RFID 卡由營運商管理。如需新增、變更或移除卡片，或停用遺失的卡，請聯絡營運商。",
+    "noCardsAssigned": "您沒有分配的 RFID 卡。",
+    "contactSupport": "聯絡支援"
   },
   "vehicles": {
     "addVehicle": "新增車輛",
@@ -1531,5 +1536,91 @@
   "storageUnavailable": {
     "title": "無法上傳",
     "description": "目前無法上傳檔案。請稍後再試，若問題持續發生，請聯絡支援人員。"
+  },
+  "notificationPrefs": {
+    "intro": "選擇您在每個管道接收哪些通知。",
+    "notification": "通知",
+    "allNotifications": "全部通知",
+    "allChannelLabel": "全部{{channel}}通知",
+    "eventChannelLabel": "透過{{channel}}接收{{event}}",
+    "channels": {
+      "email": "電子郵件",
+      "sms": "簡訊",
+      "push": "推播"
+    },
+    "required": "營運商要求",
+    "requiredNote": "帶鎖標記的通知是營運商要求的通知，一律透過該管道傳送。",
+    "alwaysSentNote": "帳戶和安全訊息（例如密碼重設和登入驗證碼）一律會傳送。",
+    "noChannels": "營運商尚未設定電子郵件或簡訊通知。",
+    "groups": {
+      "sessions": "充電工作階段",
+      "payments": "付款",
+      "reservations": "預約",
+      "invoices": "發票",
+      "supportCases": "支援請求",
+      "rfidCards": "RFID 卡",
+      "maintenance": "維護",
+      "stationWatch": "充電樁關注",
+      "prepaidBalance": "預付餘額",
+      "fleetBilling": "車隊帳單"
+    },
+    "events": {
+      "session": {
+        "Started": "充電已開始",
+        "Updated": "充電進度",
+        "Completed": "充電已完成",
+        "Faulted": "充電因故障停止",
+        "PaymentReceived": "已收到工作階段付款",
+        "IdlingStarted": "佔位費已開始",
+        "Receipt": "工作階段收據"
+      },
+      "payment": {
+        "Complete": "付款完成",
+        "Refunded": "付款已退款",
+        "FeeRefunded": "預約費已退款",
+        "PreAuthFailed": "付款授權失敗",
+        "CaptureFailed": "付款失敗",
+        "MissingPaymentMethod": "沒有付款方式",
+        "AccountCreditLimit": "已達到車隊信用額度"
+      },
+      "reservation": {
+        "Created": "預約已確認",
+        "Cancelled": "預約已取消",
+        "CancelledForMaintenance": "因維護取消預約",
+        "Expiring": "預約即將結束",
+        "Expired": "預約已過期",
+        "StationFaulted": "預約的充電樁停止服務",
+        "TakenByOther": "預約的充電槍被他人佔用"
+      },
+      "invoice": {
+        "Sent": "發票已傳送",
+        "CreditNote": "已開立折讓單"
+      },
+      "supportCase": {
+        "Created": "支援請求已建立",
+        "OperatorReply": "支援請求有新回覆",
+        "Resolved": "支援請求已解決",
+        "AiAnswered": "支援請求的自動回覆"
+      },
+      "token": {
+        "Added": "RFID 卡已新增",
+        "Removed": "RFID 卡已刪除",
+        "Deactivated": "RFID 卡已停用",
+        "Reactivated": "RFID 卡已重新啟用"
+      },
+      "maintenance": {
+        "SessionStopped": "因維護停止充電"
+      },
+      "watch": {
+        "StationAvailable": "關注的充電樁可用"
+      },
+      "prepaid": {
+        "LowCredit": "預付餘額不足",
+        "CreditExhausted": "預付餘額已用完"
+      },
+      "fleet": {
+        "AccountBillingChanged": "車隊帳單已變更"
+      }
+    }
   }
 }

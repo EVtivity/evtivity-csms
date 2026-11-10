@@ -85,5 +85,10 @@ describe('SSE event families', () => {
     expect(isEventPermitted([], { eventType: 'payment.settled' })).toBe(true);
     expect(isEventPermitted(['stations:read'], { eventType: 'station.status' })).toBe(true);
     expect(isEventPermitted([], { eventType: 'station.status' })).toBe(false);
+    // A station security event notice needs securityEvents:read, not stations:read.
+    expect(isEventPermitted(['stations:read'], { eventType: 'station.securityEvent' })).toBe(false);
+    expect(isEventPermitted(['securityEvents:read'], { eventType: 'station.securityEvent' })).toBe(
+      true,
+    );
   });
 });

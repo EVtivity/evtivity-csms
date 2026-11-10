@@ -12,7 +12,14 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Tooltip } from '@/components/ui/tooltip';
-import { getValidActions, type FaultMode, type SimulateAction } from '@/lib/simulate-actions';
+import {
+  FAULT_CODES,
+  getValidActions,
+  securityEventGroups,
+  type FaultCode,
+  type FaultMode,
+  type SimulateAction,
+} from '@/lib/simulate-actions';
 import { useSimulateAction } from '@/hooks/use-simulate-action';
 
 interface SimEvse {
@@ -25,7 +32,14 @@ interface StationSimulateProps {
   evseIds: number[];
   evses?: SimEvse[] | undefined;
   isOnline?: boolean | undefined;
+  /** The station's OCPP version: picks the security event list (1.6 or 2.x names). */
+  ocppProtocol?: string | null | undefined;
 }
+
+const FAULT_CODE_LABELS = {
+  InternalError: 'simulate.faultCodes.internalError',
+  HighTemperature: 'simulate.faultCodes.highTemp',
+} as const satisfies Record<FaultCode, string>;
 
 interface ActionConfig {
   action: SimulateAction;
@@ -39,11 +53,17 @@ export function StationSimulate({
   evseIds,
   evses,
   isOnline,
+  ocppProtocol,
 }: StationSimulateProps): React.JSX.Element {
   const { t } = useTranslation();
   const [selectedEvse, setSelectedEvse] = useState<number>(evseIds[0] ?? 1);
   const [idToken, setIdToken] = useState('');
   const [faultMode, setFaultMode] = useState<FaultMode>('end');
+  const [faultCode, setFaultCode] = useState<FaultCode>('InternalError');
+  const eventGroups = securityEventGroups(ocppProtocol);
+  // The tamper event is in the 1.6 and the 2.x lists.
+  const [eventType, setEventType] = useState<string>('TamperDetectionActivated');
+  const [eventTechInfo, setEventTechInfo] = useState('');
   const simulate = useSimulateAction(stationId);
   const { activeAction, tokenError } = simulate;
 
@@ -98,12 +118,13 @@ export function StationSimulate({
       evseId: selectedEvse,
       ...(config.needsToken ? { idToken } : {}),
       faultMode,
+      faultCode,
     });
   }
 
   return (
     <TabPanel title={t('simulate.tab')} bodyClassName="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
         <div className="grid gap-2">
           <Label htmlFor="sim-evse">{t('simulate.evseId')}</Label>
           <Input
@@ -156,6 +177,23 @@ export function StationSimulate({
             <option value="suspend">{t('simulate.faultModeSuspend')}</option>
           </Select>
         </div>
+        <div className="grid gap-2">
+          <Label htmlFor="sim-fault-code">{t('simulate.faultType')}</Label>
+          <Select
+            id="sim-fault-code"
+            value={faultCode}
+            onChange={(e) => {
+              const next = FAULT_CODES.find((c) => c === e.target.value);
+              if (next != null) setFaultCode(next);
+            }}
+          >
+            {FAULT_CODES.map((code) => (
+              <option key={code} value={code}>
+                {t(FAULT_CODE_LABELS[code])}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -197,6 +235,75 @@ export function StationSimulate({
           }
           return <div key={config.action}>{button}</div>;
         })}
+      </div>
+
+      <div className="space-y-3 border-t pt-4" data-testid="sim-security-event">
+        <h3 className="text-sm font-semibold">{t('simulate.securityEvent')}</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+          <div className="grid gap-2">
+            <Label htmlFor="sim-security-event-type">{t('simulate.securityEventType')}</Label>
+            <Select
+              id="sim-security-event-type"
+              value={eventType}
+              onChange={(e) => {
+                setEventType(e.target.value);
+              }}
+            >
+              {eventGroups.map((group) => (
+                <optgroup key={group.severity} label={t(`severity.${group.severity}`)}>
+                  {group.types.map((type) => (
+                    <option key={type} value={type}>
+                      {t(`simulate.securityEvents.${type}`, { defaultValue: type })}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t('simulate.securityEventOcppType', { type: eventType })}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="sim-security-event-tech-info">
+              {t('simulate.securityEventTechInfo')}
+            </Label>
+            <Input
+              id="sim-security-event-tech-info"
+              maxLength={255}
+              value={eventTechInfo}
+              onChange={(e) => {
+                setEventTechInfo(e.target.value);
+              }}
+            />
+          </div>
+          <div className="grid gap-2 md:pt-8">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={simulate.isPending || isOnline === false}
+              onClick={() => {
+                void simulate.run('securityEvent', {
+                  evseId: selectedEvse,
+                  securityEvent: { type: eventType, techInfo: eventTechInfo },
+                });
+              }}
+              className="relative w-full min-w-0"
+            >
+              {activeAction === 'securityEvent' && simulate.isPending && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Spinner className="h-4 w-4" />
+                </div>
+              )}
+              <span
+                className={
+                  activeAction === 'securityEvent' && simulate.isPending ? 'invisible' : ''
+                }
+              >
+                {t('simulate.sendSecurityEvent')}
+              </span>
+            </Button>
+          </div>
+        </div>
       </div>
     </TabPanel>
   );

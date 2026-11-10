@@ -33,6 +33,7 @@ import {
   DEPOT_BODY_TYPE_BATTERY,
   LAYOUT_DEMO,
   LAYOUT_DEMO_PREVIOUS_SETTINGS,
+  LAKESIDE_WALL_PAIR_PORTS,
   demoLayoutPositions,
   type DemoLayoutSettings,
   LEVEL_2_AMPS,
@@ -81,6 +82,30 @@ describe('site layout demo plan', () => {
     expect(new Set(lakeside!.stations.map((s) => s.row))).toEqual(new Set([0]));
     expect(lakeside!.settings.chargers).toBe(12);
     expect(chargerMountingOf(lakeside!.settings)).toBe('wall');
+  });
+
+  it('gives Lakeside one two-port wall box on the line between two spots, the run continuous', () => {
+    const pairs = lakeside!.stations.filter((s) => (s.evses ?? 1) >= 2);
+    expect(pairs.map((s) => s.stationId)).toEqual(['CS-3019']);
+    expect(pairs[0]?.evses).toBe(LAKESIDE_WALL_PAIR_PORTS);
+    const pair = pairs[0]!;
+    expect(sharesSpotPair({ charging: 'ac', ports: pair.evses ?? 1 }, lakeside!.settings)).toBe(
+      true,
+    );
+    expect(spotPairPartner({ col: pair.col, row: pair.row }, lakeside!.settings)).toEqual({
+      col: pair.col + 1,
+      row: 0,
+    });
+    // The held spots form one run with no charger-free spot inside it.
+    const held = lakeside!.stations
+      .flatMap((s) => ((s.evses ?? 1) >= 2 ? [s.col, s.col + 1] : [s.col]))
+      .sort((a, b) => a - b);
+    expect(new Set(held).size).toBe(held.length);
+    expect(held.at(-1)! - held[0]!).toBe(held.length - 1);
+    // The box after it moves on from where the plan before stood it.
+    const next = lakeside!.stations.find((s) => s.stationId === 'CS-3020');
+    expect(next?.before).toEqual({ col: 9, row: 0 });
+    expect(next?.col).toBe(10);
   });
 
   it('makes Riverside Medical Offices an office or retail site with posts at the spots', () => {
@@ -366,11 +391,17 @@ describe('site layout demo plan', () => {
         same(lakeside!.id, p, storedBefore),
       ),
     ).toBe(true);
+    // Harbor Point's plan with six spots a row, before the DC dispensers stood
+    // on spot pairs, is replaced too.
+    const sixSpots: DemoLayoutSettings = { ...harbor!.settings, spotsPerRow: 6 };
+    expect(
+      (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) => same(harbor!.id, p, sixSpots)),
+    ).toBe(true);
     // Harbor Point's plans before the battery and the solar canopy and before
     // Lot Edge (a 2 by 6 lot with every row charging) are replaced too.
     // The equipment 14 m out on the grass, before the pad moved to the lot edge.
     const farEquipment: DemoLayoutSettings = {
-      ...harbor!.settings,
+      ...sixSpots,
       transformers: [
         { id: 'tx-1', name: 'Utility Transformer', ratedKva: 2500, x: -14, z: 2.5 },
         { id: 'tx-2', name: 'Solar Carport Tie-In', ratedKva: 750, x: -14, z: 16 },
@@ -436,8 +467,17 @@ describe('site layout demo plan', () => {
     const ac = patroon!.stations.filter((st) => st.kind === 'ac');
     expect(dc).toHaveLength(4);
     expect(ac).toHaveLength(8);
-    // The spots the placement gives each group, from the transformer outward and the far end inward.
+    // The spots the placement gives each group, from the transformer outward and the far end
+    // inward: every DC dispenser (two EVSEs) on a spot pair (owner decision 2026-11-09).
+    expect(dc.every((st) => sharesSpotPair({ charging: 'dc', ports: st.evses ?? 2 }, s))).toBe(
+      true,
+    );
+    // The whole first row, next to the transformer.
     expect(dc.map((st) => ({ col: st.col, row: st.row }))).toEqual(
+      [0, 2, 4, 6].map((col) => ({ col, row: 0 })),
+    );
+    // A rerun moves each DC dispenser from its single spot of the plan before.
+    expect(dc.map((st) => st.before && { col: st.before.col, row: st.before.row })).toEqual(
       groupedSpotOrder(s, 'dc').slice(0, 4),
     );
     // Dual-port Level 2 pedestals: two ports each, standing on the line
@@ -463,14 +503,17 @@ describe('site layout demo plan', () => {
         dc.map((st) => ({
           ...bayToPosition({ col: st.col, row: st.row }),
           charging: 'dc' as const,
+          pair: true,
         })),
         s,
       ).map(positionToBay),
     );
+    // No pedestal shares the first row with the DC group.
+    expect(ac.some((st) => st.row === 0)).toBe(false);
     const held = new Set<string>();
     for (const st of patroon!.stations) {
       const spots = [{ col: st.col, row: st.row }];
-      if (st.kind === 'ac') {
+      {
         const partner = spotPairPartner({ col: st.col, row: st.row }, s);
         expect(partner, st.stationId).not.toBeNull();
         spots.push(partner!);
@@ -481,9 +524,15 @@ describe('site layout demo plan', () => {
         held.add(key);
       }
     }
-    // A rerun moves each pedestal from its single-port spot of the plan before.
+    // A rerun moves each pedestal from its spot of the plan before (after the single-spot DC group).
     expect(ac.map((st) => st.before && { col: st.before.col, row: st.before.row })).toEqual(
-      groupedSpotOrder(s, 'ac').slice(0, 8),
+      freeSlotsFor(
+        ac.map(() => ({ charging: 'ac' as const, depot: null, ports: 2 })),
+        groupedSpotOrder(s, 'dc')
+          .slice(0, 4)
+          .map((b) => ({ ...bayToPosition(b), charging: 'dc' as const })),
+        s,
+      ).map(positionToBay),
     );
     // Never interleaved along a row: at most one change of kind per row.
     for (let row = 0; row < s.rows; row++) {
@@ -505,7 +554,11 @@ describe('site layout demo plan', () => {
       if (usesFreePositions(settings) || siteTypeOf(settings) === 'depot') continue;
       const rows = new Map<number, Map<number, 'ac' | 'dc'>>();
       const placed = site.stations.map((st) => {
-        const pair = sharesSpotPair({ charging: st.kind, ports: st.evses ?? 1 }, settings);
+        // The seed gives a DC station two EVSEs, an AC station one, unless the plan says.
+        const pair = sharesSpotPair(
+          { charging: st.kind, ports: st.evses ?? (st.kind === 'dc' ? 2 : 1) },
+          settings,
+        );
         const row = rows.get(st.row) ?? new Map<number, 'ac' | 'dc'>();
         row.set(st.col, st.kind);
         const partner = pair ? spotPairPartner({ col: st.col, row: st.row }, settings) : null;
@@ -528,8 +581,10 @@ describe('site layout demo plan', () => {
       }
       const access = accessibleChargingSpace(placed, settings);
       if (access == null) continue;
-      const row = rows.get(access.aisle.row) ?? new Map();
-      const cols = [...row.keys()];
+      const row = rows.get(access.aisle.row) ?? new Map<number, 'ac' | 'dc'>();
+      // The run of the space's own charging kind (a row can hold the end of each group).
+      const kind = row.get(access.stall.col);
+      const cols = [...row].filter(([, k]) => k === kind).map(([c]) => c);
       // The aisle lies just past the run, never inside it.
       expect(row.has(access.aisle.col), site.name).toBe(false);
       expect(
@@ -651,13 +706,15 @@ describe('site layout demo plan', () => {
     it('splits many AC chargers over several panelboards in the order they stand', () => {
       const boards = lakeside!.panels.filter((p) => p.name.startsWith('Panelboard'));
       expect(boards.length).toBeGreaterThanOrEqual(2);
-      // Each panelboard feeds a run of neighbors, never every other station.
+      // Each panelboard feeds a run of neighbors, never every other station (a
+      // two-port wall box holds its spot and the partner spot).
       for (const board of boards) {
-        const cols = lakeside!.stations
+        const fed = lakeside!.stations
           .filter((st) => board.circuits.some((c) => c.id === st.circuitId))
-          .map((st) => st.col)
-          .sort((a, b) => a - b);
-        expect(cols.at(-1)! - cols[0]!).toBe(cols.length - 1);
+          .sort((a, b) => a.col - b.col);
+        const held = fed.reduce((n, st) => n + ((st.evses ?? 1) >= 2 ? 2 : 1), 0);
+        const last = fed.at(-1)!;
+        expect(last.col + ((last.evses ?? 1) >= 2 ? 1 : 0) - fed[0]!.col).toBe(held - 1);
       }
       // Maple: one panelboard per curb.
       const mapleBoards = maple!.panels.filter((p) => p.name.startsWith('Panelboard'));

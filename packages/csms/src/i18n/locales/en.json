@@ -574,7 +574,27 @@
     "freeVend": "Free Vend",
     "freeVendInfo": "Free vend sessions at your sites and their energy, with the number of your sites that have free vend turned on.",
     "freeVendSites": "Sites with free vend: {{value}}",
-    "noFreeVendSessions": "No free vend sessions for this period"
+    "noFreeVendSessions": "No free vend sessions for this period",
+    "securityEvents": {
+      "title": "Security Events",
+      "info": "Security events your stations reported, by severity and by station. Stations with the worst severity come first. Select a station to open its Security tab.",
+      "range": "Range",
+      "range24h": "Last 24 Hours",
+      "range7d": "Last 7 Days",
+      "range30d": "Last 30 Days",
+      "site": "Site",
+      "allSites": "All Sites",
+      "severity": "Severity",
+      "allSeverities": "All Severities",
+      "station": "Station",
+      "worstSeverity": "Worst Severity",
+      "events": "Events",
+      "lastEvent": "Last Event",
+      "empty": "No security events in this range.",
+      "noStations": "No stations with events of this severity.",
+      "truncated": "Showing {{shown}} of {{total}} stations.",
+      "criticalRow": "critical"
+    }
   },
   "sites": {
     "title": "Sites",
@@ -758,8 +778,8 @@
       "fitToView": "Fit to View",
       "editLayout": "Edit Layout",
       "doneEditing": "Done Editing",
-      "hint": "Drag to rotate, two-finger swipe or Shift-drag to pan, pinch or scroll wheel to zoom. Click a station for details.",
-      "hintViewOnly": "Drag to look around, two-finger swipe to pan, pinch or scroll wheel to zoom. Click a station for details.",
+      "hint": "Drag to rotate, two-finger swipe or Shift-drag to pan, pinch or scroll wheel to zoom. Click a station for details. Double-click a charger to zoom in.",
+      "hintViewOnly": "Drag to look around, two-finger swipe to pan, pinch or scroll wheel to zoom. Click a station for details. Double-click a charger to zoom in.",
       "hintEdit": "Edit mode: drag a station to a free spot or a transformer on the grass. A station snaps to its spot and never lands on another station.",
       "webglUnavailable": "This browser cannot show the 3D view (WebGL is not available), so the 2D view is shown.",
       "loading3d": "Loading 3D View",
@@ -867,7 +887,7 @@
         "pointerZoom": "Zoom",
         "pointerZoomKeys": "Pinch or Scroll Wheel"
       },
-      "hintTouch": "Drag to rotate, pinch to zoom, two-finger drag to pan. Tap a station for details.",
+      "hintTouch": "Drag to rotate, pinch to zoom, two-finger drag to pan. Tap a station for details. Double-tap a charger to zoom in.",
       "hintViewOnlyTouch": "Drag to look around, pinch to zoom. Tap a station for details.",
       "hintReplayTouch": "Replaying a past moment. Drag to rotate, pinch to zoom.",
       "portIconLabel": "EVSE {{n}}, {{type}}, {{state}}",
@@ -886,7 +906,8 @@
       "cannotMeetShort": "Cannot Meet: {{kwh}} kWh Short",
       "transformerLoad": "{{percent}}% of capacity",
       "supplyCredit": "Supply {{kw}} kW",
-      "supplyNoReading": "No fresh reading"
+      "supplyNoReading": "No fresh reading",
+      "evsePlateHover": "EVSE {{n}}, {{types}}"
     },
     "layoutState": {
       "faulted": "Faulted",
@@ -972,7 +993,8 @@
       "reservedWindow": "{{id}} reserved {{start}} to {{end}}",
       "maintenanceNow": "{{id}} in maintenance",
       "maintenanceUntil": "{{id}} in maintenance until {{end}}",
-      "maintenanceWindow": "{{id}} in maintenance {{start}} to {{end}}"
+      "maintenanceWindow": "{{id}} in maintenance {{start}} to {{end}}",
+      "rfidTap": "Tap RFID card"
     },
     "fleetReadiness": {
       "title": "Fleet Readiness",
@@ -1123,6 +1145,7 @@
     "changePasswordOcppOnline": "This will update the password on the server and push it to {{stationId}} via OCPP SetVariables, then reset the station to reconnect.",
     "changePasswordOcppOffline": "The station is offline. The password will be saved on the server and used to authenticate the station on next connection.",
     "securityLog": "Security Event Log",
+    "securityEventsHidden": "Station security events are shown only to users with the Security Events permission. This log lists the connection events.",
     "noSecurityLogs": "No security events recorded",
     "eventType": "Event",
     "eventTypePlaceholder": "e.g., TamperDetectionActivated",
@@ -2076,7 +2099,13 @@
       "empty": "No billing address. Invoices show the name and email.",
       "updated": "Billing address updated",
       "updateFailed": "Could not update the billing address"
-    }
+    },
+    "timezone": "Timezone",
+    "distanceUnit": "Distance Unit",
+    "distanceUnitMiles": "Miles",
+    "distanceUnitKm": "Kilometers",
+    "distanceUnitHelp": "Used for distances in the driver portal and app.",
+    "timezoneHelp": "Used for times in the driver portal, the app and notifications."
   },
   "transactions": {
     "title": "Transactions",
@@ -2263,6 +2292,7 @@
       "loadManagement": "Load Management",
       "notifications": "Notifications",
       "logs": "Logs",
+      "securityEvents": "Security Events",
       "users": "Users",
       "audit": "Audit Log",
       "maintenance": "Maintenance",
@@ -4115,7 +4145,25 @@
     "paymentSubTabTerminals": "Payment Terminals",
     "fleetChargingEnabled": "Fleet Charging",
     "fleetChargingEnabledDesc": "Plans depot charging by each vehicle's departure at sites that use the Departure Aware strategy.",
-    "fleetChargingEnabledOff": "Depot plans stop, the charging profiles they sent are cleared, and Departure Aware sites share power equally. Departures stay stored."
+    "fleetChargingEnabledOff": "Depot plans stop, the charging profiles they sent are cleared, and Departure Aware sites share power equally. Departures stay stored.",
+    "driverLanguage": "Driver Language",
+    "driverLanguageHelper": "The language new drivers start with unless one is set when they are created. Existing drivers keep theirs.",
+    "driverDistanceUnit": "Driver Distance Unit",
+    "driverDistanceUnitHelper": "The distance unit new drivers start with unless one is set when they are created. Existing drivers keep theirs.",
+    "companyTimezone": "Timezone",
+    "companyTimezoneHelper": "The company timezone: dashboard days, invoices and reports use it, and new drivers start with it unless one is set when they are created. Existing drivers keep theirs.",
+    "rfidCards": "RFID Cards",
+    "rfidCardsDescription": "Decide whether drivers manage their own RFID cards or the operator manages them.",
+    "rfidSelfServiceEnabled": "Drivers Manage Their RFID Cards",
+    "rfidSelfServiceEnabledDesc": "On: drivers add, rename, deactivate, reactivate and remove their own RFID cards in the portal and the mobile app. Off: drivers only see their cards, and operators manage them on the Tokens page.",
+    "rfidSelfServiceOffEffect": "Drivers can no longer add, rename, deactivate, reactivate or remove RFID cards, and contact you to block a lost card. Their existing cards keep working.",
+    "updateCheck": {
+      "title": "Update Check",
+      "description": "Tell admins when a newer EVtivity CSMS release is out.",
+      "enabled": "Check for New Releases",
+      "enabledDesc": "On: the server reads the latest release number from evtivity.com once a day, and admins see a notice on the dashboard when a newer release is out. Only the server's IP address reaches evtivity.com; browsers never contact it. Off: nothing is sent.",
+      "offEffect": "The server stops reading the latest release from evtivity.com, and admins no longer see a notice when a newer release is out."
+    }
   },
   "pnc": {
     "certificates": "Certificates",
@@ -4319,7 +4367,21 @@
     "aiEvents": "AI",
     "channelToggleLabel": "{{event}} {{channel}} notifications",
     "eventToggleLabel": "{{event}} notifications",
-    "securityEvents": "Account Security"
+    "securityEvents": "Account Security",
+    "driverChoice": {
+      "title": "Driver Choice",
+      "tooltip": "Optional: each driver decides in the portal and the app. Mandatory: every driver gets this notification on the channel, whatever they chose. An event that is turned off is never sent, mandatory or not.",
+      "alwaysSent": "Drivers always get this notification. Account and security notices cannot be turned off by drivers.",
+      "eventOff": "This event is turned off, so drivers do not get it on any channel, mandatory or not.",
+      "channelEmail": "Email",
+      "channelSms": "SMS",
+      "channelPush": "Push",
+      "selectLabel": "{{channel}} for {{event}}",
+      "optional": "Optional",
+      "mandatory": "Mandatory",
+      "notConfigured": "Not configured: nothing is sent on this channel.",
+      "explanation": "Drivers see a mandatory notification locked on, marked as required by you."
+    }
   },
   "reservations": {
     "title": "Reservations",
@@ -4840,7 +4902,9 @@
     "DEPARTURE_MANAGED_BY_DEPOT_SYSTEM": "This departure is managed by a bus depot system; change it there, or disable the depot system.",
     "DEPOT_SYSTEM_NOT_FOUND": "Bus depot system not found.",
     "DEPOT_SYSTEM_ID_IN_USE": "Another bus depot system uses this system ID.",
-    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "A bus depot system serves depot sites only."
+    "DEPOT_SYSTEM_SITE_NOT_DEPOT": "A bus depot system serves depot sites only.",
+    "RFID_SELF_SERVICE_DISABLED": "Your operator manages your RFID cards. Contact the operator to add, change, deactivate or remove a card.",
+    "NOTIFICATION_EVENT_MANDATORY": "Your operator requires this notification on this channel, so it cannot be turned off"
   },
   "logs": {
     "title": "Logs",
@@ -5490,6 +5554,11 @@
     "faultMode": "Fault Mode",
     "faultModeEnd": "End the session",
     "faultModeSuspend": "Keep the session (suspend)",
+    "faultType": "Fault Type",
+    "faultCodes": {
+      "internalError": "Internal Error",
+      "highTemp": "High Temperature"
+    },
     "goOffline": "Go Offline",
     "comeOnline": "Come Online",
     "actionSent": "{{action}} sent",
@@ -5498,7 +5567,41 @@
     "tokenRequired": "Token is required for this action.",
     "tokenNotFound": "Token not found in driver tokens. Authorize and Start Charging will be rejected.",
     "stationOffline": "Station is offline. Bring it back online first.",
-    "invalidForState": "Not valid for current connector state ({{status}})."
+    "invalidForState": "Not valid for current connector state ({{status}}).",
+    "securityEvent": "Security Event",
+    "securityEventType": "Event",
+    "securityEventOcppType": "OCPP type: {{type}}",
+    "securityEventTechInfo": "Tech Info (Optional)",
+    "sendSecurityEvent": "Send Security Event",
+    "securityEvents": {
+      "TamperDetectionActivated": "Charger Opened (Tamper Sensor)",
+      "TiltDetected": "Charger Tilted (Vendor Event)",
+      "CableCutDetected": "Charging Cable Cut (Vendor Event)",
+      "SettingSystemTime": "System Time Changed",
+      "InvalidFirmwareSignature": "Invalid Firmware Signature",
+      "InvalidFirmwareSigningCertificate": "Invalid Firmware Signing Certificate",
+      "AttemptedReplayAttacks": "Replayed Message Received",
+      "FailedToAuthenticateAtCsms": "Station Failed to Sign In to the CSMS",
+      "FailedToAuthenticateAtCentralSystem": "Station Failed to Sign In to the CSMS",
+      "CsmsFailedToAuthenticate": "CSMS Failed to Sign In to the Station",
+      "CentralSystemFailedToAuthenticate": "CSMS Failed to Sign In to the Station",
+      "InvalidCsmsCertificate": "Invalid CSMS Certificate",
+      "InvalidCentralSystemCertificate": "Invalid CSMS Certificate",
+      "InvalidChargingStationCertificate": "Invalid Station Certificate",
+      "InvalidChargePointCertificate": "Invalid Station Certificate",
+      "InvalidTLSVersion": "TLS Version Not Allowed",
+      "InvalidTLSCipherSuite": "TLS Cipher Suite Not Allowed",
+      "MaintenanceLoginFailed": "Maintenance Login Failed",
+      "SecurityLogWasCleared": "Security Log Cleared",
+      "InvalidMessages": "Invalid Messages Received",
+      "MemoryExhaustion": "Memory Almost Full",
+      "ReconfigurationOfSecurityParameters": "Security Settings Changed",
+      "DiscardedRenewedClientCertificate": "Renewed Client Certificate Discarded",
+      "StartupOfTheDevice": "Station Started",
+      "ResetOrReboot": "Station Reset or Rebooted",
+      "MaintenanceLoginAccepted": "Maintenance Login Succeeded",
+      "FirmwareUpdated": "Firmware Updated"
+    }
   },
   "loadManagement": {
     "allocationStrategy": "Allocation Strategy",
