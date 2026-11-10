@@ -4,6 +4,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { i18nReady } from './i18n/index';
+// Inter ships with the bundle: the UI makes no request to a font CDN.
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
 import './index.css';
 import { App } from './App';
 import { applyTheme, type Theme } from './lib/theme';

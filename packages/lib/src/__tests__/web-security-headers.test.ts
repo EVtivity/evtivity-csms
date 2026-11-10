@@ -145,6 +145,14 @@ describe.each(['csms', 'portal'])('%s security headers', (app) => {
     });
   });
 
+  it('serves the UI font itself and lets the CSP load fonts from the own origin only', () => {
+    const csp = /add_header Content-Security-Policy "([^"]+)" always;/.exec(snippet)?.[1] ?? '';
+    expect(/font-src ([^;]*);/.exec(csp)?.[1]).toBe("'self'");
+    expect(/style-src ([^;]*);/.exec(csp)?.[1]).toBe("'self' 'unsafe-inline'");
+    expect(read('index.html')).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
+    expect(read('src/main.tsx')).toContain("import '@fontsource/inter/400.css';");
+  });
+
   it('index.html carries no meta CSP and no inline script', () => {
     const html = read('index.html');
     expect(html).not.toContain('Content-Security-Policy');
