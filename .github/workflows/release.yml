@@ -30,7 +30,7 @@ jobs:
       prerelease: ${{ steps.type.outputs.prerelease }}
       channel: ${{ steps.type.outputs.channel }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Classify tag
         id: type
@@ -100,7 +100,7 @@ jobs:
             description: EVtivity CSMS OCPI roaming simulator
 
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -146,7 +146,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/digests"
           touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # Double hyphens: digests-ocpi-* also matched the ocpi-simulator digests.
           name: digests--${{ matrix.service.image }}--${{ matrix.arch.name }}
@@ -164,7 +164,7 @@ jobs:
         image: [api, ocpp, ocpi, csms, portal, migrate, css, worker, ocpi-simulator]
 
     steps:
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/digests
           pattern: digests--${{ matrix.image }}--*
@@ -231,7 +231,7 @@ jobs:
     outputs:
       changelog: ${{ steps.changelog.outputs.body }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -280,7 +280,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && needs.prepare.outputs.prerelease == 'false'
     steps:
       - name: Checkout helm chart repo
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: EVtivity/evtivity-csms-helm
           token: ${{ secrets.HELM_REPO_PAT }}
@@ -316,7 +316,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && needs.prepare.outputs.prerelease == 'false'
     steps:
       - name: Checkout cdk repo
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: EVtivity/evtivity-csms-cdk
           token: ${{ secrets.CDK_REPO_PAT }}
