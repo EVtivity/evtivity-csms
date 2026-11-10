@@ -60,10 +60,11 @@ function byModel(g: THREE.Object3D, name: string): THREE.Object3D[] {
 }
 
 describe('RFID reader pads', () => {
-  it('puts the pads on every charger inside the 15 to 48 in reach range', () => {
-    for (const [model, want] of Object.entries(PADS) as Array<
-      [IdleChargerModel, number | string]
-    >) {
+  // One test per charger model: all models in one test came close to the 5 s
+  // limit on a loaded CI runner with coverage on.
+  it.each(Object.entries(PADS) as Array<[IdleChargerModel, number | string]>)(
+    'puts the pads on the %s inside the 15 to 48 in reach range',
+    (model, want) => {
       const built = buildIdleChargerModel(model, { plateColor: '#336699', dark: false });
       built.group.updateMatrixWorld(true);
       const pads = byModel(built.group, 'rfid-pad');
@@ -77,8 +78,8 @@ describe('RFID reader pads', () => {
         expect(y, model).toBeLessThanOrEqual(RFID_PAD_MAX_CENTER_M);
       }
       built.dispose();
-    }
-  });
+    },
+  );
 
   it('makes each wall box status ring its port reader, centered and in reach, nothing proud of the ring', () => {
     for (const [model, want] of Object.entries(RING_READERS) as Array<[IdleChargerModel, number]>) {

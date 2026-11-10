@@ -57,8 +57,11 @@ describe('DC holstered cable routes', () => {
   const d = DC_DISPENSER;
   const back = d.frontZ - d.depthM;
 
-  it('hangs every cable above the ground and outside the body', () => {
-    for (const layout of dcLayouts()) {
+  // One test per dispenser layout: all layouts in one test came close to the
+  // 5 s limit on a loaded CI runner with coverage on.
+  it.each(dcLayouts().map((layout) => [layout.name, layout] as const))(
+    'hangs every cable of %s above the ground and outside the body',
+    (_name, layout) => {
       for (const { kind, route } of layout.cables) {
         const r = CONNECTOR_SPECS[kind].cableDiameterM / 2;
         // Past the gland the cable keeps a cable diameter off the body; the
@@ -81,8 +84,8 @@ describe('DC holstered cable routes', () => {
           ).toBe(false);
         }
       }
-    }
-  });
+    },
+  );
 
   it('puts every gland on plain wall, clear of the vents', () => {
     for (const side of [-1, 1] as const) {

@@ -83,10 +83,13 @@ function clearOf(fails: string[]): (route: readonly Vec3[], d: number, label: st
 }
 
 describe('no idle cable passes through itself', () => {
-  it('DC dispenser, one and two EVSEs, every cable count and kind', () => {
-    const fails: string[] = [];
-    const expectClear = clearOf(fails);
-    for (const evse of [[1], [2], [3], [1, 1], [2, 2]]) {
+  // One test per EVSE layout: all layouts in one test came close to the 5 s
+  // limit on a loaded CI runner with coverage on.
+  it.each([[1], [2], [3], [1, 1], [2, 2]].map((evse) => [JSON.stringify(evse), evse] as const))(
+    'DC dispenser %s, every cable kind',
+    (_name, evse) => {
+      const fails: string[] = [];
+      const expectClear = clearOf(fails);
       for (const kind of DC_KINDS) {
         const d = CONNECTOR_SPECS[kind].cableDiameterM;
         for (const h of holsterSlots(evse)) {
@@ -98,9 +101,9 @@ describe('no idle cable passes through itself', () => {
           );
         }
       }
-    }
-    expect(fails).toEqual([]);
-  });
+      expect(fails).toEqual([]);
+    },
+  );
 
   it('split satellite, every holster count and kind', () => {
     const fails: string[] = [];

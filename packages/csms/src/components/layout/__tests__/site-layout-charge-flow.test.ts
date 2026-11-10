@@ -275,15 +275,18 @@ describe('charge flow on every charging cable', () => {
     });
   }
 
-  it('glows where a charging pantograph head meets the rails, and only then', () => {
-    const glows = (g: THREE.Object3D): THREE.Mesh[] => {
-      const out: THREE.Mesh[] = [];
-      g.traverse((o) => {
-        if (o instanceof THREE.Mesh && o.userData['chargeContact'] === true) out.push(o);
-      });
-      return out;
-    };
-    for (const c of CASES) {
+  // One test per case: every case in one test came close to the 5 s limit on a
+  // loaded CI runner with coverage on.
+  it.each(CASES.map((c) => [c.name, c] as const))(
+    'glows where a charging pantograph head meets the rails, and only then: %s',
+    (_name, c) => {
+      const glows = (g: THREE.Object3D): THREE.Mesh[] => {
+        const out: THREE.Mesh[] = [];
+        g.traverse((o) => {
+          if (o instanceof THREE.Mesh && o.userData['chargeContact'] === true) out.push(o);
+        });
+        return out;
+      };
       const pantograph = PANTOGRAPHS.has(c.station.charger ?? '');
       const lit = glows(build(c, [true]).group);
       expect(lit, c.name).toHaveLength(pantograph ? 1 : 0);
@@ -295,8 +298,8 @@ describe('charge flow on every charging cable', () => {
         expect(`#${material.color.getHexString()}`, c.name).toBe(CHARGE_FLOW.color.toLowerCase());
         expect(material.map, c.name).toBeNull();
       }
-    }
-  });
+    },
+  );
 
   it('lights only the second EVSE of a dual-port pedestal that charges', () => {
     const dual: Case = {
