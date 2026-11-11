@@ -1288,6 +1288,7 @@
     "failedToStart": "啟動充電失敗",
     "freeCharging": "免費",
     "connectorPort": "充電埠 {{id}}",
+    "showAllConnectors": "顯示全部 {{total}} 個連接器",
     "activeSessionWarning": "您已有一個活躍的充電工作階段，無法啟動另一個。"
   },
   "homeCards": {

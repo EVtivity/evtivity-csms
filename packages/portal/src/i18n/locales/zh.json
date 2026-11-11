@@ -1288,6 +1288,7 @@
     "failedToStart": "启动充电失败",
     "freeCharging": "免费",
     "connectorPort": "端口 {{id}}",
+    "showAllConnectors": "显示全部 {{total}} 个连接器",
     "activeSessionWarning": "您已有一个活动的充电会话，无法启动另一个。"
   },
   "homeCards": {

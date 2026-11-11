@@ -1289,6 +1289,7 @@
     "failedToStart": "Ladevorgang konnte nicht gestartet werden",
     "freeCharging": "Kostenlos",
     "connectorPort": "Anschluss {{id}}",
+    "showAllConnectors": "Alle {{total}} Anschlüsse anzeigen",
     "activeSessionWarning": "Du hast bereits einen aktiven Ladevorgang. Du kannst keinen weiteren starten."
   },
   "homeCards": {

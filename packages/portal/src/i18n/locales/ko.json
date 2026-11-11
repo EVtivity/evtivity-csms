@@ -1288,6 +1288,7 @@
     "failedToStart": "충전 시작에 실패했습니다",
     "freeCharging": "무료",
     "connectorPort": "포트 {{id}}",
+    "showAllConnectors": "커넥터 {{total}}개 모두 보기",
     "activeSessionWarning": "이미 활성 세션이 있습니다. 다른 세션을 시작할 수 없습니다."
   },
   "homeCards": {

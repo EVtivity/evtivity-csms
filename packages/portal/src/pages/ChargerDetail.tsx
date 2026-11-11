@@ -162,6 +162,11 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   const [selectedEvseId, setSelectedEvseId] = useState<number | null>(
     evseParam != null ? Number(evseParam) : null,
   );
+  // A QR code names one connector: show only that one until the driver asks
+  // for the others, so a station with many connectors needs no extra pick.
+  const [focusedEvseId, setFocusedEvseId] = useState<number | null>(
+    evseParam != null ? Number(evseParam) : null,
+  );
   const [selectedPm, setSelectedPm] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [isStarting, setIsStarting] = useState(false);
@@ -483,6 +488,12 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   // Reserve allows null evseId (station-level "any connector" reservation).
   const showReserveSection = mode === 'reserve' && station.isOnline;
 
+  // An evse param that the station does not have falls back to the full grid.
+  const focusedEvse =
+    focusedEvseId != null ? station.evses.find((evse) => evse.evseId === focusedEvseId) : undefined;
+  const visibleEvses = focusedEvse != null ? [focusedEvse] : station.evses;
+  const hiddenEvseCount = station.evses.length - visibleEvses.length;
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -614,7 +625,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       )}
 
       {/* EVSE selection instruction */}
-      {station.evses.length > 0 && !hasActiveSession && (
+      {station.evses.length > 0 && !hasActiveSession && focusedEvse == null && (
         <p className="text-sm text-muted-foreground">{t('stationDetail.selectConnector')}</p>
       )}
 
@@ -628,8 +639,8 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
 
       {/* EVSE grid — one tile per EVSE */}
       {station.evses.length > 0 && !hasActiveSession && (
-        <div className={`grid gap-3 ${station.evses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-          {station.evses.map((evse) => {
+        <div className={`grid gap-3 ${visibleEvses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {visibleEvses.map((evse) => {
             const connectorStatus = evse.connectors[0]?.status ?? 'unavailable';
             const isAvailable = isEvseSelectable(evse, {
               mode,
@@ -715,6 +726,19 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
             );
           })}
         </div>
+      )}
+
+      {/* Back to the full grid when a QR code narrowed it to one connector */}
+      {hiddenEvseCount > 0 && !hasActiveSession && (
+        <Button
+          variant="link"
+          className="px-0"
+          onClick={() => {
+            setFocusedEvseId(null);
+          }}
+        >
+          {t('stationDetail.showAllConnectors', { total: station.evses.length })}
+        </Button>
       )}
 
       {/* Reservation time pickers + Reserve button (reserve mode) */}
