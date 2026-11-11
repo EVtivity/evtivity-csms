@@ -13,6 +13,7 @@ import { ToastProvider } from '@/components/ui/toast';
 import { Layout } from '@/components/Layout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { VerifiedRoute } from '@/components/VerifiedRoute';
+import { RequireSupport } from '@/components/RequireSupport';
 import { Login } from '@/pages/Login';
 import { Register } from '@/pages/Register';
 import { ForgotPassword } from '@/pages/ForgotPassword';
@@ -202,9 +203,11 @@ export function App(): React.JSX.Element {
                       element={<ChargerDetail mode="reserve" />}
                     />
                     <Route path="reservations/:id" element={<ReservationDetail />} />
-                    <Route path="support" element={<SupportCases />} />
-                    <Route path="support/new" element={<NewSupportCase />} />
-                    <Route path="support/:id" element={<SupportCaseDetail />} />
+                    <Route element={<RequireSupport />}>
+                      <Route path="support" element={<SupportCases />} />
+                      <Route path="support/new" element={<NewSupportCase />} />
+                      <Route path="support/:id" element={<SupportCaseDetail />} />
+                    </Route>
                     <Route path="payment-methods" element={<PaymentMethods />} />
                     <Route path="rfid-cards" element={<RfidCards />} />
                     <Route path="vehicles" element={<Vehicles />} />

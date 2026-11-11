@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
 import { useDriverAvatar } from '@/lib/avatar';
 import { DriverAvatar } from '@/components/account/DriverAvatar';
+import { useSupportEnabled } from '@/hooks/use-support-enabled';
 
 interface RowProps {
   icon: React.ReactNode;
@@ -56,6 +57,7 @@ export function Account(): React.JSX.Element {
   const driver = useAuth((s) => s.driver);
   const logout = useAuth((s) => s.logout);
   const { data: avatar } = useDriverAvatar();
+  const supportEnabled = useSupportEnabled();
 
   const fullName = driver != null ? `${driver.firstName} ${driver.lastName}`.trim() : '';
 
@@ -144,12 +146,14 @@ export function Account(): React.JSX.Element {
 
       <Card className="overflow-hidden p-0">
         <Row icon={<Star className="h-5 w-5" />} title={t('favorites.title')} to="/favorites" />
-        <Row
-          icon={<LifeBuoy className="h-5 w-5" />}
-          title={t('account.supportCases')}
-          to="/support"
-          divider
-        />
+        {supportEnabled !== false && (
+          <Row
+            icon={<LifeBuoy className="h-5 w-5" />}
+            title={t('account.supportCases')}
+            to="/support"
+            divider
+          />
+        )}
       </Card>
 
       <Button variant="outline" size="lg" className="w-full" onClick={handleLogout}>
