@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/octt",
-  "version": "0.1.51-beta.7",
+  "version": "0.1.51",
   "type": "module",
   "private": true,
   "exports": {
