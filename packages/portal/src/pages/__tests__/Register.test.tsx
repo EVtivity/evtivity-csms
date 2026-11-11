@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 
 const { registerMock, getMock, recaptchaMock, i18nState } = vi.hoisted(() => ({
   i18nState: { language: 'en' },
@@ -94,6 +94,27 @@ afterEach(() => {
 });
 
 describe('Register', () => {
+  it('sends a direct visit to sign-in while registration is closed', async () => {
+    getMock.mockResolvedValue({
+      recaptchaEnabled: false,
+      recaptchaSiteKey: '',
+      registrationEnabled: false,
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/register']}>
+          <Routes>
+            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<p>login page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('login page')).toBeTruthy();
+    expect(screen.queryByLabelText('auth.email')).toBeNull();
+  });
+
   it('shows the password requirements before submit', () => {
     getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     renderPage();

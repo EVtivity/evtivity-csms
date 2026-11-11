@@ -28,6 +28,7 @@ import {
   webauthnSupported,
 } from '@/lib/webauthn';
 import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
+import { useRegistrationEnabled } from '@/hooks/use-registration-enabled';
 import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { MfaChallenge } from '@/components/MfaChallenge';
 
@@ -106,6 +107,8 @@ export function Login(): React.JSX.Element {
   });
   const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
     useRecaptchaToken();
+  // Sign-up shows only once the server confirms it is open, so it never flashes on a closed portal.
+  const registrationEnabled = useRegistrationEnabled() === true;
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -411,12 +414,14 @@ export function Login(): React.JSX.Element {
             </>
           )}
         </form>
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          {t('auth.noAccount')}{' '}
-          <Link to="/register" className="text-link hover:underline">
-            {t('auth.createOne')}
-          </Link>
-        </p>
+        {registrationEnabled && (
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            {t('auth.noAccount')}{' '}
+            <Link to="/register" className="text-link hover:underline">
+              {t('auth.createOne')}
+            </Link>
+          </p>
+        )}
       </CardContent>
     </AuthLayout>
   );

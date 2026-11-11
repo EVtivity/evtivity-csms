@@ -8,7 +8,10 @@ import { MemoryRouter } from 'react-router';
 import de from '@/i18n/locales/de.json';
 import es from '@/i18n/locales/es.json';
 
-const { loginMock } = vi.hoisted(() => ({ loginMock: vi.fn() }));
+const { loginMock, features } = vi.hoisted(() => ({
+  loginMock: vi.fn(),
+  features: { registrationEnabled: undefined as boolean | undefined },
+}));
 
 vi.mock('@/lib/api', () => {
   class ApiError extends Error {
@@ -21,9 +24,14 @@ vi.mock('@/lib/api', () => {
   }
   return {
     api: {
-      get: vi
-        .fn()
-        .mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '', mfaMethods: [] }),
+      get: vi.fn(() =>
+        Promise.resolve({
+          recaptchaEnabled: false,
+          recaptchaSiteKey: '',
+          mfaMethods: [],
+          registrationEnabled: features.registrationEnabled,
+        }),
+      ),
     },
     ApiError,
   };
@@ -71,6 +79,25 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  features.registrationEnabled = undefined;
+});
+
+describe('Login sign-up link', () => {
+  it('offers sign-up while registration is open', async () => {
+    localStorage.setItem('portal_language', 'de');
+    features.registrationEnabled = true;
+    await renderLogin();
+    expect(await screen.findByRole('link', { name: de.auth.createOne })).toBeTruthy();
+  });
+
+  it('hides sign-up while registration is closed', async () => {
+    localStorage.setItem('portal_language', 'de');
+    features.registrationEnabled = false;
+    await renderLogin();
+    expect(await screen.findByText(EXPIRED.de)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: de.auth.createOne })).toBeNull();
+    expect(screen.queryByText(de.auth.noAccount, { exact: false })).toBeNull();
+  });
 });
 
 describe('Login session expired notice', () => {
