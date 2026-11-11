@@ -1291,6 +1291,7 @@
     "failedToStart": "Error al iniciar la carga",
     "freeCharging": "Gratis",
     "connectorPort": "Puerto {{id}}",
+    "showAllConnectors": "Mostrar los {{total}} conectores",
     "activeSessionWarning": "Ya tiene una sesión activa. No puede iniciar otra."
   },
   "homeCards": {
