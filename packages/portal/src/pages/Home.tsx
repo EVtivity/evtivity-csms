@@ -9,6 +9,7 @@ import { Zap } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { costContainsTax } from '@evtivity/lib/price-display';
 import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
@@ -93,13 +94,8 @@ export function Home(): React.JSX.Element {
 
   // Public feature flags drive whether the Support quick-action is rendered.
   // Default to enabled while loading so the card doesn't flash in/out on
-  // page mount. Cached for 5 minutes; toggling the system setting is rare.
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () =>
-      api.get<{ reservationEnabled: boolean; supportEnabled: boolean }>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-  });
+  // page mount. Cached for a minute; toggling the system setting is rare.
+  const { data: features } = usePortalFeatures();
   const supportEnabled = features?.supportEnabled ?? true;
 
   // Driver-chosen quick-action cards. Drop Support when the operator has it off,

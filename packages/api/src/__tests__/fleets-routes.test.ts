@@ -1372,7 +1372,15 @@ describe('Fleet routes - handler logic', () => {
     });
 
     it('accepts every session sort key in both directions and passes it on', async () => {
-      for (const sort of ['station', 'status', 'startedAt', 'duration', 'energy', 'cost']) {
+      for (const sort of [
+        'sessionId',
+        'station',
+        'status',
+        'startedAt',
+        'duration',
+        'energy',
+        'cost',
+      ]) {
         for (const order of ['asc', 'desc']) {
           mockFleetService.getFleetSessions.mockResolvedValue({ data: [], total: 0 });
           const response = await app.inject({

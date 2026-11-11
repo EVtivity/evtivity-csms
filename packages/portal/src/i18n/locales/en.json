@@ -1291,7 +1291,7 @@
     "failedToStart": "Failed to start charging",
     "freeCharging": "Free",
     "connectorPort": "Port {{id}}",
-    "showAllConnectors": "Show all {{total}} connectors",
+    "showAllConnectors": "Show All {{total}} Connectors",
     "activeSessionWarning": "You already have an active session. You cannot start another one."
   },
   "homeCards": {

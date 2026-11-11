@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorCard } from '@/components/ui/error-card';
 import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
+import { DEFAULT_CURRENCY } from '@evtivity/lib/currency';
 import { formatDate } from '@/lib/utils';
 import {
   cancellationFeeApplies,
@@ -43,13 +45,6 @@ interface ReservationDetailData {
   cancellationFee: ReservationFee | null;
   /** Null when the reservation is not open or has no holding fee. */
   noShowFee?: ReservationFee | null;
-}
-
-interface PortalFeatures {
-  reservationEnabled: boolean;
-  supportEnabled: boolean;
-  reservationCancellationWindowMinutes: number;
-  currency: string;
 }
 
 function statusVariant(
@@ -85,11 +80,7 @@ export function ReservationDetail(): React.JSX.Element {
     enabled: id != null,
   });
 
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<PortalFeatures>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-  });
+  const { data: features } = usePortalFeatures();
 
   const cancelMutation = useMutation({
     mutationFn: () => api.delete(`/v1/portal/reservations/${id ?? ''}`),
@@ -123,7 +114,11 @@ export function ReservationDetail(): React.JSX.Element {
     features != null && canCancel && cancellationFeeApplies(reservation, policyWindowMinutes);
   const cancelFeeText =
     cancelFeeWillApply && reservation.cancellationFee != null
-      ? cancellationFeeWarning(t, reservation.cancellationFee, features.currency)
+      ? cancellationFeeWarning(
+          t,
+          reservation.cancellationFee,
+          features.currency ?? DEFAULT_CURRENCY,
+        )
       : '';
 
   return (
@@ -199,7 +194,11 @@ export function ReservationDetail(): React.JSX.Element {
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 {t('reservations.cancellationPolicyText', {
-                  fee: reservationFeeLabel(t, reservation.cancellationFee, features.currency),
+                  fee: reservationFeeLabel(
+                    t,
+                    reservation.cancellationFee,
+                    features.currency ?? DEFAULT_CURRENCY,
+                  ),
                   minutes: policyWindowMinutes,
                 })}
               </p>
@@ -214,7 +213,7 @@ export function ReservationDetail(): React.JSX.Element {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              {noShowFeeNote(t, reservation.noShowFee, features.currency)}
+              {noShowFeeNote(t, reservation.noShowFee, features.currency ?? DEFAULT_CURRENCY)}
             </p>
           </CardContent>
         </Card>

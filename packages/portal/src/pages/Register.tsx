@@ -14,7 +14,8 @@ import { useAuth } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { getApiErrorCode } from '@/lib/api';
 import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
-import { useRegistrationEnabled } from '@/hooks/use-registration-enabled';
+import { useRegistrationStatus } from '@/hooks/use-registration-enabled';
+import { ErrorState, LoadingState } from '@/components/ui/content-state';
 import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
@@ -45,7 +46,7 @@ export function Register(): React.JSX.Element {
 
   const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
     useRecaptchaToken();
-  const registrationEnabled = useRegistrationEnabled();
+  const registration = useRegistrationStatus();
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -99,11 +100,6 @@ export function Register(): React.JSX.Element {
     }
   }
 
-  // A closed portal sends a direct visit back to sign-in instead of a form the API refuses.
-  if (registrationEnabled === false) {
-    return <Navigate to="/login" replace />;
-  }
-
   if (submittedEmail != null) {
     return (
       <AuthLayout>
@@ -123,6 +119,35 @@ export function Register(): React.JSX.Element {
           >
             {t('auth.backToLogin')}
           </Button>
+        </CardContent>
+      </AuthLayout>
+    );
+  }
+
+  // A closed portal sends a direct visit back to sign-in instead of a form the API refuses.
+  // Checked after the confirmation above, so a driver who already registered keeps it.
+  if (registration.state === 'closed') {
+    return <Navigate to="/login" replace />;
+  }
+
+  // The form shows only once the features confirm registration is open, as the sign-in link.
+  if (registration.state !== 'open') {
+    return (
+      <AuthLayout>
+        <CardHeader className="text-center">
+          <h2 className="text-2xl font-semibold">{t('auth.createAccount')}</h2>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {registration.state === 'loading' ? (
+            <LoadingState />
+          ) : (
+            <ErrorState onRetry={registration.retry} />
+          )}
+          <p className="text-center text-sm text-muted-foreground">
+            <Link to="/login" className="text-link hover:underline">
+              {t('auth.backToLogin')}
+            </Link>
+          </p>
         </CardContent>
       </AuthLayout>
     );

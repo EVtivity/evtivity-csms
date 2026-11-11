@@ -236,6 +236,9 @@ export function Reservations(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
+                <SortableTableHead sortKey="reservationId" sort={sort}>
+                  {t('reservations.reservationId')}
+                </SortableTableHead>
                 <SortableTableHead sortKey="station" sort={sort}>
                   {t('reservations.stationName')}
                 </SortableTableHead>
@@ -260,8 +263,8 @@ export function Reservations(): React.JSX.Element {
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={7}>
-                    <TableSkeleton columns={7} rows={5} />
+                  <TableCell colSpan={8}>
+                    <TableSkeleton columns={8} rows={5} />
                   </TableCell>
                 </TableRow>
               )}
@@ -274,6 +277,9 @@ export function Reservations(): React.JSX.Element {
                     void navigate(`/reservations/${r.id}`);
                   }}
                 >
+                  <TableCell className="whitespace-nowrap font-medium text-link">
+                    #{r.reservationId}
+                  </TableCell>
                   <TableCell className="whitespace-nowrap">
                     <Link
                       to={`/stations/${r.stationId}`}
@@ -337,7 +343,7 @@ export function Reservations(): React.JSX.Element {
               ))}
               {reservations?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     {t('reservations.noReservations')}
                   </TableCell>
                 </TableRow>

@@ -69,12 +69,12 @@ afterEach(() => {
 });
 
 describe('TokensTable', () => {
-  it('has a Label column after the RFID card value, shown by default on desktop only', () => {
+  it('has a Label column after the RFID card value, shown by default on desktop and phones', () => {
     const keys = TOKENS_COLUMNS.map((c) => c.key);
     expect(keys.indexOf('label')).toBe(keys.indexOf('token') + 1);
     expect(keys).not.toContain('tokenId');
     expect(buildDefaultVisibility(TOKENS_COLUMNS, false)['label']).toBe(true);
-    expect(buildDefaultVisibility(TOKENS_COLUMNS, true)['label']).toBe(false);
+    expect(buildDefaultVisibility(TOKENS_COLUMNS, true)['label']).toBe(true);
   });
 
   it('shows the label in its own cell, empty for a card without one, and no internal id', () => {

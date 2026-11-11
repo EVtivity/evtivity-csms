@@ -10,7 +10,7 @@ import es from '@/i18n/locales/es.json';
 
 const { loginMock, features } = vi.hoisted(() => ({
   loginMock: vi.fn(),
-  features: { registrationEnabled: undefined as boolean | undefined },
+  features: { registrationEnabled: undefined as boolean | undefined, fail: false },
 }));
 
 vi.mock('@/lib/api', () => {
@@ -25,12 +25,14 @@ vi.mock('@/lib/api', () => {
   return {
     api: {
       get: vi.fn(() =>
-        Promise.resolve({
-          recaptchaEnabled: false,
-          recaptchaSiteKey: '',
-          mfaMethods: [],
-          registrationEnabled: features.registrationEnabled,
-        }),
+        features.fail
+          ? Promise.reject(new Error('features unavailable'))
+          : Promise.resolve({
+              recaptchaEnabled: false,
+              recaptchaSiteKey: '',
+              mfaMethods: [],
+              registrationEnabled: features.registrationEnabled,
+            }),
       ),
     },
     ApiError,
@@ -80,6 +82,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   features.registrationEnabled = undefined;
+  features.fail = false;
 });
 
 describe('Login sign-up link', () => {
@@ -97,6 +100,14 @@ describe('Login sign-up link', () => {
     expect(await screen.findByText(EXPIRED.de)).toBeTruthy();
     expect(screen.queryByRole('link', { name: de.auth.createOne })).toBeNull();
     expect(screen.queryByText(de.auth.noAccount, { exact: false })).toBeNull();
+  });
+
+  it('hides sign-up when the features cannot be read, as the register page does', async () => {
+    localStorage.setItem('portal_language', 'de');
+    features.fail = true;
+    await renderLogin();
+    expect(await screen.findByText(EXPIRED.de)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: de.auth.createOne })).toBeNull();
   });
 });
 

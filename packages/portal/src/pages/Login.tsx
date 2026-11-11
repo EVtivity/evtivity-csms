@@ -28,7 +28,7 @@ import {
   webauthnSupported,
 } from '@/lib/webauthn';
 import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
-import { useRegistrationEnabled } from '@/hooks/use-registration-enabled';
+import { useRegistrationStatus } from '@/hooks/use-registration-enabled';
 import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { MfaChallenge } from '@/components/MfaChallenge';
 
@@ -108,7 +108,8 @@ export function Login(): React.JSX.Element {
   const { configPending: recaptchaConfigPending, getToken: getRecaptchaToken } =
     useRecaptchaToken();
   // Sign-up shows only once the server confirms it is open, so it never flashes on a closed portal.
-  const registrationEnabled = useRegistrationEnabled() === true;
+  // Sign-up shows only once the features confirm registration is open.
+  const registrationEnabled = useRegistrationStatus().state === 'open';
 
   useEffect(() => {
     if (isAuthenticated) {

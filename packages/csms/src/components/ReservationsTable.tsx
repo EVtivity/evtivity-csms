@@ -27,6 +27,7 @@ import { reservationStatusVariant } from '@/lib/status-variants';
 
 /** The sort keys of `GET /v1/reservations` (`reservationListSort` in the API). */
 export const RESERVATION_SORT_KEYS = [
+  'reservationId',
   'station',
   'driver',
   'status',
@@ -105,7 +106,7 @@ export function ReservationsTable({
     setPage,
   } = usePaginatedQuery<Reservation>('reservations', '/v1/reservations', extraParams);
 
-  const colSpan = hideStationName === true ? 6 : 7;
+  const colSpan = hideStationName === true ? 7 : 8;
 
   return (
     <TabPanel
@@ -155,6 +156,9 @@ export function ReservationsTable({
         <Table>
           <TableHeader>
             <TableRow>
+              <SortableTableHead sortKey="reservationId" sort={sort}>
+                {t('reservations.reservationId')}
+              </SortableTableHead>
               {hideStationName !== true && (
                 <SortableTableHead sortKey="station" sort={sort}>
                   {t('reservations.stationName')}
@@ -198,6 +202,9 @@ export function ReservationsTable({
                   void navigate(`/reservations/${r.id}`);
                 }}
               >
+                <TableCell className="whitespace-nowrap font-medium text-link">
+                  #{r.reservationId}
+                </TableCell>
                 {hideStationName !== true && (
                   <TableCell className="whitespace-nowrap">
                     <Link

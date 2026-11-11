@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useQuery } from '@tanstack/react-query';
 import { DRIVER_AI_NOTICE_VERSIONS } from '@evtivity/lib/driver-ai';
 import type {
   DriverAiCaseDetail,
@@ -9,14 +8,9 @@ import type {
   DriverAiState,
 } from '@evtivity/lib/driver-ai';
 import { UI_LANGUAGES } from '@evtivity/lib/languages';
-import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 
 export type PortalCaseAi = DriverAiCaseDetail;
-
-interface DriverAiFeatures {
-  driverAiSupport?: boolean;
-  driverAiNoticeVersion?: number;
-}
 
 /**
  * Whether new cases offer the AI analysis, and the notice version to show.
@@ -29,11 +23,7 @@ export function useDriverAiFeature(): {
   noticeVersion: number | null;
   isLoading: boolean;
 } {
-  const { data, isLoading } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<DriverAiFeatures>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-  });
+  const { data, isLoading } = usePortalFeatures();
   const version = data?.driverAiNoticeVersion;
   const known = typeof version === 'number' && DRIVER_AI_NOTICE_VERSIONS.includes(version);
   return {

@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Home, Activity, PlugZap, User, Bell, Star, Eye, CalendarClock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { useAuthBranding } from './AuthBranding';
 import { NotificationDrawer } from './NotificationDrawer';
 import { DriverAvatar } from './account/DriverAvatar';
@@ -71,12 +72,7 @@ export function Layout(): React.JSX.Element {
   // operators can disable the feature system-wide without dead links.
   // Defaults to enabled while loading to avoid a flash of missing tab on
   // every page load.
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () =>
-      api.get<{ reservationEnabled: boolean; supportEnabled: boolean }>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-  });
+  const { data: features } = usePortalFeatures();
   const reservationEnabled = features?.reservationEnabled ?? true;
   const driver = useAuth((s) => s.driver);
   const { data: avatar } = useDriverAvatar();

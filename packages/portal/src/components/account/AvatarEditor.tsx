@@ -3,7 +3,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Shuffle, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useStorageGuard } from '@/components/StorageUnavailableDialog';
 import { DriverAvatar } from '@/components/account/DriverAvatar';
 import { api } from '@/lib/api';
+import { usePortalFeatures, PORTAL_FEATURES_QUERY_KEY } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import { cn } from '@/lib/utils';
 import { AVATAR_QUERY_KEY, uploadAvatarImage, type DriverAvatar as Avatar } from '@/lib/avatar';
@@ -72,12 +73,7 @@ export function AvatarEditor({
   const queryClient = useQueryClient();
   const lib = useAvatarLib();
   const live = mode === 'live';
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<{ avatarUploadEnabled?: boolean }>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-    enabled: live,
-  });
+  const { data: features } = usePortalFeatures({ enabled: live });
   const uploadEnabled = live && features?.avatarUploadEnabled === true;
 
   const [tab, setTab] = useState<'create' | 'upload'>('create');
@@ -109,7 +105,7 @@ export function AvatarEditor({
     } catch (err) {
       if (storage.handleUploadError(err)) {
         // Storage went away after the features read: hide the upload again.
-        void queryClient.invalidateQueries({ queryKey: ['portal-features'] });
+        void queryClient.invalidateQueries({ queryKey: PORTAL_FEATURES_QUERY_KEY });
       } else {
         setError(getErrorMessage(err, t, 'account.avatarSaveFailed'));
       }

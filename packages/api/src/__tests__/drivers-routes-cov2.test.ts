@@ -952,6 +952,7 @@ describe('Driver routes (operator), uncovered paths', () => {
   describe('GET /drivers/:id/sessions', () => {
     it('accepts every sort key in both directions', async () => {
       for (const sort of [
+        'sessionId',
         'station',
         'driver',
         'status',

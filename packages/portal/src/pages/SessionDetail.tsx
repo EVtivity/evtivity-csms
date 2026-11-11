@@ -30,6 +30,7 @@ import { SessionCharts } from '@/components/SessionCharts';
 import { SessionVehicleCard, type SessionVehicleCapture } from '@/components/SessionVehicleCard';
 import { ReportIssue } from '@/components/ReportIssue';
 import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import {
   formatCents,
@@ -113,11 +114,6 @@ interface DriverVehicle {
   make: string | null;
   model: string | null;
   year: string | null;
-}
-
-interface PortalFeatures {
-  reservationEnabled: boolean;
-  supportEnabled: boolean;
 }
 
 interface PowerHistoryResponse {
@@ -214,11 +210,7 @@ export function SessionDetail(): React.JSX.Element {
     },
   });
 
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<PortalFeatures>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-  });
+  const { data: features } = usePortalFeatures();
 
   const stopMutation = useMutation({
     mutationFn: () => api.post(`/v1/portal/chargers/sessions/${id ?? ''}/stop`, {}),

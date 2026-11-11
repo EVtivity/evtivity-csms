@@ -35,6 +35,7 @@ import { usePriceDisplay } from '@/hooks/use-price-display';
 import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth';
 import { accountBillingAt, useDriverBilling } from '@/lib/fleet-billing';
@@ -219,12 +220,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
     paymentMethods != null && paymentMethods.some((pm) => pm.isDefault);
 
   // Reservation policy (max hours) for the reserve-mode hint. Public endpoint.
-  const reservationPolicyQuery = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<{ reservationMaxHours: number }>('/v1/portal/features'),
-    enabled: mode === 'reserve',
-    staleTime: 5 * 60_000,
-  });
+  const reservationPolicyQuery = usePortalFeatures({ enabled: mode === 'reserve' });
   const reservationMaxHours = reservationPolicyQuery.data?.reservationMaxHours ?? 0;
 
   const queryClient = useQueryClient();
@@ -446,9 +442,15 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   // Auto-select the connector when exactly one is selectable, so a single-
   // connector station is ready to start or reserve without a tap. Runs only
   // while nothing is selected, so it never overrides a manual pick or the
-  // QR-scanned evse param.
+  // QR-scanned evse param. While a QR code narrows the grid to one connector,
+  // only that one may be picked: never a connector the driver cannot see.
+  // An evse param that the station does not have falls back to the full grid.
+  const focusedEvse =
+    focusedEvseId != null ? station.evses.find((evse) => evse.evseId === focusedEvseId) : undefined;
+  const visibleEvses = focusedEvse != null ? [focusedEvse] : station.evses;
+  const hiddenEvseCount = station.evses.length - visibleEvses.length;
   if (selectedEvseId == null) {
-    const selectable = station.evses.filter((evse) =>
+    const selectable = visibleEvses.filter((evse) =>
       isEvseSelectable(evse, {
         mode,
         isOnline: station.isOnline,
@@ -487,12 +489,6 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   // user lands on the page so they can pick a connector OR leave it null.
   // Reserve allows null evseId (station-level "any connector" reservation).
   const showReserveSection = mode === 'reserve' && station.isOnline;
-
-  // An evse param that the station does not have falls back to the full grid.
-  const focusedEvse =
-    focusedEvseId != null ? station.evses.find((evse) => evse.evseId === focusedEvseId) : undefined;
-  const visibleEvses = focusedEvse != null ? [focusedEvse] : station.evses;
-  const hiddenEvseCount = station.evses.length - visibleEvses.length;
 
   return (
     <div className="space-y-4">
@@ -625,9 +621,11 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       )}
 
       {/* EVSE selection instruction */}
-      {station.evses.length > 0 && !hasActiveSession && focusedEvse == null && (
-        <p className="text-sm text-muted-foreground">{t('stationDetail.selectConnector')}</p>
-      )}
+      {station.evses.length > 0 &&
+        !hasActiveSession &&
+        (focusedEvse == null || selectedEvseId == null) && (
+          <p className="text-sm text-muted-foreground">{t('stationDetail.selectConnector')}</p>
+        )}
 
       {/* Active session overlay */}
       {hasActiveSession && (

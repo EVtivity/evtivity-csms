@@ -38,6 +38,12 @@ vi.mock('@/components/station/StationConnectivityTab', () => ({
   ),
 }));
 vi.mock('@/components/ai/insights/RecordInsight', () => ({ RecordInsight: () => null }));
+vi.mock('@/components/station/StationDataPlanCard', () => ({
+  StationDataPlanCard: () => <p data-testid="data-plan-card" />,
+}));
+vi.mock('@/components/StationConfigurationsTab', () => ({
+  StationConfigurationsTab: () => <p data-testid="configurations-tab" />,
+}));
 vi.mock('@/components/ai/inbox/RecordProposals', () => ({ RecordProposals: () => null }));
 
 // The tabs measure themselves; jsdom has no ResizeObserver.
@@ -178,5 +184,20 @@ describe('station Connectivity tab (SIM features)', () => {
     features = { simEnabled: true, simStationSignalEnabled: true };
     renderPage(STATION, '?tab=connectivity');
     expect((await screen.findByTestId('connectivity-tab')).textContent).toBe('signal-on');
+  });
+});
+
+describe('station Data Plan tab', () => {
+  it('shows the data plan on its own tab, not under Configurations', async () => {
+    renderPage(STATION, '?tab=data-plan');
+    expect(await screen.findByRole('tab', { name: 'dataPlan.title' })).toBeTruthy();
+    expect(await screen.findByTestId('data-plan-card')).toBeTruthy();
+    expect(screen.queryByTestId('configurations-tab')).toBeNull();
+  });
+
+  it('keeps the Configurations tab free of the data plan card', async () => {
+    renderPage(STATION, '?tab=configurations');
+    expect(await screen.findByTestId('configurations-tab')).toBeTruthy();
+    expect(screen.queryByTestId('data-plan-card')).toBeNull();
   });
 });

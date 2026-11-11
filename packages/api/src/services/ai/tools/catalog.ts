@@ -13521,9 +13521,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         limit: { type: ['integer', 'null'], minimum: 1, maximum: 100 },
         sort: {
           type: ['string', 'null'],
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+            null,
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: ['string', 'null'],
@@ -13543,9 +13553,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         limit: { type: 'integer', minimum: 1, maximum: 100 },
         sort: {
           type: 'string',
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: 'string',
@@ -14587,9 +14606,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         sort: {
           type: ['string', 'null'],
-          enum: ['station', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          enum: ['sessionId', 'station', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
           description:
-            'Column to sort by: station, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: ['string', 'null'],
@@ -14609,9 +14628,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Items per page' },
         sort: {
           type: 'string',
-          enum: ['station', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          enum: ['sessionId', 'station', 'status', 'startedAt', 'duration', 'energy', 'cost'],
           description:
-            'Column to sort by: station, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: 'string',
@@ -16658,9 +16677,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         sort: {
           type: ['string', 'null'],
-          enum: ['station', 'driver', 'status', 'startsAt', 'expiresAt', 'createdAt', null],
+          enum: [
+            'reservationId',
+            'station',
+            'driver',
+            'status',
+            'startsAt',
+            'expiresAt',
+            'createdAt',
+            null,
+          ],
           description:
-            'Column to sort by: station, driver, status, startsAt, expiresAt, createdAt. Without it, the default order applies.',
+            'Column to sort by: reservationId, station, driver, status, startsAt, expiresAt, createdAt. Without it, the default order applies.',
         },
         order: {
           type: ['string', 'null'],
@@ -16696,9 +16724,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Filter by site ID' },
         sort: {
           type: 'string',
-          enum: ['station', 'driver', 'status', 'startsAt', 'expiresAt', 'createdAt'],
+          enum: [
+            'reservationId',
+            'station',
+            'driver',
+            'status',
+            'startsAt',
+            'expiresAt',
+            'createdAt',
+          ],
           description:
-            'Column to sort by: station, driver, status, startsAt, expiresAt, createdAt. Without it, the default order applies.',
+            'Column to sort by: reservationId, station, driver, status, startsAt, expiresAt, createdAt. Without it, the default order applies.',
         },
         order: {
           type: 'string',
@@ -16910,6 +16946,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         sort: {
           type: ['string', 'null'],
           enum: [
+            'sessionId',
             'station',
             'driver',
             'vehicle',
@@ -16922,7 +16959,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             null,
           ],
           description:
-            'Column to sort by: station, driver, vehicle, status, startedAt, duration, energy, co2Avoided, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, vehicle, status, startedAt, duration, energy, co2Avoided, cost. Without it, the default order applies.',
         },
         order: {
           type: ['string', 'null'],
@@ -16976,6 +17013,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         sort: {
           type: 'string',
           enum: [
+            'sessionId',
             'station',
             'driver',
             'vehicle',
@@ -16987,7 +17025,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'cost',
           ],
           description:
-            'Column to sort by: station, driver, vehicle, status, startedAt, duration, energy, co2Avoided, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, vehicle, status, startedAt, duration, energy, co2Avoided, cost. Without it, the default order applies.',
         },
         order: {
           type: 'string',
@@ -17213,9 +17251,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: ['string', 'null'], description: 'Filter by station ID' },
         sort: {
           type: ['string', 'null'],
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+            null,
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: ['string', 'null'],
@@ -17241,9 +17289,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Filter by station ID' },
         sort: {
           type: 'string',
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: 'string',
@@ -18223,9 +18280,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         sort: {
           type: ['string', 'null'],
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+            null,
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: ['string', 'null'],
@@ -18250,9 +18317,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         sort: {
           type: 'string',
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: 'string',
@@ -18811,9 +18887,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         search: { type: ['string', 'null'], description: 'Search filter' },
         sort: {
           type: ['string', 'null'],
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+            null,
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: ['string', 'null'],
@@ -18839,9 +18925,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         search: { type: 'string', description: 'Search filter' },
         sort: {
           type: 'string',
-          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          enum: [
+            'sessionId',
+            'station',
+            'driver',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'cost',
+          ],
           description:
-            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+            'Column to sort by: sessionId, station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
         },
         order: {
           type: 'string',

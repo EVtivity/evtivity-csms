@@ -61,7 +61,13 @@ vi.mock('@/components/AuthBranding', () => ({
 import { ApiError } from '@/lib/api';
 import { Register } from '../Register';
 
-function renderPage(): void {
+// Every GET answers the public features: registration open unless a test says otherwise.
+function mockFeatures(features: Record<string, unknown>): void {
+  getMock.mockResolvedValue({ registrationEnabled: true, ...features });
+}
+
+// Renders the page and waits for the form, which shows once registration is confirmed open.
+async function renderPage(): Promise<void> {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -70,6 +76,7 @@ function renderPage(): void {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  await screen.findByLabelText('auth.email');
 }
 
 function fill(password: string): void {
@@ -115,9 +122,9 @@ describe('Register', () => {
     expect(screen.queryByLabelText('auth.email')).toBeNull();
   });
 
-  it('shows the password requirements before submit', () => {
-    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
-    renderPage();
+  it('shows the password requirements before submit', async () => {
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    await renderPage();
     expect(screen.getByTestId('password-requirements')).toBeTruthy();
     expect(screen.getByLabelText('auth.password').getAttribute('aria-describedby')).toBe(
       'password-requirements',
@@ -125,8 +132,8 @@ describe('Register', () => {
   });
 
   it('names the missing rules and does not call the API', async () => {
-    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
-    renderPage();
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    await renderPage();
     fill('abcdefghijkl');
     await submitWhenReady();
     expect(screen.getByText('missing: uppercase and number')).toBeTruthy();
@@ -134,20 +141,20 @@ describe('Register', () => {
   });
 
   it('explains a WEAK_PASSWORD reply at the password field', async () => {
-    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     registerMock.mockRejectedValue(new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD' }));
-    renderPage();
+    await renderPage();
     fill('Abcdefghijk1');
     await submitWhenReady();
     expect(await screen.findByText('translated:errors.WEAK_PASSWORD')).toBeTruthy();
   });
 
   it('marks the rules a WEAK_PASSWORD reply names', async () => {
-    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     registerMock.mockRejectedValue(
       new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD', missing: ['symbol'] }),
     );
-    renderPage();
+    await renderPage();
     fill('Abcdefghijk1');
     await submitWhenReady();
     expect(await screen.findByText('missing: symbol')).toBeTruthy();
@@ -158,7 +165,7 @@ describe('Register', () => {
   });
 
   it('checks the policy the API publishes', async () => {
-    getMock.mockResolvedValue({
+    mockFeatures({
       recaptchaEnabled: false,
       recaptchaSiteKey: '',
       passwordPolicy: {
@@ -169,7 +176,7 @@ describe('Register', () => {
         requireSymbol: true,
       },
     });
-    renderPage();
+    await renderPage();
     await waitFor(() => {
       expect(
         screen.getByTestId('password-requirements').querySelector('[data-rule="symbol"]'),
@@ -182,10 +189,10 @@ describe('Register', () => {
   });
 
   it('sends a reCAPTCHA token when reCAPTCHA is on', async () => {
-    getMock.mockResolvedValue({ recaptchaEnabled: true, recaptchaSiteKey: 'site-key' });
+    mockFeatures({ recaptchaEnabled: true, recaptchaSiteKey: 'site-key' });
     recaptchaMock.mockResolvedValue('captcha-token');
     registerMock.mockResolvedValue(undefined);
-    renderPage();
+    await renderPage();
     await waitFor(() => {
       expect(getMock).toHaveBeenCalledWith('/v1/security/public?app=portal');
     });
@@ -203,10 +210,10 @@ describe('Register', () => {
 
   it('sends the portal language the visitor uses', async () => {
     i18nState.language = 'zh-Hant';
-    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     registerMock.mockResolvedValue(undefined);
     try {
-      renderPage();
+      await renderPage();
       fill('Abcdefghijk1');
       await submitWhenReady();
       await waitFor(() => {
@@ -218,9 +225,9 @@ describe('Register', () => {
   });
 
   it('sends the generated avatar chosen in the editor', async () => {
-    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     registerMock.mockResolvedValue(undefined);
-    renderPage();
+    await renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'account.editAvatar' }));
     const dialog = await screen.findByRole('dialog');
     // Generator only: no upload before the account exists.
@@ -244,14 +251,74 @@ describe('Register', () => {
   });
 
   it('asks to check the inbox after the request, for a new and a known email alike', async () => {
-    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     registerMock.mockResolvedValue(undefined);
-    renderPage();
+    await renderPage();
     fill('Abcdefghijk1');
     await submitWhenReady();
     expect(await screen.findByText('auth.registerCheckEmailTitle')).toBeTruthy();
     expect(screen.getByText('auth.registerCheckEmail')).toBeTruthy();
     expect(screen.queryByLabelText('auth.password')).toBeNull();
     expect(registerMock.mock.calls[0]?.[0]).not.toHaveProperty('avatar');
+  });
+
+  it('keeps the check-your-email card when registration closes after the request', async () => {
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    registerMock.mockResolvedValue(undefined);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/register']}>
+          <Routes>
+            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<p>login page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText('auth.email');
+    fill('Abcdefghijk1');
+    await submitWhenReady();
+    expect(await screen.findByText('auth.registerCheckEmailTitle')).toBeTruthy();
+    mockFeatures({ registrationEnabled: false });
+    await queryClient.refetchQueries({ queryKey: ['portal-features'] });
+    expect(screen.getByText('auth.registerCheckEmailTitle')).toBeTruthy();
+    expect(screen.queryByText('login page')).toBeNull();
+  });
+
+  it('shows no form while the features load', () => {
+    getMock.mockReturnValue(new Promise(() => undefined));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/register']}>
+          <Register />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole('status')).toBeTruthy();
+    expect(screen.queryByLabelText('auth.email')).toBeNull();
+    expect(screen.getByRole('link', { name: 'auth.backToLogin' })).toBeTruthy();
+  });
+
+  it('shows no form and offers a retry when the features cannot be read', async () => {
+    getMock.mockRejectedValue(new ApiError(500, null));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/register']}>
+          <Routes>
+            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<p>login page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.queryByLabelText('auth.email')).toBeNull();
+    expect(screen.queryByText('login page')).toBeNull();
+    mockFeatures({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    expect(await screen.findByLabelText('auth.email')).toBeTruthy();
   });
 });

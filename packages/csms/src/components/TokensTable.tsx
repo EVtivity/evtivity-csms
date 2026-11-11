@@ -20,7 +20,7 @@ export const TOKENS_COLUMNS: ColumnMeta[] = [
     defaultVisibleMobile: true,
     alwaysVisible: true,
   },
-  { key: 'label', label: 'tokens.label', defaultVisible: true, defaultVisibleMobile: false },
+  { key: 'label', label: 'tokens.label', defaultVisible: true, defaultVisibleMobile: true },
   { key: 'driver', label: 'tokens.driver', defaultVisible: true, defaultVisibleMobile: true },
   { key: 'type', label: 'tokens.type', defaultVisible: true, defaultVisibleMobile: false },
   {

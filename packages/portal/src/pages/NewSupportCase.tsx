@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { api } from '@/lib/api';
+import { PORTAL_FEATURES_QUERY_KEY } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import { ApiError } from '@/lib/api';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -74,7 +75,7 @@ export function NewSupportCase(): React.JSX.Element {
         err instanceof ApiError ? (err.body as { code?: unknown } | null)?.code : undefined;
       if (code === 'DRIVER_AI_NOTICE_OUTDATED') {
         setAiChoice(null);
-        void queryClient.invalidateQueries({ queryKey: ['portal-features'] });
+        void queryClient.invalidateQueries({ queryKey: PORTAL_FEATURES_QUERY_KEY });
       }
     },
   });

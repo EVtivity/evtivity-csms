@@ -43,6 +43,11 @@ const ALLOWED = new Set([
   'pages/RoamingTariffs.tsx:mapping.ocpiTariffId',
   // OCTT conformance test case ids (TC_A_01_CSMS).
   'pages/ConformanceDetail.tsx:result.testId',
+  // Owner decision 2026-11-11: rows without a name show their ID first (the
+  // session ID, the reservation number).
+  'components/SessionsTable.tsx:session.id',
+  'components/ReservationsTable.tsx:r.reservationId',
+  'pages/Reservations.tsx:r.reservationId',
 ]);
 
 // A cell or link whose only content is `{a.b.id}` or `{a.fooId}`, also as the

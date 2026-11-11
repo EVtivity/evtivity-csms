@@ -214,6 +214,7 @@ describe('Session routes', () => {
   describe('GET /v1/sessions', () => {
     it('accepts every sort key in both directions', async () => {
       for (const sort of [
+        'sessionId',
         'station',
         'driver',
         'vehicle',

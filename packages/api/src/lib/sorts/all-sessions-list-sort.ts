@@ -23,6 +23,7 @@ export const sessionVehicleNameSql = sql<
  */
 export const allSessionsListSort = defineListSort(
   {
+    sessionId: chargingSessions.id,
     station: sessionStationSort,
     driver: sortablePersonName(drivers.firstName, drivers.lastName),
     vehicle: sessionVehicleNameSql,

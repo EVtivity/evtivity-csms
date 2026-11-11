@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { Toggle } from '@/components/ui/toggle';
 import { api, ApiError } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
@@ -42,10 +43,6 @@ interface Vehicle {
   autochargeEnabled?: boolean;
   autochargeBlocked?: boolean;
   lastSeen?: { stationId: string; siteName: string | null; at: string } | null;
-}
-
-interface PortalFeatures {
-  autochargeEnabled?: boolean;
 }
 
 interface VehicleLookup {
@@ -79,11 +76,7 @@ export function AccountVehicles(): React.JSX.Element {
     queryFn: () => api.get<Vehicle[]>('/v1/portal/vehicles'),
   });
 
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<PortalFeatures>('/v1/portal/features'),
-    staleTime: 60_000,
-  });
+  const { data: features } = usePortalFeatures();
 
   const autochargeMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>

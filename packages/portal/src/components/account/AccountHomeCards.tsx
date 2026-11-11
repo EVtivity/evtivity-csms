@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import {
   DndContext,
   closestCenter,
@@ -22,7 +21,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Minus, Plus, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { useHomeCards } from '@/lib/home-cards-store';
 import {
   HOME_CARDS,
@@ -91,12 +90,7 @@ export function AccountHomeCards(): React.JSX.Element {
   const cards = useHomeCards((s) => s.cards);
   const setCards = useHomeCards((s) => s.setCards);
 
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () =>
-      api.get<{ reservationEnabled: boolean; supportEnabled: boolean }>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-  });
+  const { data: features } = usePortalFeatures();
   const supportEnabled = features?.supportEnabled ?? true;
 
   const sensors = useSensors(

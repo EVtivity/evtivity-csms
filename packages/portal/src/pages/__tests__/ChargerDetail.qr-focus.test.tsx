@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
@@ -42,7 +42,7 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: vi.fn() }) }
 
 import { ChargerDetail } from '../ChargerDetail';
 
-function evse(evseId: number): Record<string, unknown> {
+function evse(evseId: number, status = 'available'): Record<string, unknown> {
   return {
     evseId,
     connectors: [
@@ -51,7 +51,7 @@ function evse(evseId: number): Record<string, unknown> {
         connectorType: 'Type2',
         maxPowerKw: '11',
         maxCurrentAmps: 16,
-        status: 'available',
+        status,
       },
     ],
     reservationExpiresAt: null,
@@ -79,9 +79,9 @@ const station = {
   stationUnavailable: false,
 };
 
-function renderAt(path: string): void {
+function renderAt(path: string, data: Record<string, unknown> = station): QueryClient {
   getMock.mockImplementation((url: string) => {
-    if (url === '/v1/portal/chargers/KebaMaster') return Promise.resolve(station);
+    if (url === '/v1/portal/chargers/KebaMaster') return Promise.resolve(data);
     if (url === '/v1/portal/chargers/sessions/active') return Promise.resolve({ data: [] });
     if (url === '/v1/portal/payment-methods') return Promise.resolve([]);
     if (url.includes('favorites')) return Promise.resolve({ isFavorite: false, favoriteId: null });
@@ -98,6 +98,14 @@ function renderAt(path: string): void {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return queryClient;
+}
+
+// The tile card of one EVSE, whose border marks the selected one.
+function tileOf(evseId: number): Element | null {
+  return screen
+    .getByText(`stationDetail.connectorPort:${String(evseId)}`)
+    .closest('.transition-all');
 }
 
 afterEach(() => {
@@ -132,5 +140,37 @@ describe('ChargerDetail QR focus', () => {
     expect(await screen.findByText('stationDetail.connectorPort:1')).toBeDefined();
     expect(screen.getByText('stationDetail.connectorPort:3')).toBeDefined();
     expect(screen.queryByText(/stationDetail\.showAllConnectors/)).toBeNull();
+  });
+
+  it('keeps a pick and the Start button when the driver taps the scanned connector again', async () => {
+    renderAt('/start/KebaMaster?evse=2');
+    expect(await screen.findByText('stationDetail.connectorPort:2')).toBeDefined();
+    fireEvent.click(screen.getByText('stationDetail.connectorPort:2'));
+    // The only connector shown is picked again, so the page never ends with no
+    // hint and no Start button.
+    expect(tileOf(2)?.className).toContain('border-primary');
+    expect(screen.getByText('stationDetail.startCharging')).toBeDefined();
+  });
+
+  it('never picks a hidden connector after a status change', async () => {
+    const queryClient = renderAt('/start/KebaMaster?evse=2', {
+      ...station,
+      evses: [evse(1, 'faulted'), evse(2), evse(3)],
+    });
+    expect(await screen.findByText('stationDetail.connectorPort:2')).toBeDefined();
+    fireEvent.click(screen.getByText('stationDetail.connectorPort:2'));
+    // A live update makes the scanned connector unavailable; EVSE 3 is then the
+    // only one that can start, but the driver cannot see it.
+    act(() => {
+      queryClient.setQueryData(['station-detail', 'KebaMaster', 'drv_1'], {
+        ...station,
+        evses: [evse(1, 'faulted'), evse(2, 'faulted'), evse(3)],
+      });
+    });
+    // The scanned connector stays the pick (the server refuses a start on it),
+    // so the page shows a pick or the select hint, never neither.
+    expect(tileOf(2)?.className).toContain('border-primary');
+    fireEvent.click(screen.getByText('stationDetail.showAllConnectors:3'));
+    expect(tileOf(3)?.className).not.toContain('border-primary');
   });
 });

@@ -404,6 +404,7 @@ export function StationDetail(): React.JSX.Element {
             <TabsTrigger value="events">{t('stations.events')}</TabsTrigger>
           )}
           <TabsTrigger value="configurations">{t('stations.configurations')}</TabsTrigger>
+          <TabsTrigger value="data-plan">{t('dataPlan.title')}</TabsTrigger>
           <TabsTrigger value="firmware-history">{t('stations.firmwareUpdates')}</TabsTrigger>
           <TabsTrigger value="charging-profiles">{t('stations.chargingProfiles')}</TabsTrigger>
           {station.ocppProtocol !== 'ocpp1.6' && (
@@ -527,6 +528,9 @@ export function StationDetail(): React.JSX.Element {
             isOnline={station.isOnline}
             ocppProtocol={station.ocppProtocol}
           />
+        </TabsContent>
+
+        <TabsContent value="data-plan">
           <StationDataPlanCard station={station} />
         </TabsContent>
 

@@ -16,6 +16,7 @@ const reservationSortOptions = {
  */
 export const reservationListSort = defineListSort(
   {
+    reservationId: reservations.reservationId,
     station: chargingStations.stationId,
     driver: sortablePersonName(drivers.firstName, drivers.lastName),
     status: reservations.status,

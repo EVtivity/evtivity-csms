@@ -24,7 +24,14 @@ vi.mock('@/lib/api', () => {
     }
   }
   return {
-    api: { get: getMock, post: postMock },
+    api: {
+      // The public features answer registration open: these cases test the reCAPTCHA config.
+      get: (url: string, ...rest: unknown[]): unknown =>
+        url === '/v1/portal/features'
+          ? Promise.resolve({ registrationEnabled: true })
+          : getMock(url, ...rest),
+      post: postMock,
+    },
     ApiError,
     getApiErrorCode: (err: unknown) =>
       err instanceof ApiError ? ((err.body as { code?: string } | null)?.code ?? null) : null,
@@ -166,6 +173,11 @@ function submitButton(name: string): HTMLButtonElement {
   return screen.getByRole('button', { name });
 }
 
+// The registration form shows once the features confirm registration is open.
+async function formShown(name: string): Promise<void> {
+  await screen.findByRole('button', { name });
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -184,6 +196,7 @@ describe.each(CASES)('reCAPTCHA config on the $name form', (c) => {
     registerMock.mockResolvedValue(undefined);
     postMock.mockResolvedValue({});
     renderCase(c);
+    await formShown(c.button);
 
     const button = submitButton(c.button);
     expect(button.disabled).toBe(true);
@@ -214,6 +227,7 @@ describe.each(CASES)('reCAPTCHA config on the $name form', (c) => {
     registerMock.mockResolvedValue(undefined);
     postMock.mockResolvedValue({});
     renderCase(c);
+    await formShown(c.button);
 
     await waitFor(() => {
       expect(submitButton(c.button).disabled).toBe(false);
@@ -238,6 +252,7 @@ describe.each(CASES)('reCAPTCHA config on the $name form', (c) => {
     registerMock.mockRejectedValue(refused);
     postMock.mockRejectedValue(refused);
     renderCase(c);
+    await formShown(c.button);
 
     await waitFor(() => {
       expect(submitButton(c.button).disabled).toBe(false);

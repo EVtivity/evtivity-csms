@@ -326,7 +326,15 @@ describe('Reservation routes', () => {
   // ------------------------------------------------------------------
   describe('GET /v1/reservations', () => {
     it('accepts every sort key in both directions', async () => {
-      for (const sort of ['station', 'driver', 'status', 'startsAt', 'expiresAt', 'createdAt']) {
+      for (const sort of [
+        'reservationId',
+        'station',
+        'driver',
+        'status',
+        'startsAt',
+        'expiresAt',
+        'createdAt',
+      ]) {
         for (const order of ['asc', 'desc']) {
           setupDbResults([], [{ count: 0 }]);
           const response = await app.inject({

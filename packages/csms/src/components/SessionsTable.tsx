@@ -24,6 +24,14 @@ import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 import { sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 
 export const SESSIONS_COLUMNS: ColumnMeta[] = [
+  // Session rows have no name, so the session ID is their first column (owner decision 2026-11-11).
+  {
+    key: 'sessionId',
+    label: 'sessions.sessionId',
+    defaultVisible: true,
+    defaultVisibleMobile: true,
+    alwaysVisible: true,
+  },
   {
     key: 'stationName',
     label: 'sessions.stationName',
@@ -78,6 +86,7 @@ export const SESSIONS_COLUMNS: ColumnMeta[] = [
  * (`sessionListSort` in the API, `lib/sorts/session-list-sort.ts`).
  */
 export const SESSION_SORT_KEYS = [
+  'sessionId',
   'station',
   'driver',
   'status',
@@ -89,6 +98,7 @@ export const SESSION_SORT_KEYS = [
 
 /** The sort keys of `GET /v1/sessions` (`allSessionsListSort` in the API). */
 export const ALL_SESSIONS_SORT_KEYS = [
+  'sessionId',
   'station',
   'driver',
   'vehicle',
@@ -102,6 +112,7 @@ export const ALL_SESSIONS_SORT_KEYS = [
 
 /** The sort keys of `GET /v1/fleets/:id/sessions` (`fleetSessionListSort` in the API). */
 export const FLEET_SESSION_SORT_KEYS = [
+  'sessionId',
   'station',
   'status',
   'startedAt',
@@ -220,6 +231,11 @@ export const SessionsTable = memo(function SessionsTable({
         <Table>
           <TableHeader>
             <TableRow>
+              {isVisible('sessionId') && (
+                <SortableTableHead sortKey="sessionId" sort={sortOf('sessionId')}>
+                  {t('sessions.sessionId')}
+                </SortableTableHead>
+              )}
               {!hideStationName && isVisible('stationName') && (
                 <SortableTableHead sortKey="station" sort={sortOf('station')}>
                   {t('sessions.stationName')}
@@ -292,6 +308,11 @@ export const SessionsTable = memo(function SessionsTable({
                   void navigate(`/sessions/${session.id}`);
                 }}
               >
+                {isVisible('sessionId') && (
+                  <TableCell className="whitespace-nowrap font-medium text-link">
+                    {session.id}
+                  </TableCell>
+                )}
                 {!hideStationName && isVisible('stationName') && (
                   <TableCell className="whitespace-nowrap">
                     <Link

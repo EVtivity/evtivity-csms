@@ -34,6 +34,7 @@ export const sessionSortOptions = {
  */
 export const sessionListSort = defineListSort(
   {
+    sessionId: chargingSessions.id,
     station: sessionStationSort,
     driver: sortablePersonName(drivers.firstName, drivers.lastName),
     status: chargingSessions.status,
@@ -48,6 +49,7 @@ export const sessionListSort = defineListSort(
 /** The sortable columns of `GET /v1/fleets/:id/sessions`, which joins no driver. */
 export const fleetSessionListSort = defineListSort(
   {
+    sessionId: chargingSessions.id,
     station: sessionStationSort,
     status: chargingSessions.status,
     startedAt: chargingSessions.startedAt,

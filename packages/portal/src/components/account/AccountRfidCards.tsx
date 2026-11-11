@@ -15,6 +15,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
+import { usePortalFeatures, PORTAL_FEATURES_QUERY_KEY } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import { PORTAL_ID_TOKEN_TYPES, type PortalIdTokenType } from '@evtivity/lib/id-token-types';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
@@ -28,12 +29,6 @@ interface DriverToken {
   expiresAt?: string | null;
   /** The operator deactivated the card: only the operator can reactivate it. */
   blockedByOperator?: boolean;
-}
-
-interface RfidFeatures {
-  /** False: the operator manages the cards and every driver change is refused. */
-  rfidSelfServiceEnabled?: boolean;
-  supportEnabled?: boolean;
 }
 
 /** The API refused a change because the operator manages the cards. */
@@ -79,18 +74,14 @@ export function AccountRfidCards(): React.JSX.Element {
     queryFn: () => api.get<DriverToken[]>('/v1/portal/tokens'),
   });
 
-  // Same key as the other feature readers, so one request serves them all.
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<RfidFeatures>('/v1/portal/features'),
-    staleTime: 60_000,
-  });
+  // The shared features read, so one request serves every reader.
+  const { data: features } = usePortalFeatures();
   // Missing or still loading reads as on: an older API never refuses.
   const selfService = features?.rfidSelfServiceEnabled !== false;
 
   /** A screen opened before the operator turned self-service off: reload and close. */
   function onRefused(): void {
-    void queryClient.invalidateQueries({ queryKey: ['portal-features'] });
+    void queryClient.invalidateQueries({ queryKey: PORTAL_FEATURES_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
     setAddOpen(false);
     setRenameToken(null);

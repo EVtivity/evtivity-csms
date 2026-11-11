@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
+import { DEFAULT_CURRENCY } from '@evtivity/lib/currency';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDate } from '@/lib/utils';
 import { cancellationFeeApplies, cancellationFeeWarning } from '@/lib/reservation-fee';
@@ -33,13 +35,6 @@ interface Reservation {
 
 interface ReservationsResponse {
   data: Reservation[];
-}
-
-interface PortalFeatures {
-  reservationEnabled: boolean;
-  supportEnabled: boolean;
-  reservationCancellationWindowMinutes: number;
-  currency: string;
 }
 
 function statusVariant(
@@ -84,18 +79,14 @@ export function Reservations(): React.JSX.Element {
 
   // Cancellation policy lives on /v1/portal/features so the cancel dialog can
   // warn the holder about a potential fee before they confirm.
-  const { data: features } = useQuery({
-    queryKey: ['portal-features'],
-    queryFn: () => api.get<PortalFeatures>('/v1/portal/features'),
-    staleTime: 5 * 60_000,
-  });
+  const { data: features } = usePortalFeatures();
 
   // The fee amount comes with each reservation (gross, on the terms
   // snapshotted when it was made); the window comes from the features.
   function feeWillApply(reservation: Reservation): boolean {
     return (
       features != null &&
-      cancellationFeeApplies(reservation, features.reservationCancellationWindowMinutes)
+      cancellationFeeApplies(reservation, features.reservationCancellationWindowMinutes ?? 0)
     );
   }
 
@@ -235,7 +226,11 @@ export function Reservations(): React.JSX.Element {
                 feeWillApply(pendingCancel) &&
                 features != null &&
                 pendingCancel.cancellationFee != null
-                  ? cancellationFeeWarning(t, pendingCancel.cancellationFee, features.currency)
+                  ? cancellationFeeWarning(
+                      t,
+                      pendingCancel.cancellationFee,
+                      features.currency ?? DEFAULT_CURRENCY,
+                    )
                   : '',
               ]
                 .filter(Boolean)
