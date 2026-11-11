@@ -4,23 +4,21 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CreateButton } from '@/components/create-button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+
+/** The sort keys of `GET /v1/firmware-campaigns` (the API list sort definition in `lib/sorts/`). */
+const FIRMWARE_CAMPAIGN_SORT_KEYS = ['name', 'version', 'status', 'createdAt'] as const;
 
 interface Campaign {
   id: string;
@@ -46,13 +44,23 @@ export function FirmwareCampaigns({ embedded }: { embedded?: boolean } = {}): Re
   const navigate = useNavigate();
   const timezone = useUserTimezone();
   const [page, setPage] = useState(1);
+  const listSort = useListSort(FIRMWARE_CAMPAIGN_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort = {
+    ...listSort,
+    toggle: (key: (typeof FIRMWARE_CAMPAIGN_SORT_KEYS)[number]) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const limit = 10;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['firmware-campaigns', page],
+    queryKey: ['firmware-campaigns', page, listSort.params],
     queryFn: () =>
       api.get<{ data: Campaign[]; total: number }>(
-        `/v1/firmware-campaigns?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/firmware-campaigns?page=${String(page)}&limit=${String(limit)}${sortQuery ? `&${sortQuery}` : ''}`,
       ),
   });
 
@@ -90,17 +98,25 @@ export function FirmwareCampaigns({ embedded }: { embedded?: boolean } = {}): Re
           {isLoading ? (
             <LoadingLogo size="inline" />
           ) : data == null || data.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No firmware campaigns</p>
+            <p className="text-sm text-muted-foreground">{t('firmwareCampaigns.noCampaigns')}</p>
           ) : (
             <>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('common.name')}</TableHead>
-                      <TableHead>Version</TableHead>
-                      <TableHead>{t('common.status')}</TableHead>
-                      <TableHead>{t('common.created')}</TableHead>
+                      <SortableTableHead sortKey="name" sort={sort}>
+                        {t('common.name')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="version" sort={sort}>
+                        {t('firmwareCampaigns.version')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={sort}>
+                        {t('common.status')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="createdAt" sort={sort}>
+                        {t('common.created')}
+                      </SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -116,7 +132,9 @@ export function FirmwareCampaigns({ embedded }: { embedded?: boolean } = {}): Re
                         <TableCell className="font-medium" data-testid="row-click-target">
                           {campaign.name}
                         </TableCell>
-                        <TableCell className="text-xs">{campaign.version ?? 'n/a'}</TableCell>
+                        <TableCell className="text-xs">
+                          {campaign.version ?? t('common.na')}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={STATUS_VARIANT[campaign.status] ?? 'outline'}>
                             {t(`firmwareCampaigns.statuses.${campaign.status}`, {

@@ -23,7 +23,8 @@ import {
   type LayoutPowerEquipment,
   type SiteLayoutSettings,
 } from '@evtivity/lib/site-layout';
-import { StationsTable } from '@/components/StationsTable';
+import { StationsTable, STATION_SORT_KEYS, type StationSortKey } from '@/components/StationsTable';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { FilterPopover } from '@/components/FilterBar';
@@ -32,7 +33,12 @@ import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useGoogleMapsSettings } from '@/hooks/use-google-maps-settings';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { Pagination } from '@/components/ui/pagination';
-import { SessionsTable, type Session } from '@/components/SessionsTable';
+import {
+  SESSION_SORT_KEYS,
+  SessionsTable,
+  type Session,
+  type SessionSortKey,
+} from '@/components/SessionsTable';
 import { ReservationsTable } from '@/components/ReservationsTable';
 import { SiteDetailsTab } from '@/components/site/SiteDetailsTab';
 import { RecordInsight } from '@/components/ai/insights/RecordInsight';
@@ -149,16 +155,26 @@ export function SiteDetail(): React.JSX.Element {
   const underMaintenance = maintenanceStatus?.current != null;
 
   const stationsLimit = 10;
+  const stationsListSort = useListSort(STATION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const stationsSort: ListSort<StationSortKey> = {
+    ...stationsListSort,
+    toggle: (key) => {
+      setStationsPage(1);
+      stationsListSort.toggle(key);
+    },
+  };
+  const stationsSortQuery = new URLSearchParams(stationsListSort.params).toString();
   const {
     data: stationsResponse,
     isLoading: stationsLoading,
     isError: stationsError,
     refetch: refetchStations,
   } = useQuery({
-    queryKey: ['sites', id, 'stations', stationsPage],
+    queryKey: ['sites', id, 'stations', stationsPage, stationsListSort.params],
     queryFn: () =>
       api.get<{ data: Station[]; total: number }>(
-        `/v1/sites/${id ?? ''}/stations?page=${String(stationsPage)}&limit=${String(stationsLimit)}`,
+        `/v1/sites/${id ?? ''}/stations?page=${String(stationsPage)}&limit=${String(stationsLimit)}${stationsSortQuery === '' ? '' : `&${stationsSortQuery}`}`,
       ),
     enabled: id != null,
   });
@@ -175,9 +191,19 @@ export function SiteDetail(): React.JSX.Element {
   });
 
   const sessionsLimit = 10;
+  const sessionsListSort = useListSort<SessionSortKey>(SESSION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sessionsSort: ListSort<SessionSortKey> = {
+    ...sessionsListSort,
+    toggle: (key) => {
+      setSessionsPage(1);
+      sessionsListSort.toggle(key);
+    },
+  };
   const sessionsQueryParams = new URLSearchParams({
     page: String(sessionsPage),
     limit: String(sessionsLimit),
+    ...sessionsListSort.params,
   });
   if (sessionsStatus !== '') sessionsQueryParams.set('status', sessionsStatus);
   if (sessionsStationId !== '') sessionsQueryParams.set('stationId', sessionsStationId);
@@ -187,7 +213,15 @@ export function SiteDetail(): React.JSX.Element {
     isError: sessionsError,
     refetch: refetchSessions,
   } = useQuery({
-    queryKey: ['sites', id, 'sessions', sessionsPage, sessionsStatus, sessionsStationId],
+    queryKey: [
+      'sites',
+      id,
+      'sessions',
+      sessionsPage,
+      sessionsStatus,
+      sessionsStationId,
+      sessionsListSort.params,
+    ],
     queryFn: () =>
       api.get<{ data: Session[]; total: number }>(
         `/v1/sites/${id ?? ''}/sessions?${sessionsQueryParams.toString()}`,
@@ -317,6 +351,7 @@ export function SiteDetail(): React.JSX.Element {
                 stations={stations}
                 timezone={site.timezone}
                 emptyMessage={t('sites.noStationsAtSite')}
+                sort={stationsSort}
                 isLoading={stationsLoading}
                 isError={stationsError}
                 onRetry={() => {
@@ -424,6 +459,7 @@ export function SiteDetail(): React.JSX.Element {
               onRetry={() => {
                 void refetchSessions();
               }}
+              sort={sessionsSort}
             />
             <Pagination
               page={sessionsPage}

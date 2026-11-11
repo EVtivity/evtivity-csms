@@ -23,6 +23,10 @@ import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { fleetListSort } from '../lib/sorts/fleet-list-sort.js';
+import { driverListSort } from '../lib/sorts/driver-list-sort.js';
+import { vehicleListSort } from '../lib/sorts/vehicle-list-sort.js';
+import { fleetSessionListSort } from '../lib/sorts/session-list-sort.js';
 import { authorize } from '../middleware/rbac.js';
 import {
   checkStationSiteAccess,
@@ -519,6 +523,14 @@ const sessionsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10).describe('Items per page'),
 });
 
+const fleetSessionsQuery = sessionsQuery.extend({
+  ...fleetSessionListSort.query,
+});
+
+const fleetListQuery = paginationQuery.extend({ ...fleetListSort(null).query });
+const fleetDriversQuery = sessionsQuery.extend({ ...driverListSort.query });
+const fleetVehiclesQuery = sessionsQuery.extend({ ...vehicleListSort.query });
+
 const metricsQuery = z.object({
   months: z.coerce
     .number()
@@ -565,12 +577,12 @@ export function fleetRoutes(app: FastifyInstance): void {
         summary: 'List fleets',
         operationId: 'listFleets',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(fleetListQuery),
         response: { 200: paginatedResponse(fleetListItem) },
       },
     },
     async (request) => {
-      const params = request.query as z.infer<typeof paginationQuery>;
+      const params = request.query as z.infer<typeof fleetListQuery>;
       const { userId } = request.user as { userId: string };
       return fleetService.listFleets(params, await getUserSiteIds(userId));
     },
@@ -964,14 +976,14 @@ export function fleetRoutes(app: FastifyInstance): void {
         operationId: 'listFleetDrivers',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
-        querystring: zodSchema(sessionsQuery),
+        querystring: zodSchema(fleetDriversQuery),
         response: { 200: paginatedResponse(fleetDriverItem) },
       },
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { page, limit } = request.query as z.infer<typeof sessionsQuery>;
-      return fleetService.getFleetDrivers(id, page, limit);
+      const { page, limit, sort, order } = request.query as z.infer<typeof fleetDriversQuery>;
+      return fleetService.getFleetDrivers(id, page, limit, { sort, order });
     },
   );
 
@@ -1340,14 +1352,14 @@ export function fleetRoutes(app: FastifyInstance): void {
         operationId: 'listFleetVehicles',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
-        querystring: zodSchema(sessionsQuery),
+        querystring: zodSchema(fleetVehiclesQuery),
         response: { 200: paginatedResponse(fleetVehicleItem) },
       },
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { page, limit } = request.query as z.infer<typeof sessionsQuery>;
-      return fleetService.getFleetVehicles(id, page, limit);
+      const { page, limit, sort, order } = request.query as z.infer<typeof fleetVehiclesQuery>;
+      return fleetService.getFleetVehicles(id, page, limit, { sort, order });
     },
   );
 
@@ -1391,15 +1403,18 @@ export function fleetRoutes(app: FastifyInstance): void {
         operationId: 'listFleetSessions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
-        querystring: zodSchema(sessionsQuery),
+        querystring: zodSchema(fleetSessionsQuery),
         response: { 200: paginatedResponse(fleetSessionItem) },
       },
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { page, limit } = request.query as z.infer<typeof sessionsQuery>;
+      const { page, limit, sort, order } = request.query as z.infer<typeof fleetSessionsQuery>;
       const { userId } = request.user as { userId: string };
-      return fleetService.getFleetSessions(id, page, limit, await getUserSiteIds(userId));
+      return fleetService.getFleetSessions(id, page, limit, await getUserSiteIds(userId), {
+        sort,
+        order,
+      });
     },
   );
 

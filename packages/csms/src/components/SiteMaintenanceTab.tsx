@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { TabPanel } from '@/components/ui/tab-panel';
@@ -34,6 +36,17 @@ import { stationStatusVariant, stationStatusClassName } from '@/lib/status-varia
 import { Checkbox } from '@/components/ui/checkbox';
 import { Radio } from '@/components/ui/radio';
 import { DateTimeInput } from '@/components/ui/date-time-input';
+
+/** The sort keys of `GET /v1/sites/:siteId/maintenance/events` (the API list sort definition in `lib/sorts/`). */
+const MAINTENANCE_EVENT_SORT_KEYS = [
+  'plannedStartAt',
+  'plannedEndAt',
+  'status',
+  'eventType',
+  'reason',
+  'sessionsStopped',
+  'reservationsCancelled',
+] as const;
 
 interface MaintenanceEvent {
   id: string;
@@ -206,6 +219,16 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
   });
 
   const [historyPage, setHistoryPage] = useState(1);
+  const listSort = useListSort(MAINTENANCE_EVENT_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const historySort = {
+    ...listSort,
+    toggle: (key: (typeof MAINTENANCE_EVENT_SORT_KEYS)[number]) => {
+      setHistoryPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const HISTORY_PAGE_SIZE = 10;
 
   const {
@@ -214,10 +237,10 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
     isError: listError,
     refetch: refetchList,
   } = useQuery({
-    queryKey: ['maintenance', 'site-events', siteId, historyPage],
+    queryKey: ['maintenance', 'site-events', siteId, historyPage, listSort.params],
     queryFn: () =>
       api.get<{ data: MaintenanceEvent[]; total: number }>(
-        `/v1/sites/${siteId}/maintenance/events?page=${String(historyPage)}&limit=${String(HISTORY_PAGE_SIZE)}`,
+        `/v1/sites/${siteId}/maintenance/events?page=${String(historyPage)}&limit=${String(HISTORY_PAGE_SIZE)}${sortQuery ? `&${sortQuery}` : ''}`,
       ),
   });
 
@@ -729,10 +752,18 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('maintenance.colStart')}</TableHead>
-                <TableHead>{t('maintenance.colEnd')}</TableHead>
-                <TableHead>{t('maintenance.colStatus')}</TableHead>
-                <TableHead>{t('maintenance.colType')}</TableHead>
+                <SortableTableHead sortKey="plannedStartAt" sort={historySort}>
+                  {t('maintenance.colStart')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="plannedEndAt" sort={historySort}>
+                  {t('maintenance.colEnd')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={historySort}>
+                  {t('maintenance.colStatus')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="eventType" sort={historySort}>
+                  {t('maintenance.colType')}
+                </SortableTableHead>
                 <TableHead>
                   <span className="inline-flex items-center gap-1">
                     {t('maintenance.colTakenOffline')}
@@ -751,11 +782,23 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                     <InfoTooltip content={t('maintenance.restoredHint')} />
                   </span>
                 </TableHead>
-                <TableHead>{t('maintenance.reason')}</TableHead>
-                <TableHead className="text-right">{t('maintenance.colSessionsStopped')}</TableHead>
-                <TableHead className="text-right">
+                <SortableTableHead sortKey="reason" sort={historySort}>
+                  {t('maintenance.reason')}
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="sessionsStopped"
+                  sort={historySort}
+                  className="text-right"
+                >
+                  {t('maintenance.colSessionsStopped')}
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="reservationsCancelled"
+                  sort={historySort}
+                  className="text-right"
+                >
                   {t('maintenance.colReservationsCancelled')}
-                </TableHead>
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

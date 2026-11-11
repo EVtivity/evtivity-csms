@@ -34,6 +34,8 @@ const HELPER =
 
 /** Files that only touch stations by id, or define the helpers. */
 const BY_ID_ONLY = new Set([
+  // Audit rows name stations and sessions by the ids they hold.
+  'api/src/lib/audit-entity-names.ts',
   'api/src/lib/charging-profile-id.ts',
   'api/src/lib/command-station.ts',
   'api/src/lib/css-pairing.ts',
@@ -57,6 +59,8 @@ const BY_ID_ONLY = new Set([
   'api/src/routes/display-messages.ts',
   'api/src/routes/fleet-reservations.ts',
   'api/src/routes/fleets.ts',
+  // The station of each invoice line's session, by the session id.
+  'api/src/routes/invoices.ts',
   'api/src/routes/local-auth-list.ts',
   'api/src/routes/payment-terminals.ts',
   'api/src/routes/portal/support-cases.ts',
@@ -150,6 +154,9 @@ describe('conformance station exclusion guard', () => {
   it('every station query applies a conformance helper or reads by id only', () => {
     const missing = files
       .filter((file) => !HELPER.test(file.text) && !BY_ID_ONLY.has(file.path))
+      // List sort definitions name station columns for an ORDER BY only: the route's own
+      // query applies the conformance helper (`api/routes.md`, "List sorting").
+      .filter((file) => !file.path.startsWith('api/src/lib/sorts/'))
       .map((file) => file.path);
     expect(missing).toEqual([]);
   });

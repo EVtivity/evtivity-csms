@@ -123,6 +123,24 @@ describe('Sessions list', () => {
     expect(within(row).queryByText(formatCents(300, 'USD'))).toBeNull();
   });
 
+  it('sorts the list on the server when a header is clicked', async () => {
+    apiMock.get.mockImplementation((url: string) =>
+      url.startsWith('/v1/sessions?')
+        ? Promise.resolve({ data: [SESSION], total: 1 })
+        : Promise.resolve({ data: [], total: 0 }),
+    );
+    renderPage('/sessions');
+    await screen.findByTestId('session-row-ses_1');
+    fireEvent.click(screen.getByTestId('sort-energy'));
+    await waitFor(() => {
+      expect(listUrls().some((u) => u.includes('sort=energy') && u.includes('order=asc'))).toBe(
+        true,
+      );
+    });
+    expect(screen.getByTestId('sort-vehicle')).toBeTruthy();
+    expect(screen.queryByTestId('sort-guestSession')).toBeNull();
+  });
+
   it('shows the load error with a Retry that loads the list again', async () => {
     apiMock.get.mockImplementation((url: string) =>
       url.startsWith('/v1/sessions?')

@@ -58,6 +58,7 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { prefixedId } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { paymentTerminalListSort } from '../lib/sorts/payment-terminal-list-sort.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
@@ -151,6 +152,9 @@ const listQuery = paginationQuery.extend({
   status: z.enum(['active', 'inactive']).optional().describe('Operator status'),
   online: z.enum(['true', 'false']).optional().describe('Last known device status'),
 });
+
+/** The list query: the filters plus the sort; the export takes the filters only. */
+const listSortedQuery = listQuery.extend(paymentTerminalListSort.query);
 
 export const PAYMENT_TERMINAL_EXPORT_COLUMNS = [
   'id',
@@ -482,20 +486,20 @@ export function paymentTerminalRoutes(app: FastifyInstance): void {
           "The payment terminals of the caller's sites (all-site users also see terminals without a site), newest first. search matches the label, serial number and provider device ID.",
         operationId: 'listPaymentTerminals',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(listQuery),
+        querystring: zodSchema(listSortedQuery),
         response: { 200: paginatedResponse(terminalItem) },
       },
     },
     async (request) => {
       const { userId } = request.user as JwtPayload;
-      const query = request.query as z.infer<typeof listQuery>;
+      const query = request.query as z.infer<typeof listSortedQuery>;
       const where = listWhere(query, await getUserSiteIds(userId));
       const [rows, [count]] = await Promise.all([
         db
           .select()
           .from(paymentTerminals)
           .where(where)
-          .orderBy(desc(paymentTerminals.createdAt), desc(paymentTerminals.id))
+          .orderBy(...paymentTerminalListSort.orderBy(query))
           .limit(query.limit)
           .offset((query.page - 1) * query.limit),
         db

@@ -45,6 +45,8 @@ vi.mock('@evtivity/database', async () => ({
   db: { select: vi.fn(() => makeChain()) },
   client: vi.fn(),
   maintenanceEvents: { id: 'id', siteId: 'siteId', status: 'status', plannedStartAt: 'p' },
+  // Read by the list sort definitions at module load.
+  maintenanceEventStations: { id: 'id', createdAt: 'createdAt' },
   chargingStations: {
     id: 'id',
     stationId: 'stationId',

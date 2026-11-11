@@ -9,12 +9,15 @@ interface ReportIssueProps {
   sessionId?: string | undefined;
   stationId?: string | undefined;
   stationName?: string | undefined;
+  /** Start time of the session, so the support form names it readably. */
+  sessionStartedAt?: string | undefined;
 }
 
 export function ReportIssue({
   sessionId,
   stationId,
   stationName,
+  sessionStartedAt,
 }: ReportIssueProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -28,6 +31,7 @@ export function ReportIssue({
         if (sessionId != null) params.set('sessionId', sessionId);
         if (stationId != null) params.set('stationId', stationId);
         if (stationName != null) params.set('stationName', stationName);
+        if (sessionStartedAt != null) params.set('sessionStartedAt', sessionStartedAt);
         const query = params.toString();
         void navigate(`/support/new${query !== '' ? `?${query}` : ''}`);
       }}

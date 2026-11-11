@@ -15,6 +15,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import type { ListSort } from '@/hooks/use-list-sort';
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
 import { StationStatusBadge } from '@/components/StationStatusBadge';
 import { StationOnlineBadge } from '@/components/StationOnlineBadge';
@@ -30,15 +32,8 @@ import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/component
 
 export const STATIONS_COLUMNS: ColumnMeta[] = [
   {
-    key: 'id',
-    label: 'stations.id',
-    defaultVisible: true,
-    defaultVisibleMobile: false,
-    alwaysVisible: true,
-  },
-  {
     key: 'stationId',
-    label: 'stations.stationId',
+    label: 'stations.id',
     defaultVisible: true,
     defaultVisibleMobile: true,
     alwaysVisible: true,
@@ -85,6 +80,25 @@ export const STATIONS_COLUMNS: ColumnMeta[] = [
     defaultVisibleMobile: false,
   },
 ];
+
+/**
+ * The sort keys of `GET /v1/stations` and `GET /v1/sites/:id/stations` (`stationListSort`
+ * and `siteStationListSort` in the API, `lib/sorts/station-list-sort.ts`).
+ */
+export const STATION_SORT_KEYS = [
+  'stationId',
+  'site',
+  'vendor',
+  'model',
+  'securityProfile',
+  'ocppProtocol',
+  'status',
+  'connectors',
+  'online',
+  'lastHeartbeat',
+  'createdAt',
+] as const;
+export type StationSortKey = (typeof STATION_SORT_KEYS)[number];
 
 export interface Station {
   id: string;
@@ -180,6 +194,8 @@ interface StationsTableProps {
   onRetry?: (() => void) | undefined;
   onRemove?: (station: Station) => void;
   visibility?: ColumnVisibility;
+  /** The list's sort; without it the headers do not sort. */
+  sort?: ListSort<StationSortKey> | undefined;
 }
 
 export function StationsTable({
@@ -192,6 +208,7 @@ export function StationsTable({
   onRetry,
   onRemove,
   visibility,
+  sort,
 }: StationsTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -208,15 +225,38 @@ export function StationsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            {isVisible('id') && <TableHead>{t('stations.id')}</TableHead>}
-            {isVisible('stationId') && <TableHead>{t('stations.stationId')}</TableHead>}
-            {showSiteColumn && isVisible('site') && <TableHead>{t('sites.siteName')}</TableHead>}
-            {isVisible('vendor') && <TableHead>{t('stations.vendor')}</TableHead>}
-            {isVisible('model') && <TableHead>{t('stations.model')}</TableHead>}
-            {isVisible('securityProfile') && <TableHead>{t('stations.securityProfile')}</TableHead>}
-            {isVisible('ocppProtocol') && <TableHead>{t('stations.ocppProtocol')}</TableHead>}
+            {isVisible('stationId') && (
+              <SortableTableHead sortKey="stationId" sort={sort}>
+                {t('stations.id')}
+              </SortableTableHead>
+            )}
+            {showSiteColumn && isVisible('site') && (
+              <SortableTableHead sortKey="site" sort={sort}>
+                {t('sites.siteName')}
+              </SortableTableHead>
+            )}
+            {isVisible('vendor') && (
+              <SortableTableHead sortKey="vendor" sort={sort}>
+                {t('stations.vendor')}
+              </SortableTableHead>
+            )}
+            {isVisible('model') && (
+              <SortableTableHead sortKey="model" sort={sort}>
+                {t('stations.model')}
+              </SortableTableHead>
+            )}
+            {isVisible('securityProfile') && (
+              <SortableTableHead sortKey="securityProfile" sort={sort}>
+                {t('stations.securityProfile')}
+              </SortableTableHead>
+            )}
+            {isVisible('ocppProtocol') && (
+              <SortableTableHead sortKey="ocppProtocol" sort={sort}>
+                {t('stations.ocppProtocol')}
+              </SortableTableHead>
+            )}
             {isVisible('evseStatus') && (
-              <TableHead>
+              <SortableTableHead sortKey="status" sort={sort}>
                 <span className="inline-flex items-center gap-1">
                   {t('stations.evseStatus')}
                   <Tooltip
@@ -230,10 +270,10 @@ export function StationsTable({
                     <Info className="h-3.5 w-3.5 text-muted-foreground" />
                   </Tooltip>
                 </span>
-              </TableHead>
+              </SortableTableHead>
             )}
             {isVisible('connectors') && (
-              <TableHead>
+              <SortableTableHead sortKey="connectors" sort={sort}>
                 <span className="inline-flex items-center gap-1">
                   {t('stations.connectors')}
                   <Tooltip
@@ -272,11 +312,23 @@ export function StationsTable({
                     <Info className="h-3.5 w-3.5 text-muted-foreground" />
                   </Tooltip>
                 </span>
-              </TableHead>
+              </SortableTableHead>
             )}
-            {isVisible('online') && <TableHead>{t('status.online')}</TableHead>}
-            {isVisible('lastHeartbeat') && <TableHead>{t('stations.lastHeartbeat')}</TableHead>}
-            {isVisible('createdAt') && <TableHead>{t('common.created')}</TableHead>}
+            {isVisible('online') && (
+              <SortableTableHead sortKey="online" sort={sort}>
+                {t('status.online')}
+              </SortableTableHead>
+            )}
+            {isVisible('lastHeartbeat') && (
+              <SortableTableHead sortKey="lastHeartbeat" sort={sort}>
+                {t('stations.lastHeartbeat')}
+              </SortableTableHead>
+            )}
+            {isVisible('createdAt') && (
+              <SortableTableHead sortKey="createdAt" sort={sort}>
+                {t('common.created')}
+              </SortableTableHead>
+            )}
             {hasActions && <TableHead />}
           </TableRow>
         </TableHeader>
@@ -300,9 +352,6 @@ export function StationsTable({
                 void navigate(`/stations/${station.id}`);
               }}
             >
-              {isVisible('id') && (
-                <TableCell className="text-muted-foreground">{station.id}</TableCell>
-              )}
               {isVisible('stationId') && (
                 <TableCell
                   className="font-medium text-link whitespace-nowrap"
@@ -347,7 +396,7 @@ export function StationsTable({
                         e.stopPropagation();
                       }}
                     >
-                      {station.siteName ?? siteMap.get(station.siteId) ?? station.siteId}
+                      {station.siteName ?? siteMap.get(station.siteId) ?? t('common.unnamedSite')}
                     </Link>
                   ) : (
                     '-'

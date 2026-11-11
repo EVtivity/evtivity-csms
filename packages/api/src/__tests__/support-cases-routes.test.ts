@@ -176,7 +176,7 @@ vi.mock('drizzle-orm', () => ({
   ilike: mocks.ilike,
   sql: Object.assign(
     vi.fn(() => 'sql'),
-    { join: vi.fn(() => 'sql') },
+    { join: vi.fn(() => 'sql'), raw: vi.fn(() => 'sql') },
   ),
   desc: vi.fn(),
   count: vi.fn(),
@@ -531,6 +531,32 @@ describe('support case routes', () => {
       expect(res.statusCode).toBe(200);
       expect(mocks.inArray).not.toHaveBeenCalled();
       expect(firstArg(state.calls[0], 'where')).toEqual({ and: ['sql', 'sql'] });
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'caseNumber',
+        'subject',
+        'driver',
+        'category',
+        'priority',
+        'status',
+        'assignedTo',
+        'createdAt',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          queue([], [{ count: 0 }]);
+          const res = await inject('GET', `/support-cases?sort=${sort}&order=${order}`);
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=support_cases.subject', 'sort=subject&order=up']) {
+        const res = await inject('GET', `/support-cases?${query}`);
+        expect(res.statusCode, query).toBe(400);
+      }
     });
 
     it('rejects an invalid status filter', async () => {

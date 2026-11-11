@@ -95,6 +95,7 @@ import {
   siteElectricityRatePeriods,
   sitePaymentConfigs,
   paymentRecords,
+  vendors,
 } from '@evtivity/database';
 import {
   isValidTimezone,
@@ -154,6 +155,7 @@ import {
 } from '../lib/site-layout-replay.js';
 import { freePlacementSchema, siteLayoutSettingsSchema } from '@evtivity/lib/site-layout-schema';
 import { parseZodRequest, rejectUnknownBodyKeys, zodSchema } from '../lib/zod-schema.js';
+import { sessionListSort } from '../lib/sorts/session-list-sort.js';
 import { connectorCurrentAmpsSchema } from '../lib/connector-rating-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -186,6 +188,8 @@ import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
+import { siteListSort } from '../lib/sorts/site-list-sort.js';
+import { siteStationListSort } from '../lib/sorts/station-list-sort.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import {
   canReadMoney,
@@ -936,6 +940,11 @@ const siteStationItem = z
     id: z.string().describe('Internal station identifier (UUID)'),
     stationId: z.string().describe('OCPP station identifier used by the charging station'),
     siteId: z.string().nullable().describe('Identifier of the site this station belongs to'),
+    vendorId: z.string().nullable().describe('Vendor (manufacturer) identifier, if known'),
+    vendorName: z
+      .string()
+      .nullable()
+      .describe('Vendor display name (from the vendors table), null when the vendor is unknown'),
     model: z.string().nullable().describe('Hardware model name reported by the station'),
     serialNumber: z.string().nullable().describe('Hardware serial number reported by the station'),
     availability: z
@@ -1476,6 +1485,7 @@ const sitesListQuery = paginationQuery.extend({
     .describe(
       'Filter by AI insight scope: suppressed (by an operator, or by an active maintenance event of the whole site) or in_scope',
     ),
+  ...siteListSort.query,
 });
 
 const locationOption = z
@@ -1507,8 +1517,8 @@ export function siteRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { page, limit, search, city, state, loadManagement, aiInsights } =
-        request.query as z.infer<typeof sitesListQuery>;
+      const query = request.query as z.infer<typeof sitesListQuery>;
+      const { page, limit, search, city, state, loadManagement, aiInsights } = query;
       const offset = (page - 1) * limit;
 
       const { userId } = request.user as JwtPayload;
@@ -1565,7 +1575,7 @@ export function siteRoutes(app: FastifyInstance): void {
           .leftJoin(siteLoadManagement, eq(siteLoadManagement.siteId, sites.id))
           .where(where)
           .groupBy(sites.id, siteLoadManagement.isEnabled)
-          .orderBy(desc(sites.createdAt), desc(sites.id))
+          .orderBy(...siteListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db
@@ -2592,6 +2602,7 @@ export function siteRoutes(app: FastifyInstance): void {
   const stationsQuery = z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(10),
+    ...siteStationListSort.query,
   });
 
   app.get(
@@ -2619,7 +2630,8 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      const { page, limit } = request.query as z.infer<typeof stationsQuery>;
+      const stationsParams = request.query as z.infer<typeof stationsQuery>;
+      const { page, limit } = stationsParams;
       const offset = (page - 1) * limit;
 
       const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id));
@@ -2635,6 +2647,10 @@ export function siteRoutes(app: FastifyInstance): void {
             id: chargingStations.id,
             stationId: chargingStations.stationId,
             siteId: chargingStations.siteId,
+            vendorId: chargingStations.vendorId,
+            vendorName: sql<
+              string | null
+            >`(SELECT sv.name FROM ${vendors} sv WHERE sv.id = ${chargingStations.vendorId})`,
             model: chargingStations.model,
             serialNumber: chargingStations.serialNumber,
             availability: chargingStations.availability,
@@ -2660,6 +2676,8 @@ export function siteRoutes(app: FastifyInstance): void {
           .leftJoin(connectors, eq(connectors.evseId, evses.id))
           .where(where)
           .groupBy(chargingStations.id)
+          // Newest first by default, then id, so paging is stable.
+          .orderBy(...siteStationListSort.orderBy(stationsParams))
           .limit(limit)
           .offset(offset),
         db
@@ -2995,6 +3013,7 @@ export function siteRoutes(app: FastifyInstance): void {
       .optional()
       .describe('Filter by session status'),
     stationId: z.string().optional().describe('Filter by station ID'),
+    ...sessionListSort.query,
   });
 
   app.get(
@@ -3069,7 +3088,7 @@ export function siteRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
+          .orderBy(...sessionListSort.orderBy(request.query as z.infer<typeof sessionsQuery>))
           .limit(limit)
           .offset(offset),
         db

@@ -14,7 +14,13 @@ import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
-import { SessionsTable, type Session } from '@/components/SessionsTable';
+import {
+  SESSION_SORT_KEYS,
+  SessionsTable,
+  type Session,
+  type SessionSortKey,
+} from '@/components/SessionsTable';
+import { useListSort } from '@/hooks/use-list-sort';
 import { TokensTable } from '@/components/TokensTable';
 import { VehiclesTable, type Vehicle } from '@/components/VehiclesTable';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
@@ -93,6 +99,7 @@ export function DriverDetail(): React.JSX.Element {
     enabled: id != null,
   });
 
+  const sessionsSort = useListSort<SessionSortKey>(SESSION_SORT_KEYS);
   const {
     data: sessions,
     isLoading: sessionsLoading,
@@ -101,7 +108,11 @@ export function DriverDetail(): React.JSX.Element {
     page: sessionsPage,
     totalPages: sessionsTotalPages,
     setPage: setSessionsPage,
-  } = usePaginatedQuery<Session>(`driver-sessions-${id ?? ''}`, `/v1/drivers/${id ?? ''}/sessions`);
+  } = usePaginatedQuery<Session>(
+    `driver-sessions-${id ?? ''}`,
+    `/v1/drivers/${id ?? ''}/sessions`,
+    sessionsSort.params,
+  );
 
   const {
     data: driverVehicles,
@@ -248,6 +259,7 @@ export function DriverDetail(): React.JSX.Element {
               isLoading={sessionsLoading}
               isError={sessionsError}
               onRetry={refetchSessions}
+              sort={sessionsSort}
             />
             <Pagination
               page={sessionsPage}

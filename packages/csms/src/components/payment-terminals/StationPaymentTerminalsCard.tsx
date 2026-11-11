@@ -173,7 +173,7 @@ function StationPaymentTerminalsPanel({ stationId }: { stationId: string }): Rea
                 }}
               >
                 <TableCell className="font-medium text-link" data-testid="row-click-target">
-                  {terminalName(terminal)}
+                  {terminalName(terminal, t)}
                 </TableCell>
                 <TableCell className="whitespace-nowrap">
                   {terminal.evseNumber != null
@@ -231,7 +231,7 @@ function StationPaymentTerminalsPanel({ stationId }: { stationId: string }): Rea
               <option value="">{t('paymentTerminals.stationCard.selectTerminal')}</option>
               {unpaired.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {terminalName(c)}
+                  {terminalName(c, t)}
                 </option>
               ))}
             </Select>

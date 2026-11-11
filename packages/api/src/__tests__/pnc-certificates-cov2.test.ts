@@ -77,7 +77,7 @@ vi.mock('drizzle-orm', () => ({
   inArray: inArrayMock,
   desc: vi.fn(),
   count: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -437,6 +437,49 @@ describe('PnC certificate routes under /v1', () => {
       expect(res.json()).toEqual({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
       expect(db.update).not.toHaveBeenCalled();
       expect(writeAuditMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('list sorting', () => {
+    const LISTS: Array<{ url: string; keys: string[] }> = [
+      {
+        url: '/v1/pnc/ca-certificates',
+        keys: ['certificateType', 'subject', 'issuer', 'validTo', 'status', 'source'],
+      },
+      { url: '/v1/pnc/csr-requests', keys: ['certificateType', 'status', 'createdAt', 'source'] },
+      {
+        url: '/v1/pnc/station-certificates',
+        keys: [
+          'certificateType',
+          'subject',
+          'serialNumber',
+          'validFrom',
+          'validTo',
+          'status',
+          'source',
+        ],
+      },
+    ];
+
+    it('accepts every sort key in both directions', async () => {
+      for (const list of LISTS) {
+        for (const sort of list.keys) {
+          for (const order of ['asc', 'desc']) {
+            dbResults = [[], [{ count: 0 }]];
+            const res = await call('GET', `${list.url}?sort=${sort}&order=${order}`);
+            expect(res.statusCode, `${list.url} ${sort} ${order}`).toBe(200);
+          }
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const list of LISTS) {
+        for (const query of ['sort=id', 'sort=pem', 'sort=status&order=up']) {
+          const res = await call('GET', `${list.url}?${query}`);
+          expect(res.statusCode, `${list.url} ${query}`).toBe(400);
+        }
+      }
     });
   });
 

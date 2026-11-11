@@ -246,3 +246,45 @@ describe('GET /payment-terminals/export', () => {
     }
   });
 });
+
+describe('GET /payment-terminals sort', () => {
+  let app: FastifyInstance;
+  let token: string;
+
+  beforeAll(async () => {
+    app = Fastify();
+    await registerAuth(app);
+    paymentTerminalRoutes(app);
+    await app.ready();
+    token = app.jwt.sign({ userId: 'usr_000000000001', roleId: 'rol_000000000001' });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    selectResults.length = 0;
+    getUserSiteIdsMock.mockReset().mockResolvedValue(null);
+  });
+
+  const get = (url: string) =>
+    app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${token}` } });
+
+  it('accepts every sort key in both directions', async () => {
+    for (const sort of ['name', 'model', 'site', 'station', 'provider', 'status', 'online']) {
+      for (const order of ['asc', 'desc']) {
+        selectResults.push([], [{ count: 0 }]);
+        const res = await get(`/payment-terminals?sort=${sort}&order=${order}`);
+        expect(res.statusCode, `${sort} ${order}`).toBe(200);
+      }
+    }
+  });
+
+  it('refuses a sort key it does not offer and an unknown order', async () => {
+    for (const query of ['sort=id', 'sort=payment_terminals.label', 'sort=name&order=up']) {
+      const res = await get(`/payment-terminals?${query}`);
+      expect(res.statusCode, query).toBe(400);
+    }
+  });
+});

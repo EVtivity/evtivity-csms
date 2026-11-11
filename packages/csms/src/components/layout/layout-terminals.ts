@@ -7,6 +7,8 @@
 // no request is sent and no terminal shows.
 
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
@@ -29,6 +31,7 @@ export interface LayoutTerminal {
 /** Active terminals paired to a station, keyed by the station's internal ID. */
 export function terminalsByStation(
   terminals: readonly PaymentTerminal[],
+  tr: TFunction,
 ): Map<string, LayoutTerminal[]> {
   const out = new Map<string, LayoutTerminal[]>();
   for (const t of terminals) {
@@ -36,7 +39,7 @@ export function terminalsByStation(
     const list = out.get(t.stationId) ?? [];
     list.push({
       id: t.id,
-      name: terminalName(t),
+      name: terminalName(t, tr),
       stationId: t.stationId,
       evseNumber: t.evseNumber,
       hasDisplay: t.hasDisplay,
@@ -59,6 +62,7 @@ export function terminalSide(evseNumber: number | null): -1 | 0 | 1 {
 
 /** The paired terminals of a site's stations; empty without paymentTerminals:read. */
 export function useSiteTerminals(siteId: string): Map<string, LayoutTerminal[]> {
+  const { t } = useTranslation();
   const canRead = useHasPermission('paymentTerminals:read');
   const { data } = useQuery({
     queryKey: [...PAYMENT_TERMINALS_KEY, 'site', siteId],
@@ -70,5 +74,5 @@ export function useSiteTerminals(siteId: string): Map<string, LayoutTerminal[]> 
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
-  return useMemo(() => terminalsByStation(data?.data ?? []), [data]);
+  return useMemo(() => terminalsByStation(data?.data ?? [], t), [data, t]);
 }

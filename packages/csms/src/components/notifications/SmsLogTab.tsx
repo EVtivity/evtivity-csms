@@ -5,23 +5,23 @@ import { useState, useMemo, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Select } from '@/components/ui/select';
 import { FilterPopover } from '@/components/FilterBar';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { SearchInput } from '@/components/search-input';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import {
   OCPP_EVENT_TYPES,
   DRIVER_EVENT_TYPES,
   OPERATOR_EVENT_TYPES,
 } from '@/lib/template-variables';
-import { type NotificationRecord, formatTimestamp, formatRecipient } from './shared';
+import {
+  type NotificationRecord,
+  formatTimestamp,
+  formatRecipient,
+  NOTIFICATION_SORT_KEYS_NO_SUBJECT,
+} from './shared';
 import { StatusCell } from './StatusCell';
 import { LoadingLogo } from '@/components/loading-logo';
 import { useUserTimezone } from '@/lib/timezone';
@@ -40,12 +40,13 @@ export function SmsLogTab(): React.JSX.Element {
   const [eventType, setEventType] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  const listSort = useListSort(NOTIFICATION_SORT_KEYS_NO_SUBJECT);
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = { channel: 'sms' };
+    const params: Record<string, string> = { channel: 'sms', ...listSort.params };
     if (eventType) params.eventType = eventType;
     if (statusFilter) params.status = statusFilter;
     return params;
-  }, [eventType, statusFilter]);
+  }, [eventType, statusFilter, listSort.params]);
 
   const eventNames = eventCategory ? (EVENT_CATEGORIES[eventCategory] ?? []) : [];
   const activeFilterCount = (eventCategory ? 1 : 0) + (eventType ? 1 : 0) + (statusFilter ? 1 : 0);
@@ -163,10 +164,18 @@ export function SmsLogTab(): React.JSX.Element {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('common.timestamp')}</TableHead>
-              <TableHead>{t('logs.recipient')}</TableHead>
-              <TableHead>{t('logs.eventType')}</TableHead>
-              <TableHead>{t('logs.status')}</TableHead>
+              <SortableTableHead sortKey="timestamp" sort={listSort}>
+                {t('common.timestamp')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="recipient" sort={listSort}>
+                {t('logs.recipient')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="eventType" sort={listSort}>
+                {t('logs.eventType')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="status" sort={listSort}>
+                {t('logs.status')}
+              </SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

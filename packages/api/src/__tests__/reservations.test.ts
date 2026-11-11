@@ -121,7 +121,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -223,6 +223,11 @@ async function buildApp(): Promise<FastifyInstance> {
       void reply.status(error.statusCode).send({ error: error.message, code: error.code });
       return;
     }
+    // A schema validation error answers 400, as in the API.
+    if ((error as { validation?: unknown }).validation != null) {
+      void reply.status(400).send({ error: 'Validation failed', code: 'VALIDATION_ERROR' });
+      return;
+    }
     void reply.status(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
   });
   await registerAuth(app);
@@ -320,6 +325,36 @@ describe('Reservation routes', () => {
   // GET /v1/reservations
   // ------------------------------------------------------------------
   describe('GET /v1/reservations', () => {
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['station', 'driver', 'status', 'startsAt', 'expiresAt', 'createdAt']) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/reservations?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of [
+        'sort=session',
+        'sort=id',
+        'sort=reservations.id',
+        'sort=status&order=up',
+      ]) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/reservations?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns 401 without token', async () => {
       const res = await app.inject({ method: 'GET', url: '/reservations' });
       expect(res.statusCode).toBe(401);

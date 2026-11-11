@@ -139,6 +139,31 @@ describe('Worker log routes', () => {
       expect(response.statusCode).toBe(401);
     });
 
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['startedAt', 'jobName', 'queue', 'status', 'durationMs']) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/worker-logs?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${operatorToken}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=error', 'sort=queue&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/worker-logs?${query}`,
+          headers: { authorization: `Bearer ${operatorToken}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns paginated results with default query', async () => {
       const logEntry = {
         id: 1,

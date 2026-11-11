@@ -175,10 +175,10 @@ describe('Settings > AI > Usage (TC-AI-US-11)', () => {
     expect(screen.getByText('aiUsage.unattributed')).toBeTruthy();
   });
 
-  it('shows user ids when names cannot be read', async () => {
+  it('shows a plain fallback, never the user id, when names cannot be read', async () => {
     perms.delete('users:read');
     wrap(<AiUsageTab warnPercent={80} />);
-    expect((await screen.findByTestId('ai-usage-top-user')).textContent).toBe('u1');
+    expect((await screen.findByTestId('ai-usage-top-user')).textContent).toBe('common.unnamedUser');
   });
 
   it('TC-AI-US-08: shows cost for a USD company only', async () => {

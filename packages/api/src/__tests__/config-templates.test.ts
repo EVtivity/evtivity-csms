@@ -96,7 +96,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -1178,6 +1178,80 @@ describe('Config template routes', () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body).toEqual([]);
+    });
+  });
+
+  // ===================================================================
+  // List sorting
+  // ===================================================================
+
+  describe('list sorting', () => {
+    const template = { id: 'tpl-1', name: 'Config', ocppVersion: '2.1', targetFilter: null };
+    const lists: Array<{ url: string; keys: string[]; results: () => unknown[][] }> = [
+      {
+        url: '/v1/config-templates',
+        keys: ['name', 'description', 'variableCount', 'createdAt'],
+        results: () => [[], [{ total: 0 }]],
+      },
+      {
+        url: '/v1/config-templates/tpl-1/pushes',
+        keys: ['createdAt', 'status'],
+        results: () => [[template], [], [{ total: 0 }]],
+      },
+      {
+        url: '/v1/config-templates/tpl-1/matching-stations',
+        keys: ['station', 'site', 'vendor', 'model', 'firmwareVersion', 'status'],
+        results: () => [[template], [], [{ total: 0 }]],
+      },
+      {
+        url: '/v1/config-template-pushes/push-1',
+        keys: ['station', 'status', 'updatedAt'],
+        results: () => [
+          [
+            {
+              id: 'push-1',
+              templateId: 'tpl-1',
+              status: 'active',
+              stationCount: 0,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+        ],
+      },
+    ];
+
+    it('accepts every sort key in both directions', async () => {
+      for (const list of lists) {
+        for (const sort of list.keys) {
+          for (const order of ['asc', 'desc']) {
+            setupDbResults(...list.results());
+            const res = await app.inject({
+              method: 'GET',
+              url: `${list.url}?sort=${sort}&order=${order}`,
+              headers: { authorization: `Bearer ${token}` },
+            });
+            expect(res.statusCode, `${list.url} ${sort} ${order}`).toBe(200);
+          }
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const list of lists) {
+        for (const query of [
+          'sort=id',
+          'sort=charging_stations.id',
+          `sort=${String(list.keys[0])}&order=up`,
+        ]) {
+          const res = await app.inject({
+            method: 'GET',
+            url: `${list.url}?${query}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(res.statusCode, `${list.url} ${query}`).toBe(400);
+        }
+      }
     });
   });
 });

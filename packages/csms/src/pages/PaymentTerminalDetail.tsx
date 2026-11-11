@@ -72,7 +72,9 @@ function PaymentTerminalDetailView({ terminal }: { terminal: PaymentTerminal }):
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/payment-terminals" />
         <div className="min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{terminalName(terminal)}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
+            {terminalName(terminal, t)}
+          </h1>
           <CopyableId id={terminal.id} />
         </div>
         <Badge variant={terminal.status === 'active' ? 'success' : 'secondary'}>

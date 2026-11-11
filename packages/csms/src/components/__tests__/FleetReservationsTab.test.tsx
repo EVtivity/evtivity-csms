@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter } from 'react-router';
 
 const { getMock, postMock, deleteMock, toastMock, permission } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -101,12 +102,16 @@ function renderTab(): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <FleetReservationsTab fleetId="flt_000000000001" />
+      <BrowserRouter>
+        <FleetReservationsTab fleetId="flt_000000000001" />
+      </BrowserRouter>
     </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
+  // The list sort lives in the URL; each test starts without one.
+  window.history.replaceState(null, '', '/fleets/flt_000000000001');
   getMock.mockReset();
   postMock.mockReset();
   deleteMock.mockReset();
@@ -134,6 +139,23 @@ describe('FleetReservationsTab', () => {
     await screen.findByText('Morning Shift');
     expect(screen.getByText('fleets.newBulkReservation')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'fleets.cancelFleetReservation' })).toBeTruthy();
+  });
+
+  it('sorts the list on the server when a header is clicked', async () => {
+    mockList([BOOKING]);
+    renderTab();
+    await screen.findByText('Morning Shift');
+    fireEvent.click(screen.getByTestId('sort-reservationCount'));
+    await waitFor(() => {
+      expect(
+        getMock.mock.calls.some(
+          (call: unknown[]) =>
+            String(call[0]).includes('/reservations?') &&
+            String(call[0]).includes('sort=reservationCount') &&
+            String(call[0]).includes('order=asc'),
+        ),
+      ).toBe(true);
+    });
   });
 
   it('shows an error row with a retry when the list fails to load', async () => {

@@ -13,6 +13,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import type { ListSort } from '@/hooks/use-list-sort';
 import { formatDateTime } from '@/lib/timezone';
 import { terminalName, terminalProviderName, type PaymentTerminal } from './payment-terminal-types';
 
@@ -50,12 +52,27 @@ export function TerminalOnlineStatus({
   );
 }
 
+/** The sort keys of `GET /v1/payment-terminals` (`paymentTerminalListSort` in the API). */
+export const PAYMENT_TERMINAL_SORT_KEYS = [
+  'name',
+  'model',
+  'site',
+  'station',
+  'provider',
+  'status',
+  'online',
+] as const;
+
+export type PaymentTerminalSortKey = (typeof PAYMENT_TERMINAL_SORT_KEYS)[number];
+
 interface PaymentTerminalsTableProps {
   terminals: PaymentTerminal[] | undefined;
   timezone: string;
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
+  /** The list's sort; without it the headers do not sort. */
+  sort?: ListSort<PaymentTerminalSortKey> | undefined;
 }
 
 const COLUMN_COUNT = 8;
@@ -67,6 +84,7 @@ export function PaymentTerminalsTable({
   isLoading,
   isError,
   onRetry,
+  sort,
 }: PaymentTerminalsTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -77,13 +95,27 @@ export function PaymentTerminalsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t('paymentTerminals.columns.label')}</TableHead>
-            <TableHead>{t('paymentTerminals.columns.model')}</TableHead>
-            <TableHead>{t('paymentTerminals.columns.site')}</TableHead>
-            <TableHead>{t('paymentTerminals.columns.station')}</TableHead>
-            <TableHead>{t('paymentTerminals.columns.provider')}</TableHead>
-            <TableHead>{t('paymentTerminals.columns.status')}</TableHead>
-            <TableHead>{t('paymentTerminals.columns.online')}</TableHead>
+            <SortableTableHead sortKey="name" sort={sort}>
+              {t('paymentTerminals.columns.label')}
+            </SortableTableHead>
+            <SortableTableHead sortKey="model" sort={sort}>
+              {t('paymentTerminals.columns.model')}
+            </SortableTableHead>
+            <SortableTableHead sortKey="site" sort={sort}>
+              {t('paymentTerminals.columns.site')}
+            </SortableTableHead>
+            <SortableTableHead sortKey="station" sort={sort}>
+              {t('paymentTerminals.columns.station')}
+            </SortableTableHead>
+            <SortableTableHead sortKey="provider" sort={sort}>
+              {t('paymentTerminals.columns.provider')}
+            </SortableTableHead>
+            <SortableTableHead sortKey="status" sort={sort}>
+              {t('paymentTerminals.columns.status')}
+            </SortableTableHead>
+            <SortableTableHead sortKey="online" sort={sort}>
+              {t('paymentTerminals.columns.online')}
+            </SortableTableHead>
             <TableHead>{t('paymentTerminals.columns.sim')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -115,9 +147,9 @@ export function PaymentTerminalsTable({
               <TableCell
                 className="max-w-48 truncate font-medium text-link"
                 data-testid="row-click-target"
-                title={terminalName(terminal)}
+                title={terminalName(terminal, t)}
               >
-                {terminalName(terminal)}
+                {terminalName(terminal, t)}
               </TableCell>
               {/* The serial number sits under the model, as the connector under the
                   station, so the eight columns fit a desktop page. */}
@@ -138,7 +170,7 @@ export function PaymentTerminalsTable({
                       e.stopPropagation();
                     }}
                   >
-                    {terminal.siteName ?? terminal.siteId}
+                    {terminal.siteName ?? t('common.unnamedSite')}
                   </Link>
                 ) : (
                   na
@@ -154,7 +186,7 @@ export function PaymentTerminalsTable({
                         e.stopPropagation();
                       }}
                     >
-                      {terminal.stationOcppId ?? terminal.stationId}
+                      {terminal.stationOcppId ?? t('common.unnamedStation')}
                     </Link>
                     <span className="text-xs text-muted-foreground">
                       {terminal.evseNumber != null

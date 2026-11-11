@@ -14,18 +14,13 @@ import { EmptyState } from '@/components/ui/content-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list';
 import { Pagination } from '@/components/ui/pagination';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { DisabledWithReason } from '@/components/sim/DisabledWithReason';
 import { simErrorMessage, simKey } from '@/components/sim/sim-connectivity';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { api, getApiErrorCode } from '@/lib/api';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { formatDateTime } from '@/lib/timezone';
@@ -70,7 +65,7 @@ function StationText({
   if (stationId == null) return <>{t('sims.detail.attachments.paymentTerminal')}</>;
   return (
     <Link to={`/stations/${stationId}`} className="text-link wrap-anywhere hover:underline">
-      {stationOcppId ?? stationId}
+      {stationOcppId ?? t('common.unnamedStation')}
     </Link>
   );
 }
@@ -266,6 +261,16 @@ function CurrentAttachmentCard({ sim, timezone }: SimAttachmentsTabProps): React
   );
 }
 
+/** The sort keys of `GET /v1/sims/:id/attachments` (`simAttachmentListSort` in the API). */
+export const SIM_ATTACHMENT_SORT_KEYS = [
+  'station',
+  'site',
+  'source',
+  'attachedAt',
+  'detachedAt',
+  'reason',
+] as const;
+
 function AttachmentHistoryCard({
   simId,
   timezone,
@@ -274,9 +279,11 @@ function AttachmentHistoryCard({
   timezone: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const listSort = useListSort(SIM_ATTACHMENT_SORT_KEYS);
   const history = usePaginatedQuery<SimAttachmentItem>(
     [...simKey(simId), 'attachments'],
     `/v1/sims/${simId}/attachments`,
+    listSort.params,
   );
   const rows = history.data ?? [];
 
@@ -295,12 +302,24 @@ function AttachmentHistoryCard({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('sims.detail.attachments.columns.station')}</TableHead>
-                <TableHead>{t('sims.detail.attachments.columns.site')}</TableHead>
-                <TableHead>{t('sims.detail.attachments.columns.source')}</TableHead>
-                <TableHead>{t('sims.detail.attachments.columns.attached')}</TableHead>
-                <TableHead>{t('sims.detail.attachments.columns.detached')}</TableHead>
-                <TableHead>{t('sims.detail.attachments.columns.reason')}</TableHead>
+                <SortableTableHead sortKey="station" sort={listSort}>
+                  {t('sims.detail.attachments.columns.station')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="site" sort={listSort}>
+                  {t('sims.detail.attachments.columns.site')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="source" sort={listSort}>
+                  {t('sims.detail.attachments.columns.source')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="attachedAt" sort={listSort}>
+                  {t('sims.detail.attachments.columns.attached')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="detachedAt" sort={listSort}>
+                  {t('sims.detail.attachments.columns.detached')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="reason" sort={listSort}>
+                  {t('sims.detail.attachments.columns.reason')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -84,7 +84,8 @@ vi.mock('drizzle-orm', () => {
     inArray: vi.fn(),
     or: vi.fn((...conds: unknown[]) => ({ or: conds })),
     isNull: vi.fn((col: unknown) => ({ isNull: col })),
-    sql: sqlTag,
+    // The list sort renders its direction with sql.raw.
+    sql: Object.assign(sqlTag, { raw: (value: string) => ({ __brand: 'SQL', raw: value }) }),
   };
 });
 
@@ -164,6 +165,39 @@ describe('Authorize attempts route', () => {
       expect(body.data[0].stationOcppId).toBe('CS-0001');
       expect(body.data[0].stationDbId).toBe('sta_xxxxxxxxxxxx');
       expect(body.total).toBe(1);
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'createdAt',
+        'station',
+        'idToken',
+        'tokenType',
+        'vehicleIdValue',
+        'outcome',
+        'reason',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/authorize-attempts?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${operatorToken}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=matchedTokenId', 'sort=outcome&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/authorize-attempts?${query}`,
+          headers: { authorization: `Bearer ${operatorToken}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
 
     it('returns empty list when no rows match', async () => {

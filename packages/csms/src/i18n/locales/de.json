@@ -1,6 +1,9 @@
 {
   "common": {
     "loading": "Wird geladen...",
+    "sortAscending": "Aufsteigend sortieren",
+    "sortDescending": "Absteigend sortieren",
+    "sortDefault": "Standardreihenfolge wiederherstellen",
     "pageNotFound": "Seite nicht gefunden",
     "pageNotFoundDescription": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
     "allSiteAccessRequired": "Zugriff auf alle Standorte erforderlich",
@@ -117,7 +120,16 @@
       "year": "Jahr",
       "today": "Heute",
       "clear": "Löschen"
-    }
+    },
+    "sessionFallback": "Sitzung",
+    "unnamedSite": "Unbenannter Standort",
+    "unnamedStation": "Unbenannte Station",
+    "unnamedTerminal": "Unbenanntes Terminal",
+    "unnamedPanel": "Unbenannter Verteiler",
+    "unnamedTransformer": "Unbenannter Transformator",
+    "unnamedUser": "Unbenannter Benutzer",
+    "unnamedTemplate": "Unbenannte Vorlage",
+    "unnamedReservation": "Unbenannte Reservierung"
   },
   "status": {
     "online": "Online",
@@ -5348,6 +5360,7 @@
     "failedStations": "Fehlgeschlagen",
     "noStationsTargeted": "Keine Stationen anvisiert",
     "noCampaignRuns": "Noch keine Kampagnenlaufe",
+    "noCampaigns": "Keine Firmware-Kampagnen",
     "error": "Fehler",
     "confirmStart": "Kampagne starten",
     "confirmStartDescription": "Das Firmware-Update wird jetzt an alle passenden Online-Ladestationen gesendet. Offline-Ladestationen erhalten es, sobald sie sich verbinden. Fortfahren?",
@@ -6406,7 +6419,9 @@
       "mcp": "MCP",
       "proposal": "Bestätigte KI-Aktion"
     },
-    "entryTitle": "{{action}} ({{entity}})"
+    "entryTitle": "{{action}} ({{entity}})",
+    "actorKindUser": "Benutzer",
+    "entityName": "Name"
   },
   "maintenance": {
     "colType": "Typ",

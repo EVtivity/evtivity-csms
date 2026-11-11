@@ -18,15 +18,10 @@ import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { AccountAvatar, type AvatarData } from '@/components/AccountAvatar';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import type { ListSort } from '@/hooks/use-list-sort';
 
 export const DRIVERS_COLUMNS: ColumnMeta[] = [
-  {
-    key: 'driverId',
-    label: 'drivers.driverId',
-    defaultVisible: true,
-    defaultVisibleMobile: false,
-    alwaysVisible: true,
-  },
   {
     key: 'driverName',
     label: 'drivers.driverName',
@@ -39,6 +34,13 @@ export const DRIVERS_COLUMNS: ColumnMeta[] = [
   { key: 'status', label: 'common.status', defaultVisible: true, defaultVisibleMobile: true },
   { key: 'created', label: 'common.created', defaultVisible: true, defaultVisibleMobile: false },
 ];
+
+/**
+ * The sort keys of `GET /v1/drivers` and `GET /v1/fleets/:id/drivers` (`driverListSort` in
+ * the API, `lib/sorts/driver-list-sort.ts`).
+ */
+export const DRIVER_SORT_KEYS = ['name', 'email', 'phone', 'status', 'createdAt'] as const;
+export type DriverSortKey = (typeof DRIVER_SORT_KEYS)[number];
 
 export interface Driver {
   id: string;
@@ -74,6 +76,8 @@ interface DriversTableProps {
   removeDisabled?: boolean;
   visibility?: ColumnVisibility;
   extraColumn?: DriversTableExtraColumn;
+  /** The list's sort; without it the headers do not sort. */
+  sort?: ListSort<DriverSortKey> | undefined;
 }
 
 export function DriversTable({
@@ -87,6 +91,7 @@ export function DriversTable({
   removeDisabled,
   visibility,
   extraColumn,
+  sort,
 }: DriversTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -101,12 +106,31 @@ export function DriversTable({
         <Table>
           <TableHeader>
             <TableRow>
-              {isVisible('driverId') && <TableHead>{t('drivers.driverId')}</TableHead>}
-              {isVisible('driverName') && <TableHead>{t('drivers.driverName')}</TableHead>}
-              {isVisible('email') && <TableHead>{t('common.email')}</TableHead>}
-              {isVisible('phone') && <TableHead>{t('drivers.phone')}</TableHead>}
-              {isVisible('status') && <TableHead>{t('common.status')}</TableHead>}
-              {isVisible('created') && <TableHead>{t('common.created')}</TableHead>}
+              {isVisible('driverName') && (
+                <SortableTableHead sortKey="name" sort={sort}>
+                  {t('drivers.driverName')}
+                </SortableTableHead>
+              )}
+              {isVisible('email') && (
+                <SortableTableHead sortKey="email" sort={sort}>
+                  {t('common.email')}
+                </SortableTableHead>
+              )}
+              {isVisible('phone') && (
+                <SortableTableHead sortKey="phone" sort={sort}>
+                  {t('drivers.phone')}
+                </SortableTableHead>
+              )}
+              {isVisible('status') && (
+                <SortableTableHead sortKey="status" sort={sort}>
+                  {t('common.status')}
+                </SortableTableHead>
+              )}
+              {isVisible('created') && (
+                <SortableTableHead sortKey="createdAt" sort={sort}>
+                  {t('common.created')}
+                </SortableTableHead>
+              )}
               {extraColumn != null && <TableHead>{extraColumn.header}</TableHead>}
               {hasRemove && <TableHead />}
             </TableRow>
@@ -131,9 +155,6 @@ export function DriversTable({
                   void navigate(`/drivers/${driver.id}`);
                 }}
               >
-                {isVisible('driverId') && (
-                  <TableCell className="text-muted-foreground">{driver.id}</TableCell>
-                )}
                 {isVisible('driverName') && (
                   <TableCell className="font-medium text-link" data-testid="row-click-target">
                     <span className="inline-flex items-center gap-2">

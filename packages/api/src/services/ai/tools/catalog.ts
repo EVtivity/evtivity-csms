@@ -7427,7 +7427,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/smart-charging/pushes/{pushId}',
     pathParams: ['pushId'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -7440,9 +7440,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'status', 'updatedAt', null],
+          description:
+            'Column to sort by: station, status, updatedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         pushId: { type: 'string', description: 'Push ID' },
       },
-      required: ['page', 'limit', 'search', 'pushId'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'pushId'],
       additionalProperties: false,
     },
     strict: true,
@@ -7457,6 +7468,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'status', 'updatedAt'],
+          description:
+            'Column to sort by: station, status, updatedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         pushId: { type: 'string', description: 'Push ID' },
       },
       required: ['pushId'],
@@ -7608,7 +7630,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/config-template-pushes/{pushId}',
     pathParams: ['pushId'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -7621,9 +7643,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'status', 'updatedAt', null],
+          description:
+            'Column to sort by: station, status, updatedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         pushId: { type: 'string', description: 'Push ID' },
       },
-      required: ['page', 'limit', 'search', 'pushId'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'pushId'],
       additionalProperties: false,
     },
     strict: true,
@@ -7638,6 +7671,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'status', 'updatedAt'],
+          description:
+            'Column to sort by: station, status, updatedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         pushId: { type: 'string', description: 'Push ID' },
       },
       required: ['pushId'],
@@ -8675,6 +8719,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'quantity',
       'sentAt',
       'sessionId',
+      'sessionStartedAt',
+      'sessionStationOcppId',
       'status',
       'subtotalCents',
       'taxCents',
@@ -9327,6 +9373,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'refundedAmountCents',
       'requestedAt',
       'reservationId',
+      'reservationNumber',
       'sessionToken',
       'settledAt',
       'siteName',
@@ -11086,6 +11133,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'resolvedAt',
       'senderId',
       'senderType',
+      'startedAt',
       'stationId',
       'stationName',
       'status',
@@ -11357,7 +11405,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/access-logs',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'category', 'method', 'from', 'to'],
+    queryParams: ['page', 'limit', 'search', 'category', 'method', 'from', 'to', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -11389,8 +11437,30 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description:
             'ISO datetime, inclusive upper bound of the entry time; must not be before `from`',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'createdAt',
+            'user',
+            'action',
+            'remoteAddress',
+            'apiKeyName',
+            'method',
+            'path',
+            'statusCode',
+            'durationMs',
+            null,
+          ],
+          description:
+            'Column to sort by: createdAt, user, action, remoteAddress, apiKeyName, method, path, statusCode, durationMs. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'category', 'method', 'from', 'to'],
+      required: ['page', 'limit', 'search', 'category', 'method', 'from', 'to', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -11425,6 +11495,27 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           format: 'date-time',
           description:
             'ISO datetime, inclusive upper bound of the entry time; must not be before `from`',
+        },
+        sort: {
+          type: 'string',
+          enum: [
+            'createdAt',
+            'user',
+            'action',
+            'remoteAddress',
+            'apiKeyName',
+            'method',
+            'path',
+            'statusCode',
+            'durationMs',
+          ],
+          description:
+            'Column to sort by: createdAt, user, action, remoteAddress, apiKeyName, method, path, statusCode, durationMs. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -11787,6 +11878,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'actorDriverId',
       'from',
       'to',
+      'sort',
+      'order',
     ],
     bodyParams: [],
     parameters: {
@@ -11863,6 +11956,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         actorDriverId: { type: ['string', 'null'], description: 'Filter by acting driver id' },
         from: { type: ['string', 'null'], description: 'ISO datetime, inclusive lower bound' },
         to: { type: ['string', 'null'], description: 'ISO datetime, inclusive upper bound' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['createdAt', 'entityType', 'action', 'actorType', null],
+          description:
+            'Column to sort by: createdAt, entityType, action, actorType. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [
         'page',
@@ -11877,6 +11981,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'actorDriverId',
         'from',
         'to',
+        'sort',
+        'order',
       ],
       additionalProperties: false,
     },
@@ -11962,6 +12068,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           format: 'date-time',
           description: 'ISO datetime, inclusive upper bound',
         },
+        sort: {
+          type: 'string',
+          enum: ['createdAt', 'entityType', 'action', 'actorType'],
+          description:
+            'Column to sort by: createdAt, entityType, action, actorType. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -11982,6 +12099,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'createdAt',
       'entityId',
       'entityIdSnapshot',
+      'entityName',
       'entityType',
       'id',
       'mcpCallId',
@@ -12010,6 +12128,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'outcome',
       'from',
       'to',
+      'sort',
+      'order',
     ],
     bodyParams: [],
     parameters: {
@@ -12053,6 +12173,26 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         from: { type: ['string', 'null'], description: 'Earliest createdAt (inclusive)' },
         to: { type: ['string', 'null'], description: 'Latest createdAt (inclusive)' },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'createdAt',
+            'station',
+            'idToken',
+            'tokenType',
+            'vehicleIdValue',
+            'outcome',
+            'reason',
+            null,
+          ],
+          description:
+            'Column to sort by: createdAt, station, idToken, tokenType, vehicleIdValue, outcome, reason. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [
         'page',
@@ -12065,6 +12205,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'outcome',
         'from',
         'to',
+        'sort',
+        'order',
       ],
       additionalProperties: false,
     },
@@ -12113,6 +12255,25 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Earliest createdAt (inclusive)',
         },
         to: { type: 'string', format: 'date-time', description: 'Latest createdAt (inclusive)' },
+        sort: {
+          type: 'string',
+          enum: [
+            'createdAt',
+            'station',
+            'idToken',
+            'tokenType',
+            'vehicleIdValue',
+            'outcome',
+            'reason',
+          ],
+          description:
+            'Column to sort by: createdAt, station, idToken, tokenType, vehicleIdValue, outcome, reason. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -12123,11 +12284,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'idToken',
       'matchedDriverId',
       'matchedTokenId',
+      'matchedTokenValue',
       'matchedVehicleId',
       'ocppVersion',
       'outcome',
       'reason',
       'sessionId',
+      'sessionStartedAt',
       'stationDbId',
       'stationOcppId',
       'tokenType',
@@ -12238,7 +12401,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/smart-charging/templates/{id}/matching-stations',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -12251,9 +12414,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'site', 'vendor', 'model', 'firmwareVersion', 'status', null],
+          description:
+            'Column to sort by: station, site, vendor, model, firmwareVersion, status. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -12268,6 +12442,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'site', 'vendor', 'model', 'firmwareVersion', 'status'],
+          description:
+            'Column to sort by: station, site, vendor, model, firmwareVersion, status. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
       required: ['id'],
@@ -12283,7 +12468,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/smart-charging/templates/{id}/pushes',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -12296,9 +12481,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['createdAt', 'operation', 'status', null],
+          description:
+            'Column to sort by: createdAt, operation, status. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -12313,6 +12509,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['createdAt', 'operation', 'status'],
+          description:
+            'Column to sort by: createdAt, operation, status. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
       required: ['id'],
@@ -12341,7 +12548,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/smart-charging/templates',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -12354,8 +12561,28 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'name',
+            'description',
+            'profilePurpose',
+            'profileKind',
+            'chargingRateUnit',
+            'ocppVersion',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: name, description, profilePurpose, profileKind, chargingRateUnit, ocppVersion, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search'],
+      required: ['page', 'limit', 'search', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -12370,6 +12597,25 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: [
+            'name',
+            'description',
+            'profilePurpose',
+            'profileKind',
+            'chargingRateUnit',
+            'ocppVersion',
+            'createdAt',
+          ],
+          description:
+            'Column to sort by: name, description, profilePurpose, profileKind, chargingRateUnit, ocppVersion, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -12448,7 +12694,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/config-templates/{id}/matching-stations',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search', 'status'],
+    queryParams: ['page', 'limit', 'search', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -12466,9 +12712,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['online', 'offline', null],
           description: 'Filter by online status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'site', 'vendor', 'model', 'firmwareVersion', 'status', null],
+          description:
+            'Column to sort by: station, site, vendor, model, firmwareVersion, status. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
-      required: ['page', 'limit', 'search', 'status', 'id'],
+      required: ['page', 'limit', 'search', 'status', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -12488,6 +12745,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['online', 'offline'],
           description: 'Filter by online status',
         },
+        sort: {
+          type: 'string',
+          enum: ['station', 'site', 'vendor', 'model', 'firmwareVersion', 'status'],
+          description:
+            'Column to sort by: station, site, vendor, model, firmwareVersion, status. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
       required: ['id'],
@@ -12503,7 +12771,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/config-templates/{id}/pushes',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -12516,9 +12784,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['createdAt', 'status', null],
+          description:
+            'Column to sort by: createdAt, status. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -12533,6 +12812,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['createdAt', 'status'],
+          description:
+            'Column to sort by: createdAt, status. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', description: 'Template ID' },
       },
       required: ['id'],
@@ -12560,7 +12850,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/config-templates',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -12573,8 +12863,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'description', 'variableCount', 'createdAt', null],
+          description:
+            'Column to sort by: name, description, variableCount, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search'],
+      required: ['page', 'limit', 'search', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -12589,6 +12890,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['name', 'description', 'variableCount', 'createdAt'],
+          description:
+            'Column to sort by: name, description, variableCount, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -12959,7 +13271,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{stationId}/display-messages',
     pathParams: ['stationId'],
-    queryParams: ['page', 'limit', 'search', 'status'],
+    queryParams: ['page', 'limit', 'search', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -12977,13 +13289,33 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['pending', 'accepted', 'rejected', 'cleared', 'expired', null],
           description: 'Filter by message status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'messageId',
+            'priority',
+            'content',
+            'format',
+            'state',
+            'status',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: messageId, priority, content, format, state, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         stationId: {
           type: 'string',
           pattern: '^sta_[a-z0-9]{12}$',
           description: 'Charging station ID',
         },
       },
-      required: ['page', 'limit', 'search', 'status', 'stationId'],
+      required: ['page', 'limit', 'search', 'status', 'sort', 'order', 'stationId'],
       additionalProperties: false,
     },
     strict: true,
@@ -13002,6 +13334,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['pending', 'accepted', 'rejected', 'cleared', 'expired'],
           description: 'Filter by message status',
+        },
+        sort: {
+          type: 'string',
+          enum: ['messageId', 'priority', 'content', 'format', 'state', 'status', 'createdAt'],
+          description:
+            'Column to sort by: messageId, priority, content, format, state, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
         stationId: {
           type: 'string',
@@ -13078,7 +13421,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/drivers/{id}/reservations',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -13091,9 +13434,28 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'reservationId',
+            'station',
+            'status',
+            'startsAt',
+            'expiresAt',
+            'cancellationFee',
+            null,
+          ],
+          description:
+            'Column to sort by: reservationId, station, status, startsAt, expiresAt, cancellationFee. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -13108,6 +13470,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['reservationId', 'station', 'status', 'startsAt', 'expiresAt', 'cancellationFee'],
+          description:
+            'Column to sort by: reservationId, station, status, startsAt, expiresAt, cancellationFee. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
       },
       required: ['id'],
@@ -13139,16 +13512,27 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/drivers/{id}/sessions',
     pathParams: ['id'],
-    queryParams: ['page', 'limit'],
+    queryParams: ['page', 'limit', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
       properties: {
         page: { type: ['integer', 'null'], minimum: 1 },
         limit: { type: ['integer', 'null'], minimum: 1, maximum: 100 },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
       },
-      required: ['page', 'limit', 'id'],
+      required: ['page', 'limit', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -13157,6 +13541,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         page: { type: 'integer', minimum: 1 },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
+        sort: {
+          type: 'string',
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
       },
       required: ['id'],
@@ -13267,7 +13662,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/drivers',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'status'],
+    queryParams: ['page', 'limit', 'search', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -13285,8 +13680,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['active', 'inactive', null],
           description: 'Filter by driver status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'email', 'phone', 'status', 'createdAt', null],
+          description:
+            'Column to sort by: name, email, phone, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'status'],
+      required: ['page', 'limit', 'search', 'status', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -13305,6 +13711,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['active', 'inactive'],
           description: 'Filter by driver status',
+        },
+        sort: {
+          type: 'string',
+          enum: ['name', 'email', 'phone', 'status', 'createdAt'],
+          description:
+            'Column to sort by: name, email, phone, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -13391,7 +13808,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/audit/{entityType}/{entityId}',
     pathParams: ['entityType', 'entityId'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -13404,6 +13821,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['createdAt', 'action', 'actorType', null],
+          description:
+            'Column to sort by: createdAt, action, actorType. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         entityType: {
           type: 'string',
           enum: [
@@ -13453,7 +13881,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Entity id (live id or snapshot for deleted rows)',
         },
       },
-      required: ['page', 'limit', 'search', 'entityType', 'entityId'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'entityType', 'entityId'],
       additionalProperties: false,
     },
     strict: true,
@@ -13468,6 +13896,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['createdAt', 'action', 'actorType'],
+          description:
+            'Column to sort by: createdAt, action, actorType. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         entityType: {
           type: 'string',
           enum: [
@@ -13536,6 +13975,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'createdAt',
       'entityId',
       'entityIdSnapshot',
+      'entityName',
       'entityType',
       'id',
       'mcpCallId',
@@ -13619,7 +14059,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/fleets/{id}/departure-schedules',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search', 'siteId', 'vehicleId'],
+    queryParams: ['page', 'limit', 'search', 'siteId', 'vehicleId', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -13642,9 +14082,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           pattern: '^veh_[a-z0-9]{12}$',
           description: 'Only schedules of this vehicle',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['departureTime', 'priority', 'depot', null],
+          description:
+            'Column to sort by: departureTime, priority, depot. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
-      required: ['page', 'limit', 'search', 'siteId', 'vehicleId', 'id'],
+      required: ['page', 'limit', 'search', 'siteId', 'vehicleId', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -13668,6 +14119,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           pattern: '^veh_[a-z0-9]{12}$',
           description: 'Only schedules of this vehicle',
+        },
+        sort: {
+          type: 'string',
+          enum: ['departureTime', 'priority', 'depot'],
+          description:
+            'Column to sort by: departureTime, priority, depot. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
@@ -13838,7 +14300,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/fleets/{id}/drivers',
     pathParams: ['id'],
-    queryParams: ['page', 'limit'],
+    queryParams: ['page', 'limit', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -13850,9 +14312,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           maximum: 100,
           description: 'Items per page',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'email', 'phone', 'status', 'createdAt', null],
+          description:
+            'Column to sort by: name, email, phone, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
-      required: ['page', 'limit', 'id'],
+      required: ['page', 'limit', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -13861,6 +14334,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         page: { type: 'integer', minimum: 1, description: 'Page number' },
         limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Items per page' },
+        sort: {
+          type: 'string',
+          enum: ['name', 'email', 'phone', 'status', 'createdAt'],
+          description:
+            'Column to sort by: name, email, phone, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
       required: ['id'],
@@ -13890,7 +14374,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/fleets/{id}/invoices',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search', 'recipient'],
+    queryParams: ['page', 'limit', 'search', 'recipient', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -13909,9 +14393,30 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description:
             "Filter by recipient: 'fleet' (fleet invoices and their credit notes) or 'member' (member invoices to each driver and their credit notes)",
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'invoiceNumber',
+            'periodStart',
+            'billedTo',
+            'status',
+            'issuedAt',
+            'dueAt',
+            'sentAt',
+            'total',
+            null,
+          ],
+          description:
+            'Column to sort by: invoiceNumber, periodStart, billedTo, status, issuedAt, dueAt, sentAt, total. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
-      required: ['page', 'limit', 'search', 'recipient', 'id'],
+      required: ['page', 'limit', 'search', 'recipient', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -13931,6 +14436,26 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['fleet', 'member'],
           description:
             "Filter by recipient: 'fleet' (fleet invoices and their credit notes) or 'member' (member invoices to each driver and their credit notes)",
+        },
+        sort: {
+          type: 'string',
+          enum: [
+            'invoiceNumber',
+            'periodStart',
+            'billedTo',
+            'status',
+            'issuedAt',
+            'dueAt',
+            'sentAt',
+            'total',
+          ],
+          description:
+            'Column to sort by: invoiceNumber, periodStart, billedTo, status, issuedAt, dueAt, sentAt, total. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
@@ -13970,7 +14495,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/fleets/{fleetId}/reservations',
     pathParams: ['fleetId'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -13983,9 +14508,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'status', 'reservationCount', 'startsAt', 'expiresAt', 'createdAt', null],
+          description:
+            'Column to sort by: name, status, reservationCount, startsAt, expiresAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         fleetId: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
-      required: ['page', 'limit', 'search', 'fleetId'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'fleetId'],
       additionalProperties: false,
     },
     strict: true,
@@ -14000,6 +14536,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['name', 'status', 'reservationCount', 'startsAt', 'expiresAt', 'createdAt'],
+          description:
+            'Column to sort by: name, status, reservationCount, startsAt, expiresAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         fleetId: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
       required: ['fleetId'],
@@ -14026,7 +14573,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/fleets/{id}/sessions',
     pathParams: ['id'],
-    queryParams: ['page', 'limit'],
+    queryParams: ['page', 'limit', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14038,9 +14585,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           maximum: 100,
           description: 'Items per page',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          description:
+            'Column to sort by: station, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
-      required: ['page', 'limit', 'id'],
+      required: ['page', 'limit', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -14049,6 +14607,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         page: { type: 'integer', minimum: 1, description: 'Page number' },
         limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Items per page' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          description:
+            'Column to sort by: station, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
       required: ['id'],
@@ -14120,7 +14689,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/fleets/{id}/vehicles',
     pathParams: ['id'],
-    queryParams: ['page', 'limit'],
+    queryParams: ['page', 'limit', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14132,9 +14701,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           maximum: 100,
           description: 'Items per page',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['make', 'model', 'driver', 'year', 'vin', 'licensePlate', null],
+          description:
+            'Column to sort by: make, model, driver, year, vin, licensePlate. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
-      required: ['page', 'limit', 'id'],
+      required: ['page', 'limit', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -14143,6 +14723,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         page: { type: 'integer', minimum: 1, description: 'Page number' },
         limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Items per page' },
+        sort: {
+          type: 'string',
+          enum: ['make', 'model', 'driver', 'year', 'vin', 'licensePlate'],
+          description:
+            'Column to sort by: make, model, driver, year, vin, licensePlate. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
       },
       required: ['id'],
@@ -14168,7 +14759,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/fleets',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14181,8 +14772,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'description', 'driverCount', 'stationCount', 'createdAt', null],
+          description:
+            'Column to sort by: name, description, driverCount, stationCount, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search'],
+      required: ['page', 'limit', 'search', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14197,6 +14799,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['name', 'description', 'driverCount', 'stationCount', 'createdAt'],
+          description:
+            'Column to sort by: name, description, driverCount, stationCount, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -14263,7 +14876,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/invoices',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'driverId', 'fleetId', 'status', 'kind'],
+    queryParams: [
+      'page',
+      'limit',
+      'search',
+      'driverId',
+      'fleetId',
+      'status',
+      'kind',
+      'sort',
+      'order',
+    ],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14296,8 +14919,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['invoice', 'credit_note', null],
           description: 'Filter by kind: invoice or credit_note',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['invoiceNumber', 'kind', 'status', 'issuedAt', 'dueAt', 'total', null],
+          description:
+            'Column to sort by: invoiceNumber, kind, status, issuedAt, dueAt, total. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'driverId', 'fleetId', 'status', 'kind'],
+      required: [
+        'page',
+        'limit',
+        'search',
+        'driverId',
+        'fleetId',
+        'status',
+        'kind',
+        'sort',
+        'order',
+      ],
       additionalProperties: false,
     },
     strict: true,
@@ -14331,6 +14975,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['invoice', 'credit_note'],
           description: 'Filter by kind: invoice or credit_note',
+        },
+        sort: {
+          type: 'string',
+          enum: ['invoiceNumber', 'kind', 'status', 'issuedAt', 'dueAt', 'total'],
+          description:
+            'Column to sort by: invoiceNumber, kind, status, issuedAt, dueAt, total. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -14368,7 +15023,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{stationId}/local-auth-list',
     pathParams: ['stationId'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14381,13 +15036,24 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['idToken', 'tokenType', 'driver', 'authStatus', 'addedAt', null],
+          description:
+            'Column to sort by: idToken, tokenType, driver, authStatus, addedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         stationId: {
           type: 'string',
           pattern: '^sta_[a-z0-9]{12}$',
           description: 'Charging station ID',
         },
       },
-      required: ['page', 'limit', 'search', 'stationId'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'stationId'],
       additionalProperties: false,
     },
     strict: true,
@@ -14402,6 +15068,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['idToken', 'tokenType', 'driver', 'authStatus', 'addedAt'],
+          description:
+            'Column to sort by: idToken, tokenType, driver, authStatus, addedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         stationId: {
           type: 'string',
           pattern: '^sta_[a-z0-9]{12}$',
@@ -14437,7 +15114,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/sites/{siteId}/maintenance/events/{id}/stations',
     pathParams: ['siteId', 'id'],
-    queryParams: ['page', 'limit', 'search', 'phase'],
+    queryParams: ['page', 'limit', 'search', 'phase', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14451,10 +15128,21 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
         phase: { type: ['string', 'null'], description: 'Filter by fan-out phase' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'phase', 'command', 'commandStatus', 'createdAt', null],
+          description:
+            'Column to sort by: station, phase, command, commandStatus, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         siteId: { type: 'string', description: 'Site ID' },
         id: { type: 'string', description: 'Maintenance event ID' },
       },
-      required: ['page', 'limit', 'search', 'phase', 'siteId', 'id'],
+      required: ['page', 'limit', 'search', 'phase', 'sort', 'order', 'siteId', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -14470,6 +15158,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         search: { type: 'string', description: 'Search filter' },
         phase: { type: 'string', maxLength: 20, description: 'Filter by fan-out phase' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'phase', 'command', 'commandStatus', 'createdAt'],
+          description:
+            'Column to sort by: station, phase, command, commandStatus, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         siteId: { type: 'string', description: 'Site ID' },
         id: { type: 'string', description: 'Maintenance event ID' },
       },
@@ -14501,7 +15200,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/nevi/excluded-downtime',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'stationId', 'from', 'to'],
+    queryParams: ['page', 'limit', 'search', 'stationId', 'from', 'to', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14527,8 +15226,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: ['string', 'null'],
           description: 'ISO 8601 date-time upper bound for startedAt',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'evseId', 'reason', 'startedAt', 'endedAt', null],
+          description:
+            'Column to sort by: station, evseId, reason, startedAt, endedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'stationId', 'from', 'to'],
+      required: ['page', 'limit', 'search', 'stationId', 'from', 'to', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14550,6 +15260,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         from: { type: 'string', description: 'ISO 8601 date-time lower bound for startedAt' },
         to: { type: 'string', description: 'ISO 8601 date-time upper bound for startedAt' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'evseId', 'reason', 'startedAt', 'endedAt'],
+          description:
+            'Column to sort by: station, evseId, reason, startedAt, endedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -14610,7 +15331,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/notifications',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'channel', 'status', 'eventType'],
+    queryParams: ['page', 'limit', 'search', 'channel', 'status', 'eventType', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14629,8 +15350,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         status: { type: ['string', 'null'], enum: ['pending', 'sent', 'failed', null] },
         eventType: { type: ['string', 'null'], description: 'Filter by event type' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['timestamp', 'recipient', 'subject', 'eventType', 'status', null],
+          description:
+            'Column to sort by: timestamp, recipient, subject, eventType, status. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'channel', 'status', 'eventType'],
+      required: ['page', 'limit', 'search', 'channel', 'status', 'eventType', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14648,6 +15380,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         channel: { type: 'string', enum: ['email', 'sms', 'webhook', 'push', 'log'] },
         status: { type: 'string', enum: ['pending', 'sent', 'failed'] },
         eventType: { type: 'string', description: 'Filter by event type' },
+        sort: {
+          type: 'string',
+          enum: ['timestamp', 'recipient', 'subject', 'eventType', 'status'],
+          description:
+            'Column to sort by: timestamp, recipient, subject, eventType, status. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -14662,7 +15405,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/ocpi/cdrs',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'partnerId', 'pushStatus'],
+    queryParams: ['page', 'limit', 'search', 'partnerId', 'pushStatus', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14685,8 +15428,28 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['pending', 'sent', 'confirmed', 'failed', null],
           description: 'Filter by CDR push status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'partner',
+            'ocpiCdrId',
+            'totalEnergy',
+            'totalCost',
+            'type',
+            'pushStatus',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: partner, ocpiCdrId, totalEnergy, totalCost, type, pushStatus, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'partnerId', 'pushStatus'],
+      required: ['page', 'limit', 'search', 'partnerId', 'pushStatus', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14710,6 +15473,25 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['pending', 'sent', 'confirmed', 'failed'],
           description: 'Filter by CDR push status',
+        },
+        sort: {
+          type: 'string',
+          enum: [
+            'partner',
+            'ocpiCdrId',
+            'totalEnergy',
+            'totalCost',
+            'type',
+            'pushStatus',
+            'createdAt',
+          ],
+          description:
+            'Column to sort by: partner, ocpiCdrId, totalEnergy, totalCost, type, pushStatus, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -14753,7 +15535,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/ocpi/partners',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14766,8 +15548,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'countryParty', 'status', 'version', 'createdAt', null],
+          description:
+            'Column to sort by: name, countryParty, status, version, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search'],
+      required: ['page', 'limit', 'search', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14782,6 +15575,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['name', 'countryParty', 'status', 'version', 'createdAt'],
+          description:
+            'Column to sort by: name, countryParty, status, version, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -14810,7 +15614,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/ocpi/sessions',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'partnerId', 'status'],
+    queryParams: ['page', 'limit', 'search', 'partnerId', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14833,8 +15637,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['ACTIVE', 'COMPLETED', 'INVALID', 'PENDING', 'RESERVATION', null],
           description: 'Filter by OCPI session status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['partner', 'tokenUid', 'status', 'kwh', 'totalCost', 'createdAt', null],
+          description:
+            'Column to sort by: partner, tokenUid, status, kwh, totalCost, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'partnerId', 'status'],
+      required: ['page', 'limit', 'search', 'partnerId', 'status', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14858,6 +15673,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['ACTIVE', 'COMPLETED', 'INVALID', 'PENDING', 'RESERVATION'],
           description: 'Filter by OCPI session status',
+        },
+        sort: {
+          type: 'string',
+          enum: ['partner', 'tokenUid', 'status', 'kwh', 'totalCost', 'createdAt'],
+          description:
+            'Column to sort by: partner, tokenUid, status, kwh, totalCost, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -14887,7 +15713,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/ocpi/sync-log',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'partnerId'],
+    queryParams: ['page', 'limit', 'search', 'partnerId', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14905,8 +15731,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           pattern: '^opr_[a-z0-9]{12}$',
           description: 'Filter sync logs by partner ID',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['module', 'direction', 'action', 'status', 'objectsCount', 'createdAt', null],
+          description:
+            'Column to sort by: module, direction, action, status, objectsCount, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'partnerId'],
+      required: ['page', 'limit', 'search', 'partnerId', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14925,6 +15762,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           pattern: '^opr_[a-z0-9]{12}$',
           description: 'Filter sync logs by partner ID',
+        },
+        sort: {
+          type: 'string',
+          enum: ['module', 'direction', 'action', 'status', 'objectsCount', 'createdAt'],
+          description:
+            'Column to sort by: module, direction, action, status, objectsCount, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -14951,7 +15799,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/ocpi/tariff-mappings',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'partnerId'],
+    queryParams: ['page', 'limit', 'search', 'partnerId', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -14969,8 +15817,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           pattern: '^opr_[a-z0-9]{12}$',
           description: 'Filter by OCPI partner ID',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['ocpiTariffId', 'partner', 'updatedAt', null],
+          description:
+            'Column to sort by: ocpiTariffId, partner, updatedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'partnerId'],
+      required: ['page', 'limit', 'search', 'partnerId', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -14989,6 +15848,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           pattern: '^opr_[a-z0-9]{12}$',
           description: 'Filter by OCPI partner ID',
+        },
+        sort: {
+          type: 'string',
+          enum: ['ocpiTariffId', 'partner', 'updatedAt'],
+          description:
+            'Column to sort by: ocpiTariffId, partner, updatedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -15058,7 +15928,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/payment-terminals',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'siteId', 'stationId', 'status', 'online'],
+    queryParams: [
+      'page',
+      'limit',
+      'search',
+      'siteId',
+      'stationId',
+      'status',
+      'online',
+      'sort',
+      'order',
+    ],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -15086,8 +15966,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['true', 'false', null],
           description: 'Last known device status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'model', 'site', 'station', 'provider', 'status', 'online', null],
+          description:
+            'Column to sort by: name, model, site, station, provider, status, online. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'siteId', 'stationId', 'status', 'online'],
+      required: [
+        'page',
+        'limit',
+        'search',
+        'siteId',
+        'stationId',
+        'status',
+        'online',
+        'sort',
+        'order',
+      ],
       additionalProperties: false,
     },
     strict: true,
@@ -15112,6 +16013,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['true', 'false'],
           description: 'Last known device status',
+        },
+        sort: {
+          type: 'string',
+          enum: ['name', 'model', 'site', 'station', 'provider', 'status', 'online'],
+          description:
+            'Column to sort by: name, model, site, station, provider, status, online. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -15426,7 +16338,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/reports',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'reportType'],
+    queryParams: ['page', 'limit', 'search', 'reportType', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -15454,8 +16366,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           ],
           description: 'Filter by report type',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'reportType', 'format', 'status', 'fileSize', 'createdAt', null],
+          description:
+            'Column to sort by: name, reportType, format, status, fileSize, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'reportType'],
+      required: ['page', 'limit', 'search', 'reportType', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -15483,6 +16406,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'driverActivity',
           ],
           description: 'Filter by report type',
+        },
+        sort: {
+          type: 'string',
+          enum: ['name', 'reportType', 'format', 'status', 'fileSize', 'createdAt'],
+          description:
+            'Column to sort by: name, reportType, format, status, fileSize, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -15694,7 +16628,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/reservations',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'status', 'stationId', 'siteId'],
+    queryParams: ['page', 'limit', 'search', 'status', 'stationId', 'siteId', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -15722,8 +16656,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           pattern: '^sit_[a-z0-9]{12}$',
           description: 'Filter by site ID',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'driver', 'status', 'startsAt', 'expiresAt', 'createdAt', null],
+          description:
+            'Column to sort by: station, driver, status, startsAt, expiresAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'status', 'stationId', 'siteId'],
+      required: ['page', 'limit', 'search', 'status', 'stationId', 'siteId', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -15749,6 +16694,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Filter by station ID',
         },
         siteId: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Filter by site ID' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'driver', 'status', 'startsAt', 'expiresAt', 'createdAt'],
+          description:
+            'Column to sort by: station, driver, status, startsAt, expiresAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -15763,6 +16719,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'id',
       'reservationId',
       'sessionId',
+      'sessionStartedAt',
       'siteName',
       'stationId',
       'stationOcppId',
@@ -15896,7 +16853,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/sessions',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'siteId', 'stationId', 'status', 'costMissing'],
+    queryParams: [
+      'page',
+      'limit',
+      'search',
+      'siteId',
+      'stationId',
+      'status',
+      'costMissing',
+      'sort',
+      'order',
+    ],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -15940,8 +16907,40 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description:
             'true: only billed sessions in the company currency that delivered energy and have no electricity cost (left out of profit). POST /v1/sites/{id}/electricity-cost/recalculate fills them from the site rates',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'station',
+            'driver',
+            'vehicle',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'co2Avoided',
+            'cost',
+            null,
+          ],
+          description:
+            'Column to sort by: station, driver, vehicle, status, startedAt, duration, energy, co2Avoided, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'siteId', 'stationId', 'status', 'costMissing'],
+      required: [
+        'page',
+        'limit',
+        'search',
+        'siteId',
+        'stationId',
+        'status',
+        'costMissing',
+        'sort',
+        'order',
+      ],
       additionalProperties: false,
     },
     strict: true,
@@ -15973,6 +16972,27 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['true', 'false'],
           description:
             'true: only billed sessions in the company currency that delivered energy and have no electricity cost (left out of profit). POST /v1/sites/{id}/electricity-cost/recalculate fills them from the site rates',
+        },
+        sort: {
+          type: 'string',
+          enum: [
+            'station',
+            'driver',
+            'vehicle',
+            'status',
+            'startedAt',
+            'duration',
+            'energy',
+            'co2Avoided',
+            'cost',
+          ],
+          description:
+            'Column to sort by: station, driver, vehicle, status, startedAt, duration, energy, co2Avoided, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -16040,7 +17060,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/sites/{siteId}/maintenance/events',
     pathParams: ['siteId'],
-    queryParams: ['page', 'limit', 'search', 'status'],
+    queryParams: ['page', 'limit', 'search', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -16058,9 +17078,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['scheduled', 'active', 'completed', 'cancelled', null],
           description: 'Filter by status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'plannedStartAt',
+            'plannedEndAt',
+            'status',
+            'eventType',
+            'reason',
+            'sessionsStopped',
+            'reservationsCancelled',
+            null,
+          ],
+          description:
+            'Column to sort by: plannedStartAt, plannedEndAt, status, eventType, reason, sessionsStopped, reservationsCancelled. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         siteId: { type: 'string', description: 'Site ID (e.g., sit_...)' },
       },
-      required: ['page', 'limit', 'search', 'status', 'siteId'],
+      required: ['page', 'limit', 'search', 'status', 'sort', 'order', 'siteId'],
       additionalProperties: false,
     },
     strict: true,
@@ -16079,6 +17119,25 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['scheduled', 'active', 'completed', 'cancelled'],
           description: 'Filter by status',
+        },
+        sort: {
+          type: 'string',
+          enum: [
+            'plannedStartAt',
+            'plannedEndAt',
+            'status',
+            'eventType',
+            'reason',
+            'sessionsStopped',
+            'reservationsCancelled',
+          ],
+          description:
+            'Column to sort by: plannedStartAt, plannedEndAt, status, eventType, reason, sessionsStopped, reservationsCancelled. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
         siteId: { type: 'string', description: 'Site ID (e.g., sit_...)' },
       },
@@ -16139,7 +17198,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/sites/{id}/sessions',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'status', 'stationId'],
+    queryParams: ['page', 'limit', 'status', 'stationId', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -16152,9 +17211,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Filter by session status',
         },
         stationId: { type: ['string', 'null'], description: 'Filter by station ID' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
       },
-      required: ['page', 'limit', 'status', 'stationId', 'id'],
+      required: ['page', 'limit', 'status', 'stationId', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -16169,6 +17239,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Filter by session status',
         },
         stationId: { type: 'string', description: 'Filter by station ID' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
       },
       required: ['id'],
@@ -16200,16 +17281,40 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/sites/{id}/stations',
     pathParams: ['id'],
-    queryParams: ['page', 'limit'],
+    queryParams: ['page', 'limit', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
       properties: {
         page: { type: ['integer', 'null'], minimum: 1 },
         limit: { type: ['integer', 'null'], minimum: 1, maximum: 100 },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'stationId',
+            'site',
+            'vendor',
+            'model',
+            'securityProfile',
+            'ocppProtocol',
+            'status',
+            'connectors',
+            'online',
+            'lastHeartbeat',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: stationId, site, vendor, model, securityProfile, ocppProtocol, status, connectors, online, lastHeartbeat, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
       },
-      required: ['page', 'limit', 'id'],
+      required: ['page', 'limit', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -16218,6 +17323,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         page: { type: 'integer', minimum: 1 },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
+        sort: {
+          type: 'string',
+          enum: [
+            'stationId',
+            'site',
+            'vendor',
+            'model',
+            'securityProfile',
+            'ocppProtocol',
+            'status',
+            'connectors',
+            'online',
+            'lastHeartbeat',
+            'createdAt',
+          ],
+          description:
+            'Column to sort by: stationId, site, vendor, model, securityProfile, ocppProtocol, status, connectors, online, lastHeartbeat, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
       },
       required: ['id'],
@@ -16239,6 +17367,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'statusReason',
       'total',
       'updatedAt',
+      'vendorId',
+      'vendorName',
     ],
   },
   {
@@ -16249,7 +17379,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/sites',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'city', 'state', 'loadManagement', 'aiInsights'],
+    queryParams: [
+      'page',
+      'limit',
+      'search',
+      'city',
+      'state',
+      'loadManagement',
+      'aiInsights',
+      'sort',
+      'order',
+    ],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -16275,8 +17415,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description:
             'Filter by AI insight scope: suppressed (by an operator, or by an active maintenance event of the whole site) or in_scope',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'location', 'stationCount', 'loadManagement', 'createdAt', null],
+          description:
+            'Column to sort by: name, location, stationCount, loadManagement, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'city', 'state', 'loadManagement', 'aiInsights'],
+      required: [
+        'page',
+        'limit',
+        'search',
+        'city',
+        'state',
+        'loadManagement',
+        'aiInsights',
+        'sort',
+        'order',
+      ],
       additionalProperties: false,
     },
     strict: true,
@@ -16303,6 +17464,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['in_scope', 'suppressed'],
           description:
             'Filter by AI insight scope: suppressed (by an operator, or by an active maintenance event of the whole site) or in_scope',
+        },
+        sort: {
+          type: 'string',
+          enum: ['name', 'location', 'stationCount', 'loadManagement', 'createdAt'],
+          description:
+            'Column to sort by: name, location, stationCount, loadManagement, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -16426,7 +17598,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{id}/charging-profiles',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -16439,9 +17611,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['source', 'evseId', 'chargingLimitSource', 'template', 'createdAt', null],
+          description:
+            'Column to sort by: source, evseId, chargingLimitSource, template, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -16456,6 +17639,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['source', 'evseId', 'chargingLimitSource', 'template', 'createdAt'],
+          description:
+            'Column to sort by: source, evseId, chargingLimitSource, template, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
       required: ['id'],
@@ -16562,7 +17756,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{id}/ev-charging-schedules',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -16575,9 +17769,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['evseId', 'timeBase', 'withinLimits', 'receivedAt', null],
+          description:
+            'Column to sort by: evseId, timeBase, withinLimits, receivedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -16592,6 +17797,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['evseId', 'timeBase', 'withinLimits', 'receivedAt'],
+          description:
+            'Column to sort by: evseId, timeBase, withinLimits, receivedAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
       required: ['id'],
@@ -16829,7 +18045,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{id}/monitoring-rules',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -16842,9 +18058,30 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'component',
+            'variable',
+            'type',
+            'value',
+            'severity',
+            'monitoringId',
+            'status',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: component, variable, type, value, severity, monitoringId, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -16859,6 +18096,26 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: [
+            'component',
+            'variable',
+            'type',
+            'value',
+            'severity',
+            'monitoringId',
+            'status',
+            'createdAt',
+          ],
+          description:
+            'Column to sort by: component, variable, type, value, severity, monitoringId, status, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
       required: ['id'],
@@ -16952,7 +18209,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{id}/sessions',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'status'],
+    queryParams: ['page', 'limit', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -16964,9 +18221,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['active', 'completed', 'faulted', 'idling', null],
           description: 'Filter by session status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
-      required: ['page', 'limit', 'status', 'id'],
+      required: ['page', 'limit', 'status', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -16979,6 +18247,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['active', 'completed', 'faulted', 'idling'],
           description: 'Filter by session status',
+        },
+        sort: {
+          type: 'string',
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
@@ -17011,7 +18290,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{id}/variables',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -17024,9 +18303,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['component', 'variable', 'value', 'attributeType', 'source', null],
+          description:
+            'Column to sort by: component, variable, value, attributeType, source. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -17041,6 +18331,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['component', 'variable', 'value', 'attributeType', 'source'],
+          description:
+            'Column to sort by: component, variable, value, attributeType, source. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
       required: ['id'],
@@ -17081,6 +18382,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'isOnline',
       'isSimulator',
       'aiInsights',
+      'sort',
+      'order',
     ],
     bodyParams: [],
     parameters: {
@@ -17125,6 +18428,30 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description:
             'Filter by AI insight scope: suppressed (by an operator on the station or its site, or by an active maintenance event) or in_scope',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'stationId',
+            'site',
+            'vendor',
+            'model',
+            'securityProfile',
+            'ocppProtocol',
+            'status',
+            'connectors',
+            'online',
+            'lastHeartbeat',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: stationId, site, vendor, model, securityProfile, ocppProtocol, status, connectors, online, lastHeartbeat, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
       required: [
         'page',
@@ -17136,6 +18463,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'isOnline',
         'isSimulator',
         'aiInsights',
+        'sort',
+        'order',
       ],
       additionalProperties: false,
     },
@@ -17177,6 +18506,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['in_scope', 'suppressed'],
           description:
             'Filter by AI insight scope: suppressed (by an operator on the station or its site, or by an active maintenance event) or in_scope',
+        },
+        sort: {
+          type: 'string',
+          enum: [
+            'stationId',
+            'site',
+            'vendor',
+            'model',
+            'securityProfile',
+            'ocppProtocol',
+            'status',
+            'connectors',
+            'online',
+            'lastHeartbeat',
+            'createdAt',
+          ],
+          description:
+            'Column to sort by: stationId, site, vendor, model, securityProfile, ocppProtocol, status, connectors, online, lastHeartbeat, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -17221,6 +18573,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'page',
       'limit',
       'search',
+      'sort',
+      'order',
       'status',
       'aiState',
       'resolutionSource',
@@ -17240,6 +18594,27 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'caseNumber',
+            'subject',
+            'driver',
+            'category',
+            'priority',
+            'status',
+            'assignedTo',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: caseNumber, subject, driver, category, priority, status, assignedTo, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         status: {
           type: ['string', 'null'],
           enum: [
@@ -17302,6 +18677,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'page',
         'limit',
         'search',
+        'sort',
+        'order',
         'status',
         'aiState',
         'resolutionSource',
@@ -17323,6 +18700,26 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: [
+            'caseNumber',
+            'subject',
+            'driver',
+            'category',
+            'priority',
+            'status',
+            'assignedTo',
+            'createdAt',
+          ],
+          description:
+            'Column to sort by: caseNumber, subject, driver, category, priority, status, assignedTo, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         status: {
           type: 'string',
           enum: ['open', 'in_progress', 'waiting_on_driver', 'resolved', 'closed', 'ai_assist'],
@@ -17399,7 +18796,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/tokens/{id}/sessions',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'search'],
+    queryParams: ['page', 'limit', 'search', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -17412,9 +18809,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost', null],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$', description: 'Token ID' },
       },
-      required: ['page', 'limit', 'search', 'id'],
+      required: ['page', 'limit', 'search', 'sort', 'order', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -17429,6 +18837,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        sort: {
+          type: 'string',
+          enum: ['station', 'driver', 'status', 'startedAt', 'duration', 'energy', 'cost'],
+          description:
+            'Column to sort by: station, driver, status, startedAt, duration, energy, cost. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
         id: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$', description: 'Token ID' },
       },
       required: ['id'],
@@ -17460,7 +18879,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/tokens',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'tokenType', 'status'],
+    queryParams: ['page', 'limit', 'search', 'tokenType', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -17479,8 +18898,28 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['active', 'inactive', null],
           description: 'Filter by token status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: [
+            'idToken',
+            'label',
+            'driver',
+            'tokenType',
+            'status',
+            'expiresAt',
+            'createdAt',
+            null,
+          ],
+          description:
+            'Column to sort by: idToken, label, driver, tokenType, status, expiresAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'tokenType', 'status'],
+      required: ['page', 'limit', 'search', 'tokenType', 'status', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -17500,6 +18939,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['active', 'inactive'],
           description: 'Filter by token status',
+        },
+        sort: {
+          type: 'string',
+          enum: ['idToken', 'label', 'driver', 'tokenType', 'status', 'expiresAt', 'createdAt'],
+          description:
+            'Column to sort by: idToken, label, driver, tokenType, status, expiresAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -17662,7 +19112,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/users',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'roleId', 'status'],
+    queryParams: ['page', 'limit', 'search', 'roleId', 'status', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -17685,8 +19135,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['active', 'inactive', null],
           description: 'Filter by user status',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['name', 'email', 'role', 'status', 'lastLoginAt', 'createdAt', null],
+          description:
+            'Column to sort by: name, email, role, status, lastLoginAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'roleId', 'status'],
+      required: ['page', 'limit', 'search', 'roleId', 'status', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -17706,6 +19167,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['active', 'inactive'],
           description: 'Filter by user status',
+        },
+        sort: {
+          type: 'string',
+          enum: ['name', 'email', 'role', 'status', 'lastLoginAt', 'createdAt'],
+          description:
+            'Column to sort by: name, email, role, status, lastLoginAt, createdAt. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -17743,7 +19215,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/worker-logs',
     pathParams: [],
-    queryParams: ['page', 'limit', 'search', 'status', 'queue', 'from', 'to'],
+    queryParams: ['page', 'limit', 'search', 'status', 'queue', 'from', 'to', 'sort', 'order'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -17771,8 +19243,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description:
             'ISO datetime, inclusive upper bound of the entry time; must not be before `from`',
         },
+        sort: {
+          type: ['string', 'null'],
+          enum: ['startedAt', 'jobName', 'queue', 'status', 'durationMs', null],
+          description:
+            'Column to sort by: startedAt, jobName, queue, status, durationMs. Without it, the default order applies.',
+        },
+        order: {
+          type: ['string', 'null'],
+          enum: ['asc', 'desc', null],
+          description: 'Sort direction (default asc). Used only with sort.',
+        },
       },
-      required: ['page', 'limit', 'search', 'status', 'queue', 'from', 'to'],
+      required: ['page', 'limit', 'search', 'status', 'queue', 'from', 'to', 'sort', 'order'],
       additionalProperties: false,
     },
     strict: true,
@@ -17803,6 +19286,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           format: 'date-time',
           description:
             'ISO datetime, inclusive upper bound of the entry time; must not be before `from`',
+        },
+        sort: {
+          type: 'string',
+          enum: ['startedAt', 'jobName', 'queue', 'status', 'durationMs'],
+          description:
+            'Column to sort by: startedAt, jobName, queue, status, durationMs. Without it, the default order applies.',
+        },
+        order: {
+          type: 'string',
+          enum: ['asc', 'desc'],
+          description: 'Sort direction (default asc). Used only with sort.',
         },
       },
       required: [],
@@ -26303,6 +27797,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'reason',
       'sessionCount',
       'sessionId',
+      'stationName',
       'status',
       'taxCents',
       'totalCents',

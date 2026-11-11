@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 import {
   db,
   ocpiPartners,
@@ -32,6 +32,8 @@ import { OCPI_ROLE_NAMES } from '@evtivity/lib/ocpi-roles';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
+import { ocpiPartnerListSort } from '../lib/sorts/ocpi-partner-list-sort.js';
+import { ocpiSyncLogListSort } from '../lib/sorts/ocpi-sync-log-list-sort.js';
 
 const approvedRolesField = z
   .array(z.enum(OCPI_ROLE_NAMES))
@@ -251,7 +253,10 @@ const syncParams = z.object({
 
 const syncLogQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter sync logs by partner ID'),
+  ...ocpiSyncLogListSort.query,
 });
+
+const partnerListQuery = paginationQuery.extend({ ...ocpiPartnerListSort.query });
 
 // OCPI partners are company-wide roaming configuration: site-restricted users get 404.
 const PARTNER_SCOPE_NOT_FOUND = { error: 'Partner not found', code: 'PARTNER_NOT_FOUND' } as const;
@@ -267,7 +272,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         summary: 'List OCPI partners',
         operationId: 'listOcpiPartners',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(partnerListQuery),
         response: {
           200: paginatedResponse(ocpiPartnerItem),
           404: errorWith('Partner not found', [ERROR_CODES.PARTNER_NOT_FOUND]),
@@ -276,7 +281,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
-      const { page, limit, search } = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof partnerListQuery>;
+      const { page, limit, search } = query;
       const offset = (page - 1) * limit;
 
       const conditions = [];
@@ -293,7 +299,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           .select()
           .from(ocpiPartners)
           .where(where)
-          .orderBy(desc(ocpiPartners.createdAt), desc(ocpiPartners.id))
+          .orderBy(...ocpiPartnerListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db
@@ -878,7 +884,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
-      const { page, limit, partnerId } = request.query as z.infer<typeof syncLogQuery>;
+      const query = request.query as z.infer<typeof syncLogQuery>;
+      const { page, limit, partnerId } = query;
       const offset = (page - 1) * limit;
 
       const conditions = [];
@@ -903,7 +910,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           })
           .from(ocpiSyncLog)
           .where(where)
-          .orderBy(desc(ocpiSyncLog.createdAt), desc(ocpiSyncLog.id))
+          .orderBy(...ocpiSyncLogListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

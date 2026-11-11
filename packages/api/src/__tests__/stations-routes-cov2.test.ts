@@ -53,6 +53,9 @@ const tables = vi.hoisted(() => {
     );
   const names = [
     'chargingStations',
+    'configTemplatePushStations',
+    'configTemplatePushes',
+    'evChargingSchedules',
     'evses',
     'connectors',
     'chargingSessions',
@@ -210,6 +213,7 @@ vi.mock('drizzle-orm', () => {
     and: vi.fn((...conds: unknown[]) => ({ op: 'and', conds })),
     or: vi.fn((...conds: unknown[]) => ({ op: 'or', conds })),
     desc: vi.fn((a: unknown) => ({ op: 'desc', col: colOf(a) })),
+    asc: vi.fn((a: unknown) => ({ op: 'asc', col: colOf(a) })),
     count: vi.fn(() => ({ op: 'count' })),
     sql: Object.assign(vi.fn(sqlFn), {
       raw: vi.fn(sqlFn),

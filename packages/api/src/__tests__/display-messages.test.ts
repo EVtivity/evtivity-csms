@@ -79,7 +79,8 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  // The list sort renders its direction with sql.raw.
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -209,6 +210,39 @@ describe('Display message routes', () => {
       const body = JSON.parse(response.body);
       expect(body.data).toHaveLength(1);
       expect(body.total).toBe(1);
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'messageId',
+        'priority',
+        'content',
+        'format',
+        'state',
+        'status',
+        'createdAt',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/stations/${VALID_STATION_ID}/display-messages?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=ocppMessageId', 'sort=status&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/stations/${VALID_STATION_ID}/display-messages?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
 
     it('returns 200 with status filter applied', async () => {

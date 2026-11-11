@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 import {
   db,
   claimCdrPushRetry,
@@ -23,6 +23,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { sessionInSites } from '../lib/ocpi-site-scope.js';
+import { ocpiCdrListSort } from '../lib/sorts/ocpi-cdr-list-sort.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { publishOcpiCdrRequest } from '../lib/ocpi-cdr-request.js';
@@ -107,6 +108,7 @@ const cdrQuery = paginationQuery.extend({
     .enum(['pending', 'sent', 'confirmed', 'failed'])
     .optional()
     .describe('Filter by CDR push status'),
+  ...ocpiCdrListSort.query,
 });
 
 const creditCdrBody = z.object({
@@ -130,7 +132,8 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { page, limit, partnerId, pushStatus } = request.query as z.infer<typeof cdrQuery>;
+      const query = request.query as z.infer<typeof cdrQuery>;
+      const { page, limit, partnerId, pushStatus } = query;
       const offset = (page - 1) * limit;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
@@ -174,7 +177,7 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
           .from(ocpiCdrs)
           .leftJoin(ocpiPartners, eq(ocpiCdrs.partnerId, ocpiPartners.id))
           .where(where)
-          .orderBy(desc(ocpiCdrs.createdAt), desc(ocpiCdrs.id))
+          .orderBy(...ocpiCdrListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

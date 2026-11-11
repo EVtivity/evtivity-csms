@@ -4,14 +4,9 @@
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { TokenStatusBadge } from '@/components/token/TokenStatusBadge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import type { ListSort } from '@/hooks/use-list-sort';
 import { CopyableId } from '@/components/copyable-id';
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
@@ -19,19 +14,13 @@ import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/component
 
 export const TOKENS_COLUMNS: ColumnMeta[] = [
   {
-    key: 'tokenId',
-    label: 'tokens.tokenId',
-    defaultVisible: true,
-    defaultVisibleMobile: false,
-    alwaysVisible: true,
-  },
-  {
     key: 'token',
     label: 'tokens.token',
     defaultVisible: true,
     defaultVisibleMobile: true,
     alwaysVisible: true,
   },
+  { key: 'label', label: 'tokens.label', defaultVisible: true, defaultVisibleMobile: false },
   { key: 'driver', label: 'tokens.driver', defaultVisible: true, defaultVisibleMobile: true },
   { key: 'type', label: 'tokens.type', defaultVisible: true, defaultVisibleMobile: false },
   {
@@ -49,6 +38,18 @@ export const TOKENS_COLUMNS: ColumnMeta[] = [
   },
   { key: 'created', label: 'common.created', defaultVisible: true, defaultVisibleMobile: false },
 ];
+
+/** The sort keys of `GET /v1/tokens` (`tokenListSort` in the API token service). */
+export const TOKEN_SORT_KEYS = [
+  'idToken',
+  'label',
+  'driver',
+  'tokenType',
+  'status',
+  'expiresAt',
+  'createdAt',
+] as const;
+export type TokenSortKey = (typeof TOKEN_SORT_KEYS)[number];
 
 export interface Token {
   id: string;
@@ -77,6 +78,8 @@ interface TokensTableProps {
   showDriver?: boolean;
   emptyMessage?: string;
   visibility?: ColumnVisibility;
+  /** The list's sort; without it the headers do not sort. */
+  sort?: ListSort<TokenSortKey> | undefined;
 }
 
 export function TokensTable({
@@ -88,6 +91,7 @@ export function TokensTable({
   showDriver = true,
   emptyMessage,
   visibility,
+  sort,
 }: TokensTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -102,13 +106,41 @@ export function TokensTable({
         <Table>
           <TableHeader>
             <TableRow>
-              {isVisible('tokenId') && <TableHead>{t('tokens.tokenId')}</TableHead>}
-              {isVisible('token') && <TableHead>{t('tokens.token')}</TableHead>}
-              {showDriver && isVisible('driver') && <TableHead>{t('tokens.driver')}</TableHead>}
-              {isVisible('type') && <TableHead>{t('tokens.type')}</TableHead>}
-              {isVisible('status') && <TableHead>{t('common.status')}</TableHead>}
-              {isVisible('expiresAt') && <TableHead>{t('tokens.expiresAt')}</TableHead>}
-              {isVisible('created') && <TableHead>{t('common.created')}</TableHead>}
+              {isVisible('token') && (
+                <SortableTableHead sortKey="idToken" sort={sort}>
+                  {t('tokens.token')}
+                </SortableTableHead>
+              )}
+              {isVisible('label') && (
+                <SortableTableHead sortKey="label" sort={sort}>
+                  {t('tokens.label')}
+                </SortableTableHead>
+              )}
+              {showDriver && isVisible('driver') && (
+                <SortableTableHead sortKey="driver" sort={sort}>
+                  {t('tokens.driver')}
+                </SortableTableHead>
+              )}
+              {isVisible('type') && (
+                <SortableTableHead sortKey="tokenType" sort={sort}>
+                  {t('tokens.type')}
+                </SortableTableHead>
+              )}
+              {isVisible('status') && (
+                <SortableTableHead sortKey="status" sort={sort}>
+                  {t('common.status')}
+                </SortableTableHead>
+              )}
+              {isVisible('expiresAt') && (
+                <SortableTableHead sortKey="expiresAt" sort={sort}>
+                  {t('tokens.expiresAt')}
+                </SortableTableHead>
+              )}
+              {isVisible('created') && (
+                <SortableTableHead sortKey="createdAt" sort={sort}>
+                  {t('common.created')}
+                </SortableTableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -131,16 +163,13 @@ export function TokensTable({
                   void navigate(`/tokens/${token.id}`);
                 }}
               >
-                {isVisible('tokenId') && (
-                  <TableCell className="text-muted-foreground">{token.id}</TableCell>
-                )}
                 {isVisible('token') && (
                   <TableCell>
                     <CopyableId id={token.idToken} variant="table" className="text-link" />
-                    {token.label != null && token.label !== '' && (
-                      <p className="text-xs text-muted-foreground">{token.label}</p>
-                    )}
                   </TableCell>
+                )}
+                {isVisible('label') && (
+                  <TableCell data-testid="token-label-cell">{token.label ?? ''}</TableCell>
                 )}
                 {showDriver && isVisible('driver') && (
                   <TableCell>

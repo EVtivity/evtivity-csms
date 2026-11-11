@@ -49,11 +49,11 @@ function features(driverAiSupport: boolean, version = DRIVER_AI_NOTICE_VERSION):
   });
 }
 
-function renderPage(): void {
+function renderPage(entry = '/support/new'): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/support/new']}>
+      <MemoryRouter initialEntries={[entry]}>
         <NewSupportCase />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -214,5 +214,25 @@ describe('NewSupportCase driver AI consent', () => {
     await screen.findByLabelText('supportCases.subject');
     expect(screen.queryByRole('button', { name: 'supportCases.ai.choiceAi' })).toBeNull();
     expect(screen.getByLabelText('supportCases.subject')).toBeTruthy();
+  });
+});
+
+describe('NewSupportCase linked session', () => {
+  it('names the linked session by its station and start time, never its id', async () => {
+    features(false);
+    renderPage(
+      '/support/new?sessionId=ses_internal_1&stationName=CS-001&sessionStartedAt=2026-11-11T10%3A00%3A00.000Z',
+    );
+    const line = await screen.findByText(/supportCases\.linkedSession:/);
+    expect(line.textContent).toContain('CS-001, ');
+    expect(line.textContent).toContain('2026');
+    expect(line.textContent).not.toContain('ses_internal_1');
+  });
+
+  it('shows a plain fallback when the session has no readable details', async () => {
+    features(false);
+    renderPage('/support/new?sessionId=ses_internal_1');
+    const line = await screen.findByText(/supportCases\.linkedSession:/);
+    expect(line.textContent).toBe('supportCases.linkedSession: supportCases.linkedSessionFallback');
   });
 });

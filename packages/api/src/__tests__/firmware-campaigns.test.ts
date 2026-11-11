@@ -149,7 +149,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -1578,6 +1578,82 @@ describe('Firmware campaign routes', () => {
         });
         expect(updated.statusCode, firmwareUrl).toBe(400);
         expect(vi.mocked(db.update)).not.toHaveBeenCalled();
+      }
+    });
+  });
+
+  // ===================================================================
+  // List sorting
+  // ===================================================================
+
+  describe('list sorting', () => {
+    const lists: Array<{ url: string; keys: string[]; results: () => unknown[][] }> = [
+      {
+        url: '/v1/firmware-campaigns',
+        keys: ['name', 'version', 'status', 'createdAt'],
+        results: () => [[], [{ total: 0 }]],
+      },
+      {
+        url: '/v1/firmware-campaigns/camp-001',
+        keys: ['station', 'status', 'updatedAt'],
+        results: () => [
+          [
+            {
+              id: 'camp-001',
+              name: 'Rollout',
+              firmwareUrl: 'https://example.com/fw.bin',
+              version: '2.0.0',
+              signingCertificate: null,
+              retries: null,
+              retryInterval: null,
+              installDateTime: null,
+              signature: null,
+              status: 'active',
+              targetFilter: null,
+              createdById: 'test-user-id',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+        ],
+      },
+      {
+        url: '/v1/firmware-campaigns/camp-001/matching-stations',
+        keys: ['station', 'site', 'vendor', 'model', 'firmwareVersion', 'status'],
+        results: () => [[{ id: 'camp-001', targetFilter: null }], [], [{ total: 0 }]],
+      },
+    ];
+
+    it('accepts every sort key in both directions', async () => {
+      for (const list of lists) {
+        for (const sort of list.keys) {
+          for (const order of ['asc', 'desc']) {
+            setupDbResults(...list.results());
+            const response = await app.inject({
+              method: 'GET',
+              url: `${list.url}?sort=${sort}&order=${order}`,
+              headers: { authorization: `Bearer ${token}` },
+            });
+            expect(response.statusCode, `${list.url} ${sort} ${order}`).toBe(200);
+          }
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const list of lists) {
+        for (const query of [
+          'sort=id',
+          'sort=charging_stations.id',
+          `sort=${String(list.keys[0])}&order=up`,
+        ]) {
+          const response = await app.inject({
+            method: 'GET',
+            url: `${list.url}?${query}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${list.url} ${query}`).toBe(400);
+        }
       }
     });
   });

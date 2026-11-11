@@ -97,7 +97,8 @@ vi.mock('drizzle-orm', () => ({
   inArray: inArrayMock,
   ne: vi.fn((col: unknown, value: unknown) => ({ ne: [col, value] })),
   desc: vi.fn(),
-  sql: vi.fn(),
+  // The list sort renders its direction with sql.raw.
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -490,6 +491,58 @@ describe('OCPI routes, site scope', () => {
       expect(del.statusCode).toBe(404);
       expect(db.select).not.toHaveBeenCalled();
       expect(db.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('OCPI list sorting', () => {
+    const LISTS: Array<{ url: string; keys: string[] }> = [
+      { url: '/ocpi/partners', keys: ['name', 'countryParty', 'status', 'version', 'createdAt'] },
+      {
+        url: '/ocpi/sync-log',
+        keys: ['module', 'direction', 'action', 'status', 'objectsCount', 'createdAt'],
+      },
+      {
+        url: '/ocpi/sessions',
+        keys: ['partner', 'tokenUid', 'status', 'kwh', 'totalCost', 'createdAt'],
+      },
+      {
+        url: '/ocpi/cdrs',
+        keys: [
+          'partner',
+          'ocpiCdrId',
+          'totalEnergy',
+          'totalCost',
+          'type',
+          'pushStatus',
+          'createdAt',
+        ],
+      },
+    ];
+
+    it('accepts every sort key in both directions', async () => {
+      getUserSiteIdsMock.mockResolvedValue(null);
+      for (const { url, keys } of LISTS) {
+        for (const sort of keys) {
+          for (const order of ['asc', 'desc']) {
+            dbResults = [[], [{ count: 0 }]];
+            const response = await app.inject({
+              method: 'GET',
+              url: `${url}?sort=${sort}&order=${order}`,
+              headers,
+            });
+            expect(response.statusCode, `${url} ${sort} ${order}`).toBe(200);
+          }
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const { url } of LISTS) {
+        for (const query of ['sort=id', 'sort=ocpi_partners.id', 'sort=createdAt&order=up']) {
+          const response = await app.inject({ method: 'GET', url: `${url}?${query}`, headers });
+          expect(response.statusCode, `${url} ${query}`).toBe(400);
+        }
+      }
     });
   });
 });

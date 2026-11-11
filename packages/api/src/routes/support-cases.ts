@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, sql, count, ilike, or, inArray, isNull } from 'drizzle-orm';
+import { eq, and, sql, count, ilike, or, inArray, isNull } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
 import {
   supportCases,
@@ -54,6 +54,7 @@ import {
   driverAiConsentRecordSchema,
 } from '@evtivity/lib/driver-ai';
 import { paginationQuery } from '../lib/pagination.js';
+import { supportCaseListSort } from '../lib/sorts/support-case-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -160,6 +161,7 @@ const sessionRef = z
   .object({
     id: z.string().describe('Charging session ID'),
     transactionId: z.string().nullable().describe('OCPP transaction ID for the session'),
+    startedAt: z.coerce.date().nullable().optional().describe('Session start time'),
   })
   .loose();
 
@@ -263,6 +265,7 @@ const attachmentIdParams = z.object({
 });
 
 const listCasesQuery = paginationQuery.extend({
+  ...supportCaseListSort.query,
   status: z
     .enum(['open', 'in_progress', 'waiting_on_driver', 'resolved', 'closed', 'ai_assist'])
     .optional()
@@ -583,7 +586,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           .leftJoin(drivers, eq(supportCases.driverId, drivers.id))
           .leftJoin(users, eq(supportCases.assignedTo, users.id))
           .where(where)
-          .orderBy(desc(supportCases.createdAt), desc(supportCases.id))
+          .orderBy(...supportCaseListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(supportCases).where(where),
@@ -812,6 +815,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           .select({
             id: supportCaseSessions.sessionId,
             transactionId: chargingSessions.transactionId,
+            startedAt: chargingSessions.startedAt,
             stationName: chargingStations.stationId,
             driverName: sql<
               string | null

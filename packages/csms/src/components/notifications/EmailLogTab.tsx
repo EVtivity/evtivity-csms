@@ -6,18 +6,13 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { FilterPopover } from '@/components/FilterBar';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { SearchInput } from '@/components/search-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import {
   OCPP_EVENT_TYPES,
   DRIVER_EVENT_TYPES,
@@ -28,6 +23,7 @@ import {
   statusBadgeClass,
   formatTimestamp,
   formatRecipient,
+  NOTIFICATION_SORT_KEYS,
 } from './shared';
 import { StatusCell } from './StatusCell';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -48,12 +44,13 @@ export function EmailLogTab(): React.JSX.Element {
   const [eventType, setEventType] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  const listSort = useListSort(NOTIFICATION_SORT_KEYS);
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = { channel: 'email' };
+    const params: Record<string, string> = { channel: 'email', ...listSort.params };
     if (eventType) params.eventType = eventType;
     if (statusFilter) params.status = statusFilter;
     return params;
-  }, [eventType, statusFilter]);
+  }, [eventType, statusFilter, listSort.params]);
 
   const eventNames = eventCategory ? (EVENT_CATEGORIES[eventCategory] ?? []) : [];
   const activeFilterCount = (eventCategory ? 1 : 0) + (eventType ? 1 : 0) + (statusFilter ? 1 : 0);
@@ -171,11 +168,21 @@ export function EmailLogTab(): React.JSX.Element {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('common.timestamp')}</TableHead>
-              <TableHead>{t('logs.recipient')}</TableHead>
-              <TableHead>{t('logs.subject')}</TableHead>
-              <TableHead>{t('logs.eventType')}</TableHead>
-              <TableHead>{t('logs.status')}</TableHead>
+              <SortableTableHead sortKey="timestamp" sort={listSort}>
+                {t('common.timestamp')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="recipient" sort={listSort}>
+                {t('logs.recipient')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="subject" sort={listSort}>
+                {t('logs.subject')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="eventType" sort={listSort}>
+                {t('logs.eventType')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="status" sort={listSort}>
+                {t('logs.status')}
+              </SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

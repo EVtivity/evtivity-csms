@@ -47,6 +47,7 @@ import {
 import { recordStationCommandAudit } from '../lib/station-command-audit.js';
 import { readSimSettings, simProviderRegistry } from '../lib/sim.js';
 import { simKeyStore } from '../lib/sim-keys.js';
+import { simAttachmentListSort, simListSort } from '../lib/sorts/sim-list-sort.js';
 import { SIM_NOT_FOUND, simFeatureOnRequest } from '../lib/sim-site-scope.js';
 import {
   attachmentViewById,
@@ -138,6 +139,11 @@ const listQuery = paginationQuery.extend({
     .describe('The provider state stored by the last Refresh'),
   stationId: ID_PARAMS.stationId.optional().describe('Only the SIM attached to this station'),
 });
+
+/** The list query: the filters plus the sort (`simListSort`); the export takes the filters only. */
+const listSortedQuery = listQuery.extend(simListSort.query);
+
+const attachmentsQuery = paginationQuery.omit({ search: true }).extend(simAttachmentListSort.query);
 
 const createBody = z.object({
   iccid: z.string().max(22).describe('ICCID: 19 digits with an optional trailing F, or 20 digits'),
@@ -554,12 +560,12 @@ export function simRoutes(app: FastifyInstance): void {
           'The SIM inventory, newest first. A user with access to every site sees every SIM; a site-restricted user sees only SIMs with a confirmed attachment to a station of their sites. Reads the database only.',
         operationId: 'listSims',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(listQuery),
+        querystring: zodSchema(listSortedQuery),
         response: { 200: paginatedResponse(simSchema), 400: featureOff },
       },
     },
     async (request) => {
-      const query = request.query as z.infer<typeof listQuery>;
+      const query = request.query as z.infer<typeof listSortedQuery>;
       return listSimViews(
         {
           ...(query.search != null ? { search: query.search } : {}),
@@ -572,6 +578,7 @@ export function simRoutes(app: FastifyInstance): void {
         await viewerOf(request),
         query.page,
         query.limit,
+        { sort: query.sort, order: query.order },
       );
     },
   );
@@ -905,7 +912,7 @@ export function simRoutes(app: FastifyInstance): void {
         operationId: 'listSimAttachments',
         security: [{ bearerAuth: [] }],
         params: zodSchema(simParams),
-        querystring: zodSchema(paginationQuery.omit({ search: true })),
+        querystring: zodSchema(attachmentsQuery),
         response: {
           200: paginatedResponse(attachmentItemSchema),
           400: featureOff,
@@ -915,13 +922,13 @@ export function simRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof simParams>;
-      const { page, limit } = request.query as { page: number; limit: number };
+      const { page, limit, sort, order } = request.query as z.infer<typeof attachmentsQuery>;
       const viewer = await viewerOf(request);
       if ((await visibleSim(id, viewer.siteIds)) == null) {
         await sendSimNotFound(reply);
         return;
       }
-      return simAttachmentHistory(id, viewer, page, limit);
+      return simAttachmentHistory(id, viewer, page, limit, { sort, order });
     },
   );
 

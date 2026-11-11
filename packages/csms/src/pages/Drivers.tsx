@@ -10,11 +10,17 @@ import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { CreateButton } from '@/components/create-button';
 import { SearchInput } from '@/components/search-input';
-import { DriversTable, DRIVERS_COLUMNS, type Driver } from '@/components/DriversTable';
+import {
+  DriversTable,
+  DRIVERS_COLUMNS,
+  DRIVER_SORT_KEYS,
+  type Driver,
+} from '@/components/DriversTable';
 import { ColumnVisibilityToggle } from '@/components/ColumnVisibilityToggle';
 import { FilterPopover } from '@/components/FilterBar';
 import { useColumnVisibility } from '@/hooks/use-column-visibility';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
 import { useUserTimezone } from '@/lib/timezone';
 
 export function Drivers(): React.JSX.Element {
@@ -22,6 +28,7 @@ export function Drivers(): React.JSX.Element {
   const navigate = useNavigate();
   const timezone = useUserTimezone();
   const [filterStatus, setFilterStatus] = useState('');
+  const listSort = useListSort(DRIVER_SORT_KEYS);
 
   const {
     data: drivers,
@@ -33,6 +40,7 @@ export function Drivers(): React.JSX.Element {
     setSearch,
   } = usePaginatedQuery<Driver>('drivers', '/v1/drivers', {
     status: filterStatus,
+    ...listSort.params,
   });
 
   const { visibility, setVisibility } = useColumnVisibility('drivers', DRIVERS_COLUMNS);
@@ -126,6 +134,7 @@ export function Drivers(): React.JSX.Element {
             timezone={timezone}
             isLoading={isLoading}
             visibility={visibility}
+            sort={listSort}
           />
         </CardContent>
       </Card>

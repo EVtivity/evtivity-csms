@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { getMock, postMock, toastMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -37,7 +38,9 @@ function renderList(isOnline: boolean): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StationLocalAuthList stationId="sta_1" isOnline={isOnline} timezone="UTC" />
+      <MemoryRouter>
+        <StationLocalAuthList stationId="sta_1" isOnline={isOnline} timezone="UTC" />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

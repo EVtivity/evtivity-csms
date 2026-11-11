@@ -96,7 +96,6 @@ export function PricingGroupTariffsTab({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('pricing.tariffId')}</TableHead>
                 <TableHead>{t('pricing.tariffName')}</TableHead>
                 <TableHead>{t('pricing.tariffType')}</TableHead>
                 <TableHead>{t('pricing.perKwh', { context: taxBasis })}</TableHead>
@@ -117,7 +116,6 @@ export function PricingGroupTariffsTab({
                     void navigate(`/pricing/${groupId}/tariffs/${tariff.id}`);
                   }}
                 >
-                  <TableCell className="text-muted-foreground">{tariff.id}</TableCell>
                   <TableCell className="font-medium text-link" data-testid="row-click-target">
                     {tariff.name}
                   </TableCell>

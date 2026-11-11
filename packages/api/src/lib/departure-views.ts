@@ -5,7 +5,7 @@
 // charging). Writes go through @evtivity/services/departure.service.
 
 import { z } from 'zod';
-import { and, asc, count, desc, eq, exists, gte, ilike, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, exists, gte, ilike, inArray, lt, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import {
   db,
@@ -28,6 +28,8 @@ import {
   type VehicleDepartureSchedule,
 } from '@evtivity/database';
 import { escapeLikePattern } from '@evtivity/lib';
+import type { ListSortParams } from './list-sort.js';
+import { departureScheduleListSort } from './sorts/departure-schedule-list-sort.js';
 
 const numberOrNull = (value: string | null): number | null =>
   value == null ? null : Number(value);
@@ -419,7 +421,7 @@ function withNames(
   };
 }
 
-export interface ScheduleListFilters {
+export interface ScheduleListFilters extends ListSortParams {
   page: number;
   limit: number;
   search?: string | undefined;
@@ -450,7 +452,7 @@ export async function listFleetDepartureSchedules(
     .where(where);
   const [rows, totals] = await Promise.all([
     base
-      .orderBy(desc(vehicleDepartureSchedules.createdAt), desc(vehicleDepartureSchedules.id))
+      .orderBy(...departureScheduleListSort.orderBy(filters))
       .limit(filters.limit)
       .offset((filters.page - 1) * filters.limit),
     db

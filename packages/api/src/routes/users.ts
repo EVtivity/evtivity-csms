@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { eq, and, or, isNull, ilike, sql, inArray, desc, ne } from 'drizzle-orm';
+import { eq, and, or, isNull, ilike, sql, inArray, ne } from 'drizzle-orm';
 import argon2 from 'argon2';
 import { afterReply } from '../lib/after-reply.js';
 import { bearerToken, completePendingSsoLink, voidPendingSsoLink } from '../lib/sso-link.js';
@@ -111,6 +111,8 @@ import { generateUserToken, hashUserToken } from '../lib/user-token.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
+import type { ListSortParams } from '../lib/list-sort.js';
+import { userListSort } from '../lib/sorts/user-list-sort.js';
 import {
   successResponse,
   paginatedResponse,
@@ -1832,16 +1834,18 @@ export function userRoutes(app: FastifyInstance): void {
           paginationQuery.extend({
             roleId: ID_PARAMS.roleId.optional().describe('Filter by role ID'),
             status: z.enum(['active', 'inactive']).optional().describe('Filter by user status'),
+            ...userListSort.query,
           }),
         ),
         response: { 200: paginatedResponse(userItem) },
       },
     },
     async (request) => {
-      const query = request.query as z.infer<typeof paginationQuery> & {
-        roleId?: string;
-        status?: 'active' | 'inactive';
-      };
+      const query = request.query as z.infer<typeof paginationQuery> &
+        ListSortParams & {
+          roleId?: string;
+          status?: 'active' | 'inactive';
+        };
       const { page, limit, search, roleId, status } = query;
       const offset = (page - 1) * limit;
 
@@ -1875,7 +1879,7 @@ export function userRoutes(app: FastifyInstance): void {
           .select({ ...userSelect, ...userAvatarColumns })
           .from(users)
           .where(where)
-          .orderBy(desc(users.createdAt), desc(users.id))
+          .orderBy(...userListSort.orderBy(query))
           .limit(limit)
           .offset(offset)
           .then((rows) => withAvatars(rows)),

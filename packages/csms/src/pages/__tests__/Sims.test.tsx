@@ -250,6 +250,15 @@ describe('SIMs list', () => {
     });
   });
 
+  it('sorts the list on the server when a sortable header is clicked', async () => {
+    answerList(() => Promise.resolve({ data: [SIM], total: 1 }));
+    renderPage('/sims');
+    fireEvent.click(await screen.findByTestId('sort-iccid'));
+    await waitFor(() => {
+      expect(listUrls()).toContain('/v1/sims?page=1&limit=10&sort=iccid&order=asc');
+    });
+  });
+
   it('keeps the search in the URL when a filter changes right after the debounced search', async () => {
     answerList(() => Promise.resolve({ data: [], total: 0 }));
     renderPage('/sims');

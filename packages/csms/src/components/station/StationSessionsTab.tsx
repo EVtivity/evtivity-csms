@@ -7,7 +7,13 @@ import { useTranslation } from 'react-i18next';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
-import { SessionsTable, type Session } from '@/components/SessionsTable';
+import {
+  SESSION_SORT_KEYS,
+  SessionsTable,
+  type Session,
+  type SessionSortKey,
+} from '@/components/SessionsTable';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 
@@ -23,11 +29,21 @@ export function StationSessionsTab({
   const { t } = useTranslation();
   const [sessionsPage, setSessionsPage] = useState(1);
   const [sessionsStatus, setSessionsStatus] = useState('');
+  const listSort = useListSort<SessionSortKey>(SESSION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sessionsSort: ListSort<SessionSortKey> = {
+    ...listSort,
+    toggle: (key) => {
+      setSessionsPage(1);
+      listSort.toggle(key);
+    },
+  };
 
   const sessionsLimit = 10;
   const sessionsQueryParams = new URLSearchParams({
     page: String(sessionsPage),
     limit: String(sessionsLimit),
+    ...listSort.params,
   });
   if (sessionsStatus !== '') sessionsQueryParams.set('status', sessionsStatus);
   const {
@@ -36,7 +52,7 @@ export function StationSessionsTab({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['stations', stationId, 'sessions', sessionsPage, sessionsStatus],
+    queryKey: ['stations', stationId, 'sessions', sessionsPage, sessionsStatus, listSort.params],
     queryFn: () =>
       api.get<{ data: Session[]; total: number }>(
         `/v1/stations/${stationId}/sessions?${sessionsQueryParams.toString()}`,
@@ -97,6 +113,7 @@ export function StationSessionsTab({
         onPageChange={setSessionsPage}
         timezone={timezone}
         hideStationName
+        sort={sessionsSort}
       />
       <Pagination
         page={sessionsPage}

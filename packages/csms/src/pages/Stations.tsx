@@ -11,12 +11,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { SearchInput } from '@/components/search-input';
 import { Pagination } from '@/components/ui/pagination';
-import { StationsTable, STATIONS_COLUMNS } from '@/components/StationsTable';
+import { StationsTable, STATIONS_COLUMNS, STATION_SORT_KEYS } from '@/components/StationsTable';
 import type { Station } from '@/components/StationsTable';
 import { ColumnVisibilityToggle } from '@/components/ColumnVisibilityToggle';
 import { FilterPopover } from '@/components/FilterBar';
 import { useColumnVisibility } from '@/hooks/use-column-visibility';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
 import { api } from '@/lib/api';
 import { useUserTimezone } from '@/lib/timezone';
 
@@ -43,8 +44,10 @@ export function Stations(): React.JSX.Element {
 
   const siteList = sites?.data;
 
+  const listSort = useListSort(STATION_SORT_KEYS);
+
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = { ...listSort.params };
     if (filterSiteId !== '') params.siteId = filterSiteId;
     if (filterStatus !== '') params.status = filterStatus;
     if (filterOnboardingStatus !== '') params.onboardingStatus = filterOnboardingStatus;
@@ -59,6 +62,7 @@ export function Stations(): React.JSX.Element {
     filterOnline,
     filterSimulator,
     filterAiInsights,
+    listSort.params,
   ]);
 
   const {
@@ -257,6 +261,7 @@ export function Stations(): React.JSX.Element {
             siteMap={siteMap}
             isLoading={isLoading}
             visibility={visibility}
+            sort={listSort}
           />
         </CardContent>
       </Card>

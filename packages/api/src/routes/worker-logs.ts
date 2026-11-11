@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, ilike, sql, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, ilike, sql, gte, lte } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { workerJobLogs, workerJobStatusEnum } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -13,6 +13,7 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import { isAllSiteUser } from '../lib/site-access.js';
 import { logTimeRangeQuery, parseLogTimeRange } from '../lib/date-range.js';
+import { workerLogListSort } from '../lib/sorts/worker-log-list-sort.js';
 
 // The route stays hidden from site-restricted users: operator-wide logs need
 // access to every site, so they get the same 404 as a route that does not
@@ -47,6 +48,7 @@ const listWorkerLogsQuery = paginationQuery.extend({
   status: z.enum(workerJobStatusEnum.enumValues).optional().describe('Filter by job status'),
   queue: z.string().optional().describe('Filter by queue name'),
   ...logTimeRangeQuery,
+  ...workerLogListSort.query,
 });
 
 export function workerLogRoutes(app: FastifyInstance): void {
@@ -64,9 +66,8 @@ export function workerLogRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { page, limit, search, status, queue, from, to } = request.query as z.infer<
-        typeof listWorkerLogsQuery
-      >;
+      const query = request.query as z.infer<typeof listWorkerLogsQuery>;
+      const { page, limit, search, status, queue, from, to } = query;
       const offset = (page - 1) * limit;
       if (!(await allowAllSiteUsersOnly(request, reply))) return;
       const range = parseLogTimeRange({ from, to });
@@ -105,7 +106,7 @@ export function workerLogRoutes(app: FastifyInstance): void {
           })
           .from(workerJobLogs)
           .where(where)
-          .orderBy(desc(workerJobLogs.startedAt))
+          .orderBy(...workerLogListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

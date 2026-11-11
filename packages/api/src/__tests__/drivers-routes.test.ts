@@ -84,6 +84,10 @@ vi.mock('@evtivity/database', () => ({
   drivers: {},
   driverTokens: {},
   vehicles: {},
+  // Read by the list sort definitions the routes import.
+  chargingStations: {},
+  chargingSessions: {},
+  reservations: {},
   users: {},
   tokenAuditLog: {},
   stationLocalAuthEntries: {},
@@ -132,7 +136,8 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  // `sql.raw` builds the sort direction of a sorted list.
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -420,6 +425,31 @@ describe('Driver routes (operator)', () => {
       const body = res.json();
       expect(body.data).toEqual([]);
       expect(body.total).toBe(0);
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['name', 'email', 'phone', 'status', 'createdAt']) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const res = await app.inject({
+            method: 'GET',
+            url: `/drivers?sort=${sort}&order=${order}&status=active`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=drivers.id', 'sort=name&order=up']) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/drivers?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(res.statusCode, query).toBe(400);
+      }
     });
   });
 

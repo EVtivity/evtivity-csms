@@ -57,6 +57,15 @@ import {
   type DepotSite,
   type FleetVehicleOption,
 } from './departure-types';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
+
+/**
+ * The sort keys of `GET /v1/fleets/:id/departure-schedules` (`departureScheduleListSort` in
+ * the API). The departures table above keeps its departure-time order: one sort per tab.
+ */
+const SCHEDULE_SORT_KEYS = ['departureTime', 'priority', 'depot'] as const;
+type ScheduleSortKey = (typeof SCHEDULE_SORT_KEYS)[number];
 
 const PAGE_SIZE = 10;
 const NOT_PLANNED = '-';
@@ -119,11 +128,23 @@ export function FleetDeparturesTab({ fleetId }: FleetDeparturesTabProps): React.
         departureListPath(fleetId, listFilter.status, departurePage, listFilter.nowMs),
       ),
   });
+  const urlScheduleSort = useListSort(SCHEDULE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const scheduleSort: ListSort<ScheduleSortKey> = {
+    ...urlScheduleSort,
+    toggle: (key) => {
+      setSchedulePage(1);
+      urlScheduleSort.toggle(key);
+    },
+  };
+  const scheduleSortQuery = new URLSearchParams(urlScheduleSort.params).toString();
   const schedules = useQuery({
-    queryKey: fleetDepartureKeys.schedules(fleetId, schedulePage),
+    queryKey: [...fleetDepartureKeys.schedules(fleetId, schedulePage), urlScheduleSort.params],
     queryFn: () =>
       api.get<{ data: DepartureSchedule[]; total: number }>(
-        `/v1/fleets/${fleetId}/departure-schedules?page=${String(schedulePage)}&limit=${String(PAGE_SIZE)}`,
+        `/v1/fleets/${fleetId}/departure-schedules?page=${String(schedulePage)}&limit=${String(PAGE_SIZE)}${
+          scheduleSortQuery === '' ? '' : `&${scheduleSortQuery}`
+        }`,
       ),
   });
   // The depots the dialogs offer, with their time zones for a new departure.
@@ -381,10 +402,16 @@ export function FleetDeparturesTab({ fleetId }: FleetDeparturesTabProps): React.
               <TableRow>
                 <TableHead>{t('fleets.departures.vehicle')}</TableHead>
                 <TableHead>{t('fleets.departures.days')}</TableHead>
-                <TableHead>{t('fleets.departures.departureTime')}</TableHead>
+                <SortableTableHead sortKey="departureTime" sort={scheduleSort}>
+                  {t('fleets.departures.departureTime')}
+                </SortableTableHead>
                 <TableHead>{t('fleets.departures.target')}</TableHead>
-                <TableHead>{t('fleets.departures.priority')}</TableHead>
-                <TableHead>{t('fleets.departures.depot')}</TableHead>
+                <SortableTableHead sortKey="priority" sort={scheduleSort}>
+                  {t('fleets.departures.priority')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="depot" sort={scheduleSort}>
+                  {t('fleets.departures.depot')}
+                </SortableTableHead>
                 {canWrite && <TableHead className="text-right">{t('common.actions')}</TableHead>}
               </TableRow>
             </TableHeader>

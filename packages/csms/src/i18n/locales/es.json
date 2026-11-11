@@ -1,6 +1,9 @@
 {
   "common": {
     "loading": "Cargando...",
+    "sortAscending": "Ordenar de forma ascendente",
+    "sortDescending": "Ordenar de forma descendente",
+    "sortDefault": "Volver al orden predeterminado",
     "pageNotFound": "Página no encontrada",
     "pageNotFoundDescription": "La página que buscas no existe o ha sido movida.",
     "allSiteAccessRequired": "Se requiere acceso a todos los sitios",
@@ -117,7 +120,16 @@
       "year": "Año",
       "today": "Hoy",
       "clear": "Borrar"
-    }
+    },
+    "sessionFallback": "Sesión",
+    "unnamedSite": "Sitio sin nombre",
+    "unnamedStation": "Estación sin nombre",
+    "unnamedTerminal": "Terminal sin nombre",
+    "unnamedPanel": "Panel sin nombre",
+    "unnamedTransformer": "Transformador sin nombre",
+    "unnamedUser": "Usuario sin nombre",
+    "unnamedTemplate": "Plantilla sin nombre",
+    "unnamedReservation": "Reserva sin nombre"
   },
   "status": {
     "online": "En línea",
@@ -5348,6 +5360,7 @@
     "failedStations": "Fallidas",
     "noStationsTargeted": "Sin estaciones objetivo",
     "noCampaignRuns": "Sin ejecuciones de campaña aún",
+    "noCampaigns": "No hay campañas de firmware",
     "error": "Error",
     "confirmStart": "Iniciar campaña",
     "confirmStartDescription": "Esto enviará ahora la actualización de firmware a todas las estaciones en línea que coincidan. Las estaciones sin conexión la reciben al conectarse. ¿Continuar?",
@@ -6406,7 +6419,9 @@
       "mcp": "MCP",
       "proposal": "Acción de IA confirmada"
     },
-    "entryTitle": "{{action}} ({{entity}})"
+    "entryTitle": "{{action}} ({{entity}})",
+    "actorKindUser": "Usuario",
+    "entityName": "Nombre"
   },
   "maintenance": {
     "colType": "Tipo",

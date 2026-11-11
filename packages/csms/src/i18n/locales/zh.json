@@ -1,6 +1,9 @@
 {
   "common": {
     "loading": "加载中...",
+    "sortAscending": "升序排序",
+    "sortDescending": "降序排序",
+    "sortDefault": "恢复默认顺序",
     "pageNotFound": "页面未找到",
     "pageNotFoundDescription": "您访问的页面不存在或已被移动。",
     "allSiteAccessRequired": "需要所有充电站的访问权限",
@@ -117,7 +120,16 @@
       "year": "年份",
       "today": "今天",
       "clear": "清除"
-    }
+    },
+    "sessionFallback": "会话",
+    "unnamedSite": "未命名充电站",
+    "unnamedStation": "未命名充电桩",
+    "unnamedTerminal": "未命名终端",
+    "unnamedPanel": "未命名配电盘",
+    "unnamedTransformer": "未命名变压器",
+    "unnamedUser": "未命名用户",
+    "unnamedTemplate": "未命名模板",
+    "unnamedReservation": "未命名预约"
   },
   "status": {
     "online": "在线",
@@ -5348,6 +5360,7 @@
     "failedStations": "失败",
     "noStationsTargeted": "无目标充电桩",
     "noCampaignRuns": "暂无活动运行",
+    "noCampaigns": "暂无固件活动",
     "error": "错误",
     "confirmStart": "启动活动",
     "confirmStartDescription": "这将立即向所有符合条件的在线充电桩发送固件更新。离线充电桩在连接时收到。是否继续?",
@@ -6406,7 +6419,9 @@
       "mcp": "MCP",
       "proposal": "已确认的 AI 操作"
     },
-    "entryTitle": "{{action}}（{{entity}}）"
+    "entryTitle": "{{action}}（{{entity}}）",
+    "actorKindUser": "用户",
+    "entityName": "名称"
   },
   "maintenance": {
     "colType": "类型",

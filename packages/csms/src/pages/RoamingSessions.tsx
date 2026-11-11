@@ -3,16 +3,11 @@
 
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { roamingSessionStatusVariant } from '@/lib/status-variants';
 import { TabPanel } from '@/components/ui/tab-panel';
@@ -33,9 +28,20 @@ interface RoamingSession {
   partnerName: string | null;
 }
 
+/** The sort keys of `GET /v1/ocpi/sessions` (`ocpiSessionListSort` in the API). */
+export const ROAMING_SESSION_SORT_KEYS = [
+  'partner',
+  'tokenUid',
+  'status',
+  'kwh',
+  'totalCost',
+  'createdAt',
+] as const;
+
 export function RoamingSessions(): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
+  const listSort = useListSort(ROAMING_SESSION_SORT_KEYS);
 
   const {
     data: sessions,
@@ -45,7 +51,7 @@ export function RoamingSessions(): React.JSX.Element {
     page,
     totalPages,
     setPage,
-  } = usePaginatedQuery<RoamingSession>('ocpi-sessions', '/v1/ocpi/sessions');
+  } = usePaginatedQuery<RoamingSession>('ocpi-sessions', '/v1/ocpi/sessions', listSort.params);
 
   return (
     <div className="space-y-6">
@@ -54,12 +60,24 @@ export function RoamingSessions(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('roaming.sessions.partner')}</TableHead>
-                <TableHead>{t('roaming.sessions.tokenUid')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('roaming.sessions.energy')}</TableHead>
-                <TableHead>{t('roaming.sessions.cost')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="partner" sort={listSort}>
+                  {t('roaming.sessions.partner')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="tokenUid" sort={listSort}>
+                  {t('roaming.sessions.tokenUid')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={listSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="kwh" sort={listSort}>
+                  {t('roaming.sessions.energy')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="totalCost" sort={listSort}>
+                  {t('roaming.sessions.cost')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.created')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

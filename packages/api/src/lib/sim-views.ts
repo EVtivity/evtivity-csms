@@ -1,18 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import {
-  aliasedTable,
-  and,
-  count,
-  desc,
-  eq,
-  ilike,
-  inArray,
-  isNotNull,
-  isNull,
-  or,
-} from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { sql, type SQL } from 'drizzle-orm';
 import {
   chargingStations,
@@ -36,6 +25,12 @@ import {
 } from '@evtivity/services/station-sim.service';
 import { fetchedInSiteWindowsSql, simVisibleWhere } from './sim-site-scope.js';
 import { visibleUserIds } from './user-management-scope.js';
+import type { ListSortParams } from './list-sort.js';
+import {
+  openSimAttachments as openAttachments,
+  simAttachmentListSort,
+  simListSortFor,
+} from './sorts/sim-list-sort.js';
 
 // Database reads of the SIM inventory routes (`routes/sims.ts`). Reads only:
 // no provider call and no write. `siteIds` is null for a user with
@@ -154,8 +149,6 @@ function personName(firstName: string | null, lastName: string | null): string |
     .join(' ');
   return name === '' ? null : name;
 }
-
-const openAttachments = aliasedTable(simAttachments, 'open_attachment');
 
 const listColumns = {
   sim: sims,
@@ -300,6 +293,7 @@ export async function listSimViews(
   viewer: SimViewer,
   page: number,
   limit: number,
+  sort: ListSortParams = {},
 ): Promise<{ data: SimView[]; total: number }> {
   const where = listConditions(filters, viewer.siteIds);
   const [rows, [totalRow]] = await Promise.all([
@@ -310,7 +304,7 @@ export async function listSimViews(
       .leftJoin(chargingStations, stationOn)
       .leftJoin(sites, siteOn)
       .where(where)
-      .orderBy(desc(sims.createdAt), desc(sims.id))
+      .orderBy(...simListSortFor(viewer.siteIds).orderBy(sort))
       .limit(limit)
       .offset((page - 1) * limit),
     db
@@ -485,6 +479,7 @@ export async function simAttachmentHistory(
   viewer: SimViewer,
   page: number,
   limit: number,
+  sort: ListSortParams = {},
 ): Promise<{ data: AttachmentHistoryItem[]; total: number }> {
   const { siteIds } = viewer;
   const where = and(
@@ -506,7 +501,7 @@ export async function simAttachmentHistory(
       .leftJoin(sites, eq(sites.id, chargingStations.siteId))
       .leftJoin(users, eq(users.id, simAttachments.attachedBy))
       .where(where)
-      .orderBy(desc(simAttachments.attachedAt), desc(simAttachments.id))
+      .orderBy(...simAttachmentListSort.orderBy(sort))
       .limit(limit)
       .offset((page - 1) * limit),
     db

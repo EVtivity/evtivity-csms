@@ -482,6 +482,32 @@ describe('departure routes', () => {
     );
   });
 
+  it('accepts every schedule sort key in both directions', async () => {
+    for (const sort of ['departureTime', 'priority', 'depot']) {
+      for (const order of ['asc', 'desc']) {
+        m.fleetRows.push([{ id: FLEET }]);
+        m.listFleetDepartureSchedules.mockResolvedValueOnce({ data: [], total: 0 });
+        const res = await send(
+          'GET',
+          `/fleets/${FLEET}/departure-schedules?sort=${sort}&order=${order}&siteId=${SITE}`,
+        );
+        expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        expect(m.listFleetDepartureSchedules).toHaveBeenLastCalledWith(
+          FLEET,
+          expect.objectContaining({ sort, order, siteId: SITE }),
+          [SITE],
+        );
+      }
+    }
+  });
+
+  it('refuses a schedule sort key it does not offer and an unknown order', async () => {
+    for (const query of ['sort=id', 'sort=vehicle', 'sort=priority&order=up']) {
+      const res = await send('GET', `/fleets/${FLEET}/departure-schedules?${query}`);
+      expect(res.statusCode, query).toBe(400);
+    }
+  });
+
   it('imports CSV text through the import service', async () => {
     m.importDepartures.mockResolvedValueOnce({
       created: 1,

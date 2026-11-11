@@ -18,6 +18,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DriverCombobox } from '@/components/driver-combobox';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { sessionLabel } from '@/lib/session-label';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface SupportCase {
@@ -206,20 +207,21 @@ export function SupportCaseCreate(): React.JSX.Element {
               {selectedSessions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {selectedSessions.map((s) => {
-                    const label =
-                      s.transactionId != null && s.transactionId !== ''
-                        ? `#${s.transactionId}`
-                        : s.id;
-                    const subtitle = s.stationName ?? '';
+                    const label = sessionLabel(
+                      t,
+                      {
+                        stationOcppId: s.stationName,
+                        startedAt: s.startedAt,
+                        transactionId: s.transactionId,
+                      },
+                      timezone,
+                    );
                     return (
                       <span
                         key={s.id}
                         className="inline-flex items-center gap-1 rounded-sm bg-muted px-2 py-0.5 text-xs"
                       >
                         <span className="font-medium">{label}</span>
-                        {subtitle !== '' && (
-                          <span className="text-muted-foreground">· {subtitle}</span>
-                        )}
                         <button
                           type="button"
                           aria-label={t('supportCases.removeSession')}
@@ -253,14 +255,12 @@ export function SupportCaseCreate(): React.JSX.Element {
                   setSessionSearchText('');
                 }}
                 renderItem={(s) => {
-                  // Operators searching by session id (ses_*) need to see which
-                  // session each result refers to. Showing only the integer
-                  // transactionId is not enough to disambiguate two results
-                  // that share a station or a similar timestamp.
+                  // The transaction number, the station and the start time tell
+                  // two results apart; the internal session id is not shown.
                   const primary =
                     s.transactionId != null && s.transactionId !== ''
                       ? `#${s.transactionId}`
-                      : s.id;
+                      : t('common.sessionFallback');
                   const station = s.stationName ?? '';
                   const startedLabel =
                     s.startedAt != null ? formatDateTime(s.startedAt, timezone) : '';
@@ -270,7 +270,6 @@ export function SupportCaseCreate(): React.JSX.Element {
                       <div className="text-muted-foreground">
                         {[station, startedLabel].filter((x) => x !== '').join(' · ')}
                       </div>
-                      <div className="text-muted-foreground/70">{s.id}</div>
                     </div>
                   );
                 }}

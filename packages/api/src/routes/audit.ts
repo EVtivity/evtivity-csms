@@ -24,6 +24,7 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { errorWith, paginatedResponse } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { resolveAuditEntityNames } from '../lib/audit-entity-names.js';
 import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
 import { visibleUserIds } from '../lib/user-management-scope.js';
 import { inSimSiteWindowsSql, simVisibleSql } from '../lib/sim-site-scope.js';
@@ -32,6 +33,11 @@ import {
   supportCaseAuditSessionCondition,
 } from '../lib/support-case-redaction.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import {
+  auditListSort,
+  compareEntityAuditRows,
+  entityAuditListSort,
+} from '../lib/sorts/audit-list-sort.js';
 
 const auditEntityTypes = Object.keys(AUDIT_TABLES) as AuditEntityType[];
 
@@ -63,7 +69,10 @@ const auditQuerystring = paginationQuery.extend({
   actorDriverId: z.string().optional().describe('Filter by acting driver id'),
   from: z.iso.datetime().optional().describe('ISO datetime, inclusive lower bound'),
   to: z.iso.datetime().optional().describe('ISO datetime, inclusive upper bound'),
+  ...auditListSort.query,
 });
+
+const entityAuditQuerystring = paginationQuery.extend({ ...entityAuditListSort.query });
 
 const auditItem = z
   .object({
@@ -81,6 +90,13 @@ const auditItem = z
       .string()
       .nullable()
       .describe('Resolved display name for the operator / driver / api key actor'),
+    entityName: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        'Readable name of the entity (station OCPP id, site name, driver name, and so on); null when it has none',
+      ),
     before: z.unknown().nullable().optional(),
     after: z.unknown().nullable().optional(),
     notes: z.string().nullable(),
@@ -124,6 +140,8 @@ interface NormalizedAuditRow {
    * key name). Null when the actor is system / ocpp or the referenced row
    * was deleted. */
   actorName: string | null;
+  /** Readable name of the entity, set by resolveAuditEntityNames. */
+  entityName?: string | null;
   before: unknown;
   after: unknown;
   notes: string | null;
@@ -579,7 +597,7 @@ export function auditRoutes(app: FastifyInstance): void {
         tags: ['Audit'],
         summary: 'List audit entries for one entity',
         description:
-          'Newest first. One list per entity: an AI insight also lists the rows of its suggested action, a session and a reservation the rows of their payments.',
+          'Newest first unless sorted. One list per entity: an AI insight also lists the rows of its suggested action, a session and a reservation the rows of their payments.',
         operationId: 'listEntityAudit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(
@@ -588,7 +606,7 @@ export function auditRoutes(app: FastifyInstance): void {
             entityId: z.string().describe('Entity id (live id or snapshot for deleted rows)'),
           }),
         ),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(entityAuditQuerystring),
         response: {
           200: paginatedResponse(auditItem),
           400: errorWith('Unknown audit entity type', [ERROR_CODES.AUDIT_ENTITY_TYPE_INVALID]),
@@ -606,7 +624,8 @@ export function auditRoutes(app: FastifyInstance): void {
           .send({ error: 'Unknown entity type', code: 'AUDIT_ENTITY_TYPE_INVALID' });
         return;
       }
-      const { page, limit } = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof entityAuditQuerystring>;
+      const { page, limit } = query;
       const offset = (page - 1) * limit;
 
       // A site-restricted user sees the history of entities in its sites only
@@ -659,7 +678,7 @@ export function auditRoutes(app: FastifyInstance): void {
             const [rowsRes, countRes] = await Promise.all([
               db.execute(sql`
               SELECT * FROM ${table} WHERE ${match}${scope}
-              ORDER BY created_at DESC, id DESC
+              ORDER BY ${sql.join(entityAuditListSort.orderBy(query), sql`, `)}
               LIMIT ${offset + limit}
             `),
               db.execute(sql`SELECT COUNT(*)::int AS total FROM ${table} WHERE ${match}${scope}`),
@@ -674,15 +693,10 @@ export function auditRoutes(app: FastifyInstance): void {
       );
       const merged = parts
         .flatMap((p) => p.rows)
-        // Newest first, as each table's query: ties on the time break on id
-        // (newest row first), then on the entity type, so the order is stable
-        // across pages.
-        .sort(
-          (a, b) =>
-            b.createdAt.localeCompare(a.createdAt) ||
-            b.id - a.id ||
-            a.entityType.localeCompare(b.entityType),
-        )
+        // The order of each table's query (newest first by default): ties
+        // break on id, then on the entity type, so the order is stable across
+        // pages.
+        .sort((a, b) => compareEntityAuditRows(a, b, query))
         .slice(offset, offset + limit);
       const rows = await redactSupportCaseAuditRows(merged, entitySiteIds);
       await hideInvisibleActors(rows, userId, entitySiteIds);
@@ -690,6 +704,7 @@ export function auditRoutes(app: FastifyInstance): void {
 
       const resolver = await resolveActorNames(rows);
       for (const row of rows) row.actorName = actorNameFor(row, resolver);
+      await resolveAuditEntityNames(rows, entitySiteIds, request.log);
       return { data: rows, total } satisfies PaginatedResponse<unknown>;
     },
   );
@@ -795,7 +810,7 @@ export function auditRoutes(app: FastifyInstance): void {
 
       const dataSql = sql`
         ${sql.join(buildBranches('data'), sql` UNION ALL `)}
-        ORDER BY created_at DESC, entity_type ASC, id DESC
+        ORDER BY ${sql.join(auditListSort.orderBy(q), sql`, `)}
         LIMIT ${q.limit} OFFSET ${offset}
       `;
       const countSql = sql`SELECT COUNT(*)::int AS total FROM (${sql.join(buildBranches('count'), sql` UNION ALL `)}) sub`;
@@ -823,6 +838,7 @@ export function auditRoutes(app: FastifyInstance): void {
       await hideInvisibleActors(out, userId, siteIds);
       const resolver = await resolveActorNames(out);
       for (const row of out) row.actorName = actorNameFor(row, resolver);
+      await resolveAuditEntityNames(out, siteIds, request.log);
       const total = (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0;
       return { data: out, total } satisfies PaginatedResponse<unknown>;
     },

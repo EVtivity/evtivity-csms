@@ -3,6 +3,8 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, RefreshCw, Trash2, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -37,6 +39,16 @@ import { certificateStatusVariant } from '@/lib/status-variants';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { Textarea } from '@/components/ui/textarea';
 
+/** The sort keys of `GET /v1/pnc/ca-certificates` (the API list sort definition in `lib/sorts/`). */
+const CA_CERTIFICATE_SORT_KEYS = [
+  'certificateType',
+  'subject',
+  'issuer',
+  'validTo',
+  'status',
+  'source',
+] as const;
+
 interface CaCertificate {
   id: number;
   certificateType: string;
@@ -70,7 +82,8 @@ export function CaCertificatesTab(): React.JSX.Element {
   const [uploadCertType, setUploadCertType] = useState('V2GRootCertificate');
   const [uploadPem, setUploadPem] = useState('');
 
-  const caParams = caStatusFilter ? { status: caStatusFilter } : undefined;
+  const caSort = useListSort(CA_CERTIFICATE_SORT_KEYS);
+  const caParams = { ...(caStatusFilter ? { status: caStatusFilter } : {}), ...caSort.params };
 
   const {
     data: caCerts,
@@ -196,12 +209,24 @@ export function CaCertificatesTab(): React.JSX.Element {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('pnc.certificateType')}</TableHead>
-                      <TableHead>{t('pnc.subject')}</TableHead>
-                      <TableHead>{t('pnc.issuer')}</TableHead>
-                      <TableHead>{t('pnc.validTo')}</TableHead>
-                      <TableHead>{t('common.status')}</TableHead>
-                      <TableHead>{t('pnc.source')}</TableHead>
+                      <SortableTableHead sortKey="certificateType" sort={caSort}>
+                        {t('pnc.certificateType')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="subject" sort={caSort}>
+                        {t('pnc.subject')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="issuer" sort={caSort}>
+                        {t('pnc.issuer')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="validTo" sort={caSort}>
+                        {t('pnc.validTo')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={caSort}>
+                        {t('common.status')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="source" sort={caSort}>
+                        {t('pnc.source')}
+                      </SortableTableHead>
                       <TableHead />
                     </TableRow>
                   </TableHeader>

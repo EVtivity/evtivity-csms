@@ -17,7 +17,8 @@ import { CreateButton } from '@/components/create-button';
 import { ImportButton } from '@/components/import-button';
 import { ExportButton } from '@/components/export-button';
 import { SearchInput } from '@/components/search-input';
-import { TokensTable, TOKENS_COLUMNS, type Token } from '@/components/TokensTable';
+import { TokensTable, TOKENS_COLUMNS, TOKEN_SORT_KEYS, type Token } from '@/components/TokensTable';
+import { useListSort } from '@/hooks/use-list-sort';
 import { ColumnVisibilityToggle } from '@/components/ColumnVisibilityToggle';
 import { FilterPopover } from '@/components/FilterBar';
 import { useColumnVisibility } from '@/hooks/use-column-visibility';
@@ -45,6 +46,7 @@ export function Tokens(): React.JSX.Element {
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const canReadDrivers = useHasPermission('drivers:read');
+  const listSort = useListSort(TOKEN_SORT_KEYS);
 
   const { data: filterOptions } = useQuery({
     queryKey: ['tokens-filter-options'],
@@ -62,6 +64,7 @@ export function Tokens(): React.JSX.Element {
   } = usePaginatedQuery<Token>('tokens', '/v1/tokens', {
     tokenType: filterType,
     status: filterStatus,
+    ...listSort.params,
   });
 
   const { visibility, setVisibility } = useColumnVisibility('tokens', TOKENS_COLUMNS);
@@ -292,6 +295,7 @@ export function Tokens(): React.JSX.Element {
             timezone={timezone}
             isLoading={isLoading}
             visibility={visibility}
+            sort={listSort}
           />
         </CardContent>
       </Card>

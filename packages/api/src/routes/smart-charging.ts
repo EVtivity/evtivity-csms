@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, isNotNull, asc, inArray, ne, max, exists, sql } from 'drizzle-orm';
+import { eq, and, count, isNotNull, asc, inArray, ne, max, exists, sql } from 'drizzle-orm';
 import {
   db,
   chargingProfileTemplates,
@@ -22,6 +22,12 @@ import {
 import { getAuditActor } from '../lib/audit-actor.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
+import {
+  chargingProfilePushListSort,
+  chargingProfilePushStationListSort,
+  chargingProfileTemplateListSort,
+} from '../lib/sorts/smart-charging-list-sort.js';
+import { matchingStationListSort } from '../lib/sorts/matching-station-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import {
   errorResponse,
@@ -216,6 +222,7 @@ const matchingStationItem = z
     id: z.string().describe('Station UUID'),
     stationId: z.string().describe('OCPP station identifier'),
     model: z.string().nullable().describe('Station model'),
+    isOnline: z.boolean().describe('Whether the station is connected (always true here)'),
     siteName: z.string().nullable().describe('Site name'),
     vendorName: z.string().nullable().describe('Vendor name'),
   })
@@ -451,6 +458,15 @@ const updateTemplateBody = z
     { message: 'validFrom must be strictly before validTo' },
   );
 
+const templateListQuery = paginationQuery.extend(chargingProfileTemplateListSort.query);
+
+const matchingStationsQuery = paginationQuery.extend(matchingStationListSort.query);
+
+const pushListQuery = paginationQuery.extend(chargingProfilePushListSort.query);
+
+/** The push detail query: the page of station results and its sort. */
+const pushDetailQuery = paginationQuery.extend(chargingProfilePushStationListSort.query);
+
 export function smartChargingRoutes(app: FastifyInstance): void {
   // Filter options for target filter dropdowns
   app.get(
@@ -508,12 +524,12 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         summary: 'List charging profile templates',
         operationId: 'listChargingProfileTemplates',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(templateListQuery),
         response: { 200: paginatedResponse(templateItem) },
       },
     },
     async (request) => {
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof templateListQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -531,7 +547,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
           .select()
           .from(chargingProfileTemplates)
           .where(scope)
-          .orderBy(desc(chargingProfileTemplates.createdAt), desc(chargingProfileTemplates.id))
+          .orderBy(...chargingProfileTemplateListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(chargingProfileTemplates).where(scope),
@@ -1018,7 +1034,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         operationId: 'listChargingProfileMatchingStations',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(matchingStationsQuery),
         response: {
           200: paginatedResponse(matchingStationItem),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
@@ -1027,7 +1043,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof matchingStationsQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -1063,6 +1079,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
             id: chargingStations.id,
             stationId: chargingStations.stationId,
             model: chargingStations.model,
+            isOnline: chargingStations.isOnline,
             siteName: sites.name,
             vendorName: vendors.name,
           })
@@ -1070,7 +1087,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .leftJoin(vendors, eq(chargingStations.vendorId, vendors.id))
           .where(whereClause)
-          .orderBy(asc(chargingStations.stationId))
+          .orderBy(...matchingStationListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(chargingStations).where(whereClause),
@@ -1260,7 +1277,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         operationId: 'listChargingProfilePushes',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(pushListQuery),
         response: {
           200: paginatedResponse(pushItem),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
@@ -1269,7 +1286,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof pushListQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -1311,7 +1328,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
           .select()
           .from(chargingProfilePushes)
           .where(pushWhere)
-          .orderBy(desc(chargingProfilePushes.createdAt), desc(chargingProfilePushes.id))
+          .orderBy(...chargingProfilePushListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(chargingProfilePushes).where(pushWhere),
@@ -1376,7 +1393,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         operationId: 'getChargingProfilePushDetail',
         security: [{ bearerAuth: [] }],
         params: zodSchema(z.object({ pushId: z.string().describe('Push ID') })),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(pushDetailQuery),
         response: {
           200: itemResponse(pushDetailItem),
           404: errorWith('Push not found', [ERROR_CODES.PUSH_NOT_FOUND]),
@@ -1385,7 +1402,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { pushId } = request.params as { pushId: string };
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof pushDetailQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -1438,7 +1455,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
             eq(chargingProfilePushStations.stationId, chargingStations.id),
           )
           .where(stationWhere)
-          .orderBy(asc(chargingStations.stationId))
+          .orderBy(...chargingProfilePushStationListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
       ]);

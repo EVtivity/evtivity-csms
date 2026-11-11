@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -14,6 +14,8 @@ import {
   inOperatorStation,
 } from '@evtivity/database';
 import * as tokenService from '../services/token.service.js';
+import { tokenListSort } from '../lib/sorts/token-list-sort.js';
+import { sessionListSort } from '../lib/sorts/session-list-sort.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
@@ -229,7 +231,14 @@ const tokenFilterQuery = {
   status: z.enum(['active', 'inactive']).optional().describe('Filter by token status'),
 };
 
-const tokenListQuery = paginationQuery.extend(tokenFilterQuery);
+const tokenListQuery = paginationQuery.extend({
+  ...tokenFilterQuery,
+  ...tokenListSort.query,
+});
+
+const tokenSessionsQuery = paginationQuery.extend({
+  ...sessionListSort.query,
+});
 
 const tokenExportQuery = z.object({
   search: z.string().max(255).optional().describe('Search token value or driver name or email'),
@@ -392,7 +401,7 @@ export function tokenRoutes(app: FastifyInstance): void {
         operationId: 'listTokenSessions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(tokenParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(tokenSessionsQuery),
         response: {
           200: paginatedResponse(tokenSessionItem),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
@@ -401,7 +410,7 @@ export function tokenRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof tokenParams>;
-      const { page, limit } = request.query as z.infer<typeof paginationQuery>;
+      const { page, limit } = request.query as z.infer<typeof tokenSessionsQuery>;
       const offset = (page - 1) * limit;
 
       const token = await tokenService.getToken(id);
@@ -447,7 +456,7 @@ export function tokenRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
+          .orderBy(...sessionListSort.orderBy(request.query as z.infer<typeof tokenSessionsQuery>))
           .limit(limit)
           .offset(offset),
         db

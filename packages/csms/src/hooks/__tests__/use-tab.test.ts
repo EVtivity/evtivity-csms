@@ -51,6 +51,21 @@ describe('useTab', () => {
     expect(params.get('q')).toBe('x');
   });
 
+  it('drops the list sort of the previous tab on a tab change, and keeps it on the same tab', () => {
+    const result = setup('/sites/1?tab=stations&sort=name&order=desc', 'details');
+    act(() => {
+      result.current.setTab('stations');
+    });
+    expect(new URLSearchParams(result.current.search).get('sort')).toBe('name');
+    act(() => {
+      result.current.setTab('sessions');
+    });
+    const params = new URLSearchParams(result.current.search);
+    expect(params.get('tab')).toBe('sessions');
+    expect(params.has('sort')).toBe(false);
+    expect(params.has('order')).toBe(false);
+  });
+
   it('removes the param when switching back to the default tab', () => {
     const result = setup('/stations/1?tab=logs', 'details');
     act(() => {

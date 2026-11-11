@@ -75,6 +75,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { reportListSort } from '../lib/sorts/report-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import {
   queueReport,
@@ -195,6 +196,7 @@ const generateBody = z.object({
 
 const reportListQuery = paginationQuery.extend({
   reportType: z.enum(REPORT_TYPES).optional().describe('Filter by report type'),
+  ...reportListSort.query,
 });
 
 const createScheduleBody = z.object({
@@ -327,7 +329,8 @@ export function reportRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { page, limit, reportType } = request.query as z.infer<typeof reportListQuery>;
+      const query = request.query as z.infer<typeof reportListQuery>;
+      const { page, limit, reportType } = query;
       const offset = (page - 1) * limit;
       const user = request.user as { userId: string };
       const userScope = await getUserSiteIds(user.userId);
@@ -360,7 +363,7 @@ export function reportRoutes(app: FastifyInstance): void {
           })
           .from(reports)
           .where(whereClause)
-          .orderBy(desc(reports.createdAt), desc(reports.id))
+          .orderBy(...reportListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(reports).where(whereClause),

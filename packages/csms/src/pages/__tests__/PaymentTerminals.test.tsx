@@ -203,6 +203,17 @@ describe('PaymentTerminals', () => {
     });
   });
 
+  it('sorts the list on the server when a sortable header is clicked', async () => {
+    renderPage();
+    await screen.findByTestId('payment-terminal-row-ptm_1');
+    fireEvent.click(screen.getByTestId('sort-model'));
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(
+        expect.stringMatching(/\/v1\/payment-terminals\?.*sort=model&order=asc/),
+      );
+    });
+  });
+
   it('reads the filters from the URL', async () => {
     renderPage('/payment-terminals?online=false&siteId=sit_1');
     await screen.findByTestId('payment-terminal-row-ptm_1');

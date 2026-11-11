@@ -1,6 +1,9 @@
 {
   "common": {
     "loading": "로딩 중...",
+    "sortAscending": "오름차순 정렬",
+    "sortDescending": "내림차순 정렬",
+    "sortDefault": "기본 순서로 되돌리기",
     "pageNotFound": "페이지를 찾을 수 없습니다",
     "pageNotFoundDescription": "요청하신 페이지가 존재하지 않거나 이동되었습니다.",
     "allSiteAccessRequired": "전체 사이트 접근 권한 필요",
@@ -117,7 +120,16 @@
       "year": "연도",
       "today": "오늘",
       "clear": "지우기"
-    }
+    },
+    "sessionFallback": "세션",
+    "unnamedSite": "이름 없는 사이트",
+    "unnamedStation": "이름 없는 충전기",
+    "unnamedTerminal": "이름 없는 단말기",
+    "unnamedPanel": "이름 없는 분전반",
+    "unnamedTransformer": "이름 없는 변압기",
+    "unnamedUser": "이름 없는 사용자",
+    "unnamedTemplate": "이름 없는 템플릿",
+    "unnamedReservation": "이름 없는 예약"
   },
   "status": {
     "online": "온라인",
@@ -5348,6 +5360,7 @@
     "failedStations": "실패",
     "noStationsTargeted": "대상 충전소 없음",
     "noCampaignRuns": "아직 캠페인 실행 없음",
+    "noCampaigns": "펌웨어 캠페인 없음",
     "error": "오류",
     "confirmStart": "캠페인 시작",
     "confirmStartDescription": "일치하는 모든 온라인 충전소에 지금 펌웨어 업데이트를 보냅니다. 오프라인 충전소는 연결될 때 받습니다. 계속하시겠습니까?",
@@ -6406,7 +6419,9 @@
       "mcp": "MCP",
       "proposal": "확인된 AI 작업"
     },
-    "entryTitle": "{{action}} ({{entity}})"
+    "entryTitle": "{{action}} ({{entity}})",
+    "actorKindUser": "사용자",
+    "entityName": "이름"
   },
   "maintenance": {
     "colType": "유형",

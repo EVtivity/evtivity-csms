@@ -34,6 +34,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatCents, formatTaxPercent } from '@/lib/formatting';
 import { describeInvoiceLine } from '@/lib/invoice-lines';
 import { formatPeriodMonth, groupLinesByDriver, readBillTo } from '@/lib/fleet-invoice';
+import { sessionLabel } from '@/lib/session-label';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
@@ -59,6 +60,8 @@ interface InvoiceLineItem {
   id: number;
   invoiceId: string;
   sessionId: string | null;
+  sessionStationOcppId?: string | null;
+  sessionStartedAt?: string | null;
   description: string;
   quantity: string;
   unitPriceCents: number;
@@ -327,7 +330,11 @@ export function InvoiceDetail(): React.JSX.Element {
         <TableCell>
           {item.sessionId != null ? (
             <Link to={`/sessions/${item.sessionId}`} className="text-link hover:underline">
-              {item.sessionId}
+              {sessionLabel(
+                t,
+                { stationOcppId: item.sessionStationOcppId, startedAt: item.sessionStartedAt },
+                timezone,
+              )}
             </Link>
           ) : (
             '--'

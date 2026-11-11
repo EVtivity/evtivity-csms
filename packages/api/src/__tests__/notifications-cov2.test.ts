@@ -114,6 +114,8 @@ vi.mock('drizzle-orm', () => ({
   ilike: ilikeSpy,
   desc: vi.fn(),
   count: vi.fn(),
+  // The list sort definition builds its expressions at import.
+  sql: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({ readFile: mockReadFile }));

@@ -6,7 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
-import { SessionsTable } from '@/components/SessionsTable';
+import {
+  FLEET_SESSION_SORT_KEYS,
+  SessionsTable,
+  type SessionSortKey,
+} from '@/components/SessionsTable';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { api } from '@/lib/api';
 import { useUserTimezone } from '@/lib/timezone';
 
@@ -39,6 +44,20 @@ export function FleetSessionsTab({ fleetId }: FleetSessionsTabProps): React.JSX.
   const timezone = useUserTimezone();
   const [page, setPage] = useState(1);
   const limit = 10;
+  const listSort = useListSort<SessionSortKey>(FLEET_SESSION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sessionsSort: ListSort<SessionSortKey> = {
+    ...listSort,
+    toggle: (key) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    ...listSort.params,
+  });
 
   const {
     data: response,
@@ -46,10 +65,10 @@ export function FleetSessionsTab({ fleetId }: FleetSessionsTabProps): React.JSX.
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['fleets', fleetId, 'sessions', page],
+    queryKey: ['fleets', fleetId, 'sessions', page, listSort.params],
     queryFn: () =>
       api.get<{ data: SessionRow[]; total: number }>(
-        `/v1/fleets/${fleetId}/sessions?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/fleets/${fleetId}/sessions?${query.toString()}`,
       ),
   });
 
@@ -68,6 +87,8 @@ export function FleetSessionsTab({ fleetId }: FleetSessionsTabProps): React.JSX.
         onRetry={() => {
           void refetch();
         }}
+        sort={sessionsSort}
+        sortKeys={FLEET_SESSION_SORT_KEYS}
       />
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </TabPanel>

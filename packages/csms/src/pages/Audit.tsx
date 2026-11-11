@@ -35,6 +35,8 @@ import { useUrlDateRange } from '@/hooks/use-url-date-range';
 import { AuditEntryDialog } from '@/components/audit/AuditEntryDialog';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 
 interface AuditPage {
   data: AuditEntry[];
@@ -45,6 +47,10 @@ function formatTimestamp(iso: string, timezone: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : formatDateTime(d, timezone);
 }
+
+/** The sort keys of `GET /v1/audit` (`auditListSort` in the API). */
+export const AUDIT_SORT_KEYS = ['createdAt', 'entityType', 'action', 'actorType'] as const;
+export type AuditSortKey = (typeof AUDIT_SORT_KEYS)[number];
 
 export function Audit(): React.JSX.Element {
   const timezone = useUserTimezone();
@@ -59,6 +65,15 @@ export function Audit(): React.JSX.Element {
   const urlEntityId = searchParams.get('entityId') ?? '';
   const range = useUrlDateRange();
   const [entityId, setEntityId] = useState(urlEntityId);
+  const urlSort = useListSort(AUDIT_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const listSort: ListSort<AuditSortKey> = {
+    ...urlSort,
+    toggle: (key) => {
+      urlSort.toggle(key);
+      setPage(1);
+    },
+  };
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -97,8 +112,9 @@ export function Audit(): React.JSX.Element {
     if (action !== '') p.set('action', action);
     if (urlEntityId !== '') p.set('entityId', urlEntityId);
     for (const [key, value] of Object.entries(range.apiParams)) p.set(key, value);
+    for (const [key, value] of Object.entries(listSort.params)) p.set(key, value);
     return p.toString();
-  }, [page, entityType, actor, action, urlEntityId, range.apiParams]);
+  }, [page, entityType, actor, action, urlEntityId, range.apiParams, listSort.params]);
 
   const { data, isLoading, error } = useQuery<AuditPage>({
     queryKey: ['audit-global', queryString],
@@ -250,11 +266,19 @@ export function Audit(): React.JSX.Element {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('audit.when', 'When')}</TableHead>
-                    <TableHead>{t('audit.entityType', 'Entity')}</TableHead>
-                    <TableHead>{t('audit.entityId', 'ID')}</TableHead>
-                    <TableHead>{t('audit.action', 'Action')}</TableHead>
-                    <TableHead>{t('audit.actorType', 'Type')}</TableHead>
+                    <SortableTableHead sortKey="createdAt" sort={listSort}>
+                      {t('audit.when', 'When')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="entityType" sort={listSort}>
+                      {t('audit.entityType', 'Entity')}
+                    </SortableTableHead>
+                    <TableHead>{t('audit.entityName')}</TableHead>
+                    <SortableTableHead sortKey="action" sort={listSort}>
+                      {t('audit.action', 'Action')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="actorType" sort={listSort}>
+                      {t('audit.actorType', 'Type')}
+                    </SortableTableHead>
                     <TableHead>{t('audit.actor', 'Actor')}</TableHead>
                     <TableHead>{t('audit.notes', 'Notes')}</TableHead>
                   </TableRow>
@@ -280,8 +304,8 @@ export function Audit(): React.JSX.Element {
                           {auditEntityLabel(t, row.entityType)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {row.entityId ?? row.entityIdSnapshot}
+                      <TableCell data-testid="audit-entity-name">
+                        {row.entityName ?? '--'}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" title={row.action}>
@@ -291,7 +315,7 @@ export function Audit(): React.JSX.Element {
                       <TableCell>
                         <AuditActorBadge actor={row.actor} />
                       </TableCell>
-                      <TableCell className="text-sm">{actorDisplay(row)}</TableCell>
+                      <TableCell className="text-sm">{actorDisplay(t, row)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {row.notes ?? '--'}
                       </TableCell>

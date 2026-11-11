@@ -23,8 +23,12 @@ import { Pagination } from '@/components/ui/pagination';
 import { CreateButton } from '@/components/create-button';
 import { FilterPopover } from '@/components/FilterBar';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { RESERVATION_SORT_KEYS } from '@/components/ReservationsTable';
 import { Link } from 'react-router';
 import { TableSkeleton } from '@/components/TableSkeleton';
+import { sessionLabel } from '@/lib/session-label';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { reservationStatusVariant } from '@/lib/status-variants';
 
@@ -43,6 +47,7 @@ interface Reservation {
   expiresAt: string;
   createdAt: string;
   sessionId: string | null;
+  sessionStartedAt?: string | null;
 }
 
 interface Site {
@@ -92,6 +97,7 @@ export function Reservations(): React.JSX.Element {
     queryFn: () => api.get<{ data: Station[]; total: number }>('/v1/stations?limit=100'),
   });
 
+  const sort = useListSort(RESERVATION_SORT_KEYS);
   const {
     data: reservations,
     isLoading,
@@ -104,6 +110,7 @@ export function Reservations(): React.JSX.Element {
     status: statusFilter,
     siteId: siteFilter,
     stationId: stationFilter,
+    ...sort.params,
   });
 
   return (
@@ -229,21 +236,32 @@ export function Reservations(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('reservations.reservationId')}</TableHead>
-                <TableHead>{t('reservations.stationName')}</TableHead>
-                <TableHead>{t('reservations.driverName')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
+                <SortableTableHead sortKey="station" sort={sort}>
+                  {t('reservations.stationName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="driver" sort={sort}>
+                  {t('reservations.driverName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort}>
+                  {t('common.status')}
+                </SortableTableHead>
                 <TableHead>{t('reservations.session')}</TableHead>
-                <TableHead>{t('reservations.startsAt')}</TableHead>
-                <TableHead>{t('reservations.expiresAt')}</TableHead>
-                <TableHead>{t('reservations.createdAt')}</TableHead>
+                <SortableTableHead sortKey="startsAt" sort={sort}>
+                  {t('reservations.startsAt')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="expiresAt" sort={sort}>
+                  {t('reservations.expiresAt')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={sort}>
+                  {t('reservations.createdAt')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={8}>
-                    <TableSkeleton columns={8} rows={5} />
+                  <TableCell colSpan={7}>
+                    <TableSkeleton columns={7} rows={5} />
                   </TableCell>
                 </TableRow>
               )}
@@ -256,7 +274,6 @@ export function Reservations(): React.JSX.Element {
                     void navigate(`/reservations/${r.id}`);
                   }}
                 >
-                  <TableCell className="text-muted-foreground">{r.id}</TableCell>
                   <TableCell className="whitespace-nowrap">
                     <Link
                       to={`/stations/${r.stationId}`}
@@ -297,7 +314,11 @@ export function Reservations(): React.JSX.Element {
                           e.stopPropagation();
                         }}
                       >
-                        {r.sessionId}
+                        {sessionLabel(
+                          t,
+                          { stationOcppId: r.stationOcppId, startedAt: r.sessionStartedAt },
+                          timezone,
+                        )}
                       </Link>
                     ) : (
                       <span className="text-muted-foreground">n/a</span>
@@ -316,7 +337,7 @@ export function Reservations(): React.JSX.Element {
               ))}
               {reservations?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     {t('reservations.noReservations')}
                   </TableCell>
                 </TableRow>

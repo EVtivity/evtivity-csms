@@ -19,6 +19,20 @@ import {
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { formatCents } from '@/lib/formatting';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+
+/** The sort keys of `GET /v1/drivers/:id/reservations` (`driverReservationListSort` in the API). */
+export const DRIVER_RESERVATION_SORT_KEYS = [
+  'reservationId',
+  'station',
+  'status',
+  'startsAt',
+  'expiresAt',
+  'cancellationFee',
+] as const;
+
+type DriverReservationSortKey = (typeof DRIVER_RESERVATION_SORT_KEYS)[number];
 
 interface DriverReservation {
   id: string;
@@ -58,12 +72,26 @@ export function DriverReservationsTab({ driverId, timezone }: Props): React.JSX.
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const limit = 25;
+  const listSort = useListSort(DRIVER_RESERVATION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort: ListSort<DriverReservationSortKey> = {
+    ...listSort,
+    toggle: (key) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    ...listSort.params,
+  });
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['drivers', driverId, 'reservations', page],
+    queryKey: ['drivers', driverId, 'reservations', page, listSort.params],
     queryFn: () =>
       api.get<{ data: DriverReservation[]; total: number }>(
-        `/v1/drivers/${driverId}/reservations?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/drivers/${driverId}/reservations?${query.toString()}`,
       ),
     enabled: driverId !== '',
   });
@@ -122,23 +150,33 @@ export function DriverReservationsTab({ driverId, timezone }: Props): React.JSX.
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('reservations.internalId')}</TableHead>
-              <TableHead>{t('reservations.reservationId')}</TableHead>
-              <TableHead>{t('reservations.station')}</TableHead>
-              <TableHead>{t('common.status')}</TableHead>
-              <TableHead>{t('reservations.startsAt')}</TableHead>
-              <TableHead>{t('reservations.expiresAt')}</TableHead>
+              <SortableTableHead sortKey="reservationId" sort={sort}>
+                {t('reservations.reservationId')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="station" sort={sort}>
+                {t('reservations.station')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="status" sort={sort}>
+                {t('common.status')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="startsAt" sort={sort}>
+                {t('reservations.startsAt')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="expiresAt" sort={sort}>
+                {t('reservations.expiresAt')}
+              </SortableTableHead>
               <TableHead>{t('reservations.cancelReasonColumn')}</TableHead>
-              <TableHead className="text-right">{t('reservations.cancellationFee')}</TableHead>
+              <SortableTableHead sortKey="cancellationFee" sort={sort} className="text-right">
+                {t('reservations.cancellationFee')}
+              </SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {reservations.map((r) => (
               <TableRow key={r.id}>
-                <TableCell className="text-muted-foreground">{r.id}</TableCell>
                 <TableCell className="font-medium">
                   <Link to={`/reservations/${r.id}`} className="text-link hover:underline">
-                    {String(r.reservationId)}
+                    #{String(r.reservationId)}
                   </Link>
                 </TableCell>
                 <TableCell className="text-xs">

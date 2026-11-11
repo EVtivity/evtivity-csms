@@ -7,17 +7,12 @@ import { useTranslation } from 'react-i18next';
 import { useHasPermission } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
 import { SearchInput } from '@/components/search-input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { CreateButton } from '@/components/create-button';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { roamingPartnerStatusVariant } from '@/lib/status-variants';
 import { useRoamingTabAction } from './RoamingLayout';
@@ -35,11 +30,21 @@ interface Partner {
   updatedAt: string;
 }
 
+/** The sort keys of `GET /v1/ocpi/partners` (`ocpiPartnerListSort` in the API). */
+export const ROAMING_PARTNER_SORT_KEYS = [
+  'name',
+  'countryParty',
+  'status',
+  'version',
+  'createdAt',
+] as const;
+
 export function RoamingPartners(): React.JSX.Element {
   const { t } = useTranslation();
   const canWrite = useHasPermission('roaming:write');
   const navigate = useNavigate();
   const timezone = useUserTimezone();
+  const listSort = useListSort(ROAMING_PARTNER_SORT_KEYS);
 
   const {
     data: partners,
@@ -51,7 +56,7 @@ export function RoamingPartners(): React.JSX.Element {
     setPage,
     search,
     setSearch,
-  } = usePaginatedQuery<Partner>('ocpi-partners', '/v1/ocpi/partners');
+  } = usePaginatedQuery<Partner>('ocpi-partners', '/v1/ocpi/partners', listSort.params);
 
   useRoamingTabAction(
     useMemo(
@@ -84,25 +89,34 @@ export function RoamingPartners(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('roaming.partners.partnerId')}</TableHead>
-                <TableHead>{t('roaming.partners.partnerName')}</TableHead>
-                <TableHead>{t('roaming.partners.countryParty')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('roaming.partners.version')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="name" sort={listSort}>
+                  {t('roaming.partners.partnerName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="countryParty" sort={listSort}>
+                  {t('roaming.partners.countryParty')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={listSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="version" sort={listSort}>
+                  {t('roaming.partners.version')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.created')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableStateRow colSpan={6}>
+                <TableStateRow colSpan={5}>
                   <LoadingState />
                 </TableStateRow>
               ) : isError ? (
-                <TableStateRow colSpan={6}>
+                <TableStateRow colSpan={5}>
                   <ErrorState onRetry={refetch} />
                 </TableStateRow>
               ) : partners == null || partners.length === 0 ? (
-                <TableStateRow colSpan={6}>
+                <TableStateRow colSpan={5}>
                   <EmptyState>{t('roaming.partners.noPartners')}</EmptyState>
                 </TableStateRow>
               ) : (
@@ -115,7 +129,6 @@ export function RoamingPartners(): React.JSX.Element {
                       void navigate(`/roaming/partners/${partner.id}`);
                     }}
                   >
-                    <TableCell className="text-muted-foreground">{partner.id}</TableCell>
                     <TableCell className="font-medium" data-testid="row-click-target">
                       {partner.name}
                     </TableCell>

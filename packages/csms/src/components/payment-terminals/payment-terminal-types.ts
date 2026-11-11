@@ -133,9 +133,14 @@ export function terminalProviderName(t: TFunction, provider: string): string {
   return provider;
 }
 
-/** The terminal's label, else its serial number, else its provider device ID. */
-export function terminalName(terminal: PaymentTerminal): string {
-  return terminal.label ?? terminal.serialNumber ?? terminal.providerDeviceId ?? terminal.id;
+/** The terminal label, else its serial number, else its provider device ID, else "Unnamed terminal". */
+export function terminalName(terminal: PaymentTerminal, t: TFunction): string {
+  return (
+    terminal.label ??
+    terminal.serialNumber ??
+    terminal.providerDeviceId ??
+    t('common.unnamedTerminal')
+  );
 }
 
 /** "CS-001, Connector 1", "CS-001, Whole Station", or null when unpaired. */

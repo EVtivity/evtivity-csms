@@ -3,7 +3,7 @@
 
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, count, and, or, ilike, like } from 'drizzle-orm';
+import { eq, count, and, or, ilike, like } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,6 +126,7 @@ import { requireAllSiteAccess } from '../lib/site-access.js';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { notificationListSort } from '../lib/sorts/notification-list-sort.js';
 
 type AuditFields = Record<string, unknown>;
 
@@ -572,6 +573,7 @@ const notificationListQuery = paginationQuery.extend(
     channel: z.enum(notificationChannelValues).optional(),
     status: z.enum(['pending', 'sent', 'failed']).optional(),
     eventType: z.string().optional().describe('Filter by event type'),
+    ...notificationListSort.query,
   }).shape,
 );
 
@@ -1404,7 +1406,7 @@ export function notificationRoutes(app: FastifyInstance): void {
           .select()
           .from(notifications)
           .where(where)
-          .orderBy(desc(notifications.createdAt), desc(notifications.id))
+          .orderBy(...notificationListSort.orderBy(params))
           .limit(params.limit)
           .offset(offset),
         db.select({ count: count() }).from(notifications).where(where),

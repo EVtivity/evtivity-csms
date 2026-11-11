@@ -8,7 +8,13 @@ import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
 import { CreateButton } from '@/components/create-button';
 import { TabPanel } from '@/components/ui/tab-panel';
-import { VehiclesTable, type Vehicle } from '@/components/VehiclesTable';
+import {
+  VehiclesTable,
+  VEHICLE_SORT_KEYS,
+  type Vehicle,
+  type VehicleSortKey,
+} from '@/components/VehiclesTable';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 
@@ -29,6 +35,16 @@ export function FleetVehiclesTab({
   const [page, setPage] = useState(1);
   const [removeDriverId, setRemoveDriverId] = useState<string | null>(null);
   const limit = 10;
+  const urlSort = useListSort(VEHICLE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const listSort: ListSort<VehicleSortKey> = {
+    ...urlSort,
+    toggle: (key) => {
+      setPage(1);
+      urlSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(urlSort.params).toString();
 
   const {
     data: response,
@@ -36,10 +52,12 @@ export function FleetVehiclesTab({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['fleets', fleetId, 'vehicles', page],
+    queryKey: ['fleets', fleetId, 'vehicles', page, urlSort.params],
     queryFn: () =>
       api.get<{ data: Vehicle[]; total: number }>(
-        `/v1/fleets/${fleetId}/vehicles?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/fleets/${fleetId}/vehicles?page=${String(page)}&limit=${String(limit)}${
+          sortQuery === '' ? '' : `&${sortQuery}`
+        }`,
       ),
   });
 
@@ -75,6 +93,7 @@ export function FleetVehiclesTab({
           totalPages={totalPages}
           onPageChange={setPage}
           showDriver
+          sort={listSort}
           isLoading={isLoading}
           isError={isError}
           onRetry={() => {

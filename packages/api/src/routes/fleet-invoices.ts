@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { and, count, eq, sql } from 'drizzle-orm';
 import {
   db,
   drivers,
@@ -40,6 +40,7 @@ import {
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
+import { fleetInvoiceListSort } from '../lib/sorts/fleet-invoice-list-sort.js';
 import { errorWith, itemResponse, paginatedResponse } from '../lib/response-schemas.js';
 import { authorize } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -131,6 +132,7 @@ const fleetInvoiceListQuery = paginationQuery.extend({
     .describe(
       "Filter by recipient: 'fleet' (fleet invoices and their credit notes) or 'member' (member invoices to each driver and their credit notes)",
     ),
+  ...fleetInvoiceListSort.query,
 });
 
 const fleetInvoiceListItem = invoiceListItem
@@ -167,6 +169,7 @@ const driverTotal = z
 const excludedSession = z
   .object({
     sessionId: z.string().describe('Charging session ID'),
+    stationName: z.string().optional().describe('OCPP id of the station of the session'),
     driverId: z.string().nullable().describe('Driver ID'),
     driverName: z.string().describe('Driver name'),
     endedAt: z.coerce.date().nullable().describe('When the session ended'),
@@ -608,7 +611,8 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { page, limit, recipient } = request.query as z.infer<typeof fleetInvoiceListQuery>;
+      const query = request.query as z.infer<typeof fleetInvoiceListQuery>;
+      const { page, limit, recipient } = query;
       const where =
         recipient == null
           ? eq(invoices.fleetId, id)
@@ -625,7 +629,7 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
           .leftJoin(fleets, eq(fleets.id, invoices.fleetId))
           .leftJoin(drivers, eq(drivers.id, invoices.driverId))
           .where(where)
-          .orderBy(desc(invoices.createdAt), desc(invoices.id))
+          .orderBy(...fleetInvoiceListSort.orderBy(query))
           .limit(limit)
           .offset((page - 1) * limit),
         db.select({ count: count() }).from(invoices).where(where),

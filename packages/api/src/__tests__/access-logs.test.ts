@@ -256,6 +256,41 @@ describe('Access log routes', () => {
       expect(response.statusCode).toBe(401);
     });
 
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'createdAt',
+        'user',
+        'action',
+        'remoteAddress',
+        'apiKeyName',
+        'method',
+        'path',
+        'statusCode',
+        'durationMs',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/access-logs?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${operatorToken}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=access_logs.id', 'sort=path&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/access-logs?${query}`,
+          headers: { authorization: `Bearer ${operatorToken}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns 200 with no filters', async () => {
       const logEntry = {
         id: 1,

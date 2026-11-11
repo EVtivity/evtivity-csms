@@ -27,12 +27,17 @@ export function applyAlwaysVisible(
   columns: ColumnMeta[],
   visibility: ColumnVisibility,
 ): ColumnVisibility {
-  const result: ColumnVisibility = { ...visibility };
+  // Only known columns are kept: a stored preference naming a column a later
+  // release removed is dropped instead of carried forward.
+  const result: ColumnVisibility = {};
   for (const col of columns) {
+    const stored = visibility[col.key];
     if (col.alwaysVisible === true) {
       result[col.key] = true;
-    } else if (result[col.key] == null) {
+    } else if (stored == null) {
       result[col.key] = col.defaultVisible;
+    } else {
+      result[col.key] = stored;
     }
   }
   return result;

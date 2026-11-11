@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type { TFunction } from 'i18next';
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }));
@@ -741,12 +742,15 @@ describe('layout payment terminals', () => {
     }) as PaymentTerminal;
 
   it('shows active paired terminals on their station, never inactive or unpaired ones', () => {
-    const map = terminalsByStation([
-      terminal({}),
-      terminal({ id: 'pt_2', status: 'inactive' }),
-      terminal({ id: 'pt_3', stationId: null }),
-      terminal({ id: 'pt_4', label: null, evseNumber: null, hasDisplay: false, online: false }),
-    ]);
+    const map = terminalsByStation(
+      [
+        terminal({}),
+        terminal({ id: 'pt_2', status: 'inactive' }),
+        terminal({ id: 'pt_3', stationId: null }),
+        terminal({ id: 'pt_4', label: null, evseNumber: null, hasDisplay: false, online: false }),
+      ],
+      ((key: string) => key) as unknown as TFunction,
+    );
     expect(map.get('sta_1')?.map((t) => t.id)).toEqual(['pt_1', 'pt_4']);
     expect(map.get('sta_1')?.[1]).toMatchObject({ name: 'SN1', hasDisplay: false, online: false });
   });

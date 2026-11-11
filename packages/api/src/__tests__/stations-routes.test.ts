@@ -193,6 +193,14 @@ vi.mock('@evtivity/database', async () => {
     sites: {},
     maintenanceEvents: {},
     vendors: { id: 'id', name: 'name' },
+    configTemplatePushStations: {},
+    configTemplatePushes: {},
+    stationConfigurations: {},
+    firmwareUpdates: {},
+    firmwareCampaigns: {},
+    chargingProfiles: {},
+    chargingProfileTemplates: {},
+    evChargingSchedules: {},
     ocppMessageLogs: {},
     connectionLogs: {},
     stationCertificates: {},
@@ -247,6 +255,7 @@ vi.mock('drizzle-orm', () => {
     gte: vi.fn(),
     lte: vi.fn(),
     desc: vi.fn(),
+    asc: vi.fn(),
     count: vi.fn(),
     inArray: vi.fn(),
     isNotNull: vi.fn(),
@@ -374,6 +383,57 @@ describe('Station routes - handler logic', () => {
 
   // --- GET /v1/stations ---
 
+  describe('station detail list sorts', () => {
+    const lists: [string, string[]][] = [
+      ['variables', ['component', 'variable', 'value', 'attributeType', 'source']],
+      ['firmware-history', ['status', 'firmwareUrl', 'version', 'initiatedAt', 'lastStatusAt']],
+      ['charging-profiles', ['source', 'evseId', 'chargingLimitSource', 'template', 'createdAt']],
+      ['ev-charging-schedules', ['evseId', 'timeBase', 'withinLimits', 'receivedAt']],
+      [
+        'monitoring-rules',
+        [
+          'component',
+          'variable',
+          'type',
+          'value',
+          'severity',
+          'monitoringId',
+          'status',
+          'createdAt',
+        ],
+      ],
+    ];
+
+    it('accepts every sort key in both directions', async () => {
+      for (const [path, keys] of lists) {
+        for (const sort of keys) {
+          for (const order of ['asc', 'desc']) {
+            setupDbResults([{ id: VALID_STATION_ID }], [], [{ total: 0 }]);
+            const response = await app.inject({
+              method: 'GET',
+              url: `/stations/${VALID_STATION_ID}/${path}?sort=${sort}&order=${order}`,
+              headers: { authorization: 'Bearer ' + token },
+            });
+            expect(response.statusCode, `${path} ${sort} ${order}`).toBe(200);
+          }
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const [path, keys] of lists) {
+        for (const query of ['sort=id', 'sort=stationId', `sort=${keys[0] ?? ''}&order=up`]) {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/stations/${VALID_STATION_ID}/${path}?${query}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${path} ${query}`).toBe(400);
+        }
+      }
+    });
+  });
+
   describe('GET /v1/stations', () => {
     it('returns paginated station list with data and total', async () => {
       const stationRow = {
@@ -447,6 +507,43 @@ describe('Station routes - handler logic', () => {
         url: '/stations',
       });
       expect(response.statusCode).toBe(401);
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'stationId',
+        'site',
+        'vendor',
+        'model',
+        'securityProfile',
+        'ocppProtocol',
+        'status',
+        'connectors',
+        'online',
+        'lastHeartbeat',
+        'createdAt',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/stations?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=charging_stations.id', 'sort=model&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/stations?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
   });
 
@@ -1853,6 +1950,44 @@ describe('Station routes - handler logic', () => {
   // --- GET /v1/stations/:id/sessions ---
 
   describe('GET /v1/stations/:id/sessions', () => {
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'station',
+        'driver',
+        'status',
+        'startedAt',
+        'duration',
+        'energy',
+        'cost',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/stations/${VALID_STATION_ID}/sessions?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of [
+        'sort=vehicle',
+        'sort=id',
+        'sort=charging_sessions.id',
+        'sort=energy&order=up',
+      ]) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/stations/${VALID_STATION_ID}/sessions?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns paginated sessions', async () => {
       const sessionRow = {
         id: 'sess-1',

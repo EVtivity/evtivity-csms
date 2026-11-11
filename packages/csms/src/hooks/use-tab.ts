@@ -20,10 +20,17 @@ export function useTab(
           // last rendered params, so a second change before the re-render (a
           // debounced search, then a filter) would drop the first one.
           const next = new URLSearchParams(window.location.search);
+          const before = next.get(paramName) ?? defaultTab;
           if (value === defaultTab) {
             next.delete(paramName);
           } else {
             next.set(paramName, value);
+          }
+          // A list sort belongs to the table of one tab (`useListSort`), so a tab change
+          // starts the next tab's table in its default order.
+          if (before !== value) {
+            next.delete('sort');
+            next.delete('order');
           }
           if (clearParams) {
             for (const p of clearParams) {

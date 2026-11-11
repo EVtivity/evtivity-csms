@@ -6,7 +6,6 @@ import { z } from 'zod';
 import {
   eq,
   and,
-  desc,
   count,
   notInArray,
   ilike,
@@ -42,6 +41,7 @@ import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { localAuthEntryListSort } from '../lib/sorts/local-auth-entry-list-sort.js';
 import { authorize } from '../middleware/rbac.js';
 
 const stationIdParams = z.object({
@@ -282,6 +282,8 @@ async function reconcileLocalAuthEntries(stationId: string, now: Date): Promise<
   return pushed;
 }
 
+const localAuthListQuery = paginationQuery.extend({ ...localAuthEntryListSort.query });
+
 export function localAuthListRoutes(app: FastifyInstance): void {
   // List tracked entries + version info
   app.get(
@@ -294,7 +296,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         operationId: 'listLocalAuthEntries',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(localAuthListQuery),
         response: {
           200: itemResponse(versionInfoItem),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
@@ -303,7 +305,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof localAuthListQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -343,7 +345,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
           .leftJoin(driverTokens, eq(stationLocalAuthEntries.driverTokenId, driverTokens.id))
           .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
           .where(eq(stationLocalAuthEntries.stationId, stationId))
-          .orderBy(desc(stationLocalAuthEntries.addedAt), desc(stationLocalAuthEntries.id))
+          .orderBy(...localAuthEntryListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

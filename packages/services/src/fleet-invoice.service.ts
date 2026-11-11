@@ -258,6 +258,8 @@ export type FleetInvoiceExclusion = 'other_currency' | 'zero_cost' | 'uncosted';
 
 export interface FleetInvoiceExcludedSession {
   sessionId: string;
+  /** OCPP id of the session's station, for display. */
+  stationName: string;
   driverId: string | null;
   driverName: string;
   endedAt: Date | null;
@@ -337,6 +339,7 @@ export function planFleetInvoice(
     } else {
       excluded.push({
         sessionId: session.id,
+        stationName: session.stationName,
         driverId: session.driverId,
         driverName: session.driverName,
         endedAt: session.endedAt,

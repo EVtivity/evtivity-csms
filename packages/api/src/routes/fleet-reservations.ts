@@ -3,7 +3,7 @@
 
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, asc, desc, count, inArray } from 'drizzle-orm';
+import { eq, and, count, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { reservations, chargingStations, fleetReservations, fleets } from '@evtivity/database';
 import { AppError } from '@evtivity/lib';
@@ -14,6 +14,7 @@ import {
 } from '../lib/charging-profile-id.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { fleetReservationListSort } from '../lib/sorts/fleet-reservation-list-sort.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
@@ -39,6 +40,10 @@ import { siteInScope } from '../lib/site-scope.js';
 import { stationInSitesSql } from '../lib/fleet-operation-scope.js';
 
 // -- Response schemas --
+
+const fleetReservationListQuery = paginationQuery.extend({
+  ...fleetReservationListSort.query,
+});
 
 const fleetReservationListItem = z
   .object({
@@ -481,13 +486,13 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         operationId: 'listFleetReservations',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetIdParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(fleetReservationListQuery),
         response: { 200: paginatedResponse(fleetReservationListItem) },
       },
     },
     async (request) => {
       const { fleetId } = request.params as z.infer<typeof fleetIdParams>;
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof fleetReservationListQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -540,9 +545,9 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           )
           .where(where)
           .groupBy(fleetReservations.id)
-          // Secondary sort on id keeps pagination stable when two
-          // reservations share createdAt (otherwise rows shuffle pages).
-          .orderBy(desc(fleetReservations.createdAt), asc(fleetReservations.id))
+          // The id tie-breaker keeps pagination stable when two
+          // reservations share the sorted value (otherwise rows shuffle pages).
+          .orderBy(...fleetReservationListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(fleetReservations).where(where),

@@ -5,15 +5,10 @@ import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { LoadingLogo } from '@/components/loading-logo';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import type { ListSort } from '@/hooks/use-list-sort';
 import { providerName, stateBadgeVariant, type SimState } from '@/components/sim/sim-connectivity';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { formatDate, formatDateTime } from '@/lib/timezone';
@@ -40,6 +35,21 @@ export interface SimListItem {
     confirmed: boolean;
   } | null;
 }
+
+/** The sort keys of `GET /v1/sims` (`simListSort` in the API, `lib/sorts/sim-list-sort.ts`). */
+export const SIM_SORT_KEYS = [
+  'iccid',
+  'label',
+  'provider',
+  'status',
+  'providerStatus',
+  'station',
+  'confirmed',
+  'lastFetched',
+  'createdAt',
+] as const;
+
+export type SimSortKey = (typeof SIM_SORT_KEYS)[number];
 
 export const SIMS_COLUMNS: ColumnMeta[] = [
   {
@@ -109,6 +119,8 @@ interface SimsTableProps {
   isError: boolean;
   onRetry: () => void;
   visibility: ColumnVisibility;
+  /** The list's sort; without it the headers do not sort. */
+  sort?: ListSort<SimSortKey> | undefined;
 }
 
 export function SimsTable({
@@ -118,6 +130,7 @@ export function SimsTable({
   isError,
   onRetry,
   visibility,
+  sort,
 }: SimsTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -129,17 +142,51 @@ export function SimsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            {isVisible('iccid') && <TableHead>{t('sims.columns.iccid')}</TableHead>}
-            {isVisible('label') && <TableHead>{t('sims.columns.label')}</TableHead>}
-            {isVisible('provider') && <TableHead>{t('sims.columns.provider')}</TableHead>}
-            {isVisible('csmsStatus') && <TableHead>{t('sims.columns.csmsStatus')}</TableHead>}
-            {isVisible('providerStatus') && (
-              <TableHead>{t('sims.columns.providerStatus')}</TableHead>
+            {isVisible('iccid') && (
+              <SortableTableHead sortKey="iccid" sort={sort}>
+                {t('sims.columns.iccid')}
+              </SortableTableHead>
             )}
-            {isVisible('station') && <TableHead>{t('sims.columns.station')}</TableHead>}
-            {isVisible('confirmed') && <TableHead>{t('sims.columns.confirmed')}</TableHead>}
-            {isVisible('lastFetched') && <TableHead>{t('sims.columns.lastFetched')}</TableHead>}
-            {isVisible('created') && <TableHead>{t('sims.columns.created')}</TableHead>}
+            {isVisible('label') && (
+              <SortableTableHead sortKey="label" sort={sort}>
+                {t('sims.columns.label')}
+              </SortableTableHead>
+            )}
+            {isVisible('provider') && (
+              <SortableTableHead sortKey="provider" sort={sort}>
+                {t('sims.columns.provider')}
+              </SortableTableHead>
+            )}
+            {isVisible('csmsStatus') && (
+              <SortableTableHead sortKey="status" sort={sort}>
+                {t('sims.columns.csmsStatus')}
+              </SortableTableHead>
+            )}
+            {isVisible('providerStatus') && (
+              <SortableTableHead sortKey="providerStatus" sort={sort}>
+                {t('sims.columns.providerStatus')}
+              </SortableTableHead>
+            )}
+            {isVisible('station') && (
+              <SortableTableHead sortKey="station" sort={sort}>
+                {t('sims.columns.station')}
+              </SortableTableHead>
+            )}
+            {isVisible('confirmed') && (
+              <SortableTableHead sortKey="confirmed" sort={sort}>
+                {t('sims.columns.confirmed')}
+              </SortableTableHead>
+            )}
+            {isVisible('lastFetched') && (
+              <SortableTableHead sortKey="lastFetched" sort={sort}>
+                {t('sims.columns.lastFetched')}
+              </SortableTableHead>
+            )}
+            {isVisible('created') && (
+              <SortableTableHead sortKey="createdAt" sort={sort}>
+                {t('sims.columns.created')}
+              </SortableTableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -218,7 +265,7 @@ export function SimsTable({
                           e.stopPropagation();
                         }}
                       >
-                        {attachment.stationOcppId ?? attachment.stationId}
+                        {attachment.stationOcppId ?? t('common.unnamedStation')}
                       </Link>
                     ) : (
                       <span className="text-muted-foreground">{t('sims.notAttached')}</span>

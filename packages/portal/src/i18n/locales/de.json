@@ -629,7 +629,9 @@
         "wait_and_retry": "Einige Minuten warten und erneut versuchen",
         "check_token_active": "Prüfen, ob Karte oder Token aktiv ist"
       }
-    }
+    },
+    "linkedSessionFallback": "Ladevorgang",
+    "linkedStationFallback": "Ladestation"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Konto deaktiviert",

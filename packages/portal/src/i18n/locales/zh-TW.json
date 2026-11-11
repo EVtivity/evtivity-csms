@@ -629,7 +629,9 @@
         "wait_and_retry": "等待幾分鐘後重試",
         "check_token_active": "檢查卡片或 Token 是否有效"
       }
-    }
+    },
+    "linkedSessionFallback": "充電工作階段",
+    "linkedStationFallback": "充電樁"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "帳號已停用",

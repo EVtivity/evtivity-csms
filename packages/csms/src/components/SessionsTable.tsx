@@ -18,17 +18,12 @@ import { formatDateTime } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import type { ListSort } from '@/hooks/use-list-sort';
 import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 import { sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 
 export const SESSIONS_COLUMNS: ColumnMeta[] = [
-  {
-    key: 'sessionId',
-    label: 'sessions.sessionId',
-    defaultVisible: true,
-    defaultVisibleMobile: false,
-    alwaysVisible: true,
-  },
   {
     key: 'stationName',
     label: 'sessions.stationName',
@@ -77,6 +72,45 @@ export const SESSIONS_COLUMNS: ColumnMeta[] = [
   },
   { key: 'cost', label: 'payments.cost', defaultVisible: true, defaultVisibleMobile: true },
 ];
+
+/**
+ * The sort keys of the session lists of one station, site, token or driver
+ * (`sessionListSort` in the API, `lib/sorts/session-list-sort.ts`).
+ */
+export const SESSION_SORT_KEYS = [
+  'station',
+  'driver',
+  'status',
+  'startedAt',
+  'duration',
+  'energy',
+  'cost',
+] as const;
+
+/** The sort keys of `GET /v1/sessions` (`allSessionsListSort` in the API). */
+export const ALL_SESSIONS_SORT_KEYS = [
+  'station',
+  'driver',
+  'vehicle',
+  'status',
+  'startedAt',
+  'duration',
+  'energy',
+  'co2Avoided',
+  'cost',
+] as const;
+
+/** The sort keys of `GET /v1/fleets/:id/sessions` (`fleetSessionListSort` in the API). */
+export const FLEET_SESSION_SORT_KEYS = [
+  'station',
+  'status',
+  'startedAt',
+  'duration',
+  'energy',
+  'cost',
+] as const;
+
+export type SessionSortKey = (typeof ALL_SESSIONS_SORT_KEYS)[number];
 
 export interface Session {
   id: string;
@@ -150,6 +184,10 @@ interface SessionsTableProps {
   hideStationName?: boolean;
   hideDriverName?: boolean;
   visibility?: ColumnVisibility;
+  /** The list's sort; without it the headers do not sort. */
+  sort?: ListSort<SessionSortKey> | undefined;
+  /** The keys the list's endpoint sorts by; other headers stay plain. */
+  sortKeys?: readonly SessionSortKey[];
 }
 
 export const SessionsTable = memo(function SessionsTable({
@@ -162,9 +200,13 @@ export const SessionsTable = memo(function SessionsTable({
   hideStationName = false,
   hideDriverName = false,
   visibility,
+  sort,
+  sortKeys = SESSION_SORT_KEYS,
 }: SessionsTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const sortOf = (key: SessionSortKey): ListSort<SessionSortKey> | undefined =>
+    sortKeys.includes(key) ? sort : undefined;
   const isVisible = (key: string): boolean => visibility == null || visibility[key] !== false;
   const colCount = SESSIONS_COLUMNS.filter((c) => {
     if (c.key === 'stationName' && hideStationName) return false;
@@ -178,26 +220,55 @@ export const SessionsTable = memo(function SessionsTable({
         <Table>
           <TableHeader>
             <TableRow>
-              {isVisible('sessionId') && <TableHead>{t('sessions.sessionId')}</TableHead>}
               {!hideStationName && isVisible('stationName') && (
-                <TableHead>{t('sessions.stationName')}</TableHead>
+                <SortableTableHead sortKey="station" sort={sortOf('station')}>
+                  {t('sessions.stationName')}
+                </SortableTableHead>
               )}
               {!hideDriverName && isVisible('driverName') && (
-                <TableHead>{t('sessions.driverName')}</TableHead>
+                <SortableTableHead sortKey="driver" sort={sortOf('driver')}>
+                  {t('sessions.driverName')}
+                </SortableTableHead>
               )}
-              {isVisible('vehicle') && <TableHead>{t('vehicles.vehicle')}</TableHead>}
+              {isVisible('vehicle') && (
+                <SortableTableHead sortKey="vehicle" sort={sortOf('vehicle')}>
+                  {t('vehicles.vehicle')}
+                </SortableTableHead>
+              )}
               {isVisible('guestSession') && <TableHead>{t('sessions.guestSession')}</TableHead>}
-              {isVisible('status') && <TableHead>{t('common.status')}</TableHead>}
-              {isVisible('started') && <TableHead>{t('sessions.started')}</TableHead>}
-              {isVisible('duration') && <TableHead>{t('sessions.duration')}</TableHead>}
+              {isVisible('status') && (
+                <SortableTableHead sortKey="status" sort={sortOf('status')}>
+                  {t('common.status')}
+                </SortableTableHead>
+              )}
+              {isVisible('started') && (
+                <SortableTableHead sortKey="startedAt" sort={sortOf('startedAt')}>
+                  {t('sessions.started')}
+                </SortableTableHead>
+              )}
+              {isVisible('duration') && (
+                <SortableTableHead sortKey="duration" sort={sortOf('duration')}>
+                  {t('sessions.duration')}
+                </SortableTableHead>
+              )}
               {isVisible('energy') && (
-                <TableHead className="text-right">{t('sessions.energy')}</TableHead>
+                <SortableTableHead sortKey="energy" sort={sortOf('energy')} className="text-right">
+                  {t('sessions.energy')}
+                </SortableTableHead>
               )}
               {isVisible('co2Avoided') && (
-                <TableHead className="text-right">{t('sessions.co2Avoided')}</TableHead>
+                <SortableTableHead
+                  sortKey="co2Avoided"
+                  sort={sortOf('co2Avoided')}
+                  className="text-right"
+                >
+                  {t('sessions.co2Avoided')}
+                </SortableTableHead>
               )}
               {isVisible('cost') && (
-                <TableHead className="text-right">{t('payments.cost')}</TableHead>
+                <SortableTableHead sortKey="cost" sort={sortOf('cost')} className="text-right">
+                  {t('payments.cost')}
+                </SortableTableHead>
               )}
             </TableRow>
           </TableHeader>
@@ -221,9 +292,6 @@ export const SessionsTable = memo(function SessionsTable({
                   void navigate(`/sessions/${session.id}`);
                 }}
               >
-                {isVisible('sessionId') && (
-                  <TableCell className="text-muted-foreground">{session.id}</TableCell>
-                )}
                 {!hideStationName && isVisible('stationName') && (
                   <TableCell className="whitespace-nowrap">
                     <Link

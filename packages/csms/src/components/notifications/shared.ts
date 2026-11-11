@@ -19,6 +19,24 @@ export interface NotificationRecord {
 
 export const statusBadgeClass = notificationStatusBadgeClass;
 
+/**
+ * The sort keys of `GET /v1/notifications` (`notificationListSort` in the API). The SMS and
+ * push tabs show no subject, so they offer the other keys only.
+ */
+export const NOTIFICATION_SORT_KEYS = [
+  'timestamp',
+  'recipient',
+  'subject',
+  'eventType',
+  'status',
+] as const;
+export const NOTIFICATION_SORT_KEYS_NO_SUBJECT = [
+  'timestamp',
+  'recipient',
+  'eventType',
+  'status',
+] as const;
+
 export function formatTimestamp(
   sentAt: string | null,
   createdAt: string,

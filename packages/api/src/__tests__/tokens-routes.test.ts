@@ -233,6 +233,39 @@ describe('Token routes - handler logic', () => {
       expect(body.total).toBe(0);
     });
 
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'idToken',
+        'label',
+        'driver',
+        'tokenType',
+        'status',
+        'expiresAt',
+        'createdAt',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/tokens?sort=${sort}&order=${order}&status=active`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=driver_tokens.id', 'sort=label&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tokens?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns empty list when no tokens exist', async () => {
       setupDbResults([], [{ count: 0 }]);
       const response = await app.inject({
@@ -412,6 +445,44 @@ describe('Token routes - handler logic', () => {
   });
 
   describe('GET /v1/tokens/:id/sessions', () => {
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'station',
+        'driver',
+        'status',
+        'startedAt',
+        'duration',
+        'energy',
+        'cost',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([{ id: TOKEN_ID_2, driverId: null, idToken: 'RFID001' }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/tokens/${VALID_TOKEN_ID}/sessions?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of [
+        'sort=vehicle',
+        'sort=id',
+        'sort=charging_sessions.id',
+        'sort=energy&order=up',
+      ]) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tokens/${VALID_TOKEN_ID}/sessions?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns 404 when token not found', async () => {
       setupDbResults([]);
       const response = await app.inject({

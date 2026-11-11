@@ -56,16 +56,12 @@ import {
 import { normalizeMacAddress } from '@evtivity/lib/vehicle-id';
 import * as vehicleService from '../services/vehicle.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
+import { allSessionsListSort, sessionVehicleNameSql } from '../lib/sorts/all-sessions-list-sort.js';
 import {
   replyVehicleServiceError,
   sessionVehicleCaptureItem,
   vehicleClaimBody,
 } from '../lib/vehicle-response.js';
-
-/** The display name of a session's linked vehicle (year make model, else the plate). */
-const vehicleNameSql = sql<
-  string | null
->`NULLIF(coalesce(NULLIF(concat_ws(' ', ${vehicles.year}, ${vehicles.make}, ${vehicles.model}), ''), ${vehicles.licensePlate}), '')`;
 
 /** The captured vehicle id of a session row, or null. */
 function sessionVehicleCapture(row: {
@@ -273,6 +269,12 @@ const sessionDetail = z
       .string()
       .nullable()
       .describe('Reservation ID linked to the session, null if no reservation'),
+    reservationNumber: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe('OCPP reservation id (the #number shown) of the linked reservation'),
     freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
     billingMode: z
       .enum(['card', 'account'])
@@ -487,6 +489,7 @@ const sessionListQuery = paginationQuery.extend({
     .describe(
       'true: only billed sessions in the company currency that delivered energy and have no electricity cost (left out of profit). POST /v1/sites/{id}/electricity-cost/recalculate fills them from the site rates',
     ),
+  ...allSessionsListSort.query,
 });
 
 const rebillResponse = z
@@ -684,7 +687,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           rebillStatus: chargingSessions.rebillStatus,
           guestSessionToken: guestSessions.sessionToken,
           vehicleId: chargingSessions.vehicleId,
-          vehicleName: vehicleNameSql,
+          vehicleName: sessionVehicleNameSql,
           vehicleIdValue: chargingSessions.vehicleIdValue,
           vehicleIdType: chargingSessions.vehicleIdType,
           vehicleIdSource: chargingSessions.vehicleIdSource,
@@ -698,7 +701,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
         .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
         .where(where)
-        .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
+        .orderBy(...allSessionsListSort.orderBy(request.query as z.infer<typeof sessionListQuery>))
         .limit(limit)
         .offset(offset);
 
@@ -770,6 +773,9 @@ export function sessionRoutes(app: FastifyInstance): void {
           currency: sessionCurrencySql(),
           stoppedReason: chargingSessions.stoppedReason,
           reservationId: chargingSessions.reservationId,
+          reservationNumber: sql<
+            number | null
+          >`(SELECT reservation_id FROM reservations WHERE id = ${chargingSessions.reservationId})`,
           freeVend: chargingSessions.freeVend,
           billingMode: chargingSessions.billingMode,
           rebillStatus: chargingSessions.rebillStatus,

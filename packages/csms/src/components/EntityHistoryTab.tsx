@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
@@ -20,6 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { auditActionLabel, auditActorLabel } from '@/lib/audit-labels';
 import { AuditEntryDialog } from '@/components/audit/AuditEntryDialog';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 
 export interface AuditEntry {
   id: number;
@@ -33,6 +36,8 @@ export interface AuditEntry {
   actorApiKeyId: string | null;
   actorLabel: string | null;
   actorName: string | null;
+  /** Readable name of the entity (the audit list shows it instead of the id). */
+  entityName?: string | null;
   before: unknown;
   after: unknown;
   notes: string | null;
@@ -48,13 +53,14 @@ export interface AuditEntry {
   createdAt: string;
 }
 
-export function actorDisplay(row: AuditEntry): string {
+/** The actor's name when known, else its kind (User, Driver, API key, System), never an id. */
+export function actorDisplay(t: TFunction, row: AuditEntry): string {
   if (row.actorName != null && row.actorName !== '') return row.actorName;
   if (row.actorLabel != null && row.actorLabel !== '') return row.actorLabel;
-  if (row.actorUserId != null) return row.actorUserId;
-  if (row.actorDriverId != null) return row.actorDriverId;
-  if (row.actorApiKeyId != null) return row.actorApiKeyId;
-  return '--';
+  if (row.actorUserId != null) return t('audit.actorKindUser');
+  if (row.actorDriverId != null) return auditActorLabel(t, 'driver');
+  if (row.actorApiKeyId != null) return auditActorLabel(t, 'api_key');
+  return auditActorLabel(t, row.actor);
 }
 
 interface AuditPage {
@@ -109,6 +115,13 @@ function formatTimestamp(iso: string, timezone: string): string {
   return Number.isNaN(d.getTime()) ? iso : formatDateTime(d, timezone);
 }
 
+/**
+ * The sort keys of the History list, offered by both endpoints it reads (`auditListSort` and
+ * `entityAuditListSort` in the API).
+ */
+export const ENTITY_HISTORY_SORT_KEYS = ['createdAt', 'action', 'actorType'] as const;
+type EntityHistorySortKey = (typeof ENTITY_HISTORY_SORT_KEYS)[number];
+
 export function EntityHistoryTab({
   entityType,
   entityId,
@@ -127,6 +140,16 @@ export function EntityHistoryTab({
   const resolvedTitle = title ?? t('audit.history');
   const [page, setPage] = useState(1);
   const [openEntry, setOpenEntry] = useState<AuditEntry | null>(null);
+  const urlSort = useListSort(ENTITY_HISTORY_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const listSort: ListSort<EntityHistorySortKey> = {
+    ...urlSort,
+    toggle: (key) => {
+      urlSort.toggle(key);
+      setPage(1);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const typeFilter =
     relatedEntityTypes.length > 0
       ? `entityTypes=${[entityType, ...relatedEntityTypes].map(encodeURIComponent).join(',')}`
@@ -135,9 +158,18 @@ export function EntityHistoryTab({
     entityId == null
       ? `/v1/audit?${typeFilter}&page=${String(page)}&limit=${String(pageSize)}`
       : `/v1/audit/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?page=${String(page)}&limit=${String(pageSize)}`;
+  const listUrl = sortQuery === '' ? auditUrl : `${auditUrl}&${sortQuery}`;
   const { data, isLoading, isError, refetch } = useQuery<AuditPage>({
-    queryKey: ['audit', entityType, entityId ?? '__all__', page, pageSize, relatedEntityTypes],
-    queryFn: () => api.get<AuditPage>(auditUrl),
+    queryKey: [
+      'audit',
+      entityType,
+      entityId ?? '__all__',
+      page,
+      pageSize,
+      relatedEntityTypes,
+      sortQuery,
+    ],
+    queryFn: () => api.get<AuditPage>(listUrl),
     // Refetch every time the History tab mounts so operators see new entries
     // without manually reloading the page.
     refetchOnMount: 'always',
@@ -176,9 +208,15 @@ export function EntityHistoryTab({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('audit.when', 'When')}</TableHead>
-                <TableHead>{t('audit.action', 'Action')}</TableHead>
-                <TableHead>{t('audit.actorType', 'Type')}</TableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('audit.when', 'When')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="action" sort={listSort}>
+                  {t('audit.action', 'Action')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="actorType" sort={listSort}>
+                  {t('audit.actorType', 'Type')}
+                </SortableTableHead>
                 <TableHead>{t('audit.actor', 'Actor')}</TableHead>
                 {extraColumns.map((col) => (
                   <TableHead key={col.header}>{col.header}</TableHead>
@@ -207,7 +245,7 @@ export function EntityHistoryTab({
                   <TableCell>
                     <AuditActorBadge actor={row.actor} />
                   </TableCell>
-                  <TableCell className="text-sm">{actorDisplay(row)}</TableCell>
+                  <TableCell className="text-sm">{actorDisplay(t, row)}</TableCell>
                   {extraColumns.map((col) => (
                     <TableCell key={col.header} className={col.className ?? 'text-xs'}>
                       {col.render(row)}

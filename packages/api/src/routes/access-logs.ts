@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, sql, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, or, ilike, sql, gte, lte } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { accessLogs, users, drivers } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -13,6 +13,7 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import { isAllSiteUser } from '../lib/site-access.js';
 import { logTimeRangeQuery, parseLogTimeRange } from '../lib/date-range.js';
+import { accessLogListSort } from '../lib/sorts/access-log-list-sort.js';
 
 // The route stays hidden from site-restricted users: operator-wide logs need
 // access to every site, so they get the same 404 as a route that does not
@@ -82,6 +83,7 @@ const listLogsQuery = paginationQuery.extend({
     .optional()
     .describe('Filter by HTTP method'),
   ...logTimeRangeQuery,
+  ...accessLogListSort.query,
 });
 
 /**
@@ -174,9 +176,8 @@ export function accessLogRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { page, limit, search, category, method, from, to } = request.query as z.infer<
-        typeof listLogsQuery
-      >;
+      const query = request.query as z.infer<typeof listLogsQuery>;
+      const { page, limit, search, category, method, from, to } = query;
       if (!(await allowAllSiteUsersOnly(request, reply))) return;
       const offset = (page - 1) * limit;
       const range = parseLogTimeRange({ from, to });
@@ -242,7 +243,7 @@ export function accessLogRoutes(app: FastifyInstance): void {
           .leftJoin(users, eq(accessLogs.userId, users.id))
           .leftJoin(drivers, eq(accessLogs.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(accessLogs.createdAt), desc(accessLogs.id))
+          .orderBy(...accessLogListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

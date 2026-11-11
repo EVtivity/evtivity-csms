@@ -83,6 +83,7 @@ vi.mock('@evtivity/database', async () => ({
     execute: vi.fn(() => Promise.resolve([])),
   },
   sites: {},
+  vendors: {},
   chargingStations: { id: {}, siteId: {} },
   maintenanceEvents: {},
   chargingSessions: {},

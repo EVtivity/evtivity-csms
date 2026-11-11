@@ -42,6 +42,7 @@ export const notifications = pgTable(
   (table) => [
     index('idx_notifications_status').on(table.status),
     index('idx_notifications_created_at').on(table.createdAt),
+    index('idx_notifications_event_type').on(table.eventType, table.id),
     index('idx_notifications_status_created').on(table.status, table.createdAt),
   ],
 );

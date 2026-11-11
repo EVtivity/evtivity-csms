@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { getMock, postMock, deleteMock, toastMock, permission } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -108,12 +109,14 @@ function renderTab(isOnline = true, ocppProtocol: string | null = null): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StationChargingNeedsTab
-        stationId="sta_1"
-        isOnline={isOnline}
-        timezone="UTC"
-        ocppProtocol={ocppProtocol}
-      />
+      <MemoryRouter>
+        <StationChargingNeedsTab
+          stationId="sta_1"
+          isOnline={isOnline}
+          timezone="UTC"
+          ocppProtocol={ocppProtocol}
+        />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

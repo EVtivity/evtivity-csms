@@ -273,6 +273,31 @@ describe('NEVI routes', () => {
     expect(body.total).toBe(1);
   });
 
+  it('accepts every sort key in both directions', async () => {
+    for (const sort of ['station', 'evseId', 'reason', 'startedAt', 'endedAt']) {
+      for (const order of ['asc', 'desc']) {
+        setupDbResults([], [{ count: 0 }]);
+        const response = await app.inject({
+          method: 'GET',
+          url: `/nevi/excluded-downtime?sort=${sort}&order=${order}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, `${sort} ${order}`).toBe(200);
+      }
+    }
+  });
+
+  it('refuses a sort key it does not offer and an unknown order', async () => {
+    for (const query of ['sort=id', 'sort=notes', 'sort=reason&order=up']) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/nevi/excluded-downtime?${query}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode, query).toBe(400);
+    }
+  });
+
   it('POST /v1/nevi/excluded-downtime creates excluded downtime record', async () => {
     setupDbResults(
       [{ siteId: 'sit_000000000001' }],

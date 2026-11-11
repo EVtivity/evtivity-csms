@@ -30,6 +30,8 @@ import {
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { CancelButton } from '@/components/cancel-button';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
@@ -71,6 +73,16 @@ interface StationLocalAuthListProps {
   timezone: string;
 }
 
+/** The sort keys of `GET /v1/stations/:stationId/local-auth-list` (`localAuthEntryListSort in the API`). */
+export const LOCAL_AUTH_ENTRY_SORT_KEYS = [
+  'idToken',
+  'tokenType',
+  'driver',
+  'authStatus',
+  'addedAt',
+] as const;
+export type LocalAuthEntrySortKey = (typeof LOCAL_AUTH_ENTRY_SORT_KEYS)[number];
+
 export function StationLocalAuthList({
   stationId,
   isOnline,
@@ -87,6 +99,16 @@ export function StationLocalAuthList({
   const [selectedTokenIds, setSelectedTokenIds] = useState<Set<string>>(new Set());
 
   const limit = 10;
+  const entriesListSort = useListSort(LOCAL_AUTH_ENTRY_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const entriesSort: ListSort<LocalAuthEntrySortKey> = {
+    ...entriesListSort,
+    toggle: (key) => {
+      setPage(1);
+      entriesListSort.toggle(key);
+    },
+  };
+  const entriesSortQuery = new URLSearchParams(entriesListSort.params).toString();
 
   const {
     data: listData,
@@ -94,10 +116,10 @@ export function StationLocalAuthList({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['local-auth-list', stationId, page],
+    queryKey: ['local-auth-list', stationId, page, entriesListSort.params],
     queryFn: () =>
       api.get<VersionInfo>(
-        `/v1/stations/${stationId}/local-auth-list?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/stations/${stationId}/local-auth-list?page=${String(page)}&limit=${String(limit)}${entriesSortQuery === '' ? '' : `&${entriesSortQuery}`}`,
       ),
   });
 
@@ -246,11 +268,21 @@ export function StationLocalAuthList({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('stations.tokenColumn')}</TableHead>
-                    <TableHead>{t('stations.typeColumn')}</TableHead>
-                    <TableHead>{t('stations.driverColumn')}</TableHead>
-                    <TableHead>{t('stations.authStatusColumn')}</TableHead>
-                    <TableHead>{t('stations.addedAtColumn')}</TableHead>
+                    <SortableTableHead sortKey="idToken" sort={entriesSort}>
+                      {t('stations.tokenColumn')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="tokenType" sort={entriesSort}>
+                      {t('stations.typeColumn')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="driver" sort={entriesSort}>
+                      {t('stations.driverColumn')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="authStatus" sort={entriesSort}>
+                      {t('stations.authStatusColumn')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="addedAt" sort={entriesSort}>
+                      {t('stations.addedAtColumn')}
+                    </SortableTableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>

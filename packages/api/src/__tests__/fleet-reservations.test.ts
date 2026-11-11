@@ -81,7 +81,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -659,6 +659,43 @@ describe('Fleet reservation routes', () => {
   // GET /fleets/:fleetId/reservations
   // ------------------------------------------------------------------
   describe('GET /fleets/:fleetId/reservations', () => {
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'name',
+        'status',
+        'reservationCount',
+        'startsAt',
+        'expiresAt',
+        'createdAt',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/fleets/${VALID_FLEET_ID}/reservations?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of [
+        'sort=driver',
+        'sort=id',
+        'sort=reservations.id',
+        'sort=status&order=up',
+      ]) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/fleets/${VALID_FLEET_ID}/reservations?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns 401 without token', async () => {
       const res = await app.inject({
         method: 'GET',

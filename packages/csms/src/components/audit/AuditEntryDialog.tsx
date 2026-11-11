@@ -134,7 +134,7 @@ function AuditEntryDialogBody({
           <DescriptionItem label={t('audit.actor')}>
             <span className="flex min-w-0 flex-wrap items-center gap-2">
               <AuditActorBadge actor={entry.actor} />
-              <span>{actorDisplay(entry)}</span>
+              <span>{actorDisplay(t, entry)}</span>
             </span>
           </DescriptionItem>
           {entry.viaAi != null && (

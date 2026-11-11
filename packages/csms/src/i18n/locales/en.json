@@ -1,6 +1,9 @@
 {
   "common": {
     "loading": "Loading...",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending",
+    "sortDefault": "Back to default order",
     "pageNotFound": "Page Not Found",
     "pageNotFoundDescription": "The page you are looking for does not exist or has been moved.",
     "allSiteAccessRequired": "Access to Every Site Required",
@@ -117,7 +120,16 @@
       "year": "Year",
       "today": "Today",
       "clear": "Clear"
-    }
+    },
+    "sessionFallback": "Session",
+    "unnamedSite": "Unnamed site",
+    "unnamedStation": "Unnamed station",
+    "unnamedTerminal": "Unnamed terminal",
+    "unnamedPanel": "Unnamed panel",
+    "unnamedTransformer": "Unnamed transformer",
+    "unnamedUser": "Unnamed user",
+    "unnamedTemplate": "Unnamed template",
+    "unnamedReservation": "Unnamed reservation"
   },
   "status": {
     "online": "Online",
@@ -5348,6 +5360,7 @@
     "failedStations": "Failed",
     "noStationsTargeted": "No stations targeted",
     "noCampaignRuns": "No campaign runs yet",
+    "noCampaigns": "No firmware campaigns",
     "error": "Error",
     "confirmStart": "Start Campaign",
     "confirmStartDescription": "This will send the firmware update to all matching online stations now. Offline stations get it when they connect. Continue?",
@@ -6406,7 +6419,9 @@
       "mcp": "MCP",
       "proposal": "Confirmed AI action"
     },
-    "entryTitle": "{{action}} ({{entity}})"
+    "entryTitle": "{{action}} ({{entity}})",
+    "actorKindUser": "User",
+    "entityName": "Name"
   },
   "maintenance": {
     "colType": "Type",

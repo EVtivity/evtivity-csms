@@ -3,14 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { CreateButton } from '@/components/create-button';
 import { SearchInput } from '@/components/search-input';
@@ -18,6 +11,17 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { TableSkeleton } from '@/components/TableSkeleton';
 import { formatDate, useUserTimezone } from '@/lib/timezone';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
+
+/** The sort keys of `GET /v1/fleets` (`fleetListSort` in the API). */
+const FLEET_SORT_KEYS = [
+  'name',
+  'description',
+  'driverCount',
+  'stationCount',
+  'createdAt',
+] as const;
 
 interface Fleet {
   id: string;
@@ -32,6 +36,7 @@ export function Fleets(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const timezone = useUserTimezone();
+  const listSort = useListSort(FLEET_SORT_KEYS);
 
   const {
     data: fleets,
@@ -41,7 +46,7 @@ export function Fleets(): React.JSX.Element {
     setPage,
     search,
     setSearch,
-  } = usePaginatedQuery<Fleet>('fleets', '/v1/fleets');
+  } = usePaginatedQuery<Fleet>('fleets', '/v1/fleets', listSort.params);
 
   return (
     <div className="space-y-6">
@@ -74,19 +79,28 @@ export function Fleets(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('fleets.fleetId')}</TableHead>
-                <TableHead>{t('fleets.fleetName')}</TableHead>
-                <TableHead>{t('common.description')}</TableHead>
-                <TableHead>{t('fleets.drivers')}</TableHead>
-                <TableHead>{t('fleets.stations')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="name" sort={listSort}>
+                  {t('fleets.fleetName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="description" sort={listSort}>
+                  {t('common.description')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="driverCount" sort={listSort}>
+                  {t('fleets.drivers')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="stationCount" sort={listSort}>
+                  {t('fleets.stations')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.created')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={6}>
-                    <TableSkeleton columns={6} rows={5} />
+                  <TableCell colSpan={5}>
+                    <TableSkeleton columns={5} rows={5} />
                   </TableCell>
                 </TableRow>
               )}
@@ -99,7 +113,6 @@ export function Fleets(): React.JSX.Element {
                     void navigate(`/fleets/${fleet.id}`);
                   }}
                 >
-                  <TableCell className="text-muted-foreground">{fleet.id}</TableCell>
                   <TableCell className="font-medium text-link" data-testid="row-click-target">
                     {fleet.name}
                   </TableCell>
@@ -111,7 +124,7 @@ export function Fleets(): React.JSX.Element {
               ))}
               {fleets?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
                     {t('fleets.noFleetsFound')}
                   </TableCell>
                 </TableRow>

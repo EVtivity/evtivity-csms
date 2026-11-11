@@ -6,15 +6,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { TabPanel } from '@/components/ui/tab-panel';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 
@@ -49,16 +44,36 @@ const STATUS_VARIANT: Record<
   Installing: 'warning',
 };
 
+/** The sort keys of `GET /v1/stations/:id/firmware-history` (`stationFirmwareListSort in the API`). */
+export const STATION_FIRMWARE_SORT_KEYS = [
+  'status',
+  'firmwareUrl',
+  'version',
+  'initiatedAt',
+  'lastStatusAt',
+] as const;
+export type StationFirmwareSortKey = (typeof STATION_FIRMWARE_SORT_KEYS)[number];
+
 export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const limit = 25;
+  const firmwareListSort = useListSort(STATION_FIRMWARE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const firmwareSort: ListSort<StationFirmwareSortKey> = {
+    ...firmwareListSort,
+    toggle: (key) => {
+      setPage(1);
+      firmwareListSort.toggle(key);
+    },
+  };
+  const firmwareSortQuery = new URLSearchParams(firmwareListSort.params).toString();
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['stations', stationId, 'firmware-history', page],
+    queryKey: ['stations', stationId, 'firmware-history', page, firmwareListSort.params],
     queryFn: () =>
       api.get<{ data: FirmwareUpdate[]; total: number }>(
-        `/v1/stations/${stationId}/firmware-history?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/stations/${stationId}/firmware-history?page=${String(page)}&limit=${String(limit)}${firmwareSortQuery === '' ? '' : `&${firmwareSortQuery}`}`,
       ),
   });
 
@@ -80,11 +95,21 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>URL</TableHead>
-                <TableHead>{t('firmwareCampaigns.version')}</TableHead>
-                <TableHead>{t('common.initiated')}</TableHead>
-                <TableHead>{t('common.lastUpdate')}</TableHead>
+                <SortableTableHead sortKey="status" sort={firmwareSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="firmwareUrl" sort={firmwareSort}>
+                  URL
+                </SortableTableHead>
+                <SortableTableHead sortKey="version" sort={firmwareSort}>
+                  {t('firmwareCampaigns.version')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="initiatedAt" sort={firmwareSort}>
+                  {t('common.initiated')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="lastStatusAt" sort={firmwareSort}>
+                  {t('common.lastUpdate')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

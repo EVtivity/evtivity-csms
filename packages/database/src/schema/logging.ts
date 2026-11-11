@@ -115,6 +115,7 @@ export const accessLogs = pgTable(
     index('idx_access_logs_category').on(table.category),
     index('idx_access_logs_created_at').on(table.createdAt),
     index('idx_access_logs_action').on(table.action),
+    index('idx_access_logs_duration_desc').on(table.durationMs.desc().nullsLast(), table.id.desc()),
   ],
 );
 

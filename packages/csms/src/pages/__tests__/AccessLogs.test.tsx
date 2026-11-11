@@ -81,6 +81,21 @@ describe('AccessLogs date range', () => {
     expect(lastQueryFor('/v1/access-logs').get('category')).toBe('csms');
   });
 
+  it('sends the URL sort of each tab, and drops a key the tab does not offer', async () => {
+    renderPage('/logs?tab=api&sort=statusCode&order=desc');
+    await waitFor(() => {
+      expect(lastQueryFor('/v1/access-logs').get('sort')).toBe('statusCode');
+    });
+    expect(lastQueryFor('/v1/access-logs').get('order')).toBe('desc');
+    cleanup();
+    apiMock.get.mockClear();
+    renderPage('/logs?tab=workers&sort=statusCode');
+    await waitFor(() => {
+      expect(lastQueryFor('/v1/worker-logs').get('page')).toBe('1');
+    });
+    expect(lastQueryFor('/v1/worker-logs').get('sort')).toBeNull();
+  });
+
   it('keeps the range on the Workers tab', async () => {
     renderPage('/logs?tab=workers&from=2026-10-01');
     await waitFor(() => {

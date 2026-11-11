@@ -13,12 +13,17 @@ import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { SearchInput } from '@/components/search-input';
-import { SessionsTable, SESSIONS_COLUMNS } from '@/components/SessionsTable';
-import type { Session } from '@/components/SessionsTable';
+import {
+  ALL_SESSIONS_SORT_KEYS,
+  SessionsTable,
+  SESSIONS_COLUMNS,
+} from '@/components/SessionsTable';
+import type { Session, SessionSortKey } from '@/components/SessionsTable';
 import { ColumnVisibilityToggle } from '@/components/ColumnVisibilityToggle';
 import { FilterPopover } from '@/components/FilterBar';
 import { useColumnVisibility } from '@/hooks/use-column-visibility';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
 import { useUserTimezone } from '@/lib/timezone';
 import { api } from '@/lib/api';
 
@@ -104,14 +109,15 @@ export function Sessions(): React.JSX.Element {
       : list;
   }, [stations, selectedStation]);
 
+  const listSort = useListSort<SessionSortKey>(ALL_SESSIONS_SORT_KEYS);
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = { ...listSort.params };
     if (filterSiteId !== '') params.siteId = filterSiteId;
     if (filterStationId !== '') params.stationId = filterStationId;
     if (filterStatus !== '') params.status = filterStatus;
     if (filterCostMissing) params.costMissing = 'true';
     return Object.keys(params).length > 0 ? params : undefined;
-  }, [filterSiteId, filterStationId, filterStatus, filterCostMissing]);
+  }, [filterSiteId, filterStationId, filterStatus, filterCostMissing, listSort.params]);
   const filterSiteName = siteOptions.find((s) => s.id === filterSiteId)?.name;
 
   // A link can open the list already searched (`?search=`).
@@ -298,6 +304,8 @@ export function Sessions(): React.JSX.Element {
             isError={isError}
             onRetry={refetch}
             visibility={visibility}
+            sort={listSort}
+            sortKeys={ALL_SESSIONS_SORT_KEYS}
           />
         </CardContent>
       </Card>

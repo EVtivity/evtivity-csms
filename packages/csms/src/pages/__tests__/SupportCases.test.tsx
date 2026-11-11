@@ -105,6 +105,15 @@ describe('support case list AI filters (TC-AI-DR-UI-08)', () => {
     });
   });
 
+  it('sorts the list on the server when a sortable header is clicked', async () => {
+    renderPage();
+    await screen.findByText('SC-0001');
+    fireEvent.click(screen.getByTestId('sort-priority'));
+    await waitFor(() => {
+      expect(caseUrls().some((u) => u.includes('sort=priority&order=asc'))).toBe(true);
+    });
+  });
+
   it('badges a case the AI resolved', async () => {
     renderPage();
     const row = (await screen.findByText('SC-0001')).closest('tr') as HTMLElement;

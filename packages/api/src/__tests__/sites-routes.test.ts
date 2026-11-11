@@ -230,6 +230,7 @@ vi.mock('@evtivity/database', async () => ({
     ),
   },
   sites: {},
+  vendors: {},
   sitePaymentConfigs: {},
   paymentRecords: {},
   pgErrorCode: (err: unknown) => (err as { code?: string } | null)?.code,
@@ -521,6 +522,31 @@ describe('Site routes - handler logic', () => {
         url: '/sites',
       });
       expect(response.statusCode).toBe(401);
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['name', 'location', 'stationCount', 'loadManagement', 'createdAt']) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/sites?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=sites.name', 'sort=powerDraw', 'sort=name&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/sites?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
   });
 
@@ -1404,6 +1430,8 @@ describe('Site routes - handler logic', () => {
         id: 'st-1',
         stationId: 'STATION-001',
         siteId: VALID_SITE_ID,
+        vendorId: 'vnd_1',
+        vendorName: 'ABB',
         model: null,
         serialNumber: null,
         availability: 'available',
@@ -1434,6 +1462,9 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveProperty('total');
       expect(body.data).toHaveLength(1);
       expect(body.data[0].ocppProtocol).toBe('ocpp2.1');
+      // The site Stations tab shows the Vendor column of the shared stations table.
+      expect(body.data[0].vendorId).toBe('vnd_1');
+      expect(body.data[0].vendorName).toBe('ABB');
       // Conformance test stations are never listed at a site.
       expect(databaseModule.isOperatorStation).toHaveBeenCalled();
     });
@@ -1449,6 +1480,43 @@ describe('Site routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('SITE_NOT_FOUND');
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'stationId',
+        'site',
+        'vendor',
+        'model',
+        'securityProfile',
+        'ocppProtocol',
+        'status',
+        'connectors',
+        'online',
+        'lastHeartbeat',
+        'createdAt',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([{ id: VALID_SITE_ID }], [], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/sites/${VALID_SITE_ID}/stations?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=charging_stations.id', 'sort=model&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/sites/${VALID_SITE_ID}/stations?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
   });
 
@@ -1540,6 +1608,44 @@ describe('Site routes - handler logic', () => {
   // --- GET /v1/sites/:id/sessions ---
 
   describe('GET /v1/sites/:id/sessions', () => {
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'station',
+        'driver',
+        'status',
+        'startedAt',
+        'duration',
+        'energy',
+        'cost',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/sites/${VALID_SITE_ID}/sessions?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of [
+        'sort=vehicle',
+        'sort=id',
+        'sort=charging_sessions.id',
+        'sort=energy&order=up',
+      ]) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/sites/${VALID_SITE_ID}/sessions?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns paginated sessions for site', async () => {
       const session = {
         id: 'sess-1',

@@ -97,10 +97,10 @@ export function EnergyAssetsCard({
 
   function connectionText(asset: EnergyAssetItem): string {
     if (asset.connectionTransformerId != null) {
-      return transformerNames.get(asset.connectionTransformerId) ?? asset.connectionTransformerId;
+      return transformerNames.get(asset.connectionTransformerId) ?? t('common.unnamedTransformer');
     }
     if (asset.connectionPanelId != null) {
-      return panelNames.get(asset.connectionPanelId) ?? asset.connectionPanelId;
+      return panelNames.get(asset.connectionPanelId) ?? t('common.unnamedPanel');
     }
     return t('loadManagement.connectionNoneShort');
   }

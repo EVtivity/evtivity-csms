@@ -191,6 +191,45 @@ describe('audit routes site scope', () => {
       expect(res.json().data.map((r: { id: number }) => r.id)).toEqual([9, 3]);
     });
 
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['createdAt', 'action', 'actorType']) {
+        for (const order of ['asc', 'desc']) {
+          const res = await get(`/audit/setting/company.name?sort=${sort}&order=${order}`);
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=entityType', 'sort=action&order=up']) {
+        const res = await get(`/audit/setting/company.name?${query}`);
+        expect(res.statusCode, query).toBe(400);
+      }
+      expect(mocks.execute).not.toHaveBeenCalled();
+    });
+
+    it('sorts each table and the merge by the same column, then id', async () => {
+      const at = '2026-10-10 10:00:00+00';
+      mocks.execute
+        .mockResolvedValueOnce([
+          { id: 1, action: 'created', actor: 'system', created_at: at },
+          { id: 2, action: 'updated', actor: 'system', created_at: at },
+        ])
+        .mockResolvedValueOnce([{ total: 2 }])
+        .mockResolvedValueOnce([{ id: 7, action: 'confirmed', actor: 'operator', created_at: at }])
+        .mockResolvedValueOnce([{ total: 1 }]);
+      const res = await get('/audit/ai_insight/ain_1?sort=action&order=asc');
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.map((r: { action: string }) => r.action)).toEqual([
+        'confirmed',
+        'created',
+        'updated',
+      ]);
+      expect(executedSql()[0]).toContain(
+        'ORDER BY action::text COLLATE "C" asc nulls last, id asc',
+      );
+    });
+
     it('does not filter by site for an all-site user', async () => {
       const res = await get('/audit/setting/company.name');
       expect(res.statusCode).toBe(200);
@@ -284,6 +323,33 @@ describe('audit routes site scope', () => {
       expect(dataSql).toContain('"station_audit_log"');
       expect(dataSql).not.toContain('"driver_audit_log"');
       expect(dataSql).toContain('UNION ALL');
+    });
+
+    it('keeps the default order without a sort key', async () => {
+      await get('/audit');
+      expect(executedSql()[0]).toContain('ORDER BY created_at DESC, entity_type ASC, id DESC');
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['createdAt', 'entityType', 'action', 'actorType']) {
+        for (const order of ['asc', 'desc']) {
+          const res = await get(`/audit?sort=${sort}&order=${order}`);
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('sorts the union by an output column, then the entity type and id', async () => {
+      await get('/audit?sort=actorType&order=desc');
+      expect(executedSql()[0]).toContain('ORDER BY actor desc nulls last, entity_type, id desc');
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=created_at', 'sort=action&order=up']) {
+        const res = await get(`/audit?${query}`);
+        expect(res.statusCode, query).toBe(400);
+      }
+      expect(mocks.execute).not.toHaveBeenCalled();
     });
 
     it('refuses an unknown type in entityTypes', async () => {

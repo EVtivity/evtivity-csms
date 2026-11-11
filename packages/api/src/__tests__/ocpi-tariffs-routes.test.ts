@@ -110,7 +110,8 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  // The list sort renders its direction with sql.raw.
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -200,6 +201,33 @@ describe('OCPI tariff mapping routes', () => {
         });
       }
       expect(publishOcpiTariffPush).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /v1/ocpi/tariff-mappings sorting', () => {
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['ocpiTariffId', 'partner', 'updatedAt']) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const res = await app.inject({
+            method: 'GET',
+            url: `/ocpi/tariff-mappings?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=ocpi_tariff_mappings.id', 'sort=partner&order=up']) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/ocpi/tariff-mappings?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(res.statusCode, query).toBe(400);
+      }
     });
   });
 

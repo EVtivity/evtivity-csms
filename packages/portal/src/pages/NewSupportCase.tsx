@@ -10,7 +10,8 @@ import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/PageHeader';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
+import { useDriverTimezone } from '@/lib/timezone';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { ApiError } from '@/lib/api';
@@ -37,6 +38,13 @@ export function NewSupportCase(): React.JSX.Element {
   const sessionId = searchParams.get('sessionId') ?? undefined;
   const stationId = searchParams.get('stationId') ?? undefined;
   const stationName = searchParams.get('stationName') ?? undefined;
+  const sessionStartedAt = searchParams.get('sessionStartedAt') ?? undefined;
+  const timezone = useDriverTimezone();
+  // The linked session by its station and start time, never its internal id.
+  const sessionText =
+    [stationName, sessionStartedAt != null ? formatDate(sessionStartedAt, timezone) : undefined]
+      .filter((part): part is string => part != null && part !== '')
+      .join(', ') || t('supportCases.linkedSessionFallback');
 
   const [category, setCategory] = useState<string>('general_inquiry');
   const [subject, setSubject] = useState(stationName != null ? `Issue at ${stationName}` : '');
@@ -204,13 +212,14 @@ export function NewSupportCase(): React.JSX.Element {
 
         {sessionId != null && (
           <p className="text-xs text-muted-foreground">
-            {t('supportCases.linkedSession')}: {sessionId}
+            {t('supportCases.linkedSession')}: {sessionText}
           </p>
         )}
 
         {sessionId == null && stationId != null && (
           <p className="text-xs text-muted-foreground">
-            {t('supportCases.linkedStation')}: {stationName ?? stationId}
+            {t('supportCases.linkedStation')}:{' '}
+            {stationName ?? t('supportCases.linkedStationFallback')}
           </p>
         )}
 

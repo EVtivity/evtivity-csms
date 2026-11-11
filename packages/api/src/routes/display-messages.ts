@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
+import { eq, and, sql, count } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { displayMessages, chargingStations } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -19,6 +19,7 @@ import { authorize } from '../middleware/rbac.js';
 import { ocppCommandQueued, ocppCommandQueuedBody } from '../lib/ocpp-command-queued.js';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import { auditStationChange } from '../lib/station-audit.js';
+import { displayMessageListSort } from '../lib/sorts/display-message-list-sort.js';
 import {
   OCPP201_MESSAGE_CONTENT_MAX_LENGTH,
   OCPP21_ONLY_MESSAGE_FORMATS,
@@ -105,6 +106,7 @@ const listMessagesQuery = paginationQuery.extend({
     .enum(['pending', 'accepted', 'rejected', 'cleared', 'expired'])
     .optional()
     .describe('Filter by message status'),
+  ...displayMessageListSort.query,
 });
 
 const createMessageBody = z.object({
@@ -173,7 +175,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
           .select()
           .from(displayMessages)
           .where(where)
-          .orderBy(desc(displayMessages.createdAt), desc(displayMessages.id))
+          .orderBy(...displayMessageListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(displayMessages).where(where),

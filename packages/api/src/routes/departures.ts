@@ -36,6 +36,7 @@ import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { departureScheduleListSort } from '../lib/sorts/departure-schedule-list-sort.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { getUserSiteIds, isAllSiteUser } from '../lib/site-access.js';
 import { errorWith, itemResponse, paginatedResponse } from '../lib/response-schemas.js';
@@ -205,6 +206,7 @@ const updateDepartureBody = z.object({
 const scheduleListQuery = paginationQuery.extend({
   siteId: ID_PARAMS.siteId.optional().describe('Only schedules of this site'),
   vehicleId: ID_PARAMS.vehicleId.optional().describe('Only schedules of this vehicle'),
+  ...departureScheduleListSort.query,
 });
 
 const departureListQuery = z.object({

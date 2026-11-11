@@ -46,6 +46,10 @@ vi.mock('@evtivity/database', () => {
     drivers: { id: 'drivers.id' },
     chargingStations: { id: 'charging_stations.id' },
     pricingGroups: { id: 'pricing_groups.id' },
+    // Read by the list sort definitions the routes import.
+    fleets: {},
+    vehicles: {},
+    chargingSessions: {},
     fleetAuditLog: { name: 'fleetAuditLog' },
     driverAuditLog: { name: 'driverAuditLog' },
     pricingAssignmentAuditLog: { name: 'pricingAssignmentAuditLog' },

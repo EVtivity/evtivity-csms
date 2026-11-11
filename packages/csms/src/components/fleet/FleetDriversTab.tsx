@@ -9,7 +9,8 @@ import { Trash2 } from 'lucide-react';
 import { CreateButton } from '@/components/create-button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
-import { DriversTable } from '@/components/DriversTable';
+import { DriversTable, DRIVER_SORT_KEYS, type DriverSortKey } from '@/components/DriversTable';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/toast';
@@ -63,6 +64,16 @@ export function FleetDriversTab({
   // The member opt-out applies at every site: all-site users only.
   const hasAllSiteAccess = useHasAllSiteAccess();
   const limit = 10;
+  const urlSort = useListSort(DRIVER_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const listSort: ListSort<DriverSortKey> = {
+    ...urlSort,
+    toggle: (key) => {
+      setPage(1);
+      urlSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(urlSort.params).toString();
 
   const {
     data: response,
@@ -70,10 +81,12 @@ export function FleetDriversTab({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['fleets', fleetId, 'drivers', page],
+    queryKey: ['fleets', fleetId, 'drivers', page, urlSort.params],
     queryFn: () =>
       api.get<{ data: FleetDriver[]; total: number }>(
-        `/v1/fleets/${fleetId}/drivers?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/fleets/${fleetId}/drivers?page=${String(page)}&limit=${String(limit)}${
+          sortQuery === '' ? '' : `&${sortQuery}`
+        }`,
       ),
   });
 
@@ -138,6 +151,7 @@ export function FleetDriversTab({
           onPageChange={setPage}
           timezone={timezone}
           emptyMessage={t('fleets.noDrivers')}
+          sort={listSort}
           isLoading={isLoading}
           isError={isError}
           onRetry={() => {

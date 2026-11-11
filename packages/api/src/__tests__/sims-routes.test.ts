@@ -370,6 +370,7 @@ describe('SIM inventory routes', () => {
         { userId: expect.any(String) as string, siteIds: [SITE_A] },
         2,
         5,
+        { sort: undefined, order: undefined },
       );
     });
 
@@ -380,7 +381,52 @@ describe('SIM inventory routes', () => {
         { userId: expect.any(String) as string, siteIds: null },
         1,
         10,
+        { sort: undefined, order: undefined },
       );
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'iccid',
+        'label',
+        'provider',
+        'status',
+        'providerStatus',
+        'station',
+        'confirmed',
+        'lastFetched',
+        'createdAt',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          const res = await call('GET', `/sims?sort=${sort}&order=${order}`);
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+      expect(m.listSimViews).toHaveBeenLastCalledWith(
+        {},
+        { userId: expect.any(String) as string, siteIds: null },
+        1,
+        10,
+        { sort: 'createdAt', order: 'desc' },
+      );
+      for (const sort of ['station', 'site', 'source', 'attachedAt', 'detachedAt', 'reason']) {
+        for (const order of ['asc', 'desc']) {
+          m.visibleSim.mockResolvedValueOnce(simRow());
+          const res = await call('GET', `/sims/${SIM_ID}/attachments?sort=${sort}&order=${order}`);
+          expect(res.statusCode, `attachments ${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=sims.iccid', 'sort=iccid&order=up']) {
+        const res = await call('GET', `/sims?${query}`);
+        expect(res.statusCode, query).toBe(400);
+      }
+      for (const query of ['sort=iccid', 'sort=attachedAt&order=up']) {
+        const res = await call('GET', `/sims/${SIM_ID}/attachments?${query}`);
+        expect(res.statusCode, `attachments ${query}`).toBe(400);
+      }
     });
 
     it('answers 404 SIM_NOT_FOUND for a SIM out of the scope (unattached, unconfirmed or unsited)', async () => {

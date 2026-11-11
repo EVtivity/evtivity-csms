@@ -109,7 +109,8 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  // The list sort renders its direction with sql.raw.
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -253,6 +254,43 @@ describe('Local auth list routes', () => {
       expect(body.entries).toHaveLength(1);
       expect(body.entries[0].driverName).toBe('John Doe');
       expect(body.total).toBe(1);
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      const station = { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true };
+      const versionRow = {
+        id: 1,
+        stationId: VALID_STATION_ID,
+        localVersion: 1,
+        reportedVersion: 1,
+        lastSyncAt: null,
+        lastModifiedAt: null,
+        lastVersionCheckAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      for (const sort of ['idToken', 'tokenType', 'driver', 'authStatus', 'addedAt']) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([station], [versionRow], [], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/stations/${VALID_STATION_ID}/local-auth-list?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=driverName', 'sort=addedAt&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/stations/${VALID_STATION_ID}/local-auth-list?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
   });
 

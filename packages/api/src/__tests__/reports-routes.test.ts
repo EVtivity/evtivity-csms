@@ -227,6 +227,31 @@ describe('Report routes', () => {
     expect(body.total).toBe(1);
   });
 
+  it('accepts every sort key in both directions', async () => {
+    for (const sort of ['name', 'reportType', 'format', 'status', 'fileSize', 'createdAt']) {
+      for (const order of ['asc', 'desc']) {
+        setupDbResults([], [{ count: 0 }]);
+        const response = await app.inject({
+          method: 'GET',
+          url: `/reports?sort=${sort}&order=${order}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, `${sort} ${order}`).toBe(200);
+      }
+    }
+  });
+
+  it('refuses a sort key it does not offer and an unknown order', async () => {
+    for (const query of ['sort=id', 'sort=reports.name', 'sort=name&order=up']) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/reports?${query}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode, query).toBe(400);
+    }
+  });
+
   it('GET /v1/reports/types returns 401 without auth', async () => {
     const response = await app.inject({ method: 'GET', url: '/reports/types' });
     expect(response.statusCode).toBe(401);

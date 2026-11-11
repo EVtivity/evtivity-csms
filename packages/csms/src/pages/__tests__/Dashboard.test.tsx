@@ -128,6 +128,7 @@ vi.mock('@/components/charts/PaymentBreakdownChart', () => ({
 }));
 vi.mock('@/components/charts/Sparkline', () => ({ Sparkline: () => null }));
 vi.mock('@/components/SessionsTable', () => ({
+  ALL_SESSIONS_SORT_KEYS: ['station'],
   SessionsTable: (props: {
     isLoading?: boolean;
     sessions?: unknown[];

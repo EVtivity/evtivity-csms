@@ -27,6 +27,7 @@ vi.mock('@evtivity/database', () => ({
   siteLoadManagement: {},
   sites: {},
   vehicleDepartures: {},
+  vehicleDepartureSchedules: {},
   vehicles: {},
   isFleetChargingEnabled: () => Promise.resolve(true),
   isOperatorStation: vi.fn(() => 'operator-station'),

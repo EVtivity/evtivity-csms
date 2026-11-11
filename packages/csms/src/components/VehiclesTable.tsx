@@ -18,6 +18,19 @@ import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/component
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { formatVehicleId } from '@evtivity/lib/vehicle-id';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import type { ListSort } from '@/hooks/use-list-sort';
+
+/** The sort keys of `GET /v1/fleets/:id/vehicles` (`vehicleListSort` in the API). */
+export const VEHICLE_SORT_KEYS = [
+  'make',
+  'model',
+  'driver',
+  'year',
+  'vin',
+  'licensePlate',
+] as const;
+export type VehicleSortKey = (typeof VEHICLE_SORT_KEYS)[number];
 
 export interface Vehicle {
   id: string;
@@ -49,6 +62,8 @@ interface VehiclesTableProps {
   onRowClick?: (vehicle: Vehicle) => void;
   /** The Autocharge columns: EVCCID, Autocharge and Last Seen (a driver's vehicles). */
   showAutocharge?: boolean;
+  /** The list's sort (a fleet's vehicles); without it the headers do not sort. */
+  sort?: ListSort<VehicleSortKey> | undefined;
 }
 
 export function VehiclesTable({
@@ -65,12 +80,13 @@ export function VehiclesTable({
   onDelete,
   onRowClick,
   showAutocharge = false,
+  sort,
 }: VehiclesTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const timezone = useUserTimezone();
   const hasActions = onEdit != null || onDelete != null;
-  const baseCols = 6;
+  const baseCols = 5;
   const colSpan = baseCols + (showDriver ? 1 : 0) + (hasActions ? 1 : 0) + (showAutocharge ? 3 : 0);
 
   return (
@@ -79,13 +95,26 @@ export function VehiclesTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('vehicles.vehicleId')}</TableHead>
-              <TableHead>{t('vehicles.make')}</TableHead>
-              <TableHead>{t('vehicles.model')}</TableHead>
-              {showDriver && <TableHead>{t('tokens.driver')}</TableHead>}
-              <TableHead>{t('vehicles.year')}</TableHead>
-              <TableHead>{t('vehicles.vin')}</TableHead>
-              <TableHead>{t('vehicles.licensePlate')}</TableHead>
+              <SortableTableHead sortKey="make" sort={sort}>
+                {t('vehicles.make')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="model" sort={sort}>
+                {t('vehicles.model')}
+              </SortableTableHead>
+              {showDriver && (
+                <SortableTableHead sortKey="driver" sort={sort}>
+                  {t('tokens.driver')}
+                </SortableTableHead>
+              )}
+              <SortableTableHead sortKey="year" sort={sort}>
+                {t('vehicles.year')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="vin" sort={sort}>
+                {t('vehicles.vin')}
+              </SortableTableHead>
+              <SortableTableHead sortKey="licensePlate" sort={sort}>
+                {t('vehicles.licensePlate')}
+              </SortableTableHead>
               {showAutocharge && (
                 <>
                   <TableHead>{t('vehicles.evccid')}</TableHead>
@@ -116,7 +145,6 @@ export function VehiclesTable({
                   onRowClick?.(v);
                 }}
               >
-                <TableCell className="text-muted-foreground">{v.id}</TableCell>
                 <TableCell className="font-medium" data-testid="row-click-target">
                   {v.make ?? 'n/a'}
                 </TableCell>

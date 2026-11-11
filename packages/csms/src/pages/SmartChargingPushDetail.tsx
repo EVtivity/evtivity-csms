@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { BackButton } from '@/components/back-button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +23,9 @@ import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+
+/** The sort keys of `GET /v1/smart-charging/pushes/:pushId (stations)` (the API list sort definition in `lib/sorts/`). */
+const PUSH_STATION_SORT_KEYS = ['station', 'status', 'updatedAt'] as const;
 
 interface PushStation {
   id: number;
@@ -58,13 +63,23 @@ export function SmartChargingPushDetail(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { pushId } = useParams<{ pushId: string }>();
   const [page, setPage] = useState(1);
+  const listSort = useListSort(PUSH_STATION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort = {
+    ...listSort,
+    toggle: (key: (typeof PUSH_STATION_SORT_KEYS)[number]) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const limit = 10;
 
   const { data: push, isLoading } = useQuery({
-    queryKey: ['smart-charging-pushes', pushId, page],
+    queryKey: ['smart-charging-pushes', pushId, page, listSort.params],
     queryFn: () =>
       api.get<PushDetail>(
-        `/v1/smart-charging/pushes/${pushId ?? ''}?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/smart-charging/pushes/${pushId ?? ''}?page=${String(page)}&limit=${String(limit)}${sortQuery ? `&${sortQuery}` : ''}`,
       ),
     enabled: pushId != null,
     refetchInterval: (query) => {
@@ -156,10 +171,16 @@ export function SmartChargingPushDetail(): React.JSX.Element {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('nav.stations')}</TableHead>
-                      <TableHead>{t('common.status')}</TableHead>
+                      <SortableTableHead sortKey="station" sort={sort}>
+                        {t('nav.stations')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={sort}>
+                        {t('common.status')}
+                      </SortableTableHead>
                       <TableHead>{t('firmwareCampaigns.error')}</TableHead>
-                      <TableHead>{t('common.lastUpdated')}</TableHead>
+                      <SortableTableHead sortKey="updatedAt" sort={sort}>
+                        {t('common.lastUpdated')}
+                      </SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

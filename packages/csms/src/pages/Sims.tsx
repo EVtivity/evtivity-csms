@@ -17,7 +17,13 @@ import { TemplateButton } from '@/components/template-button';
 import { ImportButton } from '@/components/import-button';
 import { ExportButton } from '@/components/export-button';
 import { CsvImportDialog, CsvImportResultCard } from '@/components/csv-import-dialog';
-import { SimsTable, SIMS_COLUMNS, type SimListItem } from '@/components/sims/SimsTable';
+import {
+  SimsTable,
+  SIM_SORT_KEYS,
+  SIMS_COLUMNS,
+  type SimListItem,
+} from '@/components/sims/SimsTable';
+import { useListSort } from '@/hooks/use-list-sort';
 import {
   SIM_ATTACHMENT_FILTERS,
   SIM_CSMS_STATUSES,
@@ -153,10 +159,11 @@ function SimsList(): React.JSX.Element {
       : list;
   }, [stations, selectedStation]);
 
-  const extraParams = useMemo(
-    () => (Object.keys(filters).length > 0 ? (filters as Record<string, string>) : undefined),
-    [filters],
-  );
+  const listSort = useListSort(SIM_SORT_KEYS);
+  const extraParams = useMemo(() => {
+    const params = { ...(filters as Record<string, string>), ...listSort.params };
+    return Object.keys(params).length > 0 ? params : undefined;
+  }, [filters, listSort.params]);
   const {
     data: sims,
     isLoading,
@@ -434,6 +441,7 @@ function SimsList(): React.JSX.Element {
             isError={isError}
             onRetry={refetch}
             visibility={visibility}
+            sort={listSort}
           />
         </CardContent>
       </Card>

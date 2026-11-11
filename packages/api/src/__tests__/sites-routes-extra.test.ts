@@ -162,6 +162,7 @@ vi.mock('@evtivity/database', async () => {
     configTemplateAuditLog: { name: 'config_template_audit_log' },
     pricingAssignmentAuditLog: { name: 'pricing_assignment_audit_log' },
     sites: {},
+    vendors: {},
     chargingStations: {
       id: { name: 'id', table: {} },
       siteId: { name: 'site_id', table: {} },

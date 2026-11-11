@@ -3,6 +3,8 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +35,9 @@ import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
 import { Textarea } from '@/components/ui/textarea';
 
+/** The sort keys of `GET /v1/pnc/csr-requests` (the API list sort definition in `lib/sorts/`). */
+const CSR_SORT_KEYS = ['certificateType', 'status', 'createdAt', 'source'] as const;
+
 interface CsrRequest {
   id: number;
   stationId: string | null;
@@ -57,7 +62,8 @@ export function CsrRequestsTab(): React.JSX.Element {
   const [signCsrId, setSignCsrId] = useState<number | null>(null);
   const [signedChain, setSignedChain] = useState('');
 
-  const csrParams = csrStatusFilter ? { status: csrStatusFilter } : undefined;
+  const csrSort = useListSort(CSR_SORT_KEYS);
+  const csrParams = { ...(csrStatusFilter ? { status: csrStatusFilter } : {}), ...csrSort.params };
 
   const {
     data: csrRequests,
@@ -136,10 +142,18 @@ export function CsrRequestsTab(): React.JSX.Element {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('pnc.certificateType')}</TableHead>
-                      <TableHead>{t('common.status')}</TableHead>
-                      <TableHead>{t('common.created')}</TableHead>
-                      <TableHead>{t('pnc.source')}</TableHead>
+                      <SortableTableHead sortKey="certificateType" sort={csrSort}>
+                        {t('pnc.certificateType')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={csrSort}>
+                        {t('common.status')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="createdAt" sort={csrSort}>
+                        {t('common.created')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="source" sort={csrSort}>
+                        {t('pnc.source')}
+                      </SortableTableHead>
                       <TableHead />
                     </TableRow>
                   </TableHeader>

@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, gte, lte, desc, count, sql, inArray } from 'drizzle-orm';
+import { eq, and, gte, lte, count, sql, inArray } from 'drizzle-orm';
 import {
   db,
   neviStationData,
@@ -14,6 +14,7 @@ import {
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { neviDowntimeListSort } from '../lib/sorts/nevi-downtime-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import {
   successResponse,
@@ -143,6 +144,7 @@ const excludedDowntimeQuery = paginationQuery.extend({
   stationId: ID_PARAMS.stationId.optional().describe('Filter by station ID'),
   from: z.string().optional().describe('ISO 8601 date-time lower bound for startedAt'),
   to: z.string().optional().describe('ISO 8601 date-time upper bound for startedAt'),
+  ...neviDowntimeListSort.query,
 });
 
 interface DowntimeRow {
@@ -367,7 +369,7 @@ export function neviRoutes(app: FastifyInstance): void {
           .from(neviExcludedDowntime)
           .innerJoin(chargingStations, eq(neviExcludedDowntime.stationId, chargingStations.id))
           .where(whereClause)
-          .orderBy(desc(neviExcludedDowntime.startedAt))
+          .orderBy(...neviDowntimeListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

@@ -25,6 +25,8 @@ import { SearchInput } from '@/components/search-input';
 import { FilterPopover } from '@/components/FilterBar';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -64,12 +66,16 @@ interface Role {
   name: string;
 }
 
+/** The sort keys of `GET /v1/users` (`userListSort` in the API). */
+const USER_SORT_KEYS = ['name', 'email', 'role', 'status', 'lastLoginAt', 'createdAt'] as const;
+
 export function UsersPage(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [filterRoleId, setFilterRoleId] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const listSort = useListSort(USER_SORT_KEYS);
 
   const {
     data: users,
@@ -83,6 +89,7 @@ export function UsersPage(): React.JSX.Element {
   } = usePaginatedQuery<User>('users', '/v1/users', {
     roleId: filterRoleId,
     status: filterStatus,
+    ...listSort.params,
   });
 
   const { data: roles } = useQuery({
@@ -226,28 +233,39 @@ export function UsersPage(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('users.userId')}</TableHead>
-                <TableHead>{t('users.fullName')}</TableHead>
-                <TableHead>{t('common.email')}</TableHead>
-                <TableHead>{t('users.role')}</TableHead>
+                <SortableTableHead sortKey="name" sort={listSort}>
+                  {t('users.fullName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="email" sort={listSort}>
+                  {t('common.email')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="role" sort={listSort}>
+                  {t('users.role')}
+                </SortableTableHead>
                 <TableHead>{t('users.siteAccessColumn')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('users.lastLogin')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="status" sort={listSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="lastLoginAt" sort={listSort}>
+                  {t('users.lastLogin')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.created')}
+                </SortableTableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}
               {isError && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-destructive">
+                  <TableCell colSpan={8} className="text-center text-destructive">
                     {t('common.loadError')}
                   </TableCell>
                 </TableRow>
@@ -261,7 +279,6 @@ export function UsersPage(): React.JSX.Element {
                     void navigate(`/users/${user.id}`);
                   }}
                 >
-                  <TableCell className="text-muted-foreground">{user.id}</TableCell>
                   <TableCell
                     className="font-medium text-link whitespace-nowrap"
                     data-testid="row-click-target"
@@ -323,7 +340,7 @@ export function UsersPage(): React.JSX.Element {
               ))}
               {users?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     {t('users.noUsersFound')}
                   </TableCell>
                 </TableRow>

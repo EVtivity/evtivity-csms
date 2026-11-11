@@ -21,6 +21,8 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
@@ -60,6 +62,17 @@ function cdrActions(cdr: CdrEntry): CdrAction[] {
   return actions;
 }
 
+/** The sort keys of `GET /v1/ocpi/cdrs` (`ocpiCdrListSort` in the API). */
+export const ROAMING_CDR_SORT_KEYS = [
+  'partner',
+  'ocpiCdrId',
+  'totalEnergy',
+  'totalCost',
+  'type',
+  'pushStatus',
+  'createdAt',
+] as const;
+
 export function RoamingCdrs(): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
@@ -68,6 +81,7 @@ export function RoamingCdrs(): React.JSX.Element {
   const canWrite = useHasPermission('roaming:write');
   const [pending, setPending] = useState<{ action: CdrAction; cdr: CdrEntry } | null>(null);
   const [reason, setReason] = useState('');
+  const listSort = useListSort(ROAMING_CDR_SORT_KEYS);
 
   const {
     data: cdrs,
@@ -77,7 +91,7 @@ export function RoamingCdrs(): React.JSX.Element {
     page,
     totalPages,
     setPage,
-  } = usePaginatedQuery<CdrEntry>('ocpi-cdrs', '/v1/ocpi/cdrs');
+  } = usePaginatedQuery<CdrEntry>('ocpi-cdrs', '/v1/ocpi/cdrs', listSort.params);
 
   const actionMutation = useMutation({
     mutationFn: ({ action, cdr }: { action: CdrAction; cdr: CdrEntry }) => {
@@ -117,13 +131,27 @@ export function RoamingCdrs(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('roaming.cdrs.partner')}</TableHead>
-                <TableHead>{t('roaming.cdrs.cdrId')}</TableHead>
-                <TableHead>{t('roaming.cdrs.energy')}</TableHead>
-                <TableHead>{t('roaming.cdrs.cost')}</TableHead>
-                <TableHead>{t('roaming.cdrs.type')}</TableHead>
-                <TableHead>{t('roaming.cdrs.pushStatus')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="partner" sort={listSort}>
+                  {t('roaming.cdrs.partner')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="ocpiCdrId" sort={listSort}>
+                  {t('roaming.cdrs.cdrId')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="totalEnergy" sort={listSort}>
+                  {t('roaming.cdrs.energy')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="totalCost" sort={listSort}>
+                  {t('roaming.cdrs.cost')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="type" sort={listSort}>
+                  {t('roaming.cdrs.type')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="pushStatus" sort={listSort}>
+                  {t('roaming.cdrs.pushStatus')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.created')}
+                </SortableTableHead>
                 {canWrite && <TableHead>{t('common.actions')}</TableHead>}
               </TableRow>
             </TableHeader>

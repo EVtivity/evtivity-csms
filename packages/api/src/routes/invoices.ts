@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and, count } from 'drizzle-orm';
+import { eq, and, count, inArray } from 'drizzle-orm';
 import {
   db,
   client,
@@ -14,12 +14,14 @@ import {
   invoiceAuditLog,
   writeAudit,
   chargingSessions,
+  chargingStations,
 } from '@evtivity/database';
 import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
+import { invoiceListSort } from '../lib/sorts/invoice-list-sort.js';
 import {
   paginatedResponse,
   itemResponse,
@@ -224,6 +226,16 @@ const invoiceLineItem = z
         'Line item metadata. kind (energy, time, sessionFee, idleFee, reservationFee, session, cancellationFee, noShowFee) says what the line bills; segment is the 1-based tariff segment of a split session; sessionDate and energyWh describe session lines; chargeDate is the charge date of a reservation fee line; on fleet invoices driverId, driverName and stationName describe session and idleFee lines, and idleMinutes is the idle time billed on an idleFee line (a session idle fee shown as its own line).',
       ),
     createdAt: z.string().describe('Timestamp when the line item was created'),
+    sessionStationOcppId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('OCPP id of the station of the linked session, for display'),
+    sessionStartedAt: z.coerce
+      .date()
+      .nullable()
+      .optional()
+      .describe('Start time of the linked session, for display'),
   })
   .loose();
 
@@ -327,6 +339,7 @@ const invoiceListQuery = paginationQuery.extend({
   fleetId: ID_PARAMS.fleetId.optional().describe('Filter by fleet ID (fleet invoices)'),
   status: z.enum(invoiceStatusEnum.enumValues).optional().describe('Filter by invoice status'),
   kind: z.enum(INVOICE_KINDS).optional().describe('Filter by kind: invoice or credit_note'),
+  ...invoiceListSort.query,
 });
 
 const creditNoteBody = z.object({
@@ -360,6 +373,40 @@ const aggregatedInvoiceBody = z.object({
   startDate: z.iso.datetime().describe('Start of billing period (ISO 8601)'),
   endDate: z.iso.datetime().describe('End of billing period (ISO 8601)'),
 });
+
+/**
+ * Adds the station OCPP id and the start time of each line's session, so the
+ * invoice page names a session by them instead of its internal id. One query
+ * for every session of the invoice.
+ */
+async function withSessionLabels<T extends { sessionId: string | null }>(
+  lineItems: T[],
+): Promise<Array<T & { sessionStationOcppId: string | null; sessionStartedAt: Date | null }>> {
+  const sessionIds = [
+    ...new Set(lineItems.map((item) => item.sessionId).filter((sid) => sid != null)),
+  ];
+  const rows =
+    sessionIds.length > 0
+      ? await db
+          .select({
+            id: chargingSessions.id,
+            stationOcppId: chargingStations.stationId,
+            startedAt: chargingSessions.startedAt,
+          })
+          .from(chargingSessions)
+          .leftJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+          .where(inArray(chargingSessions.id, sessionIds))
+      : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return lineItems.map((item) => {
+    const row = item.sessionId != null ? byId.get(item.sessionId) : undefined;
+    return {
+      ...item,
+      sessionStationOcppId: row?.stationOcppId ?? null,
+      sessionStartedAt: row?.startedAt ?? null,
+    };
+  });
+}
 
 /**
  * Writes `invoice_generated` for a driver invoice the operator created:
@@ -575,9 +622,8 @@ export function invoiceRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
-      const { page, limit, driverId, fleetId, status, kind } = request.query as z.infer<
-        typeof invoiceListQuery
-      >;
+      const query = request.query as z.infer<typeof invoiceListQuery>;
+      const { page, limit, driverId, fleetId, status, kind } = query;
       const offset = (page - 1) * limit;
 
       const conditions = [];
@@ -601,7 +647,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
           .from(invoices)
           .leftJoin(fleets, eq(fleets.id, invoices.fleetId))
           .where(whereClause)
-          .orderBy(desc(invoices.createdAt), desc(invoices.id))
+          .orderBy(...invoiceListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(invoices).where(whereClause),
@@ -641,7 +687,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         return;
       }
 
-      return result;
+      return { ...result, lineItems: await withSessionLabels(result.lineItems) };
     },
   );
 

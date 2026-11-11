@@ -48,9 +48,23 @@ import {
   validateReservationDateRange,
 } from '@/lib/reservation-datetime';
 import { useHasPermission } from '@/lib/auth';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 
 /** The API accepts at most this many slots per bulk reservation. */
 export const MAX_BULK_RESERVATION_SLOTS = 100;
+
+/** The sort keys of `GET /v1/fleets/:fleetId/reservations` (`fleetReservationListSort` in the API). */
+export const FLEET_RESERVATION_SORT_KEYS = [
+  'name',
+  'status',
+  'reservationCount',
+  'startsAt',
+  'expiresAt',
+  'createdAt',
+] as const;
+
+type FleetReservationSortKey = (typeof FLEET_RESERVATION_SORT_KEYS)[number];
 
 interface FleetReservation {
   id: string;
@@ -139,16 +153,31 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
     }),
   };
 
+  const listSort = useListSort(FLEET_RESERVATION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort: ListSort<FleetReservationSortKey> = {
+    ...listSort,
+    toggle: (key) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const listQuery = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    ...listSort.params,
+  });
+
   const {
     data: response,
     isLoading,
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['fleets', fleetId, 'reservations', page],
+    queryKey: ['fleets', fleetId, 'reservations', page, listSort.params],
     queryFn: () =>
       api.get<{ data: FleetReservation[]; total: number }>(
-        `/v1/fleets/${fleetId}/reservations?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/fleets/${fleetId}/reservations?${listQuery.toString()}`,
       ),
   });
 
@@ -307,12 +336,24 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('fleets.fleetReservationName')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('reservations.reservationCount')}</TableHead>
-                <TableHead>{t('reservations.startsAt')}</TableHead>
-                <TableHead>{t('reservations.expiresAt')}</TableHead>
-                <TableHead>{t('reservations.createdAt')}</TableHead>
+                <SortableTableHead sortKey="name" sort={sort}>
+                  {t('fleets.fleetReservationName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="reservationCount" sort={sort}>
+                  {t('reservations.reservationCount')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="startsAt" sort={sort}>
+                  {t('reservations.startsAt')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="expiresAt" sort={sort}>
+                  {t('reservations.expiresAt')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={sort}>
+                  {t('reservations.createdAt')}
+                </SortableTableHead>
                 <TableHead className="text-right">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -334,7 +375,7 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
               {response?.data.map((fr) => (
                 <TableRow key={fr.id}>
                   <TableCell className="whitespace-nowrap">
-                    {fr.name != null && fr.name !== '' ? fr.name : fr.id.slice(0, 8)}
+                    {fr.name != null && fr.name !== '' ? fr.name : t('common.unnamedReservation')}
                   </TableCell>
                   <TableCell>
                     <Badge variant={fleetReservationStatusVariant(fr.status)}>

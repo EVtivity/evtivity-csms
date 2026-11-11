@@ -27,6 +27,8 @@ import { getErrorMessage } from '@/lib/error-message';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import { Pagination } from '@/components/ui/pagination';
 import { useState } from 'react';
 import { roamingPartnerStatusVariant } from '@/lib/status-variants';
@@ -71,6 +73,16 @@ interface SyncLogEntry {
   createdAt: string;
 }
 
+/** The sort keys of `GET /v1/ocpi/sync-log` (`ocpiSyncLogListSort` in the API). */
+export const ROAMING_SYNC_LOG_SORT_KEYS = [
+  'module',
+  'direction',
+  'action',
+  'status',
+  'objectsCount',
+  'createdAt',
+] as const;
+
 export function RoamingPartnerDetail(): React.JSX.Element {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
@@ -82,6 +94,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
   const [newTokenOpen, setNewTokenOpen] = useState(false);
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
   const canWrite = useHasPermission('roaming:write');
+  const syncSort = useListSort(ROAMING_SYNC_LOG_SORT_KEYS);
 
   const { data: partner, isLoading } = useQuery({
     queryKey: ['ocpi-partners', id],
@@ -96,6 +109,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
     setPage: setSyncPage,
   } = usePaginatedQuery<SyncLogEntry>('ocpi-sync-log', '/v1/ocpi/sync-log', {
     partnerId: id ?? '',
+    ...syncSort.params,
   });
 
   const registerMutation = useMutation({
@@ -341,12 +355,24 @@ export function RoamingPartnerDetail(): React.JSX.Element {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('roaming.partners.module')}</TableHead>
-                    <TableHead>{t('roaming.partners.direction')}</TableHead>
-                    <TableHead>{t('roaming.partners.action')}</TableHead>
-                    <TableHead>{t('common.status')}</TableHead>
-                    <TableHead>{t('roaming.partners.objects')}</TableHead>
-                    <TableHead>{t('common.created')}</TableHead>
+                    <SortableTableHead sortKey="module" sort={syncSort}>
+                      {t('roaming.partners.module')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="direction" sort={syncSort}>
+                      {t('roaming.partners.direction')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="action" sort={syncSort}>
+                      {t('roaming.partners.action')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={syncSort}>
+                      {t('common.status')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="objectsCount" sort={syncSort}>
+                      {t('roaming.partners.objects')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="createdAt" sort={syncSort}>
+                      {t('common.created')}
+                    </SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

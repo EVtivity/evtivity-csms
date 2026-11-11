@@ -18,20 +18,26 @@ import {
 import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
+
+/** The sort keys of `GET /v1/invoices` (`invoiceListSort` in the API). */
+const INVOICE_SORT_KEYS = [
+  'invoiceNumber',
+  'kind',
+  'status',
+  'issuedAt',
+  'dueAt',
+  'total',
+] as const;
+type InvoiceSortKey = (typeof INVOICE_SORT_KEYS)[number];
 
 export interface DriverInvoice {
   id: string;
@@ -77,6 +83,16 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
   const canWrite = useHasPermission('payments:write');
   const [page, setPage] = useState(1);
   const limit = 25;
+  const urlSort = useListSort(INVOICE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const listSort: ListSort<InvoiceSortKey> = {
+    ...urlSort,
+    toggle: (key) => {
+      setPage(1);
+      urlSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(urlSort.params).toString();
 
   const [generateOpen, setGenerateOpen] = useState(false);
   const [startDate, setStartDate] = useState('');
@@ -84,10 +100,12 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['drivers', driverId, 'invoices', page],
+    queryKey: ['drivers', driverId, 'invoices', page, urlSort.params],
     queryFn: () =>
       api.get<{ data: DriverInvoice[]; total: number }>(
-        `/v1/invoices?driverId=${driverId}&page=${String(page)}&limit=${String(limit)}`,
+        `/v1/invoices?driverId=${driverId}&page=${String(page)}&limit=${String(limit)}${
+          sortQuery === '' ? '' : `&${sortQuery}`
+        }`,
       ),
     enabled: driverId !== '',
   });
@@ -169,12 +187,24 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('invoices.invoiceNumber')}</TableHead>
-                <TableHead>{t('invoices.kind')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('invoices.issuedAt')}</TableHead>
-                <TableHead>{t('invoices.dueAt')}</TableHead>
-                <TableHead className="text-right">{t('invoices.total')}</TableHead>
+                <SortableTableHead sortKey="invoiceNumber" sort={listSort}>
+                  {t('invoices.invoiceNumber')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="kind" sort={listSort}>
+                  {t('invoices.kind')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={listSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="issuedAt" sort={listSort}>
+                  {t('invoices.issuedAt')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="dueAt" sort={listSort}>
+                  {t('invoices.dueAt')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="total" sort={listSort} className="text-right">
+                  {t('invoices.total')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

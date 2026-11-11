@@ -124,7 +124,8 @@ vi.mock('drizzle-orm', () => ({
   or: vi.fn(),
   ilike: vi.fn(),
   like: vi.fn(),
-  sql: vi.fn(),
+  // The list sort renders its direction with sql.raw.
+  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -400,6 +401,31 @@ describe('Notification routes', () => {
     });
     expect(response.statusCode).toBe(404);
     expect(mockWriteAudit).not.toHaveBeenCalled();
+  });
+
+  it('accepts every sort key in both directions', async () => {
+    for (const sort of ['timestamp', 'recipient', 'subject', 'eventType', 'status']) {
+      for (const order of ['asc', 'desc']) {
+        setupDbResults([], [{ count: 0 }]);
+        const response = await app.inject({
+          method: 'GET',
+          url: `/notifications?channel=email&sort=${sort}&order=${order}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, `${sort} ${order}`).toBe(200);
+      }
+    }
+  });
+
+  it('refuses a sort key it does not offer and an unknown order', async () => {
+    for (const query of ['sort=id', 'sort=body', 'sort=status&order=up']) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/notifications?channel=email&${query}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode, query).toBe(400);
+    }
   });
 
   it('GET /v1/notifications returns paginated notification history', async () => {

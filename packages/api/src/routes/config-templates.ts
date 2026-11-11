@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, isNotNull, asc, inArray, exists, sql } from 'drizzle-orm';
+import { eq, and, count, isNotNull, asc, inArray, exists, sql } from 'drizzle-orm';
 import {
   db,
   configTemplates,
@@ -21,6 +21,12 @@ import {
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
+import {
+  configTemplateListSort,
+  configTemplatePushListSort,
+  configTemplatePushStationListSort,
+} from '../lib/sorts/config-template-list-sort.js';
+import { matchingStationListSort } from '../lib/sorts/matching-station-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import {
   paginatedResponse,
@@ -251,6 +257,13 @@ type TemplateVariable = z.infer<typeof templateVariableInput>;
  * instance, and a template sets each (component, variable, variable
  * instance) once. Returns the 400 body, or null when valid.
  */
+const templateListQuery = paginationQuery.extend(configTemplateListSort.query);
+
+const pushListQuery = paginationQuery.extend(configTemplatePushListSort.query);
+
+/** The push detail query: the page of station results and its sort. */
+const pushDetailQuery = paginationQuery.extend(configTemplatePushStationListSort.query);
+
 export function templateVariablesProblem(
   ocppVersion: string,
   variables: readonly TemplateVariable[],
@@ -404,12 +417,12 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         summary: 'List configuration templates',
         operationId: 'listConfigTemplates',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(templateListQuery),
         response: { 200: paginatedResponse(templateItem) },
       },
     },
     async (request) => {
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof templateListQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -426,7 +439,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           .select()
           .from(configTemplates)
           .where(scope)
-          .orderBy(desc(configTemplates.createdAt), desc(configTemplates.id))
+          .orderBy(...configTemplateListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(configTemplates).where(scope),
@@ -802,6 +815,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
 
   const matchingStationsQuery = paginationQuery.extend({
     status: z.enum(['online', 'offline']).optional().describe('Filter by online status'),
+    ...matchingStationListSort.query,
   });
 
   // Preview matching stations for a template's target filter
@@ -870,7 +884,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .leftJoin(vendors, eq(chargingStations.vendorId, vendors.id))
           .where(whereClause)
-          .orderBy(asc(chargingStations.stationId))
+          .orderBy(...matchingStationListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(chargingStations).where(whereClause),
@@ -1013,7 +1027,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         operationId: 'listConfigTemplatePushes',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(pushListQuery),
         response: {
           200: paginatedResponse(pushItem),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
@@ -1022,7 +1036,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof pushListQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -1064,7 +1078,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           .select()
           .from(configTemplatePushes)
           .where(pushWhere)
-          .orderBy(desc(configTemplatePushes.createdAt), desc(configTemplatePushes.id))
+          .orderBy(...configTemplatePushListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(configTemplatePushes).where(pushWhere),
@@ -1133,7 +1147,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         operationId: 'getConfigTemplatePushDetail',
         security: [{ bearerAuth: [] }],
         params: zodSchema(z.object({ pushId: z.string().describe('Push ID') })),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(pushDetailQuery),
         response: {
           200: itemResponse(pushDetailItem),
           404: errorWith('Push not found', [ERROR_CODES.PUSH_NOT_FOUND]),
@@ -1142,7 +1156,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { pushId } = request.params as { pushId: string };
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof pushDetailQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -1205,7 +1219,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         .from(configTemplatePushStations)
         .innerJoin(chargingStations, eq(configTemplatePushStations.stationId, chargingStations.id))
         .where(stationWhere)
-        .orderBy(asc(chargingStations.stationId))
+        .orderBy(...configTemplatePushStationListSort.orderBy(query))
         .limit(limit)
         .offset(offset);
 

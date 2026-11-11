@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const h = vi.hoisted(() => ({ get: vi.fn() }));
 
@@ -19,9 +20,13 @@ vi.mock('@/lib/timezone', () => ({
 
 import { EntityHistoryTab } from '../EntityHistoryTab';
 
-function renderTab(element: React.JSX.Element): void {
+function renderTab(element: React.JSX.Element, url = '/'): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
+  render(
+    <MemoryRouter initialEntries={[url]}>
+      <QueryClientProvider client={client}>{element}</QueryClientProvider>
+    </MemoryRouter>,
+  );
 }
 
 beforeEach(() => {
@@ -57,6 +62,24 @@ describe('EntityHistoryTab', () => {
 
   it('lists one entity through the per-entity route', async () => {
     renderTab(<EntityHistoryTab entityType="session" entityId="ses_1" />);
+    await waitFor(() => {
+      expect(h.get).toHaveBeenCalledWith('/v1/audit/session/ses_1?page=1&limit=20');
+    });
+  });
+
+  it('sends the URL sort with the list request, and ignores a key it does not offer', async () => {
+    renderTab(
+      <EntityHistoryTab entityType="session" entityId="ses_1" />,
+      '/?sort=action&order=desc',
+    );
+    await waitFor(() => {
+      expect(h.get).toHaveBeenCalledWith(
+        '/v1/audit/session/ses_1?page=1&limit=20&sort=action&order=desc',
+      );
+    });
+    cleanup();
+    h.get.mockClear();
+    renderTab(<EntityHistoryTab entityType="session" entityId="ses_1" />, '/?sort=notes');
     await waitFor(() => {
       expect(h.get).toHaveBeenCalledWith('/v1/audit/session/ses_1?page=1&limit=20');
     });

@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
@@ -83,6 +85,16 @@ interface Props {
   ocppProtocol: string | null;
 }
 
+/** The sort keys of `GET /v1/stations/:id/charging-profiles` (`stationChargingProfileListSort in the API`). */
+export const STATION_CHARGING_PROFILE_SORT_KEYS = [
+  'source',
+  'evseId',
+  'chargingLimitSource',
+  'template',
+  'createdAt',
+] as const;
+export type StationChargingProfileSortKey = (typeof STATION_CHARGING_PROFILE_SORT_KEYS)[number];
+
 export function StationChargingProfilesTab({
   stationId,
   timezone,
@@ -94,6 +106,16 @@ export function StationChargingProfilesTab({
   const { toast } = useToast();
   const [page, setPage] = useState(1);
   const limit = 25;
+  const profilesListSort = useListSort(STATION_CHARGING_PROFILE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const profilesSort: ListSort<StationChargingProfileSortKey> = {
+    ...profilesListSort,
+    toggle: (key) => {
+      setPage(1);
+      profilesListSort.toggle(key);
+    },
+  };
+  const profilesSortQuery = new URLSearchParams(profilesListSort.params).toString();
 
   // Refresh spinning state
   const [spinning, setSpinning] = useState(false);
@@ -114,10 +136,10 @@ export function StationChargingProfilesTab({
   const isOcpp16 = ocppProtocol === 'ocpp1.6';
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['stations', stationId, 'charging-profiles', page],
+    queryKey: ['stations', stationId, 'charging-profiles', page, profilesListSort.params],
     queryFn: () =>
       api.get<{ data: ChargingProfile[]; total: number }>(
-        `/v1/stations/${stationId}/charging-profiles?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/stations/${stationId}/charging-profiles?page=${String(page)}&limit=${String(limit)}${profilesSortQuery === '' ? '' : `&${profilesSortQuery}`}`,
       ),
   });
 
@@ -277,11 +299,21 @@ export function StationChargingProfilesTab({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t('common.source')}</TableHead>
-                  <TableHead>EVSE</TableHead>
-                  <TableHead>{t('stations.limitSource')}</TableHead>
-                  <TableHead>{t('smartCharging.template')}</TableHead>
-                  <TableHead>{t('common.created')}</TableHead>
+                  <SortableTableHead sortKey="source" sort={profilesSort}>
+                    {t('common.source')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="evseId" sort={profilesSort}>
+                    EVSE
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="chargingLimitSource" sort={profilesSort}>
+                    {t('stations.limitSource')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="template" sort={profilesSort}>
+                    {t('smartCharging.template')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="createdAt" sort={profilesSort}>
+                    {t('common.created')}
+                  </SortableTableHead>
                   <TableHead className="text-right">{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -307,7 +339,7 @@ export function StationChargingProfilesTab({
                           to={`/smart-charging/${profile.templateId}`}
                           className="text-link hover:underline"
                         >
-                          {profile.templateName ?? profile.templateId}
+                          {profile.templateName ?? t('common.unnamedTemplate')}
                         </Link>
                       ) : (
                         t('common.na')
@@ -485,7 +517,7 @@ export function StationChargingProfilesTab({
                       to={`/smart-charging/${viewProfile.templateId}`}
                       className="text-link hover:underline"
                     >
-                      {viewProfile.templateName ?? viewProfile.templateId}
+                      {viewProfile.templateName ?? t('common.unnamedTemplate')}
                     </Link>
                   ) : (
                     t('common.na')

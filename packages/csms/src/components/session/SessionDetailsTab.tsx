@@ -52,6 +52,7 @@ interface SessionOverview {
   status: string;
   stoppedReason: string | null;
   reservationId: string | null;
+  reservationNumber?: number | null;
   freeVend: boolean | null;
   co2AvoidedKg: number | null;
   transactionId: string | null;
@@ -236,7 +237,9 @@ export function SessionDetailsTab({
                 to={`/reservations/${session.reservationId}`}
                 className="text-link hover:underline"
               >
-                {session.reservationId}
+                {session.reservationNumber != null
+                  ? `#${String(session.reservationNumber)}`
+                  : t('sessions.reservation')}
               </Link>
             </Row>
           )}

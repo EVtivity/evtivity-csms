@@ -73,6 +73,7 @@ interface SessionDetailData {
   currency: string;
   stoppedReason: string | null;
   reservationId: string | null;
+  reservationNumber?: number | null;
   freeVend: boolean | null;
   billingMode?: 'card' | 'account' | null;
   billingFleetName?: string | null;

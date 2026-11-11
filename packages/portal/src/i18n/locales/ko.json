@@ -629,7 +629,9 @@
         "wait_and_retry": "몇 분 후 다시 시도",
         "check_token_active": "카드 또는 토큰이 활성 상태인지 확인"
       }
-    }
+    },
+    "linkedSessionFallback": "충전 세션",
+    "linkedStationFallback": "충전기"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "계정이 비활성화되었습니다",

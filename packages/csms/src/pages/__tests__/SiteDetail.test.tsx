@@ -55,18 +55,22 @@ const SITE = {
   updatedAt: '2026-01-01T00:00:00Z',
 };
 
+const requested = vi.hoisted(() => [] as string[]);
+
 // The site itself answers; every other query stays pending.
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return {
     ...actual,
     api: {
-      get: (path: string) =>
-        path === '/v1/sites/s1'
+      get: (path: string) => {
+        requested.push(path);
+        return path === '/v1/sites/s1'
           ? Promise.resolve(SITE)
           : path === '/v1/portal/features'
             ? Promise.resolve({ aiInsightsEnabled: true })
-            : new Promise(() => {}),
+            : new Promise(() => {});
+      },
     },
   };
 });
@@ -173,5 +177,15 @@ describe('Site detail AI tab (plan v0.1.45, section 6)', () => {
     expect(screen.queryByTestId('site-ai-card')).toBeNull();
     expect(detailsTabSource).toContain('export function SiteDetailsTab');
     expect(detailsTabSource).not.toContain('SiteAiCard');
+  });
+});
+
+describe('Site detail stations tab sort', () => {
+  it('requests the site stations sorted by the clicked column', async () => {
+    renderSite(['sites:read', 'stations:read'], true, '?tab=stations');
+    fireEvent.click(await screen.findByTestId('sort-stationId'));
+    await vi.waitFor(() => {
+      expect(requested).toContain('/v1/sites/s1/stations?page=1&limit=10&sort=stationId&order=asc');
+    });
   });
 });

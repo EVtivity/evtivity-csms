@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { getMock, postMock, toastMock, state } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -124,7 +125,9 @@ function wrap(): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <FleetDeparturesTab fleetId="flt_1" />
+      <MemoryRouter>
+        <FleetDeparturesTab fleetId="flt_1" />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -394,6 +397,18 @@ describe('FleetDeparturesTab', () => {
     expect(getMock).toHaveBeenCalledWith(
       '/v1/fleets/flt_1/departures?status=scheduled&page=1&limit=10',
     );
+  });
+
+  it('requests the schedules sorted by a column when its header is clicked', async () => {
+    mockReads();
+    wrap();
+    await screen.findByTestId('departure-schedule-row-vds_1');
+    fireEvent.click(screen.getByTestId('sort-priority'));
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith(
+        '/v1/fleets/flt_1/departure-schedules?page=1&limit=10&sort=priority&order=asc',
+      );
+    });
   });
 
   it('shows the readiness, the predicted ready time and the reason while planning is on', async () => {

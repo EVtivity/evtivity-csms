@@ -413,7 +413,7 @@ export function StationInfoTab({
               <dd className="font-medium">
                 {station.siteId != null ? (
                   <Link to={`/sites/${station.siteId}`} className="text-link hover:underline">
-                    {sites?.find((s) => s.id === station.siteId)?.name ?? station.siteId}
+                    {sites?.find((s) => s.id === station.siteId)?.name ?? t('common.unnamedSite')}
                   </Link>
                 ) : (
                   '-'

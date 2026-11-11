@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { and, desc, eq, inArray, gt, gte, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, gt, gte, isNull, lt, or, sql } from 'drizzle-orm';
 import {
   db,
   client,
@@ -19,6 +19,10 @@ import {
 import { AppError, ValidationError, compileAllowedTemplate } from '@evtivity/lib';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
+import {
+  maintenanceEventListSort,
+  maintenanceEventStationListSort,
+} from '../lib/sorts/maintenance-list-sort.js';
 import {
   itemResponse,
   paginatedResponse,
@@ -150,6 +154,7 @@ const fanoutStationItem = z
 
 const fanoutStationsQuery = paginationQuery.extend({
   phase: z.string().max(20).optional().describe('Filter by fan-out phase'),
+  ...maintenanceEventStationListSort.query,
 });
 
 const listQuery = paginationQuery.extend({
@@ -157,6 +162,7 @@ const listQuery = paginationQuery.extend({
     .enum(['scheduled', 'active', 'completed', 'cancelled'])
     .optional()
     .describe('Filter by status'),
+  ...maintenanceEventListSort.query,
 });
 
 const createBody = z.object({
@@ -402,7 +408,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .select()
           .from(maintenanceEvents)
           .where(and(...conditions))
-          .orderBy(desc(maintenanceEvents.plannedStartAt))
+          .orderBy(...maintenanceEventListSort.orderBy(q))
           .limit(q.limit)
           .offset(offset),
         db
@@ -495,7 +501,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .from(maintenanceEventStations)
           .leftJoin(chargingStations, eq(chargingStations.id, maintenanceEventStations.stationId))
           .where(and(...conditions))
-          .orderBy(desc(maintenanceEventStations.createdAt), desc(maintenanceEventStations.id))
+          .orderBy(...maintenanceEventStationListSort.orderBy(q))
           .limit(q.limit)
           .offset(offset),
         db

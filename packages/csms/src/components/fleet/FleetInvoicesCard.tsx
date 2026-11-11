@@ -32,12 +32,28 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents, formatNumber } from '@/lib/formatting';
 import { formatPeriodMonth, previousMonth } from '@/lib/fleet-invoice';
+import { sessionLabel } from '@/lib/session-label';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { BillToButton } from '@/components/bill-to-button';
 import { useBillingRecipientMove } from './use-billing-recipient-move';
 import { FleetMemberInvoices } from './FleetMemberInvoices';
 import type { FleetMemberPreview } from './FleetMemberInvoices';
 import type { AccountInvoiceRecipient } from './FleetBillingTab';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
+
+/** The sort keys of `GET /v1/fleets/:id/invoices` (`fleetInvoiceListSort` in the API). */
+const FLEET_INVOICE_SORT_KEYS = [
+  'invoiceNumber',
+  'periodStart',
+  'billedTo',
+  'status',
+  'issuedAt',
+  'dueAt',
+  'sentAt',
+  'total',
+] as const;
+type FleetInvoiceSortKey = (typeof FLEET_INVOICE_SORT_KEYS)[number];
 
 /** Why the fleet invoice leaves an unbilled account session off. */
 export type FleetInvoiceExclusion = 'other_currency' | 'zero_cost' | 'uncosted';
@@ -65,6 +81,7 @@ export interface FleetUnbilledPreview {
   }>;
   excluded: Array<{
     sessionId: string;
+    stationName?: string;
     driverId: string | null;
     driverName: string;
     endedAt: string | null;
@@ -148,6 +165,7 @@ function FleetUnbilledCard({
   recipient: AccountInvoiceRecipient;
 }): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const timezone = useUserTimezone();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('payments:write');
@@ -368,7 +386,11 @@ function FleetUnbilledCard({
                       to={`/sessions/${session.sessionId}`}
                       className="text-link hover:underline"
                     >
-                      {session.sessionId}
+                      {sessionLabel(
+                        t,
+                        { stationOcppId: session.stationName, startedAt: session.endedAt },
+                        timezone,
+                      )}
                     </Link>
                     {' · '}
                     {session.driverName !== '' ? session.driverName : t('invoices.unknownDriver')}
@@ -418,13 +440,24 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
   const [recipientFilter, setRecipientFilter] = useState<'' | AccountInvoiceRecipient>('');
   const [sendTarget, setSendTarget] = useState<FleetInvoiceRow | null>(null);
 
+  const urlSort = useListSort(FLEET_INVOICE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const listSort: ListSort<FleetInvoiceSortKey> = {
+    ...urlSort,
+    toggle: (key) => {
+      setPage(1);
+      urlSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(urlSort.params).toString();
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['fleets', fleetId, 'invoices', page, recipientFilter],
+    queryKey: ['fleets', fleetId, 'invoices', page, recipientFilter, urlSort.params],
     queryFn: () =>
       api.get<{ data: FleetInvoiceRow[]; total: number }>(
         `/v1/fleets/${fleetId}/invoices?page=${String(page)}&limit=${String(PAGE_SIZE)}${
           recipientFilter === '' ? '' : `&recipient=${recipientFilter}`
-        }`,
+        }${sortQuery === '' ? '' : `&${sortQuery}`}`,
       ),
   });
 
@@ -489,14 +522,30 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t('invoices.invoiceNumber')}</TableHead>
-                  <TableHead>{t('invoices.period')}</TableHead>
-                  <TableHead>{t('fleets.invoices.billedTo')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead>{t('invoices.issuedAt')}</TableHead>
-                  <TableHead>{t('invoices.dueAt')}</TableHead>
-                  <TableHead>{t('invoices.sentAt')}</TableHead>
-                  <TableHead className="text-right">{t('invoices.total')}</TableHead>
+                  <SortableTableHead sortKey="invoiceNumber" sort={listSort}>
+                    {t('invoices.invoiceNumber')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="periodStart" sort={listSort}>
+                    {t('invoices.period')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="billedTo" sort={listSort}>
+                    {t('fleets.invoices.billedTo')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="status" sort={listSort}>
+                    {t('common.status')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="issuedAt" sort={listSort}>
+                    {t('invoices.issuedAt')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="dueAt" sort={listSort}>
+                    {t('invoices.dueAt')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="sentAt" sort={listSort}>
+                    {t('invoices.sentAt')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="total" sort={listSort} className="text-right">
+                    {t('invoices.total')}
+                  </SortableTableHead>
                   <TableHead className="text-right">{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>

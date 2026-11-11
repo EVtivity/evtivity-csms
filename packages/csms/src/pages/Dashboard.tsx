@@ -19,10 +19,10 @@ import { UtilizationChart } from '@/components/charts/UtilizationChart';
 import { PeakUsageChart } from '@/components/charts/PeakUsageChart';
 import { StationMapChart } from '@/components/charts/StationMapChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
-import { SessionsTable } from '@/components/SessionsTable';
+import { ALL_SESSIONS_SORT_KEYS, SessionsTable } from '@/components/SessionsTable';
 import { Pagination } from '@/components/ui/pagination';
 import { ScrollSnapRow } from '@/components/ui/scroll-snap-row';
-import type { Session } from '@/components/SessionsTable';
+import type { Session, SessionSortKey } from '@/components/SessionsTable';
 import { useUserTimezone } from '@/lib/timezone';
 import { PaymentBreakdownChart } from '@/components/charts/PaymentBreakdownChart';
 import { LoadErrorRetry, queryState, type QueryState } from '@/components/charts/ChartBody';
@@ -30,6 +30,7 @@ import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
 import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { ActiveInsightsWidget } from '@/components/ai/insights/ActiveInsightsWidget';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
@@ -683,11 +684,25 @@ function DashboardBody({
   });
 
   const [activeSessionsPage, setActiveSessionsPage] = useState(1);
+  const activeSessionsSort = useListSort<SessionSortKey>(ALL_SESSIONS_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const activeSessionsTableSort: ListSort<SessionSortKey> = {
+    ...activeSessionsSort,
+    toggle: (key) => {
+      setActiveSessionsPage(1);
+      activeSessionsSort.toggle(key);
+    },
+  };
   const activeSessions = useQuery({
-    queryKey: ['sessions', 'active', activeSessionsPage],
+    queryKey: ['sessions', 'active', activeSessionsPage, activeSessionsSort.params],
     queryFn: () =>
       api.get<{ data: Session[]; total: number }>(
-        `/v1/sessions?page=${String(activeSessionsPage)}&limit=${String(ACTIVE_SESSIONS_PAGE_SIZE)}&status=active`,
+        `/v1/sessions?${new URLSearchParams({
+          page: String(activeSessionsPage),
+          limit: String(ACTIVE_SESSIONS_PAGE_SIZE),
+          status: 'active',
+          ...activeSessionsSort.params,
+        }).toString()}`,
       ),
     refetchInterval: 30_000,
     enabled: canSeeSessions,
@@ -1443,6 +1458,8 @@ function DashboardBody({
                   timezone={timezone}
                   isLoading={activeSessions.isLoading}
                   emptyMessage={t('charts.noActiveSessions')}
+                  sort={activeSessionsTableSort}
+                  sortKeys={ALL_SESSIONS_SORT_KEYS}
                 />
                 {/* SessionsTable renders no page controls: every caller adds them. */}
                 <Pagination

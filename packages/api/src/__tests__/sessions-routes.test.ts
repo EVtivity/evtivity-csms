@@ -212,6 +212,46 @@ describe('Session routes', () => {
   });
 
   describe('GET /v1/sessions', () => {
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'station',
+        'driver',
+        'vehicle',
+        'status',
+        'startedAt',
+        'duration',
+        'energy',
+        'co2Avoided',
+        'cost',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], [{ count: 0 }]);
+          const response = await app.inject({
+            method: 'GET',
+            url: `/sessions?sort=${sort}&order=${order}`,
+            headers: { authorization: `Bearer ${token}` },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of [
+        'sort=guestSession',
+        'sort=id',
+        'sort=charging_sessions.id',
+        'sort=energy&order=up',
+      ]) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/sessions?${query}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
+
     it('returns 401 without token', async () => {
       const response = await app.inject({
         method: 'GET',

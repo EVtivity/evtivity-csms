@@ -49,6 +49,7 @@ const ROW = {
   actorApiKeyId: null,
   actorLabel: null,
   actorName: 'Ada Admin',
+  entityName: 'Downtown Garage',
   before: { name: 'Old', city: 'Berlin' },
   after: { name: 'New', city: 'Berlin' },
   notes: null,
@@ -118,6 +119,18 @@ describe('Audit page', () => {
     });
   });
 
+  it('sorts by a column header click and starts again at page 1', async () => {
+    renderPage('/audit');
+    await screen.findByTestId('audit-row-site-7');
+    fireEvent.click(screen.getByTestId('sort-action'));
+    await waitFor(() => {
+      expect(lastQuery().get('sort')).toBe('action');
+    });
+    expect(lastQuery().get('order')).toBe('asc');
+    expect(lastQuery().get('page')).toBe('1');
+    expect(new URLSearchParams(lastSearch).get('sort')).toBe('action');
+  });
+
   it('opens the entry with its changes on a row click', async () => {
     renderPage('/audit');
     const row = await screen.findByTestId('audit-row-site-7');
@@ -125,5 +138,28 @@ describe('Audit page', () => {
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(screen.getByTestId('audit-field-name')).toBeTruthy();
     expect(screen.queryByTestId('audit-field-city')).toBeNull();
+  });
+
+  it('shows the entity name, never its id, and an actor kind without a name', async () => {
+    apiMock.get.mockResolvedValue({
+      data: [ROW, { ...ROW, id: 8, entityName: null, actorName: null }],
+      total: 2,
+    });
+    renderPage('/audit');
+    const row = await screen.findByTestId('audit-row-site-7');
+    expect(row.textContent).toContain('Downtown Garage');
+    expect(row.textContent).not.toContain('sit_1');
+    const unnamed = await screen.findByTestId('audit-row-site-8');
+    expect(unnamed.querySelector('[data-testid="audit-entity-name"]')?.textContent).toBe('--');
+    expect(unnamed.textContent).toContain('audit.actorKindUser');
+    expect(unnamed.textContent).not.toContain('usr_1');
+  });
+
+  it('keeps the copyable id in the entry dialog', async () => {
+    renderPage('/audit');
+    const row = await screen.findByTestId('audit-row-site-7');
+    fireEvent.click(row.querySelector('[data-testid="row-click-target"]') as HTMLElement);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('sit_1');
   });
 });

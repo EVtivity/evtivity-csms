@@ -34,6 +34,7 @@ import {
   enqueueFleetBillingFanout,
 } from '@evtivity/services/fleet-billing-notice';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
+import { fleetSessionListSort } from '../lib/sorts/session-list-sort.js';
 import {
   fleets,
   fleetDrivers,
@@ -50,6 +51,14 @@ import {
   pricingGroups,
 } from '@evtivity/database';
 import type { PaginationParams } from '../lib/pagination.js';
+import type { ListSortParams } from '../lib/list-sort.js';
+import {
+  fleetDriverCountSql,
+  fleetListSort,
+  fleetStationCountSql,
+} from '../lib/sorts/fleet-list-sort.js';
+import { driverListSort } from '../lib/sorts/driver-list-sort.js';
+import { vehicleListSort } from '../lib/sorts/vehicle-list-sort.js';
 import { sessionsAtSites } from '../lib/session-site-scope.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import {
@@ -64,7 +73,10 @@ import { withAvatars } from './account-avatar.js';
  * with `siteIds` (a site-restricted user) the station count covers only the
  * fleet's stations at those sites.
  */
-export async function listFleets(params: PaginationParams, siteIds: string[] | null = null) {
+export async function listFleets(
+  params: PaginationParams & ListSortParams,
+  siteIds: string[] | null = null,
+) {
   const { page, limit, search } = params;
   const offset = (page - 1) * limit;
 
@@ -87,19 +99,12 @@ export async function listFleets(params: PaginationParams, siteIds: string[] | n
         accountBillingEnabled: fleets.accountBillingEnabled,
         createdAt: fleets.createdAt,
         updatedAt: fleets.updatedAt,
-        // Correlated counts written out with aliases: a single-table select
-        // renders columns unqualified, so the fleet id must name "fleets".
-        driverCount: sql<number>`(select count(*) from fleet_drivers fd where fd.fleet_id = "fleets"."id")::int`,
-        stationCount:
-          siteIds == null
-            ? sql<number>`(select count(*) from fleet_stations fs where fs.fleet_id = "fleets"."id")::int`
-            : siteIds.length === 0
-              ? sql<number>`0`
-              : sql<number>`(select count(*) from fleet_stations fs inner join charging_stations cs on cs.id = fs.station_id where fs.fleet_id = "fleets"."id" and cs.site_id in ${siteIds})::int`,
+        driverCount: fleetDriverCountSql,
+        stationCount: fleetStationCountSql(siteIds),
       })
       .from(fleets)
       .where(where)
-      .orderBy(desc(fleets.createdAt), desc(fleets.id))
+      .orderBy(...fleetListSort(siteIds).orderBy(params))
       .limit(limit)
       .offset(offset),
     db
@@ -694,7 +699,12 @@ export async function notifyMemberLeft(
   );
 }
 
-export async function getFleetDrivers(fleetId: string, page: number, limit: number) {
+export async function getFleetDrivers(
+  fleetId: string,
+  page: number,
+  limit: number,
+  sort: ListSortParams = {},
+) {
   const offset = (page - 1) * limit;
 
   const [data, countRows] = await Promise.all([
@@ -713,7 +723,7 @@ export async function getFleetDrivers(fleetId: string, page: number, limit: numb
       .from(fleetDrivers)
       .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
       .where(eq(fleetDrivers.fleetId, fleetId))
-      .orderBy(desc(drivers.createdAt), desc(drivers.id))
+      .orderBy(...driverListSort.orderBy(sort))
       .limit(limit)
       .offset(offset),
     db
@@ -802,7 +812,12 @@ export async function removeStationFromFleet(fleetId: string, stationId: string)
   return record ?? null;
 }
 
-export async function getFleetVehicles(fleetId: string, page: number, limit: number) {
+export async function getFleetVehicles(
+  fleetId: string,
+  page: number,
+  limit: number,
+  sort: ListSortParams = {},
+) {
   const offset = (page - 1) * limit;
 
   const [data, countRows] = await Promise.all([
@@ -821,7 +836,7 @@ export async function getFleetVehicles(fleetId: string, page: number, limit: num
       .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
       .innerJoin(vehicles, eq(vehicles.driverId, drivers.id))
       .where(eq(fleetDrivers.fleetId, fleetId))
-      .orderBy(desc(vehicles.createdAt), desc(vehicles.id))
+      .orderBy(...vehicleListSort.orderBy(sort))
       .limit(limit)
       .offset(offset),
     db
@@ -886,6 +901,7 @@ export async function getFleetSessions(
   page: number,
   limit: number,
   siteIds: string[] | null,
+  sortParams: ListSortParams = {},
 ) {
   const offset = (page - 1) * limit;
   const driverFilter = fleetSessionFilter(fleetId, siteIds);
@@ -911,7 +927,7 @@ export async function getFleetSessions(
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
       .where(driverFilter)
-      .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
+      .orderBy(...fleetSessionListSort.orderBy(sortParams))
       .limit(limit)
       .offset(offset),
     db

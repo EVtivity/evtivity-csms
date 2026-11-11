@@ -27,6 +27,7 @@ import { notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { reservationListSort } from '../lib/sorts/reservation-list-sort.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -76,6 +77,10 @@ const reservationListItem = z
       .string()
       .nullable()
       .describe('Charging session ID that consumed this reservation, null until used'),
+    sessionStartedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Start time of the session that consumed this reservation, null until used'),
   })
   .loose();
 
@@ -315,6 +320,7 @@ const listReservationsQuery = paginationQuery.extend({
     .describe('Filter by reservation status'),
   stationId: ID_PARAMS.stationId.optional().describe('Filter by station ID'),
   siteId: ID_PARAMS.siteId.optional().describe('Filter by site ID'),
+  ...reservationListSort.query,
 });
 
 const createReservationBody = z.object({
@@ -441,6 +447,7 @@ export function reservationRoutes(app: FastifyInstance): void {
             expiresAt: reservations.expiresAt,
             createdAt: reservations.createdAt,
             sessionId: chargingSessions.id,
+            sessionStartedAt: chargingSessions.startedAt,
           })
           .from(reservations)
           .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
@@ -449,7 +456,7 @@ export function reservationRoutes(app: FastifyInstance): void {
           .leftJoin(evses, eq(reservations.evseId, evses.id))
           .leftJoin(chargingSessions, eq(chargingSessions.reservationId, reservations.id))
           .where(where)
-          .orderBy(desc(reservations.createdAt), desc(reservations.id))
+          .orderBy(...reservationListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

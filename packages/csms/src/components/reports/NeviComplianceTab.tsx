@@ -10,6 +10,8 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '@/lib/config';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
@@ -57,6 +59,9 @@ const DOWNTIME_REASONS = [
 ] as const;
 
 type DowntimeReason = (typeof DOWNTIME_REASONS)[number];
+
+/** The sort keys of `GET /v1/nevi/excluded-downtime` (`neviDowntimeListSort` in the API). */
+const DOWNTIME_SORT_KEYS = ['station', 'evseId', 'reason', 'startedAt', 'endedAt'] as const;
 
 interface NeviReport {
   id: string;
@@ -639,6 +644,8 @@ function ExcludedDowntimeSection(): React.JSX.Element {
   if (stationFilter) extraParams['stationId'] = stationFilter;
   if (fromFilter) extraParams['from'] = fromFilter;
   if (toFilter) extraParams['to'] = toFilter;
+  const downtimeSort = useListSort(DOWNTIME_SORT_KEYS);
+  Object.assign(extraParams, downtimeSort.params);
 
   const {
     data: downtimeRecords,
@@ -813,11 +820,21 @@ function ExcludedDowntimeSection(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('nevi.station')}</TableHead>
-                <TableHead>{t('nevi.evseId')}</TableHead>
-                <TableHead>{t('nevi.reason')}</TableHead>
-                <TableHead>{t('nevi.startedAt')}</TableHead>
-                <TableHead>{t('nevi.endedAt')}</TableHead>
+                <SortableTableHead sortKey="station" sort={downtimeSort}>
+                  {t('nevi.station')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="evseId" sort={downtimeSort}>
+                  {t('nevi.evseId')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="reason" sort={downtimeSort}>
+                  {t('nevi.reason')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="startedAt" sort={downtimeSort}>
+                  {t('nevi.startedAt')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="endedAt" sort={downtimeSort}>
+                  {t('nevi.endedAt')}
+                </SortableTableHead>
                 <TableHead>{t('nevi.notes')}</TableHead>
                 <TableHead />
               </TableRow>

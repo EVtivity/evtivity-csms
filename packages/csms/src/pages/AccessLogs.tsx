@@ -5,14 +5,7 @@ import { useState, useMemo, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -21,6 +14,8 @@ import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
 import { FilterPopover } from '@/components/FilterBar';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import { useUrlDateRange, type UrlDateRange } from '@/hooks/use-url-date-range';
 import { LogDateRangeFilter } from '@/components/LogDateRangeFilter';
 import { httpMethodVariant, httpStatusVariant, workerStatusVariant } from '@/lib/status-variants';
@@ -159,13 +154,37 @@ function LogFilterCard({
   );
 }
 
+/**
+ * The sort keys of `GET /v1/access-logs` (`accessLogListSort` in the API) that the CSMS and
+ * portal tabs show.
+ */
+const ACCESS_LOG_UI_SORT_KEYS = ['createdAt', 'user', 'action', 'remoteAddress'] as const;
+
+/** The sort keys of `GET /v1/access-logs` that the API tab shows. */
+const ACCESS_LOG_API_SORT_KEYS = [
+  'createdAt',
+  'apiKeyName',
+  'user',
+  'method',
+  'path',
+  'statusCode',
+  'durationMs',
+] as const;
+
+/** The sort keys of `GET /v1/worker-logs` (`workerLogListSort` in the API). */
+const WORKER_LOG_SORT_KEYS = ['startedAt', 'jobName', 'queue', 'status', 'durationMs'] as const;
+
 function BrowserLogTab(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  const listSort = useListSort(ACCESS_LOG_UI_SORT_KEYS);
   const range = useUrlDateRange();
-  const extraParams = useMemo(() => ({ category: 'csms', ...range.apiParams }), [range.apiParams]);
+  const extraParams = useMemo(
+    () => ({ category: 'csms', ...range.apiParams, ...listSort.params }),
+    [range.apiParams, listSort.params],
+  );
 
   const {
     data: logs,
@@ -195,10 +214,18 @@ function BrowserLogTab(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.timestamp')}</TableHead>
-                <TableHead>{t('logs.user')}</TableHead>
-                <TableHead>{t('logs.action')}</TableHead>
-                <TableHead>{t('logs.ipAddress')}</TableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.timestamp')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="user" sort={listSort}>
+                  {t('logs.user')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="action" sort={listSort}>
+                  {t('logs.action')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="remoteAddress" sort={listSort}>
+                  {t('logs.ipAddress')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -250,10 +277,11 @@ function PortalLogTab(): React.JSX.Element {
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  const listSort = useListSort(ACCESS_LOG_UI_SORT_KEYS);
   const range = useUrlDateRange();
   const extraParams = useMemo(
-    () => ({ category: 'portal', ...range.apiParams }),
-    [range.apiParams],
+    () => ({ category: 'portal', ...range.apiParams, ...listSort.params }),
+    [range.apiParams, listSort.params],
   );
 
   const {
@@ -284,10 +312,18 @@ function PortalLogTab(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.timestamp')}</TableHead>
-                <TableHead>{t('logs.user')}</TableHead>
-                <TableHead>{t('logs.action')}</TableHead>
-                <TableHead>{t('logs.ipAddress')}</TableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.timestamp')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="user" sort={listSort}>
+                  {t('logs.user')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="action" sort={listSort}>
+                  {t('logs.action')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="remoteAddress" sort={listSort}>
+                  {t('logs.ipAddress')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -341,12 +377,17 @@ function ApiLogTab(): React.JSX.Element {
   const [filterMethod, setFilterMethod] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
+  const listSort = useListSort(ACCESS_LOG_API_SORT_KEYS);
   const range = useUrlDateRange();
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = { category: 'api', ...range.apiParams };
+    const params: Record<string, string> = {
+      category: 'api',
+      ...range.apiParams,
+      ...listSort.params,
+    };
     if (filterMethod) params['method'] = filterMethod;
     return params;
-  }, [filterMethod, range.apiParams]);
+  }, [filterMethod, range.apiParams, listSort.params]);
 
   const {
     data: logs,
@@ -432,13 +473,27 @@ function ApiLogTab(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.timestamp')}</TableHead>
-                <TableHead>{t('logs.apiKeyColumn')}</TableHead>
-                <TableHead>{t('logs.user')}</TableHead>
-                <TableHead>{t('logs.method')}</TableHead>
-                <TableHead>{t('logs.path')}</TableHead>
-                <TableHead>{t('logs.status')}</TableHead>
-                <TableHead>{t('logs.duration')}</TableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.timestamp')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="apiKeyName" sort={listSort}>
+                  {t('logs.apiKeyColumn')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="user" sort={listSort}>
+                  {t('logs.user')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="method" sort={listSort}>
+                  {t('logs.method')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="path" sort={listSort}>
+                  {t('logs.path')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="statusCode" sort={listSort}>
+                  {t('logs.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="durationMs" sort={listSort}>
+                  {t('logs.duration')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -518,13 +573,14 @@ function WorkerLogTab(): React.JSX.Element {
   const [filterQueue, setFilterQueue] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
+  const listSort = useListSort(WORKER_LOG_SORT_KEYS);
   const range = useUrlDateRange();
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = { ...range.apiParams };
+    const params: Record<string, string> = { ...range.apiParams, ...listSort.params };
     if (filterQueue) params['queue'] = filterQueue;
     if (filterStatus) params['status'] = filterStatus;
     return params;
-  }, [filterQueue, filterStatus, range.apiParams]);
+  }, [filterQueue, filterStatus, range.apiParams, listSort.params]);
 
   const {
     data: logs,
@@ -598,11 +654,21 @@ function WorkerLogTab(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.timestamp')}</TableHead>
-                <TableHead>{t('logs.jobName')}</TableHead>
-                <TableHead>{t('logs.queue')}</TableHead>
-                <TableHead>{t('logs.status')}</TableHead>
-                <TableHead>{t('logs.duration')}</TableHead>
+                <SortableTableHead sortKey="startedAt" sort={listSort}>
+                  {t('common.timestamp')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="jobName" sort={listSort}>
+                  {t('logs.jobName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="queue" sort={listSort}>
+                  {t('logs.queue')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={listSort}>
+                  {t('logs.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="durationMs" sort={listSort}>
+                  {t('logs.duration')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

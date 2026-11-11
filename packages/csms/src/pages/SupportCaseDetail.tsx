@@ -35,6 +35,7 @@ import { SupportCaseInsights } from '@/components/ai/insights/SupportCaseInsight
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { parseMajorInputToCents } from '@evtivity/lib/currency';
 import { api } from '@/lib/api';
+import { sessionLabel } from '@/lib/session-label';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { formatCents, formatNumber } from '@/lib/formatting';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -61,6 +62,7 @@ interface Message {
 interface SessionRef {
   id: string;
   transactionId: string;
+  startedAt?: string | null;
   stationName: string | null;
   driverName: string | null;
   status: string | null;
@@ -182,6 +184,7 @@ export function SupportCaseDetail(): React.JSX.Element {
   interface SessionSearchResult {
     id: string;
     transactionId: string;
+    startedAt?: string | null;
     stationName: string | null;
     driverName: string | null;
     status: string | null;
@@ -360,10 +363,19 @@ export function SupportCaseDetail(): React.JSX.Element {
                     }}
                     renderItem={(s) => (
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium">{s.id}</span>
+                        <span className="text-sm font-medium">
+                          {sessionLabel(
+                            t,
+                            {
+                              stationOcppId: s.stationName,
+                              startedAt: s.startedAt,
+                              transactionId: s.transactionId,
+                            },
+                            timezone,
+                          )}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {[
-                            s.stationName,
                             s.driverName,
                             s.status,
                             s.finalCostCents != null
@@ -408,7 +420,14 @@ export function SupportCaseDetail(): React.JSX.Element {
                                   to={`/sessions/${session.id}`}
                                   className="text-link hover:underline text-sm"
                                 >
-                                  {session.id}
+                                  {sessionLabel(
+                                    t,
+                                    {
+                                      startedAt: session.startedAt,
+                                      transactionId: session.transactionId,
+                                    },
+                                    timezone,
+                                  )}
                                 </Link>
                               </TableCell>
                               <TableCell className="text-sm">

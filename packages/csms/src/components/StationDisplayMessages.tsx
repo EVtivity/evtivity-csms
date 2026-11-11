@@ -30,6 +30,8 @@ import {
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
@@ -95,6 +97,18 @@ const STATUS_VARIANTS: Record<string, 'default' | 'outline' | 'destructive' | 's
   expired: 'outline',
 };
 
+/** The sort keys of `GET /v1/stations/:stationId/display-messages` (`displayMessageListSort in the API`). */
+export const DISPLAY_MESSAGE_SORT_KEYS = [
+  'messageId',
+  'priority',
+  'content',
+  'format',
+  'state',
+  'status',
+  'createdAt',
+] as const;
+export type DisplayMessageSortKey = (typeof DISPLAY_MESSAGE_SORT_KEYS)[number];
+
 export function StationDisplayMessages({
   stationId,
   isOnline,
@@ -122,6 +136,16 @@ export function StationDisplayMessages({
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const limit = 10;
+  const messagesListSort = useListSort(DISPLAY_MESSAGE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const messagesSort: ListSort<DisplayMessageSortKey> = {
+    ...messagesListSort,
+    toggle: (key) => {
+      setPage(1);
+      messagesListSort.toggle(key);
+    },
+  };
+  const messagesSortQuery = new URLSearchParams(messagesListSort.params).toString();
 
   const {
     data: messagesResponse,
@@ -129,10 +153,10 @@ export function StationDisplayMessages({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['display-messages', stationId, page],
+    queryKey: ['display-messages', stationId, page, messagesListSort.params],
     queryFn: () =>
       api.get<{ data: DisplayMessage[]; total: number }>(
-        `/v1/stations/${stationId}/display-messages?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/stations/${stationId}/display-messages?page=${String(page)}&limit=${String(limit)}${messagesSortQuery === '' ? '' : `&${messagesSortQuery}`}`,
       ),
   });
 
@@ -263,13 +287,27 @@ export function StationDisplayMessages({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('stations.messageId')}</TableHead>
-                <TableHead>{t('stations.messagePriority')}</TableHead>
-                <TableHead>{t('stations.messageContent')}</TableHead>
-                <TableHead>{t('stations.messageFormat')}</TableHead>
-                <TableHead>{t('stations.messageState')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="messageId" sort={messagesSort}>
+                  {t('stations.messageId')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="priority" sort={messagesSort}>
+                  {t('stations.messagePriority')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="content" sort={messagesSort}>
+                  {t('stations.messageContent')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="format" sort={messagesSort}>
+                  {t('stations.messageFormat')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="state" sort={messagesSort}>
+                  {t('stations.messageState')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={messagesSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={messagesSort}>
+                  {t('common.created')}
+                </SortableTableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>

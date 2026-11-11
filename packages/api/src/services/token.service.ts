@@ -36,6 +36,8 @@ import { isVehicleShapedTokenValue, tokenVehicleIdCandidates } from '@evtivity/l
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
+import type { ListSortParams } from '../lib/list-sort.js';
+import { tokenListSort } from '../lib/sorts/token-list-sort.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { publishOcpiTokenPush, type OcpiTokenTombstoneRef } from '../lib/ocpi-token-push.js';
 import {
@@ -46,7 +48,7 @@ import {
 
 const logger = createLogger('token-service');
 
-interface TokenListParams extends PaginationParams {
+interface TokenListParams extends PaginationParams, ListSortParams {
   tokenType?: string | undefined;
   status?: 'active' | 'inactive' | undefined;
 }
@@ -139,7 +141,7 @@ export async function listTokens(
       .from(driverTokens)
       .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
       .where(where)
-      .orderBy(desc(driverTokens.createdAt), desc(driverTokens.id))
+      .orderBy(...tokenListSort.orderBy(params))
       .limit(limit)
       .offset(offset),
     db

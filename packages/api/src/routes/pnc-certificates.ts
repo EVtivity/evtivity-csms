@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, inArray, sql as dsql } from 'drizzle-orm';
+import { eq, and, count, inArray, sql as dsql } from 'drizzle-orm';
 import type { AnyColumn, SQL } from 'drizzle-orm';
 import {
   db,
@@ -29,6 +29,11 @@ import {
 } from '@evtivity/lib';
 import type { PncCommand, PncCommandResult } from '@evtivity/lib';
 import { paginationQuery } from '../lib/pagination.js';
+import {
+  caCertificateListSort,
+  csrRequestListSort,
+  stationCertificateListSort,
+} from '../lib/sorts/certificate-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import {
@@ -167,6 +172,7 @@ const caCertQuery = paginationQuery.extend({
     .enum(['active', 'expired', 'revoked'])
     .optional()
     .describe('Filter by certificate status'),
+  ...caCertificateListSort.query,
 });
 
 const csrQuery = paginationQuery.extend({
@@ -175,6 +181,7 @@ const csrQuery = paginationQuery.extend({
     .optional()
     .describe('Filter by CSR status'),
   stationId: ID_PARAMS.stationId.optional().describe('Filter by charging station ID'),
+  ...csrRequestListSort.query,
 });
 
 const stationCertQuery = paginationQuery.extend({
@@ -183,6 +190,7 @@ const stationCertQuery = paginationQuery.extend({
     .enum(['active', 'expired', 'revoked'])
     .optional()
     .describe('Filter by certificate status'),
+  ...stationCertificateListSort.query,
 });
 
 const uploadCaCertBody = z.object({
@@ -324,7 +332,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           .select()
           .from(pkiCaCertificates)
           .where(where)
-          .orderBy(desc(pkiCaCertificates.createdAt), desc(pkiCaCertificates.id))
+          .orderBy(...caCertificateListSort.orderBy(query))
           .limit(query.limit)
           .offset(offset),
         db.select({ count: count() }).from(pkiCaCertificates).where(where),
@@ -512,7 +520,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           .select()
           .from(pkiCsrRequests)
           .where(where)
-          .orderBy(desc(pkiCsrRequests.createdAt), desc(pkiCsrRequests.id))
+          .orderBy(...csrRequestListSort.orderBy(query))
           .limit(query.limit)
           .offset(offset),
         db.select({ count: count() }).from(pkiCsrRequests).where(where),
@@ -743,7 +751,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           .select()
           .from(stationCertificates)
           .where(where)
-          .orderBy(desc(stationCertificates.createdAt), desc(stationCertificates.id))
+          .orderBy(...stationCertificateListSort.orderBy(query))
           .limit(query.limit)
           .offset(offset),
         db.select({ count: count() }).from(stationCertificates).where(where),

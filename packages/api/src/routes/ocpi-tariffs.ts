@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, sql, and, isNull } from 'drizzle-orm';
+import { eq, sql, and, isNull } from 'drizzle-orm';
 import {
   db,
   ocpiTariffMappings,
@@ -23,6 +23,7 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
+import { ocpiTariffMappingListSort } from '../lib/sorts/ocpi-tariff-mapping-list-sort.js';
 import {
   successResponse,
   paginatedResponse,
@@ -148,6 +149,7 @@ const tariffMappingItem = z
 
 const tariffMappingQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter by OCPI partner ID'),
+  ...ocpiTariffMappingListSort.query,
 });
 
 const tariffMappingParams = z.object({
@@ -332,7 +334,8 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, MAPPING_SCOPE_NOT_FOUND))) return;
-      const { page, limit, partnerId } = request.query as z.infer<typeof tariffMappingQuery>;
+      const query = request.query as z.infer<typeof tariffMappingQuery>;
+      const { page, limit, partnerId } = query;
       const offset = (page - 1) * limit;
 
       const where = partnerId != null ? eq(ocpiTariffMappings.partnerId, partnerId) : undefined;
@@ -340,7 +343,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       const [data, countRows] = await Promise.all([
         selectMappings()
           .where(where)
-          .orderBy(desc(ocpiTariffMappings.createdAt), desc(ocpiTariffMappings.id))
+          .orderBy(...ocpiTariffMappingListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

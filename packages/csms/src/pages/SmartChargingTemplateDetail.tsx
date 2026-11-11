@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { BackButton } from '@/components/back-button';
 import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { Copy, Upload, Eraser } from 'lucide-react';
@@ -43,6 +45,9 @@ import { fromDatetimeLocalInTimezone, toDatetimeLocalInTimezone } from '@/lib/sc
 import { LoadingLogo } from '@/components/loading-logo';
 import { uiLocale } from '@/lib/formatting';
 import { useHasAllSiteAccess } from '@/lib/auth';
+
+/** The sort keys of `GET /v1/smart-charging/templates/:id/pushes` (the API list sort definition in `lib/sorts/`). */
+const SMART_CHARGING_PUSH_SORT_KEYS = ['createdAt', 'operation', 'status'] as const;
 
 type OcppVersion = '2.1' | '1.6';
 
@@ -182,6 +187,16 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
   const [pushOpen, setPushOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [pushesPage, setPushesPage] = useState(1);
+  const listSort = useListSort(SMART_CHARGING_PUSH_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const pushesSort = {
+    ...listSort,
+    toggle: (key: (typeof SMART_CHARGING_PUSH_SORT_KEYS)[number]) => {
+      setPushesPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const pushesLimit = 10;
 
   const { data: template, isLoading } = useQuery({
@@ -196,10 +211,10 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
   });
 
   const { data: pushes } = useQuery({
-    queryKey: ['smart-charging-templates', id, 'pushes', pushesPage],
+    queryKey: ['smart-charging-templates', id, 'pushes', pushesPage, listSort.params],
     queryFn: () =>
       api.get<{ data: PushRecord[]; total: number }>(
-        `/v1/smart-charging/templates/${id ?? ''}/pushes?page=${String(pushesPage)}&limit=${String(pushesLimit)}`,
+        `/v1/smart-charging/templates/${id ?? ''}/pushes?page=${String(pushesPage)}&limit=${String(pushesLimit)}${sortQuery ? `&${sortQuery}` : ''}`,
       ),
     enabled: id != null,
     // Poll only while an operation on this page is still running.
@@ -957,9 +972,15 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('common.timestamp')}</TableHead>
-                      <TableHead>{t('smartCharging.operation')}</TableHead>
-                      <TableHead>{t('common.status')}</TableHead>
+                      <SortableTableHead sortKey="createdAt" sort={pushesSort}>
+                        {t('common.timestamp')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="operation" sort={pushesSort}>
+                        {t('smartCharging.operation')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="status" sort={pushesSort}>
+                        {t('common.status')}
+                      </SortableTableHead>
                       <TableHead>{t('nav.stations')}</TableHead>
                       <TableHead>{t('smartCharging.accepted')}</TableHead>
                       <TableHead>{t('smartCharging.rejected')}</TableHead>

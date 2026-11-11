@@ -640,6 +640,7 @@ export function SessionDetail(): React.JSX.Element {
       <ReportIssue
         sessionId={session.id}
         stationName={session.stationName != null ? session.stationName : undefined}
+        sessionStartedAt={session.startedAt != null ? session.startedAt : undefined}
       />
 
       {/* Vehicle picker dialog */}

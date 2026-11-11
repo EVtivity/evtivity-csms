@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { getMock, deleteMock, postMock, toastMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -57,12 +58,14 @@ function renderMessages(isOnline: boolean, ocppProtocol: string | null = null): 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StationDisplayMessages
-        stationId="sta_1"
-        isOnline={isOnline}
-        timezone="UTC"
-        ocppProtocol={ocppProtocol}
-      />
+      <MemoryRouter>
+        <StationDisplayMessages
+          stationId="sta_1"
+          isOnline={isOnline}
+          timezone="UTC"
+          ocppProtocol={ocppProtocol}
+        />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -84,6 +87,18 @@ async function clearMessage(): Promise<void> {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe('StationDisplayMessages sort', () => {
+  it('requests the messages sorted by the clicked column', async () => {
+    renderMessages(true);
+    fireEvent.click(await screen.findByTestId('sort-priority'));
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith(
+        '/v1/stations/sta_1/display-messages?page=1&limit=10&sort=priority&order=asc',
+      );
+    });
+  });
 });
 
 describe('StationDisplayMessages for an OCPP 2.0.1 station', () => {

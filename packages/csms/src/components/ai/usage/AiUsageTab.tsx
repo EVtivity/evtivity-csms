@@ -367,7 +367,7 @@ export function AiUsageTab({ warnPercent }: { warnPercent: number }): React.JSX.
                         {data.topUsers.map((u) => (
                           <TableRow key={u.userId}>
                             <TableCell className="break-all" data-testid="ai-usage-top-user">
-                              {names.get(u.userId) ?? u.userId}
+                              {names.get(u.userId) ?? t('common.unnamedUser')}
                             </TableCell>
                             <TotalsCells totals={u.totals} formatCost={formatCost} />
                           </TableRow>

@@ -28,6 +28,8 @@ import { FilterPopover } from '@/components/FilterBar';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
@@ -65,6 +67,9 @@ interface ImportResult {
   errors: string[];
 }
 
+/** The sort keys of `GET /v1/sites` (`siteListSort` in the API, `lib/sorts/site-list-sort.ts`). */
+const SITE_SORT_KEYS = ['name', 'location', 'stationCount', 'loadManagement', 'createdAt'] as const;
+
 export function Sites(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
@@ -89,6 +94,7 @@ export function Sites(): React.JSX.Element {
   });
 
   const [locationCity, locationState] = locationFilter ? locationFilter.split('|') : ['', ''];
+  const listSort = useListSort(SITE_SORT_KEYS);
 
   const {
     data: sites,
@@ -103,6 +109,7 @@ export function Sites(): React.JSX.Element {
     state: locationState ?? '',
     loadManagement: loadManagementFilter,
     aiInsights: aiInsightsFilter,
+    ...listSort.params,
   });
 
   const importMutation = useMutation({
@@ -381,20 +388,29 @@ export function Sites(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('sites.siteId')}</TableHead>
-                <TableHead>{t('sites.siteName')}</TableHead>
-                <TableHead>{t('sites.location')}</TableHead>
-                <TableHead>{t('nav.stations')}</TableHead>
+                <SortableTableHead sortKey="name" sort={listSort}>
+                  {t('sites.siteName')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="location" sort={listSort}>
+                  {t('sites.location')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="stationCount" sort={listSort}>
+                  {t('nav.stations')}
+                </SortableTableHead>
                 <TableHead>{t('sites.powerDraw')}</TableHead>
-                <TableHead>{t('sites.loadManagement')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="loadManagement" sort={listSort}>
+                  {t('sites.loadManagement')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.created')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={7}>
-                    <TableSkeleton columns={7} rows={5} />
+                  <TableCell colSpan={6}>
+                    <TableSkeleton columns={6} rows={5} />
                   </TableCell>
                 </TableRow>
               )}
@@ -407,7 +423,6 @@ export function Sites(): React.JSX.Element {
                     void navigate(`/sites/${site.id}`);
                   }}
                 >
-                  <TableCell className="text-muted-foreground">{site.id}</TableCell>
                   <TableCell className="font-medium text-link" data-testid="row-click-target">
                     <span className="inline-flex items-center gap-2">
                       {site.name}
@@ -445,7 +460,7 @@ export function Sites(): React.JSX.Element {
               ))}
               {sites?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     {t('sites.noSitesFound')}
                   </TableCell>
                 </TableRow>

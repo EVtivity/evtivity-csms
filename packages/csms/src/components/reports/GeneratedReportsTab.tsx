@@ -4,6 +4,8 @@
 import { useState, useMemo } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '@/lib/config';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
@@ -28,6 +30,16 @@ import { FilterPopover } from '@/components/FilterBar';
 import { reportStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { useReportTypes } from '@/hooks/use-report-types';
+
+/** The sort keys of `GET /v1/reports` (the API list sort definition in `lib/sorts/`). */
+const REPORT_SORT_KEYS = [
+  'name',
+  'reportType',
+  'format',
+  'status',
+  'fileSize',
+  'createdAt',
+] as const;
 
 interface Report {
   id: string;
@@ -62,9 +74,10 @@ export function GeneratedReportsTab(): React.JSX.Element {
   const [typeFilter, setTypeFilter] = useState('');
   const { all: reportTypes } = useReportTypes();
 
+  const listSort = useListSort(REPORT_SORT_KEYS);
   const extraParams = useMemo(
-    () => (typeFilter ? { reportType: typeFilter } : undefined),
-    [typeFilter],
+    () => ({ ...(typeFilter ? { reportType: typeFilter } : {}), ...listSort.params }),
+    [typeFilter, listSort.params],
   );
 
   const {
@@ -139,12 +152,24 @@ export function GeneratedReportsTab(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('reports.name')}</TableHead>
-                <TableHead>{t('reports.reportType')}</TableHead>
-                <TableHead>{t('reports.format')}</TableHead>
-                <TableHead>{t('reports.status')}</TableHead>
-                <TableHead>{t('reports.size')}</TableHead>
-                <TableHead>{t('reports.created')}</TableHead>
+                <SortableTableHead sortKey="name" sort={listSort}>
+                  {t('reports.name')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="reportType" sort={listSort}>
+                  {t('reports.reportType')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="format" sort={listSort}>
+                  {t('reports.format')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={listSort}>
+                  {t('reports.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="fileSize" sort={listSort}>
+                  {t('reports.size')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('reports.created')}
+                </SortableTableHead>
                 <TableHead>{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>

@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { Badge } from '@/components/ui/badge';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
@@ -18,6 +20,9 @@ import {
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+
+/** The sort keys of `GET /v1/config-templates/:id/pushes` (the API list sort definition in `lib/sorts/`). */
+const CONFIG_PUSH_SORT_KEYS = ['createdAt', 'status'] as const;
 
 interface PushRecord {
   id: string;
@@ -44,6 +49,16 @@ export function ConfigTemplatePushesTab({ templateId }: Props): React.JSX.Elemen
   const timezone = useUserTimezone();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
+  const listSort = useListSort(CONFIG_PUSH_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort = {
+    ...listSort,
+    toggle: (key: (typeof CONFIG_PUSH_SORT_KEYS)[number]) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const limit = 10;
 
   const {
@@ -52,10 +67,10 @@ export function ConfigTemplatePushesTab({ templateId }: Props): React.JSX.Elemen
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['config-templates', templateId, 'pushes', page],
+    queryKey: ['config-templates', templateId, 'pushes', page, listSort.params],
     queryFn: () =>
       api.get<{ data: PushRecord[]; total: number }>(
-        `/v1/config-templates/${templateId}/pushes?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/config-templates/${templateId}/pushes?page=${String(page)}&limit=${String(limit)}${sortQuery ? `&${sortQuery}` : ''}`,
       ),
     refetchInterval: 5000,
   });
@@ -79,8 +94,12 @@ export function ConfigTemplatePushesTab({ templateId }: Props): React.JSX.Elemen
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.timestamp')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
+                <SortableTableHead sortKey="createdAt" sort={sort}>
+                  {t('common.timestamp')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={sort}>
+                  {t('common.status')}
+                </SortableTableHead>
                 <TableHead>{t('nav.stations')}</TableHead>
                 <TableHead>{t('configTemplates.accepted')}</TableHead>
                 <TableHead>{t('configTemplates.rejected')}</TableHead>

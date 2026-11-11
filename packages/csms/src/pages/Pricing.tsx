@@ -89,7 +89,7 @@ export function Pricing(): React.JSX.Element {
 
       <Card>
         <CardContent className="overflow-x-auto p-4">
-          {isLoading && <TableSkeleton columns={5} rows={5} />}
+          {isLoading && <TableSkeleton columns={4} rows={5} />}
 
           {filtered != null && filtered.length === 0 && (
             <p className="text-center text-sm text-muted-foreground">
@@ -102,7 +102,6 @@ export function Pricing(): React.JSX.Element {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('pricing.pricingGroupId')}</TableHead>
                     <TableHead>{t('pricing.groupName')}</TableHead>
                     <TableHead>{t('common.description')}</TableHead>
                     <TableHead>{t('common.default')}</TableHead>
@@ -119,7 +118,6 @@ export function Pricing(): React.JSX.Element {
                         void navigate(`/pricing/${group.id}`);
                       }}
                     >
-                      <TableCell className="text-muted-foreground">{group.id}</TableCell>
                       <TableCell className="font-medium text-link" data-testid="row-click-target">
                         {group.name}
                       </TableCell>

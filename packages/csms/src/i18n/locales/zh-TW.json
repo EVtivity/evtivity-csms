@@ -1,6 +1,9 @@
 {
   "common": {
     "loading": "載入中...",
+    "sortAscending": "升冪排序",
+    "sortDescending": "降冪排序",
+    "sortDefault": "恢復預設順序",
     "pageNotFound": "找不到頁面",
     "pageNotFoundDescription": "您造訪的頁面不存在或已被移動。",
     "allSiteAccessRequired": "需要所有充電站的存取權限",
@@ -117,7 +120,16 @@
       "year": "年份",
       "today": "今天",
       "clear": "清除"
-    }
+    },
+    "sessionFallback": "工作階段",
+    "unnamedSite": "未命名充電站",
+    "unnamedStation": "未命名充電樁",
+    "unnamedTerminal": "未命名終端",
+    "unnamedPanel": "未命名配電盤",
+    "unnamedTransformer": "未命名變壓器",
+    "unnamedUser": "未命名使用者",
+    "unnamedTemplate": "未命名範本",
+    "unnamedReservation": "未命名預約"
   },
   "status": {
     "online": "線上",
@@ -5348,6 +5360,7 @@
     "failedStations": "失敗",
     "noStationsTargeted": "無目標充電站",
     "noCampaignRuns": "尚無活動執行",
+    "noCampaigns": "尚無固件活動",
     "error": "錯誤",
     "confirmStart": "啟動活動",
     "confirmStartDescription": "這將立即向所有符合條件的線上充電樁傳送固件更新。離線充電樁在連線時收到。是否繼續?",
@@ -6406,7 +6419,9 @@
       "mcp": "MCP",
       "proposal": "已確認的 AI 操作"
     },
-    "entryTitle": "{{action}}（{{entity}}）"
+    "entryTitle": "{{action}}（{{entity}}）",
+    "actorKindUser": "使用者",
+    "entityName": "名稱"
   },
   "maintenance": {
     "colType": "類型",

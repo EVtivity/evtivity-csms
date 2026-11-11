@@ -9,7 +9,7 @@ import {
 } from '@evtivity/lib';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, isNotNull, asc, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, count, isNotNull, asc, inArray, type SQL } from 'drizzle-orm';
 import {
   db,
   client,
@@ -31,6 +31,11 @@ import {
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
+import {
+  firmwareCampaignListSort,
+  firmwareCampaignStationListSort,
+} from '../lib/sorts/firmware-campaign-list-sort.js';
+import { matchingStationListSort } from '../lib/sorts/matching-station-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import {
   errorResponse,
@@ -278,6 +283,11 @@ function emptyToNull(value: string | null | undefined): string | null {
   return value == null || value.trim() === '' ? null : value.trim();
 }
 
+const campaignListQuery = paginationQuery.extend(firmwareCampaignListSort.query);
+
+/** The campaign detail query: the page of station progress and its sort. */
+const campaignDetailQuery = paginationQuery.extend(firmwareCampaignStationListSort.query);
+
 export function firmwareCampaignRoutes(app: FastifyInstance): void {
   // Filter options for target filter dropdowns
   app.get(
@@ -356,12 +366,12 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         summary: 'List firmware campaigns',
         operationId: 'listFirmwareCampaigns',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(campaignListQuery),
         response: { 200: paginatedResponse(campaignItem) },
       },
     },
     async (request) => {
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof campaignListQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -379,7 +389,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           .select()
           .from(firmwareCampaigns)
           .where(scope)
-          .orderBy(desc(firmwareCampaigns.createdAt), desc(firmwareCampaigns.id))
+          .orderBy(...firmwareCampaignListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(firmwareCampaigns).where(scope),
@@ -404,7 +414,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         operationId: 'getFirmwareCampaign',
         security: [{ bearerAuth: [] }],
         params: zodSchema(campaignParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(campaignDetailQuery),
         response: {
           200: itemResponse(campaignItem),
           404: errorWith('Campaign not found', [ERROR_CODES.CAMPAIGN_NOT_FOUND]),
@@ -413,7 +423,8 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof campaignParams>;
-      const { page = 1, limit = 20 } = request.query as { page?: number; limit?: number };
+      const detailQuery = request.query as z.infer<typeof campaignDetailQuery>;
+      const { page, limit } = detailQuery;
       const offset = (page - 1) * limit;
 
       const { userId } = request.user as { userId: string };
@@ -437,7 +448,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           .from(firmwareCampaignStations)
           .innerJoin(chargingStations, eq(firmwareCampaignStations.stationId, chargingStations.id))
           .where(eq(firmwareCampaignStations.campaignId, id))
-          .orderBy(asc(chargingStations.stationId), asc(firmwareCampaignStations.id))
+          .orderBy(...firmwareCampaignStationListSort.orderBy(detailQuery))
           .limit(limit)
           .offset(offset),
         db
@@ -735,6 +746,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
 
   const fwMatchingStationsQuery = paginationQuery.extend({
     status: z.enum(['online', 'offline']).optional().describe('Filter by online status'),
+    ...matchingStationListSort.query,
   });
 
   // Preview matching stations for a campaign's target filter
@@ -799,7 +811,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .leftJoin(vendors, eq(chargingStations.vendorId, vendors.id))
           .where(whereClause)
-          .orderBy(asc(chargingStations.stationId))
+          .orderBy(...matchingStationListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(chargingStations).where(whereClause),

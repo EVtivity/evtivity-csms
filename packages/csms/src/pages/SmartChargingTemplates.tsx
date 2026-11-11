@@ -4,6 +4,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useNavigate } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CreateButton } from '@/components/create-button';
@@ -21,6 +23,17 @@ import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+
+/** The sort keys of `GET /v1/smart-charging/templates` (the API list sort definition in `lib/sorts/`). */
+const SMART_CHARGING_TEMPLATE_SORT_KEYS = [
+  'name',
+  'description',
+  'profilePurpose',
+  'profileKind',
+  'chargingRateUnit',
+  'ocppVersion',
+  'createdAt',
+] as const;
 
 interface SmartChargingTemplate {
   id: string;
@@ -41,13 +54,23 @@ export function SmartChargingTemplates({
   const navigate = useNavigate();
   const timezone = useUserTimezone();
   const [page, setPage] = useState(1);
+  const listSort = useListSort(SMART_CHARGING_TEMPLATE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort = {
+    ...listSort,
+    toggle: (key: (typeof SMART_CHARGING_TEMPLATE_SORT_KEYS)[number]) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const limit = 25;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['smart-charging-templates', page],
+    queryKey: ['smart-charging-templates', page, listSort.params],
     queryFn: () =>
       api.get<{ data: SmartChargingTemplate[]; total: number }>(
-        `/v1/smart-charging/templates?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/smart-charging/templates?page=${String(page)}&limit=${String(limit)}${sortQuery ? `&${sortQuery}` : ''}`,
       ),
   });
 
@@ -94,16 +117,30 @@ export function SmartChargingTemplates({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('common.name')}</TableHead>
-                      <TableHead>{t('common.description')}</TableHead>
-                      <TableHead>{t('smartCharging.profilePurpose')}</TableHead>
-                      <TableHead>{t('smartCharging.profileKind')}</TableHead>
-                      <TableHead>{t('smartCharging.chargingRateUnit')}</TableHead>
-                      <TableHead>{t('smartCharging.ocppVersion')}</TableHead>
+                      <SortableTableHead sortKey="name" sort={sort}>
+                        {t('common.name')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="description" sort={sort}>
+                        {t('common.description')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="profilePurpose" sort={sort}>
+                        {t('smartCharging.profilePurpose')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="profileKind" sort={sort}>
+                        {t('smartCharging.profileKind')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="chargingRateUnit" sort={sort}>
+                        {t('smartCharging.chargingRateUnit')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="ocppVersion" sort={sort}>
+                        {t('smartCharging.ocppVersion')}
+                      </SortableTableHead>
                       <TableHead className="text-right">
                         {t('smartCharging.matchingStations')}
                       </TableHead>
-                      <TableHead>{t('common.created')}</TableHead>
+                      <SortableTableHead sortKey="createdAt" sort={sort}>
+                        {t('common.created')}
+                      </SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

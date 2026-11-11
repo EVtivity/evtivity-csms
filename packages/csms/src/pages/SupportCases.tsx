@@ -12,18 +12,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { CreateButton } from '@/components/create-button';
 import { SearchInput } from '@/components/search-input';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { cn } from '@/lib/utils';
 import { supportCaseStatusVariant, supportCasePriorityVariant } from '@/lib/status-variants';
@@ -76,6 +71,18 @@ const CATEGORY_OPTIONS = [
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'] as const;
 
+/** The sort keys of `GET /v1/support-cases` (`supportCaseListSort` in the API). */
+const SUPPORT_CASE_SORT_KEYS = [
+  'caseNumber',
+  'subject',
+  'driver',
+  'category',
+  'priority',
+  'status',
+  'assignedTo',
+  'createdAt',
+] as const;
+
 export function SupportCases(): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
@@ -92,6 +99,7 @@ export function SupportCases(): React.JSX.Element {
     queryFn: () => api.get<{ data: User[]; total: number }>('/v1/users?limit=100'),
   });
 
+  const listSort = useListSort(SUPPORT_CASE_SORT_KEYS);
   const {
     data: cases,
     isLoading,
@@ -101,6 +109,7 @@ export function SupportCases(): React.JSX.Element {
     search,
     setSearch,
   } = usePaginatedQuery<SupportCase>('support-cases', '/v1/support-cases', {
+    ...listSort.params,
     status: statusFilter,
     category: categoryFilter,
     priority: priorityFilter,
@@ -266,14 +275,30 @@ export function SupportCases(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('supportCases.caseNumber')}</TableHead>
-                <TableHead>{t('supportCases.subject')}</TableHead>
-                <TableHead>{t('supportCases.driver')}</TableHead>
-                <TableHead>{t('supportCases.category')}</TableHead>
-                <TableHead>{t('supportCases.priority')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('supportCases.assignedTo')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="caseNumber" sort={listSort}>
+                  {t('supportCases.caseNumber')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="subject" sort={listSort}>
+                  {t('supportCases.subject')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="driver" sort={listSort}>
+                  {t('supportCases.driver')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="category" sort={listSort}>
+                  {t('supportCases.category')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="priority" sort={listSort}>
+                  {t('supportCases.priority')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={listSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="assignedTo" sort={listSort}>
+                  {t('supportCases.assignedTo')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.created')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

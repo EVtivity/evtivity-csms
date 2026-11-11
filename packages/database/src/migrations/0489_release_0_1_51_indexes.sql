@@ -44,3 +44,42 @@ END $$;
 --> statement-breakpoint
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_port_status_log_created_at
   ON port_status_log (created_at);
+--> statement-breakpoint
+-- List sorting (CSMS column headers, `sort` and `order` query params). A sort
+-- reads ORDER BY <column> <dir> NULLS LAST, <id> <dir>. A plain ASC index read
+-- backward gives DESC NULLS FIRST, so the descending sorts of nullable columns
+-- on tables that grow without bound get their own index:
+-- charging_sessions started_at (newest charging first) and energy (largest
+-- sessions first), access_logs duration (slowest requests first), and the
+-- notification log event type. Cost: four concurrent builds, no insert blocked.
+DO $$
+DECLARE
+  name text;
+BEGIN
+  FOREACH name IN ARRAY ARRAY[
+    'idx_sessions_started_at_desc',
+    'idx_sessions_energy_desc',
+    'idx_access_logs_duration_desc',
+    'idx_notifications_event_type'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_index
+      WHERE indexrelid = to_regclass(name)
+        AND NOT indisvalid
+    ) THEN
+      EXECUTE format('DROP INDEX %I', name);
+    END IF;
+  END LOOP;
+END $$;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_started_at_desc
+  ON charging_sessions (started_at DESC NULLS LAST, id DESC);
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_energy_desc
+  ON charging_sessions (energy_delivered_wh DESC NULLS LAST, id DESC);
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_access_logs_duration_desc
+  ON access_logs (duration_ms DESC NULLS LAST, id DESC);
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notifications_event_type
+  ON notifications (event_type, id);

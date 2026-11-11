@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { BackButton } from '@/components/back-button';
 import { CopyableId } from '@/components/copyable-id';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +24,15 @@ import {
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
+
+/** The sort keys of `GET /v1/sites/:siteId/maintenance/events/:id/stations` (the API list sort definition in `lib/sorts/`). */
+const FANOUT_STATION_SORT_KEYS = [
+  'station',
+  'phase',
+  'command',
+  'commandStatus',
+  'createdAt',
+] as const;
 
 interface MaintenanceEventDetail {
   id: string;
@@ -82,6 +93,15 @@ export function MaintenanceEventStations(): React.JSX.Element {
   const { siteId, eventId } = useParams<{ siteId: string; eventId: string }>();
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
+  const listSort = useListSort(FANOUT_STATION_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort = {
+    ...listSort,
+    toggle: (key: (typeof FANOUT_STATION_SORT_KEYS)[number]) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
   const [phaseFilter, setPhaseFilter] = useState('');
 
   const { data: site } = useQuery({
@@ -103,9 +123,10 @@ export function MaintenanceEventStations(): React.JSX.Element {
 
   const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
   if (phaseFilter !== '') params.set('phase', phaseFilter);
+  for (const [key, value] of Object.entries(listSort.params)) params.set(key, value);
 
   const { data } = useQuery({
-    queryKey: ['maintenance', 'event-stations', eventId, page, phaseFilter],
+    queryKey: ['maintenance', 'event-stations', eventId, page, phaseFilter, listSort.params],
     queryFn: () =>
       api.get<{ data: FanoutStationRow[]; total: number }>(
         `/v1/sites/${siteId ?? ''}/maintenance/events/${eventId ?? ''}/stations?${params.toString()}`,
@@ -162,14 +183,24 @@ export function MaintenanceEventStations(): React.JSX.Element {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t('maintenance.colStation')}</TableHead>
-                  <TableHead>{t('maintenance.colPhase')}</TableHead>
-                  <TableHead>{t('maintenance.colCommand')}</TableHead>
-                  <TableHead>{t('maintenance.colResult')}</TableHead>
+                  <SortableTableHead sortKey="station" sort={sort}>
+                    {t('maintenance.colStation')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="phase" sort={sort}>
+                    {t('maintenance.colPhase')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="command" sort={sort}>
+                    {t('maintenance.colCommand')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="commandStatus" sort={sort}>
+                    {t('maintenance.colResult')}
+                  </SortableTableHead>
                   <TableHead>{t('maintenance.colError')}</TableHead>
                   <TableHead>{t('maintenance.colStatusChange')}</TableHead>
                   <TableHead>{t('maintenance.colCurrentStatus')}</TableHead>
-                  <TableHead>{t('maintenance.colTime')}</TableHead>
+                  <SortableTableHead sortKey="createdAt" sort={sort}>
+                    {t('maintenance.colTime')}
+                  </SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

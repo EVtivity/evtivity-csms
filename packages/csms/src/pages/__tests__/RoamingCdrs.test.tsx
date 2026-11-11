@@ -4,9 +4,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
-const { postMock, canWrite, rows } = vi.hoisted(() => ({
+const { postMock, canWrite, rows, paginatedQuery } = vi.hoisted(() => ({
   postMock: vi.fn(),
+  paginatedQuery: vi.fn(),
   canWrite: { value: true },
   rows: { value: [] as Array<Record<string, unknown>> },
 }));
@@ -25,13 +27,16 @@ vi.mock('@/lib/timezone', () => ({
   useUserTimezone: () => 'UTC',
 }));
 vi.mock('@/hooks/use-paginated-query', () => ({
-  usePaginatedQuery: () => ({
-    data: rows.value,
-    isLoading: false,
-    page: 1,
-    totalPages: 1,
-    setPage: vi.fn(),
-  }),
+  usePaginatedQuery: (...args: unknown[]) => {
+    paginatedQuery(...args);
+    return {
+      data: rows.value,
+      isLoading: false,
+      page: 1,
+      totalPages: 1,
+      setPage: vi.fn(),
+    };
+  },
 }));
 
 import { RoamingCdrs } from '../RoamingCdrs';
@@ -58,9 +63,11 @@ function cdr(over: Record<string, unknown>): Record<string, unknown> {
 function renderPage(): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={queryClient}>
-      <RoamingCdrs />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <RoamingCdrs />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -115,5 +122,19 @@ describe('Roaming CDRs actions', () => {
 
     expect(screen.queryByText('common.actions')).toBeNull();
     expect(screen.queryByText('roaming.cdrs.pushAction')).toBeNull();
+  });
+
+  it('requests the list sorted by a column when its header is clicked', async () => {
+    rows.value = [cdr({})];
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('sort-totalCost'));
+
+    await waitFor(() => {
+      expect(paginatedQuery).toHaveBeenLastCalledWith('ocpi-cdrs', '/v1/ocpi/cdrs', {
+        sort: 'totalCost',
+        order: 'asc',
+      });
+    });
   });
 });

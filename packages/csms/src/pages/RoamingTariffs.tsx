@@ -16,6 +16,8 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { CreateButton } from '@/components/create-button';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { useRoamingTabAction } from './RoamingLayout';
 import { TabPanel } from '@/components/ui/tab-panel';
@@ -34,11 +36,15 @@ interface TariffMapping {
   partnerName: string | null;
 }
 
+/** The sort keys of `GET /v1/ocpi/tariff-mappings` (`ocpiTariffMappingListSort` in the API). */
+export const ROAMING_TARIFF_SORT_KEYS = ['ocpiTariffId', 'partner', 'updatedAt'] as const;
+
 export function RoamingTariffs(): React.JSX.Element {
   const { t } = useTranslation();
   const canWrite = useHasPermission('roaming:write');
   const navigate = useNavigate();
   const timezone = useUserTimezone();
+  const listSort = useListSort(ROAMING_TARIFF_SORT_KEYS);
 
   const {
     data: mappings,
@@ -48,7 +54,11 @@ export function RoamingTariffs(): React.JSX.Element {
     page,
     totalPages,
     setPage,
-  } = usePaginatedQuery<TariffMapping>('ocpi-tariff-mappings', '/v1/ocpi/tariff-mappings');
+  } = usePaginatedQuery<TariffMapping>(
+    'ocpi-tariff-mappings',
+    '/v1/ocpi/tariff-mappings',
+    listSort.params,
+  );
 
   useRoamingTabAction(
     useMemo(
@@ -72,10 +82,16 @@ export function RoamingTariffs(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('roaming.tariffs.ocpiTariffId')}</TableHead>
+                <SortableTableHead sortKey="ocpiTariffId" sort={listSort}>
+                  {t('roaming.tariffs.ocpiTariffId')}
+                </SortableTableHead>
                 <TableHead>{t('roaming.tariffs.publishedFrom')}</TableHead>
-                <TableHead>{t('roaming.tariffs.partner')}</TableHead>
-                <TableHead>{t('common.lastUpdated')}</TableHead>
+                <SortableTableHead sortKey="partner" sort={listSort}>
+                  {t('roaming.tariffs.partner')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="updatedAt" sort={listSort}>
+                  {t('common.lastUpdated')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

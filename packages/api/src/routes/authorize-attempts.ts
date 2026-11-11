@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, sql, desc, gte, lte, inArray, isNull } from 'drizzle-orm';
+import { eq, and, or, ilike, sql, gte, lte, inArray, isNull } from 'drizzle-orm';
 import {
   db,
   authorizeAttempts,
@@ -17,6 +17,7 @@ import { paginatedResponse } from '../lib/response-schemas.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { authorizeAttemptListSort } from '../lib/sorts/authorize-attempt-list-sort.js';
 
 const OUTCOMES = [
   'accepted',
@@ -43,6 +44,11 @@ const attemptItem = z
     idToken: z.string().describe('Token value the station sent'),
     tokenType: z.string().nullable().describe('Token type (1.6 has no type)'),
     matchedTokenId: z.string().nullable().describe('driver_tokens.id of the matched row'),
+    matchedTokenValue: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('RFID card value (id token) of the matched token, for display'),
     matchedDriverId: z
       .string()
       .nullable()
@@ -53,6 +59,11 @@ const attemptItem = z
       .describe(
         'charging_sessions.id when this attempt resulted in a charging session (correlated by matched token, the same station and a start within 10 minutes of the attempt). Null when no session followed.',
       ),
+    sessionStartedAt: z.coerce
+      .date()
+      .nullable()
+      .optional()
+      .describe('Start time of that charging session, for display'),
     outcome: z.string().describe('Outcome enum'),
     ocppVersion: z.string().nullable().describe('OCPP protocol version of the request'),
     reason: z.string().nullable().describe('Short machine-readable reason tag'),
@@ -88,6 +99,7 @@ const listQuery = paginationQuery.extend({
   outcome: z.enum(OUTCOMES).optional().describe('Filter by outcome'),
   from: z.coerce.date().optional().describe('Earliest createdAt (inclusive)'),
   to: z.coerce.date().optional().describe('Latest createdAt (inclusive)'),
+  ...authorizeAttemptListSort.query,
 });
 
 export function authorizeAttemptRoutes(app: FastifyInstance): void {
@@ -105,6 +117,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
+      const query = parseZodRequest(listQuery, request.query);
       const {
         page,
         limit,
@@ -115,7 +128,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
         outcome,
         from,
         to,
-      } = parseZodRequest(listQuery, request.query);
+      } = query;
       const offset = (page - 1) * limit;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
@@ -164,9 +177,23 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
             idToken: authorizeAttempts.idToken,
             tokenType: authorizeAttempts.tokenType,
             matchedTokenId: authorizeAttempts.matchedTokenId,
+            matchedTokenValue: sql<
+              string | null
+            >`(SELECT id_token FROM driver_tokens WHERE id = ${authorizeAttempts.matchedTokenId})`,
             matchedDriverId: authorizeAttempts.matchedDriverId,
             sessionId: sql<string | null>`(
               SELECT ${chargingSessions.id} FROM ${chargingSessions}
+              WHERE (${chargingSessions.tokenId} = ${authorizeAttempts.matchedTokenId}
+                OR (${chargingSessions.autocharge}
+                  AND ${chargingSessions.vehicleId} = ${authorizeAttempts.matchedVehicleId}))
+                AND ${chargingSessions.startedAt} >= ${authorizeAttempts.createdAt}
+                AND ${chargingSessions.startedAt} <= ${authorizeAttempts.createdAt} + interval '10 minutes'
+                AND ${chargingSessions.stationId} = ${chargingStations.id}
+              ORDER BY ${chargingSessions.startedAt} ASC
+              LIMIT 1
+            )`,
+            sessionStartedAt: sql<Date | null>`(
+              SELECT ${chargingSessions.startedAt} FROM ${chargingSessions}
               WHERE (${chargingSessions.tokenId} = ${authorizeAttempts.matchedTokenId}
                 OR (${chargingSessions.autocharge}
                   AND ${chargingSessions.vehicleId} = ${authorizeAttempts.matchedVehicleId}))
@@ -187,7 +214,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
           .from(authorizeAttempts)
           .leftJoin(chargingStations, eq(chargingStations.stationId, authorizeAttempts.stationId))
           .where(where)
-          .orderBy(desc(authorizeAttempts.createdAt), desc(authorizeAttempts.id))
+          .orderBy(...authorizeAttemptListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

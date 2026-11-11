@@ -134,6 +134,10 @@ vi.mock('@evtivity/database', () => {
     drivers: {},
     chargingStations: {},
     pricingGroups: {},
+    // Read by the list sort definitions the routes import.
+    fleets: {},
+    vehicles: {},
+    chargingSessions: {},
     fleetAuditLog: { name: 'fleet_audit_log' },
     driverAuditLog: { name: 'driver_audit_log' },
     pricingAssignmentAuditLog: {},
@@ -249,6 +253,35 @@ describe('Fleet routes - handler logic', () => {
         expect.objectContaining({ search: 'test' }),
         null,
       );
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      mockFleetService.listFleets.mockResolvedValue({ data: [], total: 0 });
+      for (const sort of ['name', 'description', 'driverCount', 'stationCount', 'createdAt']) {
+        for (const order of ['asc', 'desc']) {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/fleets?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+          expect(mockFleetService.listFleets).toHaveBeenLastCalledWith(
+            expect.objectContaining({ sort, order }),
+            null,
+          );
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=fleets.id', 'sort=name&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/fleets?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
 
     it('returns 401 without auth', async () => {
@@ -969,6 +1002,35 @@ describe('Fleet routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(401);
     });
+
+    it('accepts every sort key in both directions', async () => {
+      mockFleetService.getFleetDrivers.mockResolvedValue({ data: [], total: 0 });
+      for (const sort of ['name', 'email', 'phone', 'status', 'createdAt']) {
+        for (const order of ['asc', 'desc']) {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/fleets/${VALID_FLEET_ID}/drivers?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+          expect(mockFleetService.getFleetDrivers).toHaveBeenLastCalledWith(VALID_FLEET_ID, 1, 10, {
+            sort,
+            order,
+          });
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=drivers.id', 'sort=name&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/fleets/${VALID_FLEET_ID}/drivers?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
   });
 
   // --- POST /v1/fleets/:id/drivers ---
@@ -1227,6 +1289,37 @@ describe('Fleet routes - handler logic', () => {
       expect(body.data).toEqual([]);
       expect(body.total).toBe(0);
     });
+
+    it('accepts every sort key in both directions', async () => {
+      mockFleetService.getFleetVehicles.mockResolvedValue({ data: [], total: 0 });
+      for (const sort of ['make', 'model', 'driver', 'year', 'vin', 'licensePlate']) {
+        for (const order of ['asc', 'desc']) {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/fleets/${VALID_FLEET_ID}/vehicles?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+          expect(mockFleetService.getFleetVehicles).toHaveBeenLastCalledWith(
+            VALID_FLEET_ID,
+            1,
+            10,
+            { sort, order },
+          );
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=vehicles.id', 'sort=make&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/fleets/${VALID_FLEET_ID}/vehicles?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
+    });
   });
 
   // --- GET /v1/fleets/:id/sessions ---
@@ -1272,7 +1365,42 @@ describe('Fleet routes - handler logic', () => {
         headers: { authorization: 'Bearer ' + token },
       });
 
-      expect(mockFleetService.getFleetSessions).toHaveBeenCalledWith(VALID_FLEET_ID, 2, 5, null);
+      expect(mockFleetService.getFleetSessions).toHaveBeenCalledWith(VALID_FLEET_ID, 2, 5, null, {
+        sort: undefined,
+        order: undefined,
+      });
+    });
+
+    it('accepts every session sort key in both directions and passes it on', async () => {
+      for (const sort of ['station', 'status', 'startedAt', 'duration', 'energy', 'cost']) {
+        for (const order of ['asc', 'desc']) {
+          mockFleetService.getFleetSessions.mockResolvedValue({ data: [], total: 0 });
+          const response = await app.inject({
+            method: 'GET',
+            url: `/fleets/${VALID_FLEET_ID}/sessions?sort=${sort}&order=${order}`,
+            headers: { authorization: 'Bearer ' + token },
+          });
+          expect(response.statusCode, `${sort} ${order}`).toBe(200);
+          expect(mockFleetService.getFleetSessions).toHaveBeenLastCalledWith(
+            VALID_FLEET_ID,
+            1,
+            10,
+            null,
+            { sort, order },
+          );
+        }
+      }
+    });
+
+    it('refuses a session sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=driver', 'sort=charging_sessions.id', 'sort=energy&order=up']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/fleets/${VALID_FLEET_ID}/sessions?${query}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, query).toBe(400);
+      }
     });
 
     it('returns empty data when no sessions', async () => {
@@ -1623,6 +1751,7 @@ describe('Fleet routes - handler logic', () => {
         1,
         expect.any(Number),
         [OWN_SITE],
+        expect.any(Object),
       );
       expect(mockFleetService.getFleetMetrics).toHaveBeenCalledWith(
         VALID_FLEET_ID,

@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 import { db, ocpiRoamingSessions, ocpiPartners } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -13,6 +13,7 @@ import { paginatedResponse } from '../lib/response-schemas.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { sessionInSites } from '../lib/ocpi-site-scope.js';
+import { ocpiSessionListSort } from '../lib/sorts/ocpi-session-list-sort.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
 // OCPI SessionStatus as stored in `ocpi_roaming_sessions.status`: the status a
@@ -50,6 +51,7 @@ const roamingSessionItem = z
 const sessionQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter by OCPI partner ID'),
   status: z.enum(OCPI_SESSION_STATUS).optional().describe('Filter by OCPI session status'),
+  ...ocpiSessionListSort.query,
 });
 
 export function ocpiSessionRoutes(app: FastifyInstance): void {
@@ -68,7 +70,8 @@ export function ocpiSessionRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { page, limit, partnerId, status } = request.query as z.infer<typeof sessionQuery>;
+      const query = request.query as z.infer<typeof sessionQuery>;
+      const { page, limit, partnerId, status } = query;
       const offset = (page - 1) * limit;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
@@ -106,7 +109,7 @@ export function ocpiSessionRoutes(app: FastifyInstance): void {
           .from(ocpiRoamingSessions)
           .leftJoin(ocpiPartners, eq(ocpiRoamingSessions.partnerId, ocpiPartners.id))
           .where(where)
-          .orderBy(desc(ocpiRoamingSessions.createdAt), desc(ocpiRoamingSessions.id))
+          .orderBy(...ocpiSessionListSort.orderBy(query))
           .limit(limit)
           .offset(offset),
         db

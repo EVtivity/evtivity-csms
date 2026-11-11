@@ -233,6 +233,19 @@ describe('FleetInvoicesCard', () => {
     });
   });
 
+  it('requests the invoice list sorted by a column when its header is clicked', async () => {
+    mockGet(preview());
+    wrap();
+
+    expect(await screen.findByText('INV-202610-0009')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('sort-total'));
+    await waitFor(() => {
+      expect(h.get).toHaveBeenCalledWith(
+        '/v1/fleets/flt_1/invoices?page=1&limit=10&sort=total&order=asc',
+      );
+    });
+  });
+
   it('hides every action without payments:write and the card without payments:read', async () => {
     h.permissions = new Set(['payments:read']);
     mockGet(preview());

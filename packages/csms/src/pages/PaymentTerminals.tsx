@@ -15,7 +15,11 @@ import { CreateButton } from '@/components/create-button';
 import { ExportButton } from '@/components/export-button';
 import { useToast } from '@/components/ui/toast';
 import { LoadingLogo } from '@/components/loading-logo';
-import { PaymentTerminalsTable } from '@/components/payment-terminals/PaymentTerminalsTable';
+import {
+  PAYMENT_TERMINAL_SORT_KEYS,
+  PaymentTerminalsTable,
+} from '@/components/payment-terminals/PaymentTerminalsTable';
+import { useListSort } from '@/hooks/use-list-sort';
 import {
   usePaymentTerminalFeature,
   type PaymentTerminal,
@@ -116,10 +120,11 @@ function PaymentTerminalsList(): React.JSX.Element {
     queryFn: () => api.get<{ data: SiteOption[]; total: number }>('/v1/sites?limit=100'),
   });
 
-  const extraParams = useMemo(
-    () => (Object.keys(filters).length > 0 ? (filters as Record<string, string>) : undefined),
-    [filters],
-  );
+  const listSort = useListSort(PAYMENT_TERMINAL_SORT_KEYS);
+  const extraParams = useMemo(() => {
+    const params = { ...(filters as Record<string, string>), ...listSort.params };
+    return Object.keys(params).length > 0 ? params : undefined;
+  }, [filters, listSort.params]);
   const {
     data: terminals,
     isLoading,
@@ -277,6 +282,7 @@ function PaymentTerminalsList(): React.JSX.Element {
             onRetry={() => {
               refetch();
             }}
+            sort={listSort}
           />
         </CardContent>
       </Card>

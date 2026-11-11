@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
@@ -77,5 +77,40 @@ describe('Users list avatars', () => {
     expect(img.getAttribute('src')?.startsWith('data:image/svg+xml')).toBe(true);
     const row2 = screen.getByTestId('user-row-usr_2');
     expect(row2.querySelector('[role="img"]')?.textContent).toBe('MR');
+  });
+
+  it('requests the list sorted by a column when its header is clicked', async () => {
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path.startsWith('/v1/users?')
+          ? { data: [user('usr_1', null, 'Ana', 'Lee')], total: 1 }
+          : path === '/v1/roles'
+            ? [{ id: 'rol_operator', name: 'operator' }]
+            : { factorProofKinds: [] },
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <UsersPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('user-row-usr_1');
+    fireEvent.click(screen.getByTestId('sort-role'));
+    await waitFor(() => {
+      expect(
+        getMock.mock.calls.some(
+          ([path]) =>
+            typeof path === 'string' &&
+            path.startsWith('/v1/users?') &&
+            path.includes('sort=role') &&
+            path.includes('order=asc'),
+        ),
+      ).toBe(true);
+    });
+    // Site access is counted after the query: a plain header.
+    expect(screen.queryByTestId('sort-siteAccess')).toBeNull();
   });
 });

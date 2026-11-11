@@ -243,6 +243,7 @@ describe('GET /fleets/:id/billing/unbilled', () => {
     excluded: [
       {
         sessionId: 'ses_000000000002',
+        stationName: 'CS-0001',
         driverId: 'drv_000000000001',
         driverName: 'Anna Berg',
         endedAt: new Date('2026-09-03T10:00:00Z'),
@@ -588,6 +589,32 @@ describe('GET /invoices without a fleetId filter', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ total: 1, data: [{ id: INVOICE_ID, fleetId: FLEET_ID }] });
   });
+
+  it('accepts every sort key in both directions', async () => {
+    listRows.rows = [];
+    listRows.total = 0;
+    for (const sort of ['invoiceNumber', 'kind', 'status', 'issuedAt', 'dueAt', 'total']) {
+      for (const order of ['asc', 'desc']) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/invoices?sort=${sort}&order=${order}&driverId=${DRIVER_ID}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(res.statusCode, `${sort} ${order}`).toBe(200);
+      }
+    }
+  });
+
+  it('refuses a sort key it does not offer and an unknown order', async () => {
+    for (const query of ['sort=id', 'sort=invoices.id', 'sort=total&order=up']) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/invoices?${query}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode, query).toBe(400);
+    }
+  });
 });
 
 describe('GET /fleets/:id/invoices', () => {
@@ -637,6 +664,41 @@ describe('GET /fleets/:id/invoices', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it('accepts every sort key in both directions', async () => {
+    listRows.rows = [];
+    listRows.total = 0;
+    for (const sort of [
+      'invoiceNumber',
+      'periodStart',
+      'billedTo',
+      'status',
+      'issuedAt',
+      'dueAt',
+      'sentAt',
+      'total',
+    ]) {
+      for (const order of ['asc', 'desc']) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/fleets/${FLEET_ID}/invoices?sort=${sort}&order=${order}&recipient=member`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(res.statusCode, `${sort} ${order}`).toBe(200);
+      }
+    }
+  });
+
+  it('refuses a sort key it does not offer and an unknown order', async () => {
+    for (const query of ['sort=id', 'sort=kind', 'sort=total&order=up']) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/fleets/${FLEET_ID}/invoices?${query}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode, query).toBe(400);
+    }
   });
 });
 

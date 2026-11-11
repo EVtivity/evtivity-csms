@@ -13,7 +13,13 @@ import { TokenStatusBadge } from '@/components/token/TokenStatusBadge';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SessionsTable, type Session } from '@/components/SessionsTable';
+import {
+  SESSION_SORT_KEYS,
+  SessionsTable,
+  type Session,
+  type SessionSortKey,
+} from '@/components/SessionsTable';
+import { useListSort } from '@/hooks/use-list-sort';
 import { TokenDetailsTab } from '@/components/token/TokenDetailsTab';
 import { AuthorizeLogView } from '@/components/AuthorizeLogView';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
@@ -49,6 +55,7 @@ export function TokenDetail(): React.JSX.Element {
 
   const [activeTab, setActiveTab] = useTab('details');
 
+  const sessionsSort = useListSort<SessionSortKey>(SESSION_SORT_KEYS);
   const {
     data: sessions,
     isLoading: sessionsLoading,
@@ -57,7 +64,11 @@ export function TokenDetail(): React.JSX.Element {
     page: sessionsPage,
     totalPages: sessionsTotalPages,
     setPage: setSessionsPage,
-  } = usePaginatedQuery<Session>(`token-sessions-${id ?? ''}`, `/v1/tokens/${id ?? ''}/sessions`);
+  } = usePaginatedQuery<Session>(
+    `token-sessions-${id ?? ''}`,
+    `/v1/tokens/${id ?? ''}/sessions`,
+    sessionsSort.params,
+  );
 
   const { data: token, isLoading } = useQuery({
     queryKey: ['tokens', id],
@@ -111,6 +122,7 @@ export function TokenDetail(): React.JSX.Element {
               isLoading={sessionsLoading}
               isError={sessionsError}
               onRetry={refetchSessions}
+              sort={sessionsSort}
             />
             <Pagination
               page={sessionsPage}

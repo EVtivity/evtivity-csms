@@ -145,7 +145,7 @@ export function StationAiInsightsRow({
                   to={`/sites/${encodeURIComponent(station.siteId)}`}
                   className="text-link hover:underline"
                 >
-                  {station.siteName ?? station.siteId}
+                  {station.siteName ?? t('common.unnamedSite')}
                 </Link>
               </>
             )}

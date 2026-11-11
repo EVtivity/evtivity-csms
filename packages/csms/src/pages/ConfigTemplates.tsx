@@ -4,6 +4,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useNavigate } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CreateButton } from '@/components/create-button';
@@ -23,6 +25,9 @@ import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 
+/** The sort keys of `GET /v1/config-templates` (the API list sort definition in `lib/sorts/`). */
+const CONFIG_TEMPLATE_SORT_KEYS = ['name', 'description', 'variableCount', 'createdAt'] as const;
+
 interface ConfigTemplate {
   id: string;
   name: string;
@@ -38,14 +43,24 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
   const queryClient = useQueryClient();
   const timezone = useUserTimezone();
   const [page, setPage] = useState(1);
+  const listSort = useListSort(CONFIG_TEMPLATE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const sort = {
+    ...listSort,
+    toggle: (key: (typeof CONFIG_TEMPLATE_SORT_KEYS)[number]) => {
+      setPage(1);
+      listSort.toggle(key);
+    },
+  };
+  const sortQuery = new URLSearchParams(listSort.params).toString();
   const [deleteTarget, setDeleteTarget] = useState<ConfigTemplate | null>(null);
   const limit = 10;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['config-templates', page],
+    queryKey: ['config-templates', page, listSort.params],
     queryFn: () =>
       api.get<{ data: ConfigTemplate[]; total: number }>(
-        `/v1/config-templates?page=${String(page)}&limit=${String(limit)}`,
+        `/v1/config-templates?page=${String(page)}&limit=${String(limit)}${sortQuery ? `&${sortQuery}` : ''}`,
       ),
   });
 
@@ -100,13 +115,21 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('common.name')}</TableHead>
-                      <TableHead>{t('common.description')}</TableHead>
-                      <TableHead>{t('configTemplates.variableCount')}</TableHead>
+                      <SortableTableHead sortKey="name" sort={sort}>
+                        {t('common.name')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="description" sort={sort}>
+                        {t('common.description')}
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="variableCount" sort={sort}>
+                        {t('configTemplates.variableCount')}
+                      </SortableTableHead>
                       <TableHead className="text-right">
                         {t('configTemplates.matchingStations')}
                       </TableHead>
-                      <TableHead>{t('common.created')}</TableHead>
+                      <SortableTableHead sortKey="createdAt" sort={sort}>
+                        {t('common.created')}
+                      </SortableTableHead>
                       <TableHead className="w-12" />
                     </TableRow>
                   </TableHeader>

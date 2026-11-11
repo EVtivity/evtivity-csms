@@ -20,6 +20,9 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort } from '@/hooks/use-list-sort';
+import { sessionLabel } from '@/lib/session-label';
 import { useUserTimezone, formatDateTime } from '@/lib/timezone';
 import { useCanExplain } from '@/components/ai/ExplainButton';
 import { AuthorizeInsightCell } from '@/components/ai/insights/AuthorizeInsightCell';
@@ -33,8 +36,10 @@ interface AuthorizeAttempt {
   idToken: string;
   tokenType: string | null;
   matchedTokenId: string | null;
+  matchedTokenValue?: string | null;
   matchedDriverId: string | null;
   sessionId: string | null;
+  sessionStartedAt?: string | null;
   outcome: string;
   ocppVersion: string | null;
   reason: string | null;
@@ -71,6 +76,17 @@ function outcomeVariant(outcome: string): 'success' | 'destructive' | 'warning' 
   }
 }
 
+/** The sort keys of `GET /v1/authorize-attempts` (`authorizeAttemptListSort` in the API). */
+export const AUTHORIZE_ATTEMPT_SORT_KEYS = [
+  'createdAt',
+  'station',
+  'idToken',
+  'tokenType',
+  'vehicleIdValue',
+  'outcome',
+  'reason',
+] as const;
+
 export interface AuthorizeLogViewProps {
   fixedFilters?: { matchedTokenId?: string; matchedDriverId?: string; stationId?: string };
   hideIdTokenFilter?: boolean;
@@ -95,8 +111,9 @@ export function AuthorizeLogView({
   const timezone = useUserTimezone();
   const [outcome, setOutcome] = useState('');
   const [idToken, setIdToken] = useState('');
+  const listSort = useListSort(AUTHORIZE_ATTEMPT_SORT_KEYS);
 
-  const filters: Record<string, string> = { outcome };
+  const filters: Record<string, string> = { outcome, ...listSort.params };
   if (!hideIdTokenFilter) filters['idToken'] = idToken;
   if (fixedFilters?.matchedTokenId != null) {
     filters['matchedTokenId'] = fixedFilters.matchedTokenId;
@@ -172,13 +189,29 @@ export function AuthorizeLogView({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.timestamp')}</TableHead>
-                {!hideStationColumn && <TableHead>{t('tokens.stationColumn')}</TableHead>}
-                <TableHead>{t('tokens.idToken')}</TableHead>
-                <TableHead>{t('tokens.type')}</TableHead>
-                <TableHead>{t('vehicles.vehicleIdColumn')}</TableHead>
-                <TableHead>{t('tokens.outcome')}</TableHead>
-                <TableHead>{t('tokens.reason')}</TableHead>
+                <SortableTableHead sortKey="createdAt" sort={listSort}>
+                  {t('common.timestamp')}
+                </SortableTableHead>
+                {!hideStationColumn && (
+                  <SortableTableHead sortKey="station" sort={listSort}>
+                    {t('tokens.stationColumn')}
+                  </SortableTableHead>
+                )}
+                <SortableTableHead sortKey="idToken" sort={listSort}>
+                  {t('tokens.idToken')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="tokenType" sort={listSort}>
+                  {t('tokens.type')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="vehicleIdValue" sort={listSort}>
+                  {t('vehicles.vehicleIdColumn')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="outcome" sort={listSort}>
+                  {t('tokens.outcome')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="reason" sort={listSort}>
+                  {t('tokens.reason')}
+                </SortableTableHead>
                 {!hideMatchedTokenColumn && <TableHead>{t('tokens.matchedToken')}</TableHead>}
                 {!hideSessionColumn && <TableHead>{t('tokens.sessionColumn')}</TableHead>}
                 {showAiColumn && (
@@ -214,7 +247,7 @@ export function AuthorizeLogView({
                             to={`/stations/${row.stationDbId}`}
                             className="text-link hover:underline"
                           >
-                            {row.stationOcppId ?? row.stationDbId}
+                            {row.stationOcppId ?? t('common.unnamedStation')}
                           </Link>
                         ) : (
                           (row.stationOcppId ?? 'n/a')
@@ -254,7 +287,7 @@ export function AuthorizeLogView({
                             to={`/tokens/${row.matchedTokenId}`}
                             className="text-link hover:underline"
                           >
-                            {row.matchedTokenId}
+                            {row.matchedTokenValue ?? row.idToken}
                           </Link>
                         ) : (
                           'n/a'
@@ -268,7 +301,11 @@ export function AuthorizeLogView({
                             to={`/sessions/${row.sessionId}`}
                             className="text-link hover:underline"
                           >
-                            {row.sessionId}
+                            {sessionLabel(
+                              t,
+                              { stationOcppId: row.stationOcppId, startedAt: row.sessionStartedAt },
+                              timezone,
+                            )}
                           </Link>
                         ) : (
                           'n/a'

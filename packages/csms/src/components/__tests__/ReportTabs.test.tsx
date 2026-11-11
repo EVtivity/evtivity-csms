@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { getMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn() }));
 
@@ -43,7 +44,11 @@ getMock.mockImplementation((url: string) => {
 
 function renderTab(ui: React.JSX.Element): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 function options(select: HTMLElement): Array<{ value: string; label: string | null }> {
@@ -135,5 +140,33 @@ describe('GeneratedReportsTab', () => {
       { value: 'custom', label: 'reports.types.custom' },
       { value: 'nevi', label: 'reports.types.nevi' },
     ]);
+  });
+
+  it('sorts the list on the server when a sortable header is clicked', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === '/v1/reports/types') return Promise.resolve(REPORT_TYPES);
+      return Promise.resolve({
+        data: [
+          {
+            id: 'rep_1',
+            name: 'Q1',
+            reportType: 'revenue',
+            status: 'completed',
+            format: 'csv',
+            fileName: null,
+            fileSize: 10,
+            error: null,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            completedAt: null,
+          },
+        ],
+        total: 1,
+      });
+    });
+    renderTab(<GeneratedReportsTab />);
+    fireEvent.click(await screen.findByTestId('sort-fileSize'));
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith(expect.stringContaining('sort=fileSize&order=asc'));
+    });
   });
 });

@@ -31,6 +31,8 @@ import { isBootOwnedStationSetting } from '@evtivity/lib/station-data-plan';
 import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
 import { Pagination } from '@/components/ui/pagination';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
@@ -71,6 +73,16 @@ interface Props {
 /** A toolbar button label shown on phones and from 85rem, icon only (screen reader text) between. */
 const COMPACT_LABEL = 'sm:max-[85rem]:sr-only';
 
+/** The sort keys of `GET /v1/stations/:id/variables` (`stationVariableListSort in the API`). */
+export const STATION_VARIABLE_SORT_KEYS = [
+  'component',
+  'variable',
+  'value',
+  'attributeType',
+  'source',
+] as const;
+export type StationVariableSortKey = (typeof STATION_VARIABLE_SORT_KEYS)[number];
+
 export function StationConfigurationsTab({
   stationId,
   stationOcppId,
@@ -83,6 +95,15 @@ export function StationConfigurationsTab({
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const limit = 25;
+  const variablesListSort = useListSort(STATION_VARIABLE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const variablesSort: ListSort<StationVariableSortKey> = {
+    ...variablesListSort,
+    toggle: (key) => {
+      setPage(1);
+      variablesListSort.toggle(key);
+    },
+  };
 
   // Pushing a configuration template needs settings.stationConfig:write;
   // the button is hidden without it.
@@ -191,10 +212,11 @@ export function StationConfigurationsTab({
   }
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['stations', stationId, 'configurations', page, search],
+    queryKey: ['stations', stationId, 'configurations', page, search, variablesListSort.params],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (search !== '') params.set('search', search);
+      for (const [key, value] of Object.entries(variablesListSort.params)) params.set(key, value);
       return api.get<{ data: StationVariable[]; total: number }>(
         `/v1/stations/${stationId}/variables?${params.toString()}`,
       );
@@ -280,11 +302,21 @@ export function StationConfigurationsTab({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t('stations.component')}</TableHead>
-                  <TableHead>{t('stations.variable')}</TableHead>
-                  <TableHead>{t('common.value')}</TableHead>
-                  <TableHead>{t('common.type')}</TableHead>
-                  <TableHead>{t('common.source')}</TableHead>
+                  <SortableTableHead sortKey="component" sort={variablesSort}>
+                    {t('stations.component')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="variable" sort={variablesSort}>
+                    {t('stations.variable')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="value" sort={variablesSort}>
+                    {t('common.value')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="attributeType" sort={variablesSort}>
+                    {t('common.type')}
+                  </SortableTableHead>
+                  <SortableTableHead sortKey="source" sort={variablesSort}>
+                    {t('common.source')}
+                  </SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

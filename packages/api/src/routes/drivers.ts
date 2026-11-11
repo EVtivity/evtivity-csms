@@ -42,9 +42,12 @@ import { sendSecurityNotice } from '../lib/security-notice.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { zodSchema } from '../lib/zod-schema.js';
+import { sessionListSort } from '../lib/sorts/session-list-sort.js';
+import { driverReservationListSort } from '../lib/sorts/reservation-list-sort.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
+import { driverListSort } from '../lib/sorts/driver-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
@@ -511,10 +514,16 @@ const vehicleParams = z.object({
 const sessionsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),
+  ...sessionListSort.query,
+});
+
+const driverReservationsQuery = paginationQuery.extend({
+  ...driverReservationListSort.query,
 });
 
 const driverListQuery = paginationQuery.extend({
   status: z.enum(['active', 'inactive']).optional().describe('Filter by driver status'),
+  ...driverListSort.query,
 });
 
 // Safe column projection used by every operator-facing read of `drivers`.
@@ -574,7 +583,8 @@ export function driverRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { page, limit, search, status } = request.query as z.infer<typeof driverListQuery>;
+      const query = request.query as z.infer<typeof driverListQuery>;
+      const { page, limit, search, status } = query;
       const offset = (page - 1) * limit;
 
       const conditions = [];
@@ -602,7 +612,7 @@ export function driverRoutes(app: FastifyInstance): void {
           .from(drivers)
           .where(where)
           // Stable ordering so pagination doesn't shuffle rows between pages.
-          .orderBy(desc(drivers.createdAt), desc(drivers.id))
+          .orderBy(...driverListSort.orderBy(query))
           .limit(limit)
           .offset(offset)
           .then((rows) => withAvatars(rows)),
@@ -1625,7 +1635,7 @@ export function driverRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
+          .orderBy(...sessionListSort.orderBy(request.query as z.infer<typeof sessionsQuery>))
           .limit(limit)
           .offset(offset),
         db
@@ -1659,7 +1669,7 @@ export function driverRoutes(app: FastifyInstance): void {
         operationId: 'listDriverReservations',
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(driverReservationsQuery),
         response: {
           200: paginatedResponse(driverReservationItem),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
@@ -1668,7 +1678,7 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
-      const { page, limit } = request.query as z.infer<typeof paginationQuery>;
+      const { page, limit } = request.query as z.infer<typeof driverReservationsQuery>;
       const offset = (page - 1) * limit;
 
       const { userId } = request.user as JwtPayload;
@@ -1703,7 +1713,11 @@ export function driverRoutes(app: FastifyInstance): void {
           .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .where(where)
-          .orderBy(desc(reservations.createdAt), desc(reservations.id))
+          .orderBy(
+            ...driverReservationListSort.orderBy(
+              request.query as z.infer<typeof driverReservationsQuery>,
+            ),
+          )
           .limit(limit)
           .offset(offset),
         db

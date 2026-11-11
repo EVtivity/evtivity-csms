@@ -29,6 +29,8 @@ import {
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { Select } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
@@ -156,6 +158,28 @@ interface StationChargingNeedsTabProps {
   ocppProtocol?: string | null;
 }
 
+/** The sort keys of `GET /v1/stations/:id/ev-charging-schedules` (`evChargingScheduleListSort in the API`). */
+export const EV_CHARGING_SCHEDULE_SORT_KEYS = [
+  'evseId',
+  'timeBase',
+  'withinLimits',
+  'receivedAt',
+] as const;
+export type EvChargingScheduleSortKey = (typeof EV_CHARGING_SCHEDULE_SORT_KEYS)[number];
+
+/** The sort keys of `GET /v1/stations/:id/monitoring-rules` (`monitoringRuleListSort in the API`). */
+export const MONITORING_RULE_SORT_KEYS = [
+  'component',
+  'variable',
+  'type',
+  'value',
+  'severity',
+  'monitoringId',
+  'status',
+  'createdAt',
+] as const;
+export type MonitoringRuleSortKey = (typeof MONITORING_RULE_SORT_KEYS)[number];
+
 export function StationChargingNeedsTab({
   stationId,
   isOnline,
@@ -180,6 +204,27 @@ export function StationChargingNeedsTab({
   const [severity, setSeverity] = useState('0');
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const limit = 10;
+  // The two tables share the URL sort; their keys differ, so a sort applies to one table.
+  const schedulesListSort = useListSort(EV_CHARGING_SCHEDULE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const schedulesSort: ListSort<EvChargingScheduleSortKey> = {
+    ...schedulesListSort,
+    toggle: (key) => {
+      setSchedulePage(1);
+      schedulesListSort.toggle(key);
+    },
+  };
+  const schedulesSortQuery = new URLSearchParams(schedulesListSort.params).toString();
+  const rulesListSort = useListSort(MONITORING_RULE_SORT_KEYS);
+  // A new sort starts again at page 1.
+  const rulesSort: ListSort<MonitoringRuleSortKey> = {
+    ...rulesListSort,
+    toggle: (key) => {
+      setRulePage(1);
+      rulesListSort.toggle(key);
+    },
+  };
+  const rulesSortQuery = new URLSearchParams(rulesListSort.params).toString();
 
   const needsQuery = useQuery({
     queryKey: ['stations', stationId, 'ev-charging-needs'],
@@ -187,18 +232,24 @@ export function StationChargingNeedsTab({
   });
 
   const schedulesQuery = useQuery({
-    queryKey: ['stations', stationId, 'ev-charging-schedules', schedulePage],
+    queryKey: [
+      'stations',
+      stationId,
+      'ev-charging-schedules',
+      schedulePage,
+      schedulesListSort.params,
+    ],
     queryFn: () =>
       api.get<{ data: EvChargingScheduleRow[]; total: number }>(
-        `/v1/stations/${stationId}/ev-charging-schedules?page=${String(schedulePage)}&limit=${String(limit)}`,
+        `/v1/stations/${stationId}/ev-charging-schedules?page=${String(schedulePage)}&limit=${String(limit)}${schedulesSortQuery === '' ? '' : `&${schedulesSortQuery}`}`,
       ),
   });
 
   const rulesQuery = useQuery({
-    queryKey: ['stations', stationId, 'monitoring-rules', rulePage],
+    queryKey: ['stations', stationId, 'monitoring-rules', rulePage, rulesListSort.params],
     queryFn: () =>
       api.get<{ data: MonitoringRule[]; total: number }>(
-        `/v1/stations/${stationId}/monitoring-rules?page=${String(rulePage)}&limit=${String(limit)}`,
+        `/v1/stations/${stationId}/monitoring-rules?page=${String(rulePage)}&limit=${String(limit)}${rulesSortQuery === '' ? '' : `&${rulesSortQuery}`}`,
       ),
   });
 
@@ -330,12 +381,20 @@ export function StationChargingNeedsTab({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('stationChargingNeeds.evse')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.timeBase')}</TableHead>
+                <SortableTableHead sortKey="evseId" sort={schedulesSort}>
+                  {t('stationChargingNeeds.evse')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="timeBase" sort={schedulesSort}>
+                  {t('stationChargingNeeds.timeBase')}
+                </SortableTableHead>
                 <TableHead>{t('stationChargingNeeds.firstLimit')}</TableHead>
                 <TableHead>{t('stationChargingNeeds.periods')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.check')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.received')}</TableHead>
+                <SortableTableHead sortKey="withinLimits" sort={schedulesSort}>
+                  {t('stationChargingNeeds.check')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="receivedAt" sort={schedulesSort}>
+                  {t('stationChargingNeeds.received')}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -400,14 +459,30 @@ export function StationChargingNeedsTab({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('stationChargingNeeds.component')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.variable')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.monitorType')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.value')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.severity')}</TableHead>
-                <TableHead>{t('stationChargingNeeds.monitorId')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <SortableTableHead sortKey="component" sort={rulesSort}>
+                  {t('stationChargingNeeds.component')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="variable" sort={rulesSort}>
+                  {t('stationChargingNeeds.variable')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="type" sort={rulesSort}>
+                  {t('stationChargingNeeds.monitorType')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="value" sort={rulesSort}>
+                  {t('stationChargingNeeds.value')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="severity" sort={rulesSort}>
+                  {t('stationChargingNeeds.severity')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="monitoringId" sort={rulesSort}>
+                  {t('stationChargingNeeds.monitorId')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="status" sort={rulesSort}>
+                  {t('common.status')}
+                </SortableTableHead>
+                <SortableTableHead sortKey="createdAt" sort={rulesSort}>
+                  {t('common.created')}
+                </SortableTableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>

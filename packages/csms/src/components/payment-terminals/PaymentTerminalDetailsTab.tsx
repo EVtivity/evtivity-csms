@@ -181,7 +181,7 @@ function TerminalInfoPanel({ terminal, timezone }: DetailsTabProps): React.JSX.E
         <DescriptionItem label={t('paymentTerminals.fields.site')}>
           {terminal.siteId != null ? (
             <Link to={`/sites/${terminal.siteId}`} className="text-link hover:underline">
-              {terminal.siteName ?? terminal.siteId}
+              {terminal.siteName ?? t('common.unnamedSite')}
             </Link>
           ) : (
             na
@@ -213,7 +213,7 @@ function TerminalInfoPanel({ terminal, timezone }: DetailsTabProps): React.JSX.E
         onOpenChange={setDeleteOpen}
         title={t('paymentTerminals.detail.delete')}
         description={t('paymentTerminals.detail.deleteDescription', {
-          name: terminalName(terminal),
+          name: terminalName(terminal, t),
         })}
         confirmLabel={t('paymentTerminals.detail.delete')}
         isPending={remove.isPending}
@@ -326,7 +326,7 @@ function TerminalPairingPanel({
         <DescriptionList>
           <DescriptionItem label={t('paymentTerminals.pairing.station')}>
             <Link to={`/stations/${terminal.stationId}`} className="text-link hover:underline">
-              {terminal.stationOcppId ?? terminal.stationId}
+              {terminal.stationOcppId ?? t('common.unnamedStation')}
             </Link>
           </DescriptionItem>
           <DescriptionItem label={t('paymentTerminals.pairing.connector')}>

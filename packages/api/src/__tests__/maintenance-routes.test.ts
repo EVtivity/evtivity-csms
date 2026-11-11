@@ -356,6 +356,39 @@ describe('Maintenance routes', () => {
       expect(eq).not.toHaveBeenCalledWith('me.status', expect.anything());
     });
 
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of [
+        'plannedStartAt',
+        'plannedEndAt',
+        'status',
+        'eventType',
+        'reason',
+        'sessionsStopped',
+        'reservationsCancelled',
+      ]) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([], []);
+          const res = await app.inject({
+            method: 'GET',
+            url: `/sites/${SITE_ID}/maintenance/events?sort=${sort}&order=${order}`,
+            headers: auth(),
+          });
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=custom_message', 'sort=status&order=up']) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/sites/${SITE_ID}/maintenance/events?${query}`,
+          headers: auth(),
+        });
+        expect(res.statusCode, query).toBe(400);
+      }
+    });
+
     it('rejects an invalid status filter with 400', async () => {
       const res = await app.inject({
         method: 'GET',
@@ -436,6 +469,27 @@ describe('Maintenance routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: [], total: 0 });
       expect(eq).not.toHaveBeenCalledWith('mes.phase', expect.anything());
+    });
+
+    it('accepts every sort key in both directions', async () => {
+      for (const sort of ['station', 'phase', 'command', 'commandStatus', 'createdAt']) {
+        for (const order of ['asc', 'desc']) {
+          setupDbResults([{ siteId: SITE_ID }], [], []);
+          const res = await app.inject({
+            method: 'GET',
+            url: `${url}?sort=${sort}&order=${order}`,
+            headers: auth(),
+          });
+          expect(res.statusCode, `${sort} ${order}`).toBe(200);
+        }
+      }
+    });
+
+    it('refuses a sort key it does not offer and an unknown order', async () => {
+      for (const query of ['sort=id', 'sort=error', 'sort=phase&order=up']) {
+        const res = await app.inject({ method: 'GET', url: `${url}?${query}`, headers: auth() });
+        expect(res.statusCode, query).toBe(400);
+      }
     });
 
     it('rejects a phase longer than 20 characters', async () => {

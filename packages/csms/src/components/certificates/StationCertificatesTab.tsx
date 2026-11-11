@@ -3,23 +3,29 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useListSort } from '@/hooks/use-list-sort';
+import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TabsContent } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
+
+/** The sort keys of `GET /v1/pnc/station-certificates` (the API list sort definition in `lib/sorts/`). */
+const STATION_CERTIFICATE_SORT_KEYS = [
+  'certificateType',
+  'subject',
+  'serialNumber',
+  'validFrom',
+  'validTo',
+  'status',
+  'source',
+] as const;
 
 interface StationCertificate {
   id: number;
@@ -47,9 +53,11 @@ export function StationCertificatesTab(): React.JSX.Element {
 
   const [stationCertStatusFilter, setStationCertStatusFilter] = useState('');
 
-  const stationCertParams = stationCertStatusFilter
-    ? { status: stationCertStatusFilter }
-    : undefined;
+  const stationCertSort = useListSort(STATION_CERTIFICATE_SORT_KEYS);
+  const stationCertParams = {
+    ...(stationCertStatusFilter ? { status: stationCertStatusFilter } : {}),
+    ...stationCertSort.params,
+  };
 
   const {
     data: stationCerts,
@@ -108,13 +116,27 @@ export function StationCertificatesTab(): React.JSX.Element {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('pnc.certificateType')}</TableHead>
-                    <TableHead>{t('pnc.subject')}</TableHead>
-                    <TableHead>{t('pnc.serialNumber')}</TableHead>
-                    <TableHead>{t('pnc.validFrom')}</TableHead>
-                    <TableHead>{t('pnc.validTo')}</TableHead>
-                    <TableHead>{t('common.status')}</TableHead>
-                    <TableHead>{t('pnc.source')}</TableHead>
+                    <SortableTableHead sortKey="certificateType" sort={stationCertSort}>
+                      {t('pnc.certificateType')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="subject" sort={stationCertSort}>
+                      {t('pnc.subject')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="serialNumber" sort={stationCertSort}>
+                      {t('pnc.serialNumber')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="validFrom" sort={stationCertSort}>
+                      {t('pnc.validFrom')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="validTo" sort={stationCertSort}>
+                      {t('pnc.validTo')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="status" sort={stationCertSort}>
+                      {t('common.status')}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="source" sort={stationCertSort}>
+                      {t('pnc.source')}
+                    </SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
