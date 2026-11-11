@@ -104,15 +104,13 @@ export function RoamingLayout(): React.JSX.Element {
         }}
       >
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
-          <div className="overflow-x-auto">
-            <TabsList>
-              {visibleTabs.map((tab) => (
-                <TabsTrigger key={tab.value} value={tab.value}>
-                  {t(tab.labelKey)}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
+          <TabsList className="md:flex-1">
+            {visibleTabs.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {t(tab.labelKey)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
           {tabAction != null && (
             <div className="flex *:w-full md:shrink-0 md:*:w-auto">{tabAction}</div>
           )}

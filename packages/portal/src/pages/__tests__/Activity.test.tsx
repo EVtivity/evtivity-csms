@@ -102,4 +102,18 @@ describe('Activity', () => {
     expect(screen.queryByText('Site a')).toBeNull();
     expect(listCalls().some((path) => /[?&]page=2(&|$)/.test(path))).toBe(true);
   });
+
+  it('switches the metric with the shared option switch', async () => {
+    mockApi(0);
+    renderPage();
+    screen.getByRole('radiogroup', { name: 'activity.metricLabel' });
+    const cost = screen.getByRole('radio', { name: 'activity.cost' });
+    expect(cost.getAttribute('aria-checked')).toBe('true');
+    expect(await screen.findByText('common.inclTax')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'activity.energy' }));
+    expect(
+      screen.getByRole('radio', { name: 'activity.energy' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(screen.queryByText('common.inclTax')).toBeNull();
+  });
 });

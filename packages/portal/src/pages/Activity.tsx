@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, FileText, Leaf } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { api } from '@/lib/api';
 import { costContainsTax } from '@evtivity/lib/price-display';
 import {
@@ -198,24 +199,17 @@ export function Activity(): React.JSX.Element {
         </button>
       </div>
 
-      {/* Metric tabs */}
-      <div className="flex rounded-lg border">
-        {(['cost', 'energy', 'distance'] as const).map((metric) => (
-          <button
-            key={metric}
-            onClick={() => {
-              setSelectedMetric(metric);
-            }}
-            className={`flex-1 py-2 text-center text-sm font-medium transition-colors ${
-              selectedMetric === metric
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            } ${metric === 'cost' ? 'rounded-l-lg' : ''} ${metric === 'distance' ? 'rounded-r-lg' : ''}`}
-          >
-            {t(`activity.${metric}`)}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        aria-label={t('activity.metricLabel')}
+        className="w-full"
+        value={selectedMetric}
+        onValueChange={setSelectedMetric}
+        options={[
+          { value: 'cost', label: t('activity.cost') },
+          { value: 'energy', label: t('activity.energy') },
+          { value: 'distance', label: t('activity.distance') },
+        ]}
+      />
 
       {/* 6-month trend */}
       <Card>

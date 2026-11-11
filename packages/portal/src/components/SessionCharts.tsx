@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Battery } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { PowerChart } from '@/components/PowerChart';
 import { EnergyChart } from '@/components/EnergyChart';
 import { formatNumber } from '@/lib/utils';
@@ -76,36 +77,17 @@ export function SessionCharts({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           {showTabs ? (
-            <div className="flex gap-1 rounded-md bg-muted p-0.5">
-              <button
-                type="button"
-                className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-                  activeTab === 'energy'
-                    ? 'bg-background text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                onClick={() => {
-                  setActiveTab('energy');
-                }}
-              >
-                {t('sessionDetail.energy')}
-              </button>
-              <button
-                type="button"
-                className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-                  activeTab === 'power'
-                    ? 'bg-background text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                onClick={() => {
-                  setActiveTab('power');
-                }}
-              >
-                {t('sessionDetail.power')}
-              </button>
-            </div>
+            <SegmentedControl
+              aria-label={t('sessionDetail.chartView')}
+              value={activeTab}
+              onValueChange={setActiveTab}
+              options={[
+                { value: 'energy', label: t('sessionDetail.energy') },
+                { value: 'power', label: t('sessionDetail.power') },
+              ]}
+            />
           ) : (
             <CardTitle className="text-sm">{t('sessionDetail.energy')}</CardTitle>
           )}

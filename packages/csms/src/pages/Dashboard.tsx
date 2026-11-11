@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Children, useEffect, useRef, useState } from 'react';
+import { Children, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ArrowUp, ArrowDown, ArrowRight, ChevronDown } from 'lucide-react';
@@ -88,25 +88,69 @@ interface TrendDay extends SnapshotData {
 const STAT_VALUE_CLASS =
   'text-base @min-[6.5rem]:text-lg @min-[9rem]:text-2xl font-bold whitespace-nowrap';
 
-/** Rows of six stat cards; three per row below xl, where six leave no room for the values. */
-const SIX_CARD_GRID_CLASS = 'grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6';
+/** The most columns a stat row may use from each breakpoint up: values need room. */
+const STAT_GRID_MAX_COLUMNS = [
+  ['', 2],
+  ['md:', 3],
+  ['lg:', 4],
+  ['xl:', 6],
+] as const;
+
+/** Full class names, so Tailwind finds every one in the source. */
+const GRID_COLS: Record<string, Record<number, string>> = {
+  '': { 1: 'grid-cols-1', 2: 'grid-cols-2' },
+  'md:': { 1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3' },
+  'lg:': { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' },
+  'xl:': {
+    1: 'xl:grid-cols-1',
+    2: 'xl:grid-cols-2',
+    3: 'xl:grid-cols-3',
+    4: 'xl:grid-cols-4',
+    5: 'xl:grid-cols-5',
+    6: 'xl:grid-cols-6',
+  },
+};
 
 /**
- * Columns of a stat card row by its card count, so a short row fits its
- * cards instead of leaving empty columns: one card spans the row; two or
- * three stack on phones and share the row from md; four or more keep two
- * columns on phones and four from lg.
+ * The columns of a stat row at each breakpoint: the most that divide the card
+ * count, so every row is full at every width. Rows of two or three cards stack
+ * on phones, where two narrow cards would cut off their values.
  */
+export function statGridColumns(count: number): number[] {
+  const n = Math.max(1, count);
+  return STAT_GRID_MAX_COLUMNS.map(([prefix, max]) => {
+    const limit = prefix === '' && n <= 3 ? 1 : max;
+    let cols = Math.min(limit, n);
+    while (n % cols !== 0) cols -= 1;
+    return cols;
+  });
+}
+
+/** Grid classes of a stat row by its card count (`statGridColumns`). */
 export function statGridClass(count: number): string {
-  if (count <= 1) return 'grid gap-4 grid-cols-1';
-  if (count === 2) return 'grid gap-4 grid-cols-1 md:grid-cols-2';
-  if (count === 3) return 'grid gap-4 grid-cols-1 md:grid-cols-3';
-  return 'grid gap-4 grid-cols-2 lg:grid-cols-4';
+  const classes = ['grid', 'gap-4'];
+  let previous = 0;
+  statGridColumns(count).forEach((cols, i) => {
+    const prefix = STAT_GRID_MAX_COLUMNS[i]?.[0] ?? '';
+    if (cols !== previous) classes.push(GRID_COLS[prefix]?.[cols] ?? '');
+    previous = cols;
+  });
+  return classes.join(' ');
+}
+
+/** The cards a row renders: a fragment around some of them counts each card, not one. */
+export function statCardCount(children: React.ReactNode): number {
+  return Children.toArray(children).reduce<number>((count, child) => {
+    if (isValidElement<{ children?: React.ReactNode }>(child) && child.type === Fragment) {
+      return count + statCardCount(child.props.children);
+    }
+    return count + 1;
+  }, 0);
 }
 
 /** A row of stat cards laid out by `statGridClass` (every dashboard stat row). */
 function StatGrid({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div className={statGridClass(Children.toArray(children).length)}>{children}</div>;
+  return <div className={statGridClass(statCardCount(children))}>{children}</div>;
 }
 
 type DashboardMode = 'live' | 'historical' | 'trend';
@@ -910,7 +954,7 @@ function DashboardBody({
 
     return (
       <>
-        <div className={SIX_CARD_GRID_CLASS}>
+        <StatGrid>
           <StatCard
             title={t('dashboard.totalStations')}
             value={stats?.totalStations ?? 0}
@@ -962,9 +1006,10 @@ function DashboardBody({
             state={carbonState}
             valueClassName="text-success"
           />
-        </div>
+        </StatGrid>
 
-        <div className={SIX_CARD_GRID_CLASS}>
+        {/* The ping cards cover every site: a site-restricted user's row holds four. */}
+        <StatGrid>
           <StatCard
             title={t('dashboard.energyDelivered')}
             value={formatEnergy(stats?.totalEnergyWh ?? 0)}
@@ -1030,7 +1075,7 @@ function DashboardBody({
             deltaLabel={deltaLabel}
             state={uptimeState}
           />
-        </div>
+        </StatGrid>
 
         {canSeeMoney && (
           <ScrollSnapRow
@@ -1558,13 +1603,18 @@ function DashboardBody({
           isResetting={dashboardLayout.isResetting}
         />
       )}
-      <div className="relative">
+      {/* Historical and Trend keep the Live cards' height so the charts do not
+          jump between modes; both share one grid cell, so the taller one sets it. */}
+      <div className="grid">
         {mode !== 'live' && (
-          <div className="hidden lg:block invisible space-y-4" aria-hidden="true">
+          <div
+            className="invisible col-start-1 row-start-1 hidden space-y-4 lg:block"
+            aria-hidden="true"
+          >
             {renderLiveStatCards()}
           </div>
         )}
-        <div className={mode !== 'live' ? 'space-y-4 lg:absolute lg:inset-0' : 'space-y-4'}>
+        <div className="col-start-1 row-start-1 space-y-4">
           {mode === 'live' && renderLiveStatCards()}
           {mode === 'historical' && renderHistoricalStatCards()}
           {mode === 'trend' && renderTrendStatCards()}

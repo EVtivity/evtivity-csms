@@ -1494,8 +1494,9 @@ export function StationCommands({
             <Button variant="outline" onClick={closeQuickAction}>
               {t('common.close')}
             </Button>
-            {/* A queued command is sent on reconnect: no second copy from this dialog. */}
-            {result?.status !== 'queued' && (
+            {/* Once the station answered, or the command was queued or failed, only
+                Close: a Send here would send the command again. */}
+            {result == null && (
               <Button onClick={handleQuickSubmit} disabled={mutation.isPending}>
                 {mutation.isPending && <Spinner className="h-4 w-4" />}
                 {t('common.send')}

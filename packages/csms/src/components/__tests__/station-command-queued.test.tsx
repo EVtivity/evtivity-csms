@@ -85,7 +85,7 @@ describe('quick command to an offline station (ISSUES item 19)', () => {
     );
   });
 
-  it('keeps Send after a command the station answered', async () => {
+  it('shows only Close after a command the station answered', async () => {
     apiMock.post.mockResolvedValue({ status: 'Accepted' });
     renderCommands();
     const dialog = await sendClearCache();
@@ -93,7 +93,35 @@ describe('quick command to an offline station (ISSUES item 19)', () => {
       expect(apiMock.post).toHaveBeenCalledTimes(1);
     });
     expect(await within(dialog).findByText('commands.response')).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: 'common.send' })).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: 'common.send' })).toBeNull();
+    expect(within(dialog).getAllByRole('button', { name: 'common.close' }).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it('shows only Close after a command that failed', async () => {
+    apiMock.post.mockRejectedValue(new Error('Request failed'));
+    renderCommands();
+    const dialog = await sendClearCache();
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(within(dialog).queryByRole('button', { name: 'common.send' })).toBeNull();
+    });
+  });
+
+  it('offers Send again when the command is opened again from its tile', async () => {
+    apiMock.post.mockResolvedValue({ status: 'Accepted' });
+    renderCommands();
+    const dialog = await sendClearCache();
+    expect(await within(dialog).findByText('commands.response')).toBeTruthy();
+    fireEvent.click(
+      within(dialog).getAllByRole('button', { name: 'common.close' })[0] as HTMLElement,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'commands.clearCache' }));
+    const reopened = await screen.findByRole('dialog');
+    expect(within(reopened).getByRole('button', { name: 'common.send' })).toBeTruthy();
   });
 });
 

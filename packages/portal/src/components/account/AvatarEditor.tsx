@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { Shuffle, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -177,23 +178,18 @@ export function AvatarEditor({
           className="h-28 w-28 text-4xl"
         />
         {uploadEnabled && (
-          <div className="inline-flex rounded-md border p-1" role="group">
-            {(['create', 'upload'] as const).map((m) => (
-              <Button
-                key={m}
-                type="button"
-                size="sm"
-                variant={tab === m ? 'default' : 'ghost'}
-                aria-pressed={tab === m}
-                onClick={() => {
-                  setTab(m);
-                  setError(null);
-                }}
-              >
-                {t(m === 'create' ? 'account.avatarCreate' : 'account.avatarUpload')}
-              </Button>
-            ))}
-          </div>
+          <SegmentedControl
+            aria-label={t('account.avatarSource')}
+            value={tab}
+            onValueChange={(m) => {
+              setTab(m);
+              setError(null);
+            }}
+            options={[
+              { value: 'create', label: t('account.avatarCreate') },
+              { value: 'upload', label: t('account.avatarUpload') },
+            ]}
+          />
         )}
       </div>
 

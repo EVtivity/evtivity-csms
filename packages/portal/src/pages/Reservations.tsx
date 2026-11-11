@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -123,24 +124,16 @@ export function Reservations(): React.JSX.Element {
         />
       </div>
 
-      {/* Upcoming / Past toggle */}
-      <div className="flex rounded-lg border">
-        {(['upcoming', 'past'] as const).map((tb) => (
-          <button
-            key={tb}
-            onClick={() => {
-              setTab(tb);
-            }}
-            className={`flex-1 py-2 text-center text-sm font-medium transition-colors ${
-              tab === tb
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            } ${tb === 'upcoming' ? 'rounded-l-lg' : 'rounded-r-lg'}`}
-          >
-            {t(`reservations.${tb}`)}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        aria-label={t('reservations.viewLabel')}
+        className="w-full"
+        value={tab}
+        onValueChange={setTab}
+        options={[
+          { value: 'upcoming', label: t('reservations.upcoming') },
+          { value: 'past', label: t('reservations.past') },
+        ]}
+      />
 
       {isLoading && <LoadingState />}
 

@@ -66,7 +66,7 @@ const TabsList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEl
     <ScrollFade
       ref={ref}
       surface="muted"
-      className={cn('lg:max-w-[80%]', className)}
+      className={cn(className)}
       innerProps={{ role: 'tablist' }}
       innerClassName="inline-flex h-10 items-center rounded-md bg-muted p-1 text-muted-foreground"
       {...props}

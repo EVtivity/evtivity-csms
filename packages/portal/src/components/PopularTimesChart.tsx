@@ -9,6 +9,7 @@ import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 import { Users } from 'lucide-react';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 
 export interface PopularTimesData {
   dow: number;
@@ -133,24 +134,16 @@ export function PopularTimesChart({ data, weeks = 4 }: PopularTimesChartProps): 
       <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
         {t('charts.popularTimesInfo', { weeks: String(weeks) })}
       </div>
-      <div className="grid grid-cols-7 gap-1 sm:flex">
-        {DOW_KEYS.map((key, i) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => {
-              setSelectedDow(i);
-            }}
-            className={`min-w-0 rounded-md py-1 text-xs font-medium uppercase transition-colors sm:px-2 ${
-              selectedDow === i
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
-          >
-            {t(`charts.${key}`)}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        size="compact"
+        className="w-full"
+        aria-label={t('charts.popularTimesDay')}
+        value={String(selectedDow)}
+        onValueChange={(v) => {
+          setSelectedDow(Number(v));
+        }}
+        options={DOW_KEYS.map((key, i) => ({ value: String(i), label: t(`charts.${key}`) }))}
+      />
       {busynessRatio != null && (
         <div className="flex items-center gap-1.5 text-sm">
           <Users className="h-4 w-4 text-muted-foreground" />

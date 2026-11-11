@@ -231,7 +231,7 @@ describe('Register', () => {
     fireEvent.click(screen.getByRole('button', { name: 'account.editAvatar' }));
     const dialog = await screen.findByRole('dialog');
     // Generator only: no upload before the account exists.
-    expect(screen.queryByRole('button', { name: 'account.avatarUpload' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'account.avatarUpload' })).toBeNull();
     const top = await screen.findByLabelText<HTMLSelectElement>('account.avatarOptions.topVariant');
     fireEvent.change(top, { target: { value: 'bob' } });
     fireEvent.click(

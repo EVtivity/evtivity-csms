@@ -182,14 +182,14 @@ describe('AvatarEditor, live', () => {
     mockFeatures(false);
     renderEditor({ current: null });
     await screen.findByLabelText('account.avatarOptions.topVariant');
-    expect(screen.queryByRole('button', { name: 'account.avatarUpload' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'account.avatarUpload' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'account.avatarRemove' })).toBeNull();
   });
 
   it('refuses a 1 MiB file and an SVG before any request', async () => {
     mockFeatures(true);
     renderEditor({ current: null });
-    fireEvent.click(await screen.findByRole('button', { name: 'account.avatarUpload' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'account.avatarUpload' }));
     const input = screen.getByTestId('avatar-file');
     const big = new File([new Uint8Array(1024 * 1024)], 'big.jpg', { type: 'image/jpeg' });
     fireEvent.change(input, { target: { files: [big] } });
@@ -206,7 +206,7 @@ describe('AvatarEditor, live', () => {
       new ApiError(400, { error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' }),
     );
     const { onDone } = renderEditor({ current: null });
-    fireEvent.click(await screen.findByRole('button', { name: 'account.avatarUpload' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'account.avatarUpload' }));
     const photo = new File([new Uint8Array(10)], 'a.jpg', { type: 'image/jpeg' });
     fireEvent.change(screen.getByTestId('avatar-file'), { target: { files: [photo] } });
     const dialog = await screen.findByRole('dialog', { name: 'storageUnavailable.title' });
@@ -251,7 +251,7 @@ describe('AvatarEditor, deferred', () => {
     const { onChoose, onDone } = renderEditor({ mode: 'deferred', current: null });
     const top = await screen.findByLabelText('account.avatarOptions.topVariant');
     fireEvent.change(top, { target: { value: 'frizzle' } });
-    expect(screen.queryByRole('button', { name: 'account.avatarUpload' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'account.avatarUpload' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
     const chosen = onChoose.mock.calls[0]?.[0] as { style: string; options: object };
     expect(chosen.style).toBe('avataaars');

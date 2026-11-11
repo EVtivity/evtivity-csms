@@ -9,6 +9,7 @@ import { Search, Zap, Globe, MapPin, Plug } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { api } from '@/lib/api';
 import { formatConnectorCurrentAmps, formatConnectorPowerKw } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/content-state';
@@ -301,34 +302,16 @@ export function StationSearchList({
       <h1 className="text-xl font-bold">{title ?? t('chargerSearch.title')}</h1>
 
       {roamingEnabled && (
-        <div className="flex gap-1 rounded-lg bg-muted p-1">
-          <button
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              tab === 'local'
-                ? 'bg-background shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => {
-              handleTabChange('local');
-            }}
-          >
-            <Zap className="mr-1.5 inline-block h-3.5 w-3.5" />
-            {t('chargerSearch.ourNetwork')}
-          </button>
-          <button
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              tab === 'roaming'
-                ? 'bg-background shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => {
-              handleTabChange('roaming');
-            }}
-          >
-            <Globe className="mr-1.5 inline-block h-3.5 w-3.5" />
-            {t('chargerSearch.partnerNetworks')}
-          </button>
-        </div>
+        <SegmentedControl
+          aria-label={t('chargerSearch.networkLabel')}
+          className="w-full"
+          value={tab}
+          onValueChange={handleTabChange}
+          options={[
+            { value: 'local', label: t('chargerSearch.ourNetwork'), icon: Zap },
+            { value: 'roaming', label: t('chargerSearch.partnerNetworks'), icon: Globe },
+          ]}
+        />
       )}
 
       <div className="relative">
