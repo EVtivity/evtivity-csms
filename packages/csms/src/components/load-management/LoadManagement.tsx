@@ -403,7 +403,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
             {history != null && history.length > 0 ? (
               <div className="space-y-3">
                 {history.map((entry) => (
-                  <div key={entry.id} className="border rounded p-3 text-sm space-y-1">
+                  <div key={entry.id} className="border rounded-sm p-3 text-sm space-y-1">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         {formatDateTime(entry.createdAt, timezone)}

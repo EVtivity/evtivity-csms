@@ -322,6 +322,7 @@ function userRow(over: Record<string, unknown> = {}): Record<string, unknown> {
     language: 'en',
     timezone: 'UTC',
     themePreference: 'light',
+    uiTheme: 'default',
     isActive: true,
     mustResetPassword: false,
     mfaEnabled: false,

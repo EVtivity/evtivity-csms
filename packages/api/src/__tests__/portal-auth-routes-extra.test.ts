@@ -276,6 +276,7 @@ const driverRow = {
   language: 'en',
   timezone: 'America/New_York',
   themePreference: 'light',
+  uiTheme: 'default',
   distanceUnit: 'miles',
   priceDisplay: null,
   isActive: true,

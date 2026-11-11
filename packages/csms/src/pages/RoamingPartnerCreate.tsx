@@ -111,7 +111,7 @@ export function RoamingPartnerCreate(): React.JSX.Element {
           {createdToken != null ? (
             <div className="space-y-4">
               <p className="text-sm">{t('roaming.partners.tokenCreated')}</p>
-              <div className="rounded bg-muted p-3 text-xs break-all select-all">
+              <div className="rounded-sm bg-muted p-3 text-xs break-all select-all">
                 {createdToken}
               </div>
               <p className="text-xs text-muted-foreground">{t('roaming.partners.tokenWarning')}</p>

@@ -42,7 +42,7 @@ describe('PowerBar', () => {
       <PowerBar currentKw={120} limitKw={100} maxKw={100} creditKw={50} />,
     );
     // 120 of 150 usable kW is 80 percent: yellow, where 120 of 100 would be red.
-    expect(container.querySelector('.bg-yellow-500')).not.toBeNull();
-    expect(container.querySelector('.bg-red-500')).toBeNull();
+    expect(container.querySelector('.bg-warning')).not.toBeNull();
+    expect(container.querySelector('.bg-destructive')).toBeNull();
   });
 });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { TimeInput } from '@/components/ui/time-input';
 import { cn } from '@/lib/utils';
 
@@ -33,7 +33,7 @@ export interface DateTimeInputProps {
 }
 
 /**
- * The shared date and time picker: the shared date `Input` and the shared
+ * The shared date and time picker: the shared `DateInput` and the shared
  * `TimeInput` (hour and minute selects). It replaces `<input
  * type="datetime-local">`, whose picker differs per browser (a combined
  * calendar and time column popup in Chrome, a date-only popup in Firefox and
@@ -63,18 +63,16 @@ export function DateTimeInput({
 
   return (
     <div className={cn('flex flex-wrap gap-2', className)}>
-      <Input
+      <DateInput
         id={id}
-        type="date"
         aria-label={ariaLabel}
         aria-describedby={describedBy}
-        aria-invalid={invalid === true ? true : undefined}
+        invalid={invalid}
         disabled={disabled}
         min={min?.slice(0, 10)}
         max={max?.slice(0, 10)}
         value={date}
-        onChange={(e) => {
-          const nextDate = e.target.value;
+        onChange={(nextDate) => {
           if (nextDate === '') {
             setDraftTime(time);
             onChange('');
@@ -82,7 +80,7 @@ export function DateTimeInput({
           }
           onChange(`${nextDate}T${shownTime === '' ? midnight : shownTime}`);
         }}
-        className={cn('min-w-40 flex-1 basis-40', invalid === true && 'border-destructive')}
+        className="min-w-40 flex-1 basis-40"
       />
       <TimeInput
         value={shownTime}

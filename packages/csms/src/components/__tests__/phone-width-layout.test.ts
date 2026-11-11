@@ -66,7 +66,7 @@ describe('Phone-width layouts', () => {
     for (const source of [generateReport, reportSchedules]) {
       expect(
         source.match(
-          /type="date"\n\s+aria-label=\{t\('common\.(start|end)Date'\)\}\n\s+className="min-w-0 flex-1"/g,
+          /<DateInput\n\s+aria-label=\{t\('common\.(start|end)Date'\)\}\n\s+className="min-w-0 flex-1"/g,
         ),
       ).toHaveLength(2);
     }

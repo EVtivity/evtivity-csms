@@ -75,7 +75,7 @@ function ContentDocumentEditor({
           });
         }}
       />
-      {mutation.isSuccess && <p className="text-sm text-green-600">{t('settings.contentSaved')}</p>}
+      {mutation.isSuccess && <p className="text-sm text-success">{t('settings.contentSaved')}</p>}
       {mutation.isError && (
         <p className="text-sm text-destructive">{t('settings.contentSaveFailed')}</p>
       )}

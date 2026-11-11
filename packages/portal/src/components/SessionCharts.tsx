@@ -81,7 +81,7 @@ export function SessionCharts({
             <div className="flex gap-1 rounded-md bg-muted p-0.5">
               <button
                 type="button"
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
                   activeTab === 'energy'
                     ? 'bg-background text-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
@@ -94,7 +94,7 @@ export function SessionCharts({
               </button>
               <button
                 type="button"
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
                   activeTab === 'power'
                     ? 'bg-background text-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'

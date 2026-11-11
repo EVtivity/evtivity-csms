@@ -33,7 +33,17 @@
     "notCharged": "未收费",
     "copy": "复制",
     "loadError": "数据加载失败，请重试。",
-    "retry": "重试"
+    "retry": "重试",
+    "datePicker": {
+      "open": "打开日历",
+      "title": "选择日期",
+      "previousMonth": "上个月",
+      "nextMonth": "下个月",
+      "month": "月份",
+      "year": "年份",
+      "today": "今天",
+      "clear": "清除"
+    }
   },
   "nav": {
     "home": "首页",
@@ -265,9 +275,16 @@
     "mfaDisableFailed": "停用 MFA 失败。",
     "mfaSelectMethod": "选择方式",
     "timezone": "时区",
-    "theme": "主题",
+    "theme": "模式",
     "themeLight": "浅色",
     "themeDark": "深色",
+    "uiTheme": "主题",
+    "uiThemeDefault": "默认",
+    "uiThemeSoft": "柔和",
+    "uiThemeHighContrast": "高对比度",
+    "uiThemeDefaultDescription": "应用的标准外观。",
+    "uiThemeSoftDescription": "更圆的边角、更浅的边框和更柔和的阴影。",
+    "uiThemeHighContrastDescription": "纯黑白背景、清晰的边框和更粗的文字，阅读最清楚。",
     "distanceUnit": "距离单位",
     "distanceMiles": "英里",
     "distanceKm": "公里",

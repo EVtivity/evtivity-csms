@@ -3,8 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
-import { SearchCombobox } from '@/components/ui/search-combobox';
+import { SearchCombobox, SearchComboboxSelection } from '@/components/ui/search-combobox';
 import { api } from '@/lib/api';
 
 interface Driver {
@@ -20,11 +19,20 @@ interface DriverListResponse {
 }
 
 interface DriverComboboxProps {
+  /** The input id, so a `Label htmlFor` names the field. */
+  id?: string | undefined;
+  /** Draws the field border in the error color (a form error after a submit). */
+  invalid?: boolean | undefined;
   value: { id: string; name: string } | null;
   onSelect: (driver: { id: string; name: string } | null) => void;
 }
 
-export function DriverCombobox({ value, onSelect }: DriverComboboxProps): React.JSX.Element {
+export function DriverCombobox({
+  id,
+  invalid,
+  value,
+  onSelect,
+}: DriverComboboxProps): React.JSX.Element {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [results, setResults] = useState<Driver[]>([]);
@@ -49,26 +57,23 @@ export function DriverCombobox({ value, onSelect }: DriverComboboxProps): React.
 
   if (value) {
     return (
-      <div className="flex items-center">
-        <span className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-sm font-medium">
-          {value.name}
-          <button
-            type="button"
-            aria-label={t('common.clear')}
-            className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            onClick={() => {
-              onSelect(null);
-            }}
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </span>
-      </div>
+      <SearchComboboxSelection
+        id={id}
+        value={value.name}
+        invalid={invalid}
+        aria-label={id == null ? t('tokens.driver') : undefined}
+        clearLabel={t('common.clear')}
+        onClear={() => {
+          onSelect(null);
+        }}
+      />
     );
   }
 
   return (
     <SearchCombobox
+      id={id}
+      invalid={invalid}
       query={input}
       onQueryChange={setInput}
       items={input.length === 0 ? [] : results}

@@ -15,6 +15,7 @@ import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
 import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
@@ -506,23 +507,21 @@ export function SchedulesTab(): React.JSX.Element {
               <div className="space-y-2">
                 <Label className="leading-6">{t('reports.dateRange')}</Label>
                 <div className="flex items-center gap-2">
-                  <Input
-                    type="date"
+                  <DateInput
                     aria-label={t('common.startDate')}
                     className="min-w-0 flex-1"
                     value={dateFrom}
-                    onChange={(e) => {
-                      setDateFrom(e.target.value);
+                    onChange={(value) => {
+                      setDateFrom(value);
                     }}
                   />
                   <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
-                  <Input
-                    type="date"
+                  <DateInput
                     aria-label={t('common.endDate')}
                     className="min-w-0 flex-1"
                     value={dateTo}
-                    onChange={(e) => {
-                      setDateTo(e.target.value);
+                    onChange={(value) => {
+                      setDateTo(value);
                     }}
                   />
                 </div>

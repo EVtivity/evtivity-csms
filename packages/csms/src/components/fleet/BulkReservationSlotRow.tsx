@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useId, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
@@ -51,6 +51,9 @@ export function BulkReservationSlotRow({
   excludeConnectorKeys,
 }: BulkReservationSlotRowProps): React.JSX.Element {
   const { t } = useTranslation();
+  const fieldId = useId();
+  const stationFieldId = `${fieldId}-station`;
+  const driverFieldId = `${fieldId}-driver`;
 
   const connectorsQuery = useQuery({
     queryKey: ['stations', slot.station?.id, 'connectors'],
@@ -97,10 +100,11 @@ export function BulkReservationSlotRow({
       <div className="flex items-start gap-2">
         <div className="grid gap-3 flex-1 md:grid-cols-3 items-start">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground leading-6">
+            <Label htmlFor={stationFieldId} className="text-xs text-muted-foreground leading-6">
               {t('reservations.stationId')}
             </Label>
             <StationCombobox
+              id={stationFieldId}
               value={slot.station}
               onSelect={(station) => {
                 onChange({ ...slot, station, connectorKey: '' });
@@ -155,10 +159,11 @@ export function BulkReservationSlotRow({
             )}
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground leading-6">
+            <Label htmlFor={driverFieldId} className="text-xs text-muted-foreground leading-6">
               {t('reservations.driverName')}
             </Label>
             <DriverCombobox
+              id={driverFieldId}
               value={slot.driver}
               onSelect={(driver) => {
                 onChange({ ...slot, driver });

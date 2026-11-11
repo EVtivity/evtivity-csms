@@ -35,6 +35,7 @@ import {
 } from '@/lib/mfa-pending';
 import { passkeyErrorText, webauthnUnavailableReason } from '@/lib/webauthn';
 import { passkeyUnavailableKey, signInPasskeyContext } from '@/lib/passkey-unavailable';
+import type { UiTheme } from '@/lib/theme';
 
 interface MfaVerifyResponse {
   token: string;
@@ -46,6 +47,7 @@ interface MfaVerifyResponse {
     language: string;
     timezone: string;
     themePreference: 'light' | 'dark';
+    uiTheme?: UiTheme;
   };
   role: { id: string; name: string } | null;
   recoveryCodesRemaining?: number;

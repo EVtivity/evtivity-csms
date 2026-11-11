@@ -10,7 +10,13 @@ vi.mock('../api', async (importOriginal) => ({
   api: { get: mockGet, post: vi.fn(), patch: vi.fn() },
 }));
 vi.mock('../../i18n', () => ({ loadLanguage: vi.fn(() => Promise.resolve()) }));
-vi.mock('../theme', () => ({ applyTheme: vi.fn(), resolveInitialTheme: () => 'light' }));
+vi.mock('../theme', () => ({
+  applyTheme: vi.fn(),
+  applyUiTheme: vi.fn(),
+  adoptUiTheme: (value: unknown) => value ?? 'default',
+  resolveInitialTheme: () => 'light',
+  resolveInitialUiTheme: () => 'default',
+}));
 
 import { ApiError } from '../api';
 import { useAuth } from '../auth';

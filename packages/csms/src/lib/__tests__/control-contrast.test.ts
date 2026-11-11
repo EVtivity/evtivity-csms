@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it } from 'vitest';
-import csmsCss from '../../index.css?raw';
-import portalCss from '../../../../portal/src/index.css?raw';
+import csmsCss from '../../themes.css?raw';
+import portalCss from '../../../../portal/src/themes.css?raw';
 import buttonSource from '../../components/ui/button.tsx?raw';
 
 /**

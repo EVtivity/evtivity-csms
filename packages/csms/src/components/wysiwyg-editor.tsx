@@ -423,7 +423,7 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
           <input
             type="color"
             aria-label={t('editor.textColor')}
-            className="w-8 h-8 rounded cursor-pointer border-0 p-0.5"
+            className="w-8 h-8 rounded-sm cursor-pointer border-0 p-0.5"
             onChange={(e) => {
               editor.chain().focus().setColor(e.target.value).run();
             }}

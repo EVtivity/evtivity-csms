@@ -10,17 +10,22 @@ export interface SpeedDialAction {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
+  /** The current choice of a submenu: shown with `aria-pressed`. */
+  selected?: boolean | undefined;
+}
+
+export interface SpeedDialSubMenu {
+  /** The key of the action that opens it. */
+  key: string;
+  backLabel: string;
+  items: SpeedDialAction[];
 }
 
 interface SpeedDialProps {
   trigger: React.ReactNode;
   triggerLabel?: string | undefined;
   actions: SpeedDialAction[];
-  subMenu?: {
-    key: string;
-    backLabel: string;
-    items: SpeedDialAction[];
-  };
+  subMenus?: SpeedDialSubMenu[];
   collapsed?: boolean;
 }
 
@@ -28,7 +33,7 @@ export function SpeedDial({
   trigger,
   triggerLabel,
   actions,
-  subMenu,
+  subMenus = [],
   collapsed = false,
 }: SpeedDialProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
@@ -53,12 +58,8 @@ export function SpeedDial({
     };
   }, [open, close]);
 
-  const displayItems =
-    activeSubMenu != null && subMenu != null && subMenu.key === activeSubMenu
-      ? subMenu.items
-      : actions;
-
-  const showBack = activeSubMenu != null;
+  const subMenu = subMenus.find((menu) => menu.key === activeSubMenu);
+  const displayItems = subMenu != null ? subMenu.items : actions;
 
   return (
     <div ref={containerRef} className="relative">
@@ -69,8 +70,10 @@ export function SpeedDial({
             collapsed && 'left-auto right-auto w-10',
           )}
         >
-          {showBack && subMenu != null && (
+          {subMenu != null && (
             <button
+              type="button"
+              aria-label={subMenu.backLabel}
               onClick={() => {
                 setActiveSubMenu(null);
               }}
@@ -86,13 +89,16 @@ export function SpeedDial({
               {!collapsed && subMenu.backLabel}
             </button>
           )}
-          <div className={cn('flex flex-col', activeSubMenu != null && 'max-h-40 overflow-y-auto')}>
+          <div className={cn('flex flex-col', subMenu != null && 'max-h-40 overflow-y-auto')}>
             {displayItems.map((action, index) => (
               <button
+                type="button"
                 key={action.key}
+                aria-label={action.label}
+                aria-pressed={action.selected}
                 onClick={() => {
-                  if (subMenu != null && action.key === subMenu.key) {
-                    setActiveSubMenu(subMenu.key);
+                  if (subMenu == null && subMenus.some((menu) => menu.key === action.key)) {
+                    setActiveSubMenu(action.key);
                   } else {
                     action.onClick();
                     close();
@@ -117,6 +123,8 @@ export function SpeedDial({
         </div>
       )}
       <button
+        type="button"
+        aria-expanded={open}
         onClick={() => {
           if (open) {
             close();

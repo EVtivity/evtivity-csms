@@ -361,7 +361,6 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                 />
               </div>
               <TemplateVariableRows
-                idPrefix="detail"
                 ocppVersion={editOcppVersion}
                 variables={editVariables}
                 onChange={setEditVariables}

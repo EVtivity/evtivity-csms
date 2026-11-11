@@ -99,7 +99,7 @@ describe('DateTimeInput', () => {
   it('is named by its Label through the date field', () => {
     render(<Harness onValue={vi.fn()} />);
     const date = screen.getByLabelText<HTMLInputElement>('When');
-    expect(date.type).toBe('date');
+    expect(date.type).toBe('text');
     expect(heights(date)).toEqual(['h-10']);
   });
 
@@ -146,8 +146,12 @@ describe('DateTimeInput', () => {
         onChange={vi.fn()}
       />,
     );
-    const date = screen.getByLabelText<HTMLInputElement>('B');
-    expect(date.min).toBe('2026-11-01');
-    expect(date.max).toBe('2026-11-30');
+    fireEvent.click(screen.getByRole('button', { name: 'B common.datePicker.open' }));
+    const day = (name: RegExp): HTMLButtonElement =>
+      screen.getByRole<HTMLButtonElement>('button', { name });
+    expect(day(/November 1, 2026/).disabled).toBe(false);
+    expect(day(/November 30, 2026/).disabled).toBe(false);
+    expect(day(/common.datePicker.previousMonth/).disabled).toBe(true);
+    expect(day(/common.datePicker.nextMonth/).disabled).toBe(true);
   });
 });

@@ -3,20 +3,27 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockGet, mockPost, mockPatch, mockLoadLanguage, mockApplyTheme } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPatch: vi.fn(),
-  mockLoadLanguage: vi.fn(() => Promise.resolve()),
-  mockApplyTheme: vi.fn(),
-}));
+const { mockGet, mockPost, mockPatch, mockLoadLanguage, mockApplyTheme, mockApplyUiTheme } =
+  vi.hoisted(() => ({
+    mockGet: vi.fn(),
+    mockPost: vi.fn(),
+    mockPatch: vi.fn(),
+    mockLoadLanguage: vi.fn(() => Promise.resolve()),
+    mockApplyTheme: vi.fn(),
+    mockApplyUiTheme: vi.fn(),
+  }));
 
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api')>()),
   api: { get: mockGet, post: mockPost, patch: mockPatch },
 }));
 vi.mock('../../i18n/index', () => ({ loadLanguage: mockLoadLanguage }));
-vi.mock('../theme', () => ({ applyTheme: mockApplyTheme }));
+vi.mock('../theme', () => ({
+  applyTheme: mockApplyTheme,
+  applyUiTheme: mockApplyUiTheme,
+  adoptUiTheme: (value: unknown) => value ?? 'default',
+  storedUiTheme: () => 'default',
+}));
 
 import { ApiError } from '../api';
 import { useAuth } from '../auth';

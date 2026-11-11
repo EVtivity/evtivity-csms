@@ -11,7 +11,7 @@ export const LAYOUT_CHIP_FRAME_CLASS =
 
 /** One pressable item inside a chip frame. */
 export const LAYOUT_CHIP_ITEM_CLASS =
-  'inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent';
+  'inline-flex items-center gap-1 rounded-sm px-1 py-0.5 hover:bg-accent';
 
 /** An icon inside a chip item: the height of the text-xs line, so the chip keeps its height. */
 export const LAYOUT_CHIP_ICON_CLASS = 'h-4 w-4 shrink-0';

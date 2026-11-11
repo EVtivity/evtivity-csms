@@ -33,7 +33,17 @@
     "notCharged": "청구 안 됨",
     "copy": "복사",
     "loadError": "데이터를 불러오지 못했습니다. 다시 시도해 주세요.",
-    "retry": "재시도"
+    "retry": "재시도",
+    "datePicker": {
+      "open": "달력 열기",
+      "title": "날짜 선택",
+      "previousMonth": "이전 달",
+      "nextMonth": "다음 달",
+      "month": "월",
+      "year": "연도",
+      "today": "오늘",
+      "clear": "지우기"
+    }
   },
   "nav": {
     "home": "홈",
@@ -265,9 +275,16 @@
     "mfaDisableFailed": "MFA 비활성화에 실패했습니다.",
     "mfaSelectMethod": "방식 선택",
     "timezone": "시간대",
-    "theme": "테마",
+    "theme": "모드",
     "themeLight": "라이트",
     "themeDark": "다크",
+    "uiTheme": "테마",
+    "uiThemeDefault": "기본",
+    "uiThemeSoft": "부드러움",
+    "uiThemeHighContrast": "고대비",
+    "uiThemeDefaultDescription": "앱의 기본 모양입니다.",
+    "uiThemeSoftDescription": "더 둥근 모서리, 더 옅은 테두리, 더 부드러운 그림자입니다.",
+    "uiThemeHighContrastDescription": "흑백 배경, 뚜렷한 테두리, 굵은 글자로 가장 읽기 쉽게 표시합니다.",
     "distanceUnit": "거리 단위",
     "distanceMiles": "마일",
     "distanceKm": "킬로미터",

@@ -130,3 +130,19 @@ CREATE TABLE IF NOT EXISTS "driver_notification_event_preferences" (
   CONSTRAINT "driver_notification_event_preferences_driver_id_event_type_channel_pk" PRIMARY KEY ("driver_id", "event_type", "channel"),
   CONSTRAINT "driver_notification_event_prefs_channel_check" CHECK ("channel" IN ('email', 'sms', 'push'))
 );
+--> statement-breakpoint
+-- UI themes: the theme a CSMS user or a driver picks on the own account
+-- (Default, Soft, High Contrast). theme_preference stays the light or dark
+-- mode with its stored values. Every account starts on Default.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "ui_theme" varchar(20) DEFAULT 'default' NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "ui_theme" varchar(20) DEFAULT 'default' NOT NULL;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_ui_theme_check') THEN
+    ALTER TABLE "users" ADD CONSTRAINT "users_ui_theme_check" CHECK ("ui_theme" IN ('default', 'soft', 'high-contrast'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'drivers_ui_theme_check') THEN
+    ALTER TABLE "drivers" ADD CONSTRAINT "drivers_ui_theme_check" CHECK ("ui_theme" IN ('default', 'soft', 'high-contrast'));
+  END IF;
+END $$;

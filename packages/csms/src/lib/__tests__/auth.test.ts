@@ -17,7 +17,13 @@ vi.mock('../api', async (importOriginal) => ({
   api: { get: mockGet, post: mockPost, patch: mockPatch },
 }));
 vi.mock('../../i18n', () => ({ loadLanguage: mockLoadLanguage }));
-vi.mock('../theme', () => ({ applyTheme: mockApplyTheme, resolveInitialTheme: () => 'light' }));
+vi.mock('../theme', () => ({
+  applyTheme: mockApplyTheme,
+  applyUiTheme: vi.fn(),
+  adoptUiTheme: (value: unknown) => value ?? 'default',
+  resolveInitialTheme: () => 'light',
+  resolveInitialUiTheme: () => 'default',
+}));
 
 import {
   useAuth,
@@ -385,7 +391,7 @@ describe('useAuth', () => {
       const s = useAuth.getState();
       expect(mockGet).toHaveBeenCalledWith('/v1/users/me');
       expect(s.isAuthenticated).toBe(true);
-      expect(s.user).toEqual(user);
+      expect(s.user).toEqual({ ...user, uiTheme: 'default' });
       expect(s.role).toBe('admin');
       expect(s.permissions).toEqual(['sites:write']);
       expect(s.hasAllSiteAccess).toBe(true);

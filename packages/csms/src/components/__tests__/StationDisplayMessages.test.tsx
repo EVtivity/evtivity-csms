@@ -127,9 +127,10 @@ describe('StationDisplayMessages for an OCPP 2.0.1 station', () => {
       target: { value: 'Hello' },
     });
     const date = document.getElementById('msg-start-time') as HTMLInputElement;
-    expect(date.type).toBe('date');
+    expect(date.type).toBe('text');
     fireEvent.change(date, { target: { value: '2030-05-06' } });
-    const group = within(date.parentElement as HTMLElement);
+    // The date field sits in the DateInput wrapper, inside the DateTimeInput row.
+    const group = within(date.parentElement?.parentElement as HTMLElement);
     fireEvent.change(group.getByRole('combobox', { name: 'common.hour' }), {
       target: { value: '14' },
     });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Select } from '@/components/ui/select';
 import { presetRange } from '@/lib/date-range';
 
@@ -64,8 +64,7 @@ export function DateRangeControl({
         ))}
       </Select>
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-        <Input
-          type="date"
+        <DateInput
           aria-label={t('common.startDate')}
           value={displayFrom}
           min={minDate}
@@ -75,23 +74,22 @@ export function DateRangeControl({
           // diffDays < 1 in parseDateRange and silently fell back to a
           // 7-day window, so the picker and the rendered data disagreed.
           max={displayTo}
-          onChange={(e) => {
-            if (e.target.value) {
-              onCustomChange(e.target.value, displayTo);
+          onChange={(value) => {
+            if (value) {
+              onCustomChange(value, displayTo);
             }
           }}
           className="w-auto"
         />
         <span className="text-xs text-muted-foreground">{t('dashboard.to')}</span>
-        <Input
-          type="date"
+        <DateInput
           aria-label={t('common.endDate')}
           value={displayTo}
           min={displayFrom}
           max={maxDate}
-          onChange={(e) => {
-            if (e.target.value) {
-              onCustomChange(displayFrom, e.target.value);
+          onChange={(value) => {
+            if (value) {
+              onCustomChange(displayFrom, value);
             }
           }}
           className="w-auto"

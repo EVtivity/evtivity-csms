@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { SaveButton } from '@/components/save-button';
 import { Select } from '@/components/ui/select';
@@ -410,25 +411,23 @@ function ScheduleForm({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
         <div className="grid gap-2">
           <Label htmlFor="schedule-valid-from">{t('fleets.departures.validFrom')}</Label>
-          <Input
+          <DateInput
             id="schedule-valid-from"
-            type="date"
             value={validFrom}
-            onChange={(e) => {
-              setValidFrom(e.target.value);
+            onChange={(value) => {
+              setValidFrom(value);
             }}
           />
         </div>
         <div className="grid gap-2">
           <Label htmlFor="schedule-valid-to">{t('fleets.departures.validTo')}</Label>
-          <Input
+          <DateInput
             id="schedule-valid-to"
-            type="date"
             value={validTo}
-            onChange={(e) => {
-              setValidTo(e.target.value);
+            onChange={(value) => {
+              setValidTo(value);
             }}
-            className={shown('validTo') != null ? 'border-destructive' : ''}
+            invalid={shown('validTo') != null}
           />
           {shown('validTo') != null && (
             <p className="text-sm text-destructive">{shown('validTo')}</p>

@@ -9,6 +9,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { GenerateButton } from '@/components/generate-button';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { reportTypeFormats, useReportTypes } from '@/hooks/use-report-types';
@@ -163,23 +164,21 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
           <div className="space-y-2">
             <Label className="leading-6">{t('reports.dateRange')}</Label>
             <div className="flex items-center gap-2">
-              <Input
-                type="date"
+              <DateInput
                 aria-label={t('common.startDate')}
                 className="min-w-0 flex-1"
                 value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
+                onChange={(value) => {
+                  setDateFrom(value);
                 }}
               />
               <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
-              <Input
-                type="date"
+              <DateInput
                 aria-label={t('common.endDate')}
                 className="min-w-0 flex-1"
                 value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
+                onChange={(value) => {
+                  setDateTo(value);
                 }}
               />
             </div>

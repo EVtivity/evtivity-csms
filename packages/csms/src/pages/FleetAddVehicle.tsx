@@ -80,7 +80,7 @@ export function FleetAddVehicle(): React.JSX.Element {
                   <button
                     key={vehicle.id}
                     type="button"
-                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={() => {
                       setMutatingId(vehicle.id);
                       addDriverMutation.mutate(vehicle.driverId);

@@ -2,22 +2,48 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
+import { UI_THEMES, type UiTheme } from '@evtivity/lib/ui-theme';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { useAuth } from '@/lib/auth';
+import { UI_THEME_LABEL_KEY } from '@/lib/theme';
 
 export function ProfileAppearance(): React.JSX.Element {
   const { t } = useTranslation();
   const setTheme = useAuth((s) => s.setTheme);
   const authTheme = useAuth((s) => s.theme);
+  const setUiTheme = useAuth((s) => s.setUiTheme);
+  const uiTheme = useAuth((s) => s.uiTheme);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t('profile.appearance')}</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-ui-theme" className="leading-6">
+            {t('profile.uiTheme')}
+          </Label>
+          <Select
+            id="edit-ui-theme"
+            value={uiTheme}
+            aria-describedby="edit-ui-theme-description"
+            onChange={(e) => {
+              void setUiTheme(e.target.value as UiTheme);
+            }}
+          >
+            {UI_THEMES.map((theme) => (
+              <option key={theme} value={theme}>
+                {t(UI_THEME_LABEL_KEY[theme])}
+              </option>
+            ))}
+          </Select>
+          <p id="edit-ui-theme-description" className="text-sm text-muted-foreground">
+            {t(`${UI_THEME_LABEL_KEY[uiTheme]}Description`)}
+          </p>
+        </div>
         <div className="space-y-2">
           <Label htmlFor="edit-theme" className="leading-6">
             {t('profile.theme')}

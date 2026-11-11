@@ -214,7 +214,7 @@ export function SupportCaseCreate(): React.JSX.Element {
                     return (
                       <span
                         key={s.id}
-                        className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
+                        className="inline-flex items-center gap-1 rounded-sm bg-muted px-2 py-0.5 text-xs"
                       >
                         <span className="font-medium">{label}</span>
                         {subtitle !== '' && (

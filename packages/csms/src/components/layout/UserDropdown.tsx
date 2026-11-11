@@ -4,11 +4,24 @@
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { UserCircle, LogOut, User, Languages, Check, Sun, Moon } from 'lucide-react';
+import {
+  UserCircle,
+  LogOut,
+  User,
+  Languages,
+  Check,
+  Sun,
+  Moon,
+  Palette,
+  Feather,
+  Contrast,
+} from 'lucide-react';
+import { UI_THEMES, type UiTheme } from '@evtivity/lib/ui-theme';
 import { SpeedDial } from '@/components/SpeedDial';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { UI_THEME_LABEL_KEY } from '@/lib/theme';
 import type { UserMe } from '@/pages/Profile';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +34,13 @@ const languages = [
   { code: 'zh-TW', label: '\u7E41\u9AD4\u4E2D\u6587', flag: '\u{1F1F9}\u{1F1FC}' },
 ];
 
+/** The icon of each theme in the collapsed sidebar, where the menu shows icons only. */
+const THEME_ICON: Record<UiTheme, typeof Palette> = {
+  default: Palette,
+  soft: Feather,
+  'high-contrast': Contrast,
+};
+
 interface UserDropdownProps {
   collapsed: boolean;
   onNavClick?: (() => void) | undefined;
@@ -32,6 +52,8 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
   const setLanguage = useAuth((s) => s.setLanguage);
   const setTheme = useAuth((s) => s.setTheme);
   const theme = useAuth((s) => s.theme);
+  const setUiTheme = useAuth((s) => s.setUiTheme);
+  const uiTheme = useAuth((s) => s.uiTheme);
   const user = useAuth((s) => s.user);
   const navigate = useNavigate();
   // The own avatar, from the query the Profile page reads and refreshes after a change.
@@ -86,6 +108,12 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
             onClick: () => {},
           },
           {
+            key: 'ui-theme',
+            icon: <Palette className="h-4 w-4" />,
+            label: t('profile.uiTheme'),
+            onClick: () => {},
+          },
+          {
             key: 'theme',
             icon: theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />,
             label: t('nav.theme'),
@@ -102,24 +130,49 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
             },
           },
         ]}
-        subMenu={{
-          key: 'language',
-          backLabel: t('nav.back'),
-          items: languages.map((lang) => ({
-            key: lang.code,
-            icon: collapsed ? (
-              <span className="text-sm leading-none">{lang.flag}</span>
-            ) : i18n.language === lang.code ? (
-              <Check className="h-4 w-4 text-link" />
-            ) : (
-              <span className="h-4 w-4" />
-            ),
-            label: lang.label,
-            onClick: () => {
-              void setLanguage(lang.code);
-            },
-          })),
-        }}
+        subMenus={[
+          {
+            key: 'language',
+            backLabel: t('nav.back'),
+            items: languages.map((lang) => ({
+              key: lang.code,
+              icon: collapsed ? (
+                <span className="text-sm leading-none">{lang.flag}</span>
+              ) : i18n.language === lang.code ? (
+                <Check className="h-4 w-4 text-link" />
+              ) : (
+                <span className="h-4 w-4" />
+              ),
+              label: lang.label,
+              selected: i18n.language === lang.code,
+              onClick: () => {
+                void setLanguage(lang.code);
+              },
+            })),
+          },
+          {
+            key: 'ui-theme',
+            backLabel: t('nav.back'),
+            items: UI_THEMES.map((id) => {
+              const ThemeIcon = THEME_ICON[id];
+              return {
+                key: id,
+                icon: collapsed ? (
+                  <ThemeIcon className={cn('h-4 w-4', uiTheme === id && 'text-link')} />
+                ) : uiTheme === id ? (
+                  <Check className="h-4 w-4 text-link" />
+                ) : (
+                  <span className="h-4 w-4" />
+                ),
+                label: t(UI_THEME_LABEL_KEY[id]),
+                selected: uiTheme === id,
+                onClick: () => {
+                  void setUiTheme(id);
+                },
+              };
+            }),
+          },
+        ]}
       />
     </div>
   );

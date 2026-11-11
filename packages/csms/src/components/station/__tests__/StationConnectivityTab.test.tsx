@@ -402,8 +402,8 @@ describe('StationConnectivityTab', () => {
     const dialog = await screen.findByRole('dialog');
     for (const name of ['common.startDate', 'common.endDate']) {
       const input = within(dialog).getByLabelText<HTMLInputElement>(name);
-      expect(input.min).toBe(dayOffset(30));
-      expect(input.max).toBe(dayOffset(0));
+      expect(input.dataset['min']).toBe(dayOffset(30));
+      expect(input.dataset['max']).toBe(dayOffset(0));
       expect(input.getAttribute('aria-label')).toBeNull();
     }
   });

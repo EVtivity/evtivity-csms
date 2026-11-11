@@ -23,6 +23,7 @@ import { RemoveButton } from '@/components/remove-button';
 import { GenerateButton } from '@/components/generate-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -780,13 +781,12 @@ function ExcludedDowntimeSection(): React.JSX.Element {
             <Label htmlFor="nevi-downtime-filter-from" className="leading-6">
               {t('nevi.startedAt')}
             </Label>
-            <Input
+            <DateInput
               id="nevi-downtime-filter-from"
-              type="date"
               aria-label={t('common.startDate')}
               value={fromFilter}
-              onChange={(e) => {
-                setFromFilter(e.target.value);
+              onChange={(value) => {
+                setFromFilter(value);
                 setPage(1);
               }}
               className="w-40"
@@ -796,13 +796,12 @@ function ExcludedDowntimeSection(): React.JSX.Element {
             <Label htmlFor="nevi-downtime-filter-to" className="leading-6">
               {t('nevi.endedAt')}
             </Label>
-            <Input
+            <DateInput
               id="nevi-downtime-filter-to"
-              type="date"
               aria-label={t('common.endDate')}
               value={toFilter}
-              onChange={(e) => {
-                setToFilter(e.target.value);
+              onChange={(value) => {
+                setToFilter(value);
                 setPage(1);
               }}
               className="w-40"

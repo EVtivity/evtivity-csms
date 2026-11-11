@@ -117,7 +117,7 @@ const components: Components = {
  */
 export function AiMarkdown({ content }: { content: string }): React.JSX.Element {
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none break-words [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-border/50 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-xs [&_:not(pre)>code]:before:content-none [&_:not(pre)>code]:after:content-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none break-words [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_:not(pre)>code]:rounded-sm [&_:not(pre)>code]:bg-border/50 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-xs [&_:not(pre)>code]:before:content-none [&_:not(pre)>code]:after:content-none">
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm]}

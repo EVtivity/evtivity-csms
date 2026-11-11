@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
+import { UI_THEMES } from '@evtivity/lib/ui-theme';
 
 /** The driver of a portal sign-in reply (login, MFA verify, passkey sign-in). */
 export const portalDriverItem = z
@@ -13,7 +14,8 @@ export const portalDriverItem = z
     phone: z.string().max(50).nullable(),
     language: z.string().max(10).nullable(),
     timezone: z.string().max(50).nullable(),
-    themePreference: z.enum(['light', 'dark']),
+    themePreference: z.enum(['light', 'dark']).describe('Mode: light or dark'),
+    uiTheme: z.enum(UI_THEMES).describe('Theme: default, soft or high-contrast'),
     distanceUnit: z.enum(['miles', 'km']),
     priceDisplay: z
       .enum(['gross', 'net'])

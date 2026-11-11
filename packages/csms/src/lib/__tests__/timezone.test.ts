@@ -9,7 +9,13 @@ vi.mock('../api', async (importOriginal) => ({
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
 }));
 vi.mock('../../i18n', () => ({ loadLanguage: vi.fn(() => Promise.resolve()) }));
-vi.mock('../theme', () => ({ applyTheme: vi.fn(), resolveInitialTheme: () => 'light' }));
+vi.mock('../theme', () => ({
+  applyTheme: vi.fn(),
+  applyUiTheme: vi.fn(),
+  adoptUiTheme: (value: unknown) => value ?? 'default',
+  resolveInitialTheme: () => 'light',
+  resolveInitialUiTheme: () => 'default',
+}));
 
 import { useAuth } from '../auth';
 import {

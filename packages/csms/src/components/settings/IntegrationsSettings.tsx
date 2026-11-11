@@ -813,13 +813,13 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   </Button>
                 </div>
                 {pncSaveMutation.isSuccess && (
-                  <p className="text-sm text-green-600">{t('settings.pncSaved')}</p>
+                  <p className="text-sm text-success">{t('settings.pncSaved')}</p>
                 )}
                 {pncSaveMutation.isError && (
                   <p className="text-sm text-destructive">{t('settings.pncSaveFailed')}</p>
                 )}
                 {pncTestMutation.isSuccess && (
-                  <p className="text-sm text-green-600">{t('settings.pncTestSuccess')}</p>
+                  <p className="text-sm text-success">{t('settings.pncTestSuccess')}</p>
                 )}
                 {pncTestMutation.isError && (
                   <p className="text-sm text-destructive">{t('settings.pncTestFailed')}</p>
@@ -1419,7 +1419,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               }}
             />
             {ftpMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.ftpSaved')}</p>
+              <p className="text-sm text-success">{t('settings.ftpSaved')}</p>
             )}
             {ftpMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.ftpSaveFailed')}</p>

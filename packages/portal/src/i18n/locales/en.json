@@ -33,7 +33,17 @@
     "notCharged": "Not Charged",
     "copy": "Copy",
     "loadError": "Failed to load data. Please try again.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "datePicker": {
+      "open": "Open Calendar",
+      "title": "Choose a Date",
+      "previousMonth": "Previous Month",
+      "nextMonth": "Next Month",
+      "month": "Month",
+      "year": "Year",
+      "today": "Today",
+      "clear": "Clear"
+    }
   },
   "nav": {
     "home": "Home",
@@ -265,9 +275,16 @@
     "mfaDisableFailed": "Failed to disable MFA.",
     "mfaSelectMethod": "Select method",
     "timezone": "Timezone",
-    "theme": "Theme",
+    "theme": "Mode",
     "themeLight": "Light",
     "themeDark": "Dark",
+    "uiTheme": "Theme",
+    "uiThemeDefault": "Default",
+    "uiThemeSoft": "Soft",
+    "uiThemeHighContrast": "High Contrast",
+    "uiThemeDefaultDescription": "The standard look of the app.",
+    "uiThemeSoftDescription": "Rounder corners, lighter borders and softer shadows.",
+    "uiThemeHighContrastDescription": "Plain black and white surfaces, strong borders and heavier text for the clearest reading.",
     "distanceUnit": "Distance Unit",
     "distanceMiles": "Miles",
     "distanceKm": "Kilometers",

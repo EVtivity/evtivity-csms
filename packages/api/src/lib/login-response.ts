@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
+import { UI_THEMES } from '@evtivity/lib/ui-theme';
 import { MFA_FACTORS } from './mfa-factors.js';
 
 /** The reply of every operator sign-in step: a session, the MFA step, or MFA enrollment. */
@@ -21,6 +22,8 @@ export const loginResponse = z
         lastName: z.string().nullable().describe('Last name'),
         language: z.string().describe('Preferred UI language code'),
         timezone: z.string().optional().describe('IANA timezone identifier'),
+        themePreference: z.string().optional().describe('Mode: light or dark'),
+        uiTheme: z.enum(UI_THEMES).optional().describe('Theme: default, soft or high-contrast'),
       })
       .loose()
       .optional()

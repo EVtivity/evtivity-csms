@@ -763,7 +763,7 @@ function StorageSetupGuide({ tab, imageOrigin }: StorageSetupGuideProps): React.
       <div className="space-y-1" data-testid="storage-image-origin">
         <p className="text-sm text-muted-foreground">{t('settings.storage.imageOrigin')}</p>
         <div className="flex min-w-0 items-center gap-2">
-          <code className="min-w-0 rounded bg-muted px-1 py-0.5 text-xs wrap-anywhere">
+          <code className="min-w-0 rounded-sm bg-muted px-1 py-0.5 text-xs wrap-anywhere">
             {imageOrigin}
           </code>
           <CopyButton value={imageOrigin} />
@@ -842,7 +842,7 @@ function StorageSetupGuide({ tab, imageOrigin }: StorageSetupGuideProps): React.
         {STORAGE_ACCESS_ACTIONS.map(({ id, action }) => (
           <li key={id}>
             {t(`settings.storage.permission.${id}` as const)}{' '}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">{action}</code>
+            <code className="rounded-sm bg-muted px-1 py-0.5 text-xs">{action}</code>
           </li>
         ))}
       </ul>
@@ -850,7 +850,7 @@ function StorageSetupGuide({ tab, imageOrigin }: StorageSetupGuideProps): React.
       <ul className="space-y-1" data-testid="storage-cors-origins">
         {storageBrowserOrigins(csmsOrigin, PORTAL_BASE_URL).map(({ origin, placeholder }) => (
           <li key={origin} className="flex min-w-0 items-center gap-2">
-            <code className="min-w-0 rounded bg-muted px-1 py-0.5 text-xs wrap-anywhere">
+            <code className="min-w-0 rounded-sm bg-muted px-1 py-0.5 text-xs wrap-anywhere">
               {origin}
             </code>
             {!placeholder && <CopyButton value={origin} />}

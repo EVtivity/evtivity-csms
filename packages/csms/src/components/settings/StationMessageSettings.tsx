@@ -674,7 +674,7 @@ export function StationMessageSettings({
                         insertVariableAtCursor(v.name);
                       }}
                       title={t(v.descriptionKey as never)}
-                      className="cursor-pointer rounded bg-muted px-2 py-1 text-sm transition-colors hover:bg-muted/80"
+                      className="cursor-pointer rounded-sm bg-muted px-2 py-1 text-sm transition-colors hover:bg-muted/80"
                     >
                       {`{{${v.name}}}`}
                     </button>

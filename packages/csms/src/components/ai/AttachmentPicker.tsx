@@ -122,7 +122,7 @@ function ImageThumbnail({ file }: { file: File }): React.JSX.Element {
       aria-label={file.name}
       width={THUMBNAIL_PX}
       height={THUMBNAIL_PX}
-      className="h-10 w-10 shrink-0 rounded bg-muted"
+      className="h-10 w-10 shrink-0 rounded-sm bg-muted"
     />
   );
 }

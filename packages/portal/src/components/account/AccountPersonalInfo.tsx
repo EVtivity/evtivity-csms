@@ -15,6 +15,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { TIMEZONE_OPTIONS } from '@/lib/timezone';
 import { useCompanyPriceDisplay } from '@/hooks/use-price-display';
 import { isPriceDisplay, type PriceDisplay } from '@evtivity/lib/price-display';
+import { UI_THEMES, type UiTheme } from '@evtivity/lib/ui-theme';
 import { proofRejection, type ProofRejection } from '@/components/FactorProofField';
 import { MFA_STATUS_KEY, type PortalMfaStatus } from '@/lib/mfa-status';
 import { useDriverAvatar } from '@/lib/avatar';
@@ -24,6 +25,13 @@ import {
   phoneChangeNeedsProof,
   type PhoneChangeExtras,
 } from './PhoneChangeProof';
+
+/** i18n key suffix of each theme (`profile.uiTheme<Suffix>`). */
+const THEME_KEY: Record<UiTheme, 'Default' | 'Soft' | 'HighContrast'> = {
+  default: 'Default',
+  soft: 'Soft',
+  'high-contrast': 'HighContrast',
+};
 
 /** A phone number as the API compares it: trimmed, empty is none. */
 function comparablePhone(phone: string | null | undefined): string | null {
@@ -41,6 +49,8 @@ export function AccountPersonalInfo(): React.JSX.Element {
   const applyThemeLocal = useAuth((s) => s.applyThemeLocal);
   const applyDistanceUnitLocal = useAuth((s) => s.applyDistanceUnitLocal);
   const authTheme = useAuth((s) => s.theme);
+  const applyUiThemeLocal = useAuth((s) => s.applyUiThemeLocal);
+  const authUiTheme = useAuth((s) => s.uiTheme);
 
   const [firstName, setFirstName] = useState(driver?.firstName ?? '');
   const [lastName, setLastName] = useState(driver?.lastName ?? '');
@@ -48,6 +58,7 @@ export function AccountPersonalInfo(): React.JSX.Element {
   const [selectedLanguage, setSelectedLanguage] = useState(driver?.language ?? 'en');
   const [selectedTimezone, setSelectedTimezone] = useState(driver?.timezone ?? 'America/New_York');
   const [selectedTheme, setSelectedTheme] = useState<'light' | 'dark'>(authTheme);
+  const [selectedUiTheme, setSelectedUiTheme] = useState<UiTheme>(authUiTheme);
   const [selectedDistanceUnit, setSelectedDistanceUnit] = useState<'miles' | 'km'>(
     driver?.distanceUnit ?? 'miles',
   );
@@ -92,6 +103,7 @@ export function AccountPersonalInfo(): React.JSX.Element {
         language: selectedLanguage,
         timezone: selectedTimezone,
         themePreference: selectedTheme,
+        uiTheme: selectedUiTheme,
         distanceUnit: selectedDistanceUnit,
         priceDisplay: selectedPriceDisplay,
         ...extras,
@@ -104,6 +116,9 @@ export function AccountPersonalInfo(): React.JSX.Element {
       }
       if (selectedTheme !== authTheme) {
         applyThemeLocal(selectedTheme);
+      }
+      if (selectedUiTheme !== authUiTheme) {
+        applyUiThemeLocal(selectedUiTheme);
       }
       if (selectedDistanceUnit !== driver?.distanceUnit) {
         applyDistanceUnitLocal(selectedDistanceUnit);
@@ -223,6 +238,28 @@ export function AccountPersonalInfo(): React.JSX.Element {
             </option>
           ))}
         </Select>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="acctUiTheme" className="block text-sm font-medium leading-6">
+          {t('profile.uiTheme')}
+        </label>
+        <Select
+          id="acctUiTheme"
+          value={selectedUiTheme}
+          aria-describedby="acctUiThemeDescription"
+          onChange={(e) => {
+            setSelectedUiTheme(e.target.value as UiTheme);
+          }}
+        >
+          {UI_THEMES.map((theme) => (
+            <option key={theme} value={theme}>
+              {t(`profile.uiTheme${THEME_KEY[theme]}`)}
+            </option>
+          ))}
+        </Select>
+        <p id="acctUiThemeDescription" className="text-sm text-muted-foreground">
+          {t(`profile.uiTheme${THEME_KEY[selectedUiTheme]}Description`)}
+        </p>
       </div>
       <div className="space-y-2">
         <label htmlFor="acctTheme" className="block text-sm font-medium leading-6">

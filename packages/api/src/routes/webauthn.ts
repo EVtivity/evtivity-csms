@@ -150,6 +150,7 @@ async function loginReply(user: SignedInUser, token: string) {
       language: user.language,
       timezone: user.timezone,
       themePreference: user.themePreference,
+      uiTheme: user.uiTheme,
     },
     role: role != null ? { id: role.id, name: role.name } : null,
   };

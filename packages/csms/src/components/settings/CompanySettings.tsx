@@ -380,7 +380,7 @@ export function CompanySettings({
                 <img
                   src={settings['company.logo']}
                   alt={t('settings.companyLogo')}
-                  className="h-16 w-16 rounded border object-contain"
+                  className="h-16 w-16 rounded-sm border object-contain"
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">{t('settings.noLogo')}</p>
@@ -421,7 +421,7 @@ export function CompanySettings({
                   <img
                     src={svgDataUri}
                     alt={t('settings.qrCodeIcon')}
-                    className="h-16 w-16 rounded border p-2"
+                    className="h-16 w-16 rounded-sm border p-2"
                   />
                 </div>
                 <div className="flex flex-col items-center gap-1">
@@ -478,7 +478,7 @@ export function CompanySettings({
                 <img
                   src={settings['company.favicon']}
                   alt={t('settings.favicon')}
-                  className="h-8 w-8 rounded border object-contain"
+                  className="h-8 w-8 rounded-sm border object-contain"
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">{t('settings.noFavicon')}</p>
@@ -517,7 +517,7 @@ export function CompanySettings({
                 <img
                   src={settings['company.ogImage']}
                   alt={t('settings.ogImage')}
-                  className="h-16 w-28 rounded border object-cover"
+                  className="h-16 w-28 rounded-sm border object-cover"
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">{t('settings.noOgImage')}</p>

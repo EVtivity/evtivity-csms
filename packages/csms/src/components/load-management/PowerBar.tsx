@@ -19,9 +19,9 @@ interface PowerBarProps {
 }
 
 function getBarColor(percentage: number): string {
-  if (percentage >= 95) return 'bg-red-500';
-  if (percentage >= 80) return 'bg-yellow-500';
-  return 'bg-green-500';
+  if (percentage >= 95) return 'bg-destructive';
+  if (percentage >= 80) return 'bg-warning';
+  return 'bg-success';
 }
 
 export function PowerBar({
@@ -44,7 +44,7 @@ export function PowerBar({
   return (
     <div className="space-y-1">
       {label != null && <p className="text-xs text-muted-foreground">{label}</p>}
-      <div className="relative h-6 w-full rounded bg-muted overflow-hidden">
+      <div className="relative h-6 w-full rounded-sm bg-muted overflow-hidden">
         {credit > 0 && (
           <div
             data-testid="power-bar-credit"
@@ -54,7 +54,7 @@ export function PowerBar({
         )}
         <div
           className={cn(
-            'relative h-full rounded-l transition-all duration-500',
+            'relative h-full rounded-l-sm transition-all duration-500',
             getBarColor(usagePercent),
           )}
           style={{ width: `${String(currentPercent)}%` }}

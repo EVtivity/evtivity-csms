@@ -163,7 +163,7 @@ export function ConfirmActionCard({
           <summary className="cursor-pointer text-muted-foreground">
             {t('ai.confirmArguments')}
           </summary>
-          <pre className="mt-1 max-h-48 overflow-auto rounded border border-border bg-background p-2 font-mono">
+          <pre className="mt-1 max-h-48 overflow-auto rounded-sm border border-border bg-background p-2 font-mono">
             {args}
           </pre>
         </details>

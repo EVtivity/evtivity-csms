@@ -11,10 +11,11 @@ import '@fontsource/inter/600.css';
 import '@fontsource/inter/700.css';
 import './index.css';
 import { App } from './App';
-import { applyTheme, type Theme } from './lib/theme';
+import { applyTheme, applyUiTheme, storedUiTheme, type Theme } from './lib/theme';
 
 const savedTheme = (localStorage.getItem('portal_theme') as Theme | null) ?? 'light';
 applyTheme(savedTheme);
+applyUiTheme(storedUiTheme());
 
 const root = document.getElementById('root');
 if (root == null) {

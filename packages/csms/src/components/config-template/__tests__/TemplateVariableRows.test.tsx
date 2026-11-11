@@ -92,7 +92,6 @@ describe('TemplateVariableRows', () => {
     const onChange = vi.fn();
     const { rerender } = render(
       <TemplateVariableRows
-        idPrefix="t"
         ocppVersion="2.1"
         variables={[{ component: 'OCPPCommCtrlr', variable: 'MessageTimeout', value: '30' }]}
         onChange={onChange}
@@ -113,7 +112,6 @@ describe('TemplateVariableRows', () => {
     ]);
     rerender(
       <TemplateVariableRows
-        idPrefix="t"
         ocppVersion="1.6"
         variables={[{ component: '', variable: 'WebSocketPingInterval', value: '300' }]}
         onChange={onChange}
@@ -126,7 +124,6 @@ describe('TemplateVariableRows', () => {
 
   it('marks a boot-owned row, in red after a refusal', () => {
     const props = {
-      idPrefix: 't',
       ocppVersion: '1.6' as const,
       variables: [{ component: '', variable: 'HeartbeatInterval', value: '300' }],
       onChange: vi.fn(),

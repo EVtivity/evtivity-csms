@@ -133,6 +133,7 @@ import {
   sendFactorProofRefusal,
 } from '../lib/mfa-factor-proof.js';
 import { loginResponse } from '../lib/login-response.js';
+import { UI_THEMES } from '@evtivity/lib/ui-theme';
 import {
   SESSION_PROOF_ERROR_CODES,
   requireSessionProof,
@@ -345,7 +346,11 @@ const updateMeBody = z.object({
     .describe(
       'IANA timezone (e.g. America/New_York). An unknown zone returns 400 VALIDATION_ERROR.',
     ),
-  themePreference: z.enum(['light', 'dark']).optional(),
+  themePreference: z.enum(['light', 'dark']).optional().describe('Mode: light or dark'),
+  uiTheme: z
+    .enum(UI_THEMES)
+    .optional()
+    .describe('Theme of the own account: default, soft or high-contrast'),
 });
 
 const resetPasswordBody = z.object({
@@ -395,6 +400,7 @@ const userSelect = {
   language: users.language,
   timezone: users.timezone,
   themePreference: users.themePreference,
+  uiTheme: users.uiTheme,
   mfaEnabled: users.mfaEnabled,
   mfaMethod: users.mfaMethod,
   authSource: users.authSource,
@@ -419,7 +425,8 @@ const userItem = z
       .describe('Whether the user must reset their password on next login'),
     language: z.string().describe('Preferred UI language code'),
     timezone: z.string().describe('IANA timezone identifier'),
-    themePreference: z.string().describe('Preferred dashboard theme (light, dark, system)'),
+    themePreference: z.string().describe('Mode of the dashboard: light or dark'),
+    uiTheme: z.enum(UI_THEMES).describe('Theme of the dashboard: default, soft or high-contrast'),
     mfaEnabled: z.boolean().optional().describe('Whether the user signs in with a second factor'),
     mfaMethod: z
       .string()
@@ -777,6 +784,7 @@ export function userRoutes(app: FastifyInstance): void {
           language: user.language,
           timezone: user.timezone,
           themePreference: user.themePreference,
+          uiTheme: user.uiTheme,
         },
         role: role ? { id: role.id, name: role.name } : null,
       };
@@ -1368,6 +1376,7 @@ export function userRoutes(app: FastifyInstance): void {
           language: user.language,
           timezone: user.timezone,
           themePreference: user.themePreference,
+          uiTheme: user.uiTheme,
         },
         role: role ? { id: role.id, name: role.name } : null,
       };
@@ -1510,6 +1519,7 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.language !== undefined) fields['language'] = body.language;
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
+      if (body.uiTheme !== undefined) fields['uiTheme'] = body.uiTheme;
 
       const [before] = await db.select(userSelect).from(users).where(eq(users.id, userId));
       const [updated] = await db
@@ -3259,6 +3269,7 @@ export function userRoutes(app: FastifyInstance): void {
           language: user.language,
           timezone: user.timezone,
           themePreference: user.themePreference,
+          uiTheme: user.uiTheme,
         },
         role: role ? { id: role.id, name: role.name } : null,
         ...(recoveryCodesRemaining != null ? { recoveryCodesRemaining } : {}),
@@ -4020,6 +4031,7 @@ export function userRoutes(app: FastifyInstance): void {
           language: users.language,
           timezone: users.timezone,
           themePreference: users.themePreference,
+          uiTheme: users.uiTheme,
           roleId: roles.id,
           roleName: roles.name,
         })
@@ -4040,6 +4052,7 @@ export function userRoutes(app: FastifyInstance): void {
                 language: signedIn.language,
                 timezone: signedIn.timezone,
                 themePreference: signedIn.themePreference,
+                uiTheme: signedIn.uiTheme,
               },
               role:
                 signedIn.roleId != null && signedIn.roleName != null

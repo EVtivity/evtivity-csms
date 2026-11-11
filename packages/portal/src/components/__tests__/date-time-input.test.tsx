@@ -37,7 +37,7 @@ describe('portal DateTimeInput', () => {
   it('uses 48 px controls named by the label', () => {
     render(<Harness onValue={vi.fn()} />);
     const date = screen.getByLabelText<HTMLInputElement>('Starts');
-    expect(date.type).toBe('date');
+    expect(date.type).toBe('text');
     expect(date.className.split(/\s+/)).toContain('h-12');
     expect(screen.getByLabelText('common.hour').className.split(/\s+/)).toContain('h-12');
   });

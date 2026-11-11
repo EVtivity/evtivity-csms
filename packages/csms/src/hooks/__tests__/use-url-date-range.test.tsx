@@ -70,9 +70,9 @@ describe('LogDateRangeFilter', () => {
       </BrowserRouter>,
     );
     const to = screen.getByLabelText('common.to');
-    expect(to.getAttribute('min')).toBe('2026-10-01');
+    expect(to.getAttribute('data-min')).toBe('2026-10-01');
     fireEvent.change(to, { target: { value: '2026-10-04' } });
-    expect(screen.getByLabelText('common.from').getAttribute('max')).toBe('2026-10-04');
+    expect(screen.getByLabelText('common.from').getAttribute('data-max')).toBe('2026-10-04');
     fireEvent.click(screen.getByText('common.clearDates'));
     expect(window.location.search).toBe('');
     expect(screen.queryByText('common.clearDates')).toBeNull();

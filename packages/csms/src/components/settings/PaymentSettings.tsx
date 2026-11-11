@@ -594,7 +594,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                     return (
                       <div
                         key={site.id}
-                        className={`flex cursor-pointer items-center justify-between rounded p-2 ${
+                        className={`flex cursor-pointer items-center justify-between rounded-sm p-2 ${
                           isSelected ? 'bg-accent' : 'hover:bg-muted'
                         }`}
                         onClick={() => {

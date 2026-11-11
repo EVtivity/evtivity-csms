@@ -460,7 +460,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
 
           <SaveButton isPending={mutation.isPending} />
 
-          {mutation.isSuccess && <p className="text-sm text-green-600">{t('settings.ssoSaved')}</p>}
+          {mutation.isSuccess && <p className="text-sm text-success">{t('settings.ssoSaved')}</p>}
           {mutation.isError && (
             <p className="text-sm text-destructive" role="alert">
               {saveError !== '' ? saveError : t('settings.ssoSaveFailed')}

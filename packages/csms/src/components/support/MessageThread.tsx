@@ -249,7 +249,7 @@ export function MessageThread({
               {pendingFiles.map((file, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1 rounded bg-muted px-2 py-1 text-xs"
+                  className="inline-flex items-center gap-1 rounded-sm bg-muted px-2 py-1 text-xs"
                 >
                   {file.name}
                   <button
@@ -394,7 +394,7 @@ function MessageBubble({
     <div
       className={`rounded-lg p-3 text-sm ${
         isInternal
-          ? 'bg-yellow-50 border border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800'
+          ? 'border border-warning/40 bg-warning/10'
           : isAssistant
             ? 'border border-dashed border-info/50 bg-info/5'
             : message.senderType === 'driver'
@@ -416,9 +416,7 @@ function MessageBubble({
             t('supportCases.operatorMessage')
           )}
           {isInternal && (
-            <span className="ml-2 text-yellow-600 dark:text-yellow-400">
-              ({t('supportCases.internalNote')})
-            </span>
+            <span className="ml-2 text-warning">({t('supportCases.internalNote')})</span>
           )}
         </span>
         <span>{formatDateTime(message.createdAt, timezone)}</span>

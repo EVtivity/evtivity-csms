@@ -1,8 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { cleanup, render, fireEvent, screen } from '@testing-library/react';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -11,6 +11,8 @@ vi.mock('react-i18next', () => ({
 }));
 
 import { DateRangeControl } from '../DateRangeControl';
+
+afterEach(cleanup);
 
 // Independent reimplementation of the preset window (today - N days through
 // today, local calendar dates) so the test does not assert the component
@@ -27,7 +29,8 @@ function expectedRange(days: number): { from: string; to: string } {
 }
 
 function getDateInputs(container: HTMLElement): HTMLInputElement[] {
-  return [...container.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+  // The text fields of the two shared DateInput pickers.
+  return [...container.querySelectorAll('input[placeholder="YYYY-MM-DD"]')] as HTMLInputElement[];
 }
 
 describe('DateRangeControl', () => {
@@ -80,19 +83,23 @@ describe('DateRangeControl', () => {
   });
 
   it('applies minDate and maxDate bounds', () => {
-    const { container } = render(
+    render(
       <DateRangeControl
         days={7}
-        from={null}
-        to={null}
+        from="2026-01-01"
+        to="2026-06-06"
         onPresetChange={() => {}}
         onCustomChange={() => {}}
         minDate="2026-01-01"
         maxDate="2026-06-06"
       />,
     );
-    const [start, end] = getDateInputs(container);
-    expect(start?.min).toBe('2026-01-01');
-    expect(end?.max).toBe('2026-06-06');
+    const button = (name: string): HTMLButtonElement =>
+      screen.getByRole<HTMLButtonElement>('button', { name });
+    fireEvent.click(button('common.startDate common.datePicker.open'));
+    expect(button('common.datePicker.previousMonth').disabled).toBe(true);
+    fireEvent.click(button('common.startDate common.datePicker.open'));
+    fireEvent.click(button('common.endDate common.datePicker.open'));
+    expect(button('common.datePicker.nextMonth').disabled).toBe(true);
   });
 });

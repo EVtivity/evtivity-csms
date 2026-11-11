@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it } from 'vitest';
-import csmsCss from '../../index.css?raw';
+import csmsCss from '../../themes.css?raw';
 import {
   STATION_DISPLAY_STATES,
   STATION_STATE_TEXT_MIX,

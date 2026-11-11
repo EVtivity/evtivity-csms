@@ -18,6 +18,7 @@ import { useAuth } from '@/lib/auth';
 import { mfaPendingFromReply, type MfaPendingReply } from '@/lib/mfa-pending';
 import { mfaEnrollmentFromReply, type MfaEnrollmentReply } from '@/lib/mfa-enrollment';
 import type { PasswordRule } from '@evtivity/lib/password-policy';
+import type { UiTheme } from '@/lib/theme';
 
 interface ForceChangePasswordUserResponse {
   token: string;
@@ -29,6 +30,7 @@ interface ForceChangePasswordUserResponse {
     language: string;
     timezone: string;
     themePreference: 'light' | 'dark';
+    uiTheme?: UiTheme;
   };
   role: { id: string; name: string } | null;
 }

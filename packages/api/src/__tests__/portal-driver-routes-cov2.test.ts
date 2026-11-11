@@ -258,6 +258,7 @@ describe('Portal driver routes, uncovered paths', () => {
         language: 'en',
         timezone: 'Asia/Seoul',
         themePreference: 'dark',
+        uiTheme: 'default',
         distanceUnit: 'km',
         priceDisplay: null,
         isActive: true,
@@ -289,6 +290,47 @@ describe('Portal driver routes, uncovered paths', () => {
       );
     });
 
+    it('stores the theme of the account', async () => {
+      const updated = {
+        id: DRIVER_ID,
+        firstName: 'Jane',
+        lastName: 'Doe',
+        email: 'jane@example.com',
+        phone: null,
+        language: 'en',
+        timezone: 'UTC',
+        themePreference: 'light',
+        uiTheme: 'high-contrast',
+        distanceUnit: 'miles',
+        priceDisplay: null,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      };
+      setupDbResults([{ ...updated, uiTheme: 'default' }], [updated]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: auth,
+        payload: { uiTheme: 'high-contrast' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ uiTheme: 'high-contrast', themePreference: 'light' });
+      expect(updates[0]?.['set']).toHaveBeenCalledWith(
+        expect.objectContaining({ uiTheme: 'high-contrast' }),
+      );
+    });
+
+    it('refuses a theme that does not exist before any write', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: auth,
+        payload: { uiTheme: 'neon' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(updates).toHaveLength(0);
+    });
+
     it('rejects an unknown IANA timezone before any write', async () => {
       const res = await app.inject({
         method: 'PATCH',
@@ -314,6 +356,7 @@ describe('Portal driver routes, uncovered paths', () => {
             language: 'en',
             timezone: 'Asia/Seoul',
             themePreference: 'light',
+            uiTheme: 'default',
             distanceUnit: 'km',
             priceDisplay: null,
             isActive: true,

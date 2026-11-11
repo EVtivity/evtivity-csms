@@ -215,7 +215,9 @@ export function RoamingPartnerDetail(): React.JSX.Element {
         <Card>
           <CardContent className="space-y-3 pt-6">
             <p className="text-sm">{t('roaming.partners.tokenIssued')}</p>
-            <div className="rounded bg-muted p-3 text-xs break-all select-all">{issuedToken}</div>
+            <div className="rounded-sm bg-muted p-3 text-xs break-all select-all">
+              {issuedToken}
+            </div>
             <p className="text-xs text-muted-foreground">{t('roaming.partners.tokenWarning')}</p>
           </CardContent>
         </Card>

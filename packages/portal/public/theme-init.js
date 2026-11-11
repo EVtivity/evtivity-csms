@@ -1,14 +1,24 @@
-// Applies the stored or system dark theme before the first paint. A file, not
-// an inline script: the portal Content-Security-Policy allows no inline script.
+// Applies the stored mode (light or dark) and theme before the first paint, so
+// a page never flashes the Default light look first. A file, not an inline
+// script: the portal Content-Security-Policy allows no inline script. The
+// bundle applies the same values again (lib/theme.ts) and, once signed in, the
+// account's own values (drivers.theme_preference, drivers.ui_theme).
 (function () {
+  var mode = null;
   var theme = null;
   try {
-    theme = localStorage.getItem('portal_theme') || localStorage.getItem('theme');
+    mode = localStorage.getItem('portal_theme') || localStorage.getItem('theme');
+    theme = localStorage.getItem('portal_ui_theme');
   } catch (e) {
-    // Storage can be blocked (private mode): fall back to the system theme.
+    // Storage can be blocked (private mode): fall back to the system mode and Default.
+    mode = null;
     theme = null;
   }
-  if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    document.documentElement.classList.add('dark');
+  var root = document.documentElement;
+  if (mode === 'dark' || (!mode && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    root.classList.add('dark');
+  }
+  if (theme === 'soft' || theme === 'high-contrast') {
+    root.setAttribute('data-theme', theme);
   }
 })();

@@ -49,7 +49,7 @@ export function PricingGroupPickList({
             type="button"
             data-testid={`pricing-group-option-${group.id}`}
             className={cn(
-              'flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm transition-colors',
+              'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm transition-colors',
               isCurrent
                 ? 'cursor-not-allowed bg-accent text-accent-foreground'
                 : 'hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',

@@ -186,7 +186,7 @@ export function MfaSetupForm<T>({
           <img
             src={setupData.qrDataUri}
             alt={t('profile.mfaQrCode')}
-            className="rounded border p-2"
+            className="rounded-sm border p-2"
             width={200}
             height={200}
           />
@@ -194,7 +194,7 @@ export function MfaSetupForm<T>({
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">{t('profile.mfaManualEntry')}</p>
               <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 rounded bg-muted px-3 py-2 text-sm select-all wrap-anywhere">
+                <code className="min-w-0 flex-1 rounded-sm bg-muted px-3 py-2 text-sm select-all wrap-anywhere">
                   {setupData.secret}
                 </code>
                 <CopyButton value={setupData.secret} size="icon" />

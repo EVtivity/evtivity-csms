@@ -30,6 +30,7 @@ import {
   type PasskeyErrorText,
 } from '@/lib/webauthn';
 import { takeReturnTo } from '@/lib/return-to';
+import type { UiTheme } from '@/lib/theme';
 
 interface SignedInUser {
   id: string;
@@ -39,6 +40,7 @@ interface SignedInUser {
   language: string;
   timezone: string;
   themePreference: 'light' | 'dark';
+  uiTheme?: UiTheme;
 }
 
 interface EnrollmentConfirmResponse {

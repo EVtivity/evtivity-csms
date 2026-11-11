@@ -489,6 +489,7 @@ function userRow(over: Record<string, unknown> = {}): Record<string, unknown> {
     language: 'de',
     timezone: 'UTC',
     themePreference: 'light',
+    uiTheme: 'default',
     lastLoginAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -1598,6 +1599,35 @@ describe('User routes (extended coverage)', () => {
         updatedAt: expect.any(Date),
         themePreference: 'light',
       });
+    });
+
+    it('stores the theme of the own account and audits it', async () => {
+      const before = userRow({ id: ME, uiTheme: 'default' });
+      const after = userRow({ id: ME, uiTheme: 'soft' });
+      setupDbResults([before], [after], [{ id: ROLE, name: 'x' }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/users/me',
+        headers: auth,
+        payload: { uiTheme: 'soft' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
+        updatedAt: expect.any(Date),
+        uiTheme: 'soft',
+      });
+      expect(auditCall()).toMatchObject({ action: 'updated', before, after });
+    });
+
+    it('refuses a theme that does not exist and writes nothing', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/users/me',
+        headers: auth,
+        payload: { uiTheme: 'system' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(state.ops).toHaveLength(0);
     });
 
     it('rejects a language outside the six supported locales', async () => {

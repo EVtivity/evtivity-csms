@@ -3,7 +3,7 @@
 
 import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { UrlDateRange } from '@/hooks/use-url-date-range';
@@ -35,14 +35,13 @@ export function LogDateRangeFilter({
         <Label htmlFor={fromId} className="leading-6">
           {t('common.from')}
         </Label>
-        <Input
+        <DateInput
           id={fromId}
-          type="date"
           aria-label={t('common.from')}
           value={range.from}
           max={range.to !== '' ? range.to : undefined}
-          onChange={(e) => {
-            range.setFrom(e.target.value);
+          onChange={(value) => {
+            range.setFrom(value);
             onChange?.();
           }}
         />
@@ -66,14 +65,13 @@ export function LogDateRangeFilter({
             </Button>
           )}
         </div>
-        <Input
+        <DateInput
           id={toId}
-          type="date"
           aria-label={t('common.to')}
           value={range.to}
           min={range.from !== '' ? range.from : undefined}
-          onChange={(e) => {
-            range.setTo(e.target.value);
+          onChange={(value) => {
+            range.setTo(value);
             onChange?.();
           }}
         />

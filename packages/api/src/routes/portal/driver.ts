@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
+import { UI_THEMES } from '@evtivity/lib/ui-theme';
 import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import argon2 from 'argon2';
@@ -118,6 +119,7 @@ const PROFILE_AUDIT_KEYS = [
   'language',
   'timezone',
   'themePreference',
+  'uiTheme',
   'distanceUnit',
   'priceDisplay',
 ] as const;
@@ -129,6 +131,7 @@ const profileAuditColumns = {
   language: drivers.language,
   timezone: drivers.timezone,
   themePreference: drivers.themePreference,
+  uiTheme: drivers.uiTheme,
   distanceUnit: drivers.distanceUnit,
   priceDisplay: drivers.priceDisplay,
 };
@@ -150,7 +153,8 @@ const portalDriverProfile = z
       .max(50)
       .nullable()
       .describe('Preferred IANA timezone (e.g. America/Los_Angeles)'),
-    themePreference: z.enum(['light', 'dark']).describe('Preferred UI theme'),
+    themePreference: z.enum(['light', 'dark']).describe('Mode: light or dark'),
+    uiTheme: z.enum(UI_THEMES).describe('Theme: default, soft or high-contrast'),
     distanceUnit: z.enum(['miles', 'km']).describe('Preferred distance unit (miles or kilometers)'),
     priceDisplay: z
       .enum(['gross', 'net'])
@@ -185,7 +189,8 @@ const updateProfileBody = z.object({
   // the i18n loader on the next session.
   language: z.enum(['en', 'de', 'es', 'ko', 'zh', 'zh-TW']).optional(),
   timezone: z.string().max(50).optional().describe('IANA timezone (e.g. Europe/Berlin)'),
-  themePreference: z.enum(['light', 'dark']).optional(),
+  themePreference: z.enum(['light', 'dark']).optional().describe('Mode: light or dark'),
+  uiTheme: z.enum(UI_THEMES).optional().describe('Theme: default, soft or high-contrast'),
   distanceUnit: z.enum(['miles', 'km']).optional(),
   priceDisplay: z
     .enum(['gross', 'net'])
@@ -306,6 +311,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
       if (body.language !== undefined) fields['language'] = body.language;
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
+      if (body.uiTheme !== undefined) fields['uiTheme'] = body.uiTheme;
       if (body.distanceUnit !== undefined) fields['distanceUnit'] = body.distanceUnit;
       if (body.priceDisplay !== undefined) fields['priceDisplay'] = body.priceDisplay;
 
@@ -322,6 +328,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           language: drivers.language,
           timezone: drivers.timezone,
           themePreference: drivers.themePreference,
+          uiTheme: drivers.uiTheme,
           distanceUnit: drivers.distanceUnit,
           priceDisplay: drivers.priceDisplay,
           isActive: drivers.isActive,

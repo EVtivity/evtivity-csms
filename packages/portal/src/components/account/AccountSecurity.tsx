@@ -501,7 +501,7 @@ export function AccountSecurity(): React.JSX.Element {
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">{t('profile.mfaManualEntry')}</p>
                       <div className="flex items-center gap-2">
-                        <code className="min-w-0 flex-1 rounded bg-muted px-3 py-2 text-center text-sm select-all wrap-anywhere">
+                        <code className="min-w-0 flex-1 rounded-sm bg-muted px-3 py-2 text-center text-sm select-all wrap-anywhere">
                           {mfaSetupData.secret}
                         </code>
                         <CopyButton value={mfaSetupData.secret} />

@@ -62,7 +62,7 @@ export function useCopyFeedback<T extends HTMLElement>(): {
           <div
             role="status"
             data-testid="copied-bubble"
-            className={`pointer-events-none fixed z-9999 whitespace-nowrap rounded px-2 py-0.5 text-xs animate-in fade-in duration-150 ${failed ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background'}`}
+            className={`pointer-events-none fixed z-9999 whitespace-nowrap rounded-sm px-2 py-0.5 text-xs animate-in fade-in duration-150 ${failed ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background'}`}
             style={{ left: pos.x + 6, top: pos.y, transform: 'translateY(-50%)' }}
           >
             {failed ? t('common.copyFailed') : t('common.copied')}

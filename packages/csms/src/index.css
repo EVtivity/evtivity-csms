@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+/* Theme tokens (Default, Soft, High Contrast; light and dark), generated: npm run codegen:themes. */
+@import './themes.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -62,6 +64,17 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Shadows and font weights read the theme tokens (themes.css). */
+  --shadow-xs: var(--ui-shadow-xs);
+  --shadow-sm: var(--ui-shadow-sm);
+  --shadow-md: var(--ui-shadow-md);
+  --shadow-lg: var(--ui-shadow-lg);
+  --font-weight-normal: var(--ui-font-weight-normal);
+  --font-weight-medium: var(--ui-font-weight-medium);
+  --font-weight-semibold: var(--ui-font-weight-semibold);
+  --font-weight-bold: var(--ui-font-weight-bold);
 
   --animate-fade-in: fade-in 200ms ease-out;
   --animate-fade-out: fade-out 150ms ease-in;
@@ -167,78 +180,6 @@
   }
   .dark {
     color-scheme: dark;
-  }
-}
-
-@layer base {
-  :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    /* Text and links in the brand color (text-link): 5.2:1 on card, 4.9:1 on background, 4.7:1 on muted and accent. */
-    --link: 221.2 83.2% 53.3%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 160 84% 39.4%;
-    --success-foreground: 210 40% 98%;
-    --warning: 37.7 92.1% 50.2%;
-    --warning-foreground: 222.2 84% 4.9%;
-    --info: 189 94.5% 42.7%;
-    --info-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    /* Form control and button boundaries: 3.3:1 on card, 3.2:1 on background (WCAG 1.4.11). */
-    --input: 215 16% 57%;
-    --control: 215 16% 57%;
-    /* Icon ink on solid tone fills (IconBadge): at least 4.2:1 on info, warning, destructive, success. */
-    --on-tone: 222.2 84% 4.9%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 217.2 32.6% 11%;
-    --card-foreground: 210 40% 98%;
-    --popover: 217.2 32.6% 11%;
-    --popover-foreground: 210 40% 98%;
-    /* Primary fill: white text 4.8:1, fill on card 3.5:1. */
-    --primary: 217 91% 50%;
-    --primary-foreground: 210 40% 98%;
-    /* Text and links in the brand color: 5.7:1 on card, 6.5:1 on background, 4.8:1 on muted and accent. */
-    --link: 217.2 91.2% 65%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    /* red-500: error text stays readable on the dark background (5.3:1). */
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 160 84% 45%;
-    --success-foreground: 210 40% 98%;
-    --warning: 37.7 92.1% 40%;
-    --warning-foreground: 210 40% 98%;
-    --info: 189 94.5% 30%;
-    --info-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    /* Form control and button boundaries: 3.4:1 on card, 3.9:1 on background (WCAG 1.4.11). */
-    --input: 215 20% 45%;
-    --control: 215 20% 45%;
-    --on-tone: 222.2 84% 4.9%;
-    --ring: 224.3 76.3% 48%;
   }
 }
 

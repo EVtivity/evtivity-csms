@@ -375,13 +375,13 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </Button>
             </div>
             {smtpMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.smtpSaved')}</p>
+              <p className="text-sm text-success">{t('settings.smtpSaved')}</p>
             )}
             {smtpMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.smtpSaveFailed')}</p>
             )}
             {testNotificationMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.testSuccess')}</p>
+              <p className="text-sm text-success">{t('settings.testSuccess')}</p>
             )}
             {testNotificationMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.testFailed')}</p>
@@ -480,13 +480,13 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </Button>
             </div>
             {twilioMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.twilioSaved')}</p>
+              <p className="text-sm text-success">{t('settings.twilioSaved')}</p>
             )}
             {twilioMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.twilioSaveFailed')}</p>
             )}
             {testNotificationMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.testSuccess')}</p>
+              <p className="text-sm text-success">{t('settings.testSuccess')}</p>
             )}
             {testNotificationMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.testFailed')}</p>
@@ -539,7 +539,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               />
             </div>
             {webhookMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.webhooksSaved')}</p>
+              <p className="text-sm text-success">{t('settings.webhooksSaved')}</p>
             )}
             {webhookMutation.isError && (
               <p className="text-sm text-destructive">
@@ -577,7 +577,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                   <CopyableId
                     key={v}
                     id={`{{${v}}}`}
-                    className="rounded bg-muted px-1.5 py-0.5 hover:bg-muted/70"
+                    className="rounded-sm bg-muted px-1.5 py-0.5 hover:bg-muted/70"
                   />
                 ))}
               </div>
@@ -621,13 +621,13 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                   </Button>
                 </div>
                 {emailLayoutMutation.isSuccess && (
-                  <p className="text-sm text-green-600">{t('settings.emailLayoutSaved')}</p>
+                  <p className="text-sm text-success">{t('settings.emailLayoutSaved')}</p>
                 )}
                 {emailLayoutMutation.isError && (
                   <p className="text-sm text-destructive">{t('settings.emailLayoutSaveFailed')}</p>
                 )}
                 {emailLayoutResetMutation.isSuccess && (
-                  <p className="text-sm text-green-600">{t('settings.emailLayoutReset')}</p>
+                  <p className="text-sm text-success">{t('settings.emailLayoutReset')}</p>
                 )}
               </div>
 

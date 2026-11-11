@@ -158,7 +158,7 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
           <SaveButton isPending={mutation.isPending} />
 
           {mutation.isSuccess && (
-            <p className="text-sm text-green-600">{t('settings.recaptchaSaved')}</p>
+            <p className="text-sm text-success">{t('settings.recaptchaSaved')}</p>
           )}
           {mutation.isError && (
             <p className="text-sm text-destructive">

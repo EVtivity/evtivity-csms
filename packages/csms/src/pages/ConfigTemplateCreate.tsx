@@ -189,7 +189,6 @@ export function ConfigTemplateCreate(): React.JSX.Element {
                 />
               </div>
               <TemplateVariableRows
-                idPrefix="create"
                 ocppVersion={ocppVersion}
                 variables={variables}
                 onChange={setVariables}

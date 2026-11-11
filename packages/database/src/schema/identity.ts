@@ -52,6 +52,8 @@ export const users = pgTable(
     language: varchar('language', { length: 10 }).notNull().default('en'),
     timezone: varchar('timezone', { length: 50 }).notNull().default('America/New_York'),
     themePreference: varchar('theme_preference', { length: 10 }).notNull().default('light'),
+    // The UI theme (default, soft, high-contrast; @evtivity/lib/ui-theme). theme_preference is the mode.
+    uiTheme: varchar('ui_theme', { length: 20 }).notNull().default('default'),
     hasAllSiteAccess: boolean('has_all_site_access').notNull().default(false),
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaMethod: varchar('mfa_method', { length: 20 }),
@@ -108,6 +110,7 @@ export const users = pgTable(
       .on(table.ssoSubject)
       .where(sql`"sso_subject" IS NOT NULL`),
     check('users_auth_source_check', sql`"auth_source" IN ('password', 'sso')`),
+    check('users_ui_theme_check', sql`"ui_theme" IN ('default', 'soft', 'high-contrast')`),
   ],
 );
 

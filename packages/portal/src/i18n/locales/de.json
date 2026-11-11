@@ -33,7 +33,17 @@
     "notCharged": "Nicht Berechnet",
     "copy": "Kopieren",
     "loadError": "Daten konnten nicht geladen werden. Bitte versuchen Sie es erneut.",
-    "retry": "Wiederholen"
+    "retry": "Wiederholen",
+    "datePicker": {
+      "open": "Kalender öffnen",
+      "title": "Datum wählen",
+      "previousMonth": "Vorheriger Monat",
+      "nextMonth": "Nächster Monat",
+      "month": "Monat",
+      "year": "Jahr",
+      "today": "Heute",
+      "clear": "Löschen"
+    }
   },
   "nav": {
     "home": "Startseite",
@@ -265,9 +275,16 @@
     "mfaDisableFailed": "MFA konnte nicht deaktiviert werden.",
     "mfaSelectMethod": "Methode auswählen",
     "timezone": "Zeitzone",
-    "theme": "Design",
+    "theme": "Modus",
     "themeLight": "Hell",
     "themeDark": "Dunkel",
+    "uiTheme": "Design",
+    "uiThemeDefault": "Standard",
+    "uiThemeSoft": "Weich",
+    "uiThemeHighContrast": "Hoher Kontrast",
+    "uiThemeDefaultDescription": "Das Standardaussehen der App.",
+    "uiThemeSoftDescription": "Rundere Ecken, hellere Rahmen und weichere Schatten.",
+    "uiThemeHighContrastDescription": "Schlichte schwarze und weiße Flächen, kräftige Rahmen und stärkere Schrift für die beste Lesbarkeit.",
     "distanceUnit": "Entfernungseinheit",
     "distanceMiles": "Meilen",
     "distanceKm": "Kilometer",

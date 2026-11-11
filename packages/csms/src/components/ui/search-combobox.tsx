@@ -169,7 +169,7 @@ export function SearchCombobox<T>({
                 setHighlight(i);
               }}
               className={cn(
-                'cursor-pointer rounded px-2 py-1.5 text-left text-sm',
+                'cursor-pointer rounded-sm px-2 py-1.5 text-left text-sm',
                 i === highlight && 'bg-accent text-accent-foreground',
               )}
             >
@@ -178,6 +178,57 @@ export function SearchCombobox<T>({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+export interface SearchComboboxSelectionProps {
+  /** Id of the field, so a `Label htmlFor` names it. */
+  id?: string | undefined;
+  /** The picked item as text (a station id, a driver name). */
+  value: string;
+  /** Clears the pick, so the search field shows again. */
+  onClear: () => void;
+  /** Accessible name of the X button. */
+  clearLabel: string;
+  'aria-label'?: string | undefined;
+  /** Draws the border in the error color (a form error after a submit). */
+  invalid?: boolean | undefined;
+  className?: string | undefined;
+}
+
+/**
+ * The picked item of a single-pick `SearchCombobox`: a read-only field with an
+ * X that clears it. Every single-pick search picker (`StationCombobox`,
+ * `DriverCombobox`) shows its pick with this, so they look the same.
+ */
+export function SearchComboboxSelection({
+  id,
+  value,
+  onClear,
+  clearLabel,
+  'aria-label': ariaLabel,
+  invalid,
+  className,
+}: SearchComboboxSelectionProps): React.JSX.Element {
+  return (
+    <div className={cn('relative', className)}>
+      <Input
+        id={id}
+        value={value}
+        readOnly
+        aria-label={ariaLabel}
+        aria-invalid={invalid === true ? true : undefined}
+        className={cn('pr-9 cursor-default', invalid === true && 'border-destructive')}
+      />
+      <button
+        type="button"
+        aria-label={clearLabel}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+        onClick={onClear}
+      >
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }

@@ -4,6 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { isBootOwnedStationSetting } from '@evtivity/lib/station-data-plan';
 import { RemoveIconButton } from '@/components/remove-icon-button';
+import { Combobox } from '@/components/ui/combobox';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
@@ -71,7 +72,6 @@ export function templateVariablesForSave(
 }
 
 interface Props {
-  idPrefix: string;
   ocppVersion: TemplateOcppVersion;
   variables: TemplateVariable[];
   onChange: (next: TemplateVariable[]) => void;
@@ -83,7 +83,6 @@ interface Props {
 
 /** The variable rows of the configuration template editor (create and edit). */
 export function TemplateVariableRows({
-  idPrefix,
   ocppVersion,
   variables,
   onChange,
@@ -158,36 +157,26 @@ export function TemplateVariableRows({
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2 items-end md:grid-cols-4">
-                <Input
-                  list={`${idPrefix}-comp-suggestions-${String(i)}`}
+                <Combobox
                   aria-label={t('configTemplates.selectComponent')}
                   placeholder={t('configTemplates.selectComponent')}
                   value={v.component}
+                  options={componentNames}
                   className={border}
-                  onChange={(e) => {
-                    update(i, 'component', e.target.value);
+                  onChange={(value) => {
+                    update(i, 'component', value);
                   }}
                 />
-                <datalist id={`${idPrefix}-comp-suggestions-${String(i)}`}>
-                  {componentNames.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
-                <Input
-                  list={`${idPrefix}-var-suggestions-${String(i)}`}
+                <Combobox
                   aria-label={t('configTemplates.selectVariable')}
                   placeholder={t('configTemplates.selectVariable')}
                   value={v.variable}
+                  options={OCPP_21_VARIABLES[v.component] ?? []}
                   className={border}
-                  onChange={(e) => {
-                    update(i, 'variable', e.target.value);
+                  onChange={(value) => {
+                    update(i, 'variable', value);
                   }}
                 />
-                <datalist id={`${idPrefix}-var-suggestions-${String(i)}`}>
-                  {(OCPP_21_VARIABLES[v.component] ?? []).map((varName) => (
-                    <option key={varName} value={varName} />
-                  ))}
-                </datalist>
                 <Input
                   aria-label={t('configTemplates.variableInstance')}
                   placeholder={t('configTemplates.variableInstance')}

@@ -72,7 +72,7 @@ export function FleetAddStation(): React.JSX.Element {
                   <button
                     key={station.id}
                     type="button"
-                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={() => {
                       setMutatingId(station.id);
                       addStationMutation.mutate(station.id);

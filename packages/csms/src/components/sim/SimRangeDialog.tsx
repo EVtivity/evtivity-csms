@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { LoadingLogo } from '@/components/loading-logo';
 import { api } from '@/lib/api';
@@ -132,29 +132,27 @@ function SimRangeForm({
         <div className="grid gap-4 sm:grid-cols-2 items-start">
           <div className="space-y-2">
             <Label htmlFor="sim-range-from">{t('common.startDate')}</Label>
-            <Input
+            <DateInput
               id="sim-range-from"
-              type="date"
               min={earliest}
               max={today}
               value={fromDate}
-              className={hasSubmitted && errorText != null ? 'border-destructive' : ''}
-              onChange={(e) => {
-                setFromDate(e.target.value);
+              invalid={hasSubmitted && errorText != null}
+              onChange={(value) => {
+                setFromDate(value);
               }}
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="sim-range-to">{t('common.endDate')}</Label>
-            <Input
+            <DateInput
               id="sim-range-to"
-              type="date"
               min={earliest}
               max={today}
               value={toDate}
-              className={hasSubmitted && errorText != null ? 'border-destructive' : ''}
-              onChange={(e) => {
-                setToDate(e.target.value);
+              invalid={hasSubmitted && errorText != null}
+              onChange={(value) => {
+                setToDate(value);
               }}
             />
           </div>

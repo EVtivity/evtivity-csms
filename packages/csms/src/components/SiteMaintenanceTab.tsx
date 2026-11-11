@@ -920,7 +920,7 @@ function EventStationList({ stations }: EventStationListProps): React.JSX.Elemen
           : t('maintenance.showStations', { count: stations.length })}
       </button>
       {expanded && (
-        <ul className="max-h-40 overflow-y-auto rounded border bg-muted/30 text-sm divide-y">
+        <ul className="max-h-40 overflow-y-auto rounded-sm border bg-muted/30 text-sm divide-y">
           {stations.map((s) => (
             <li key={s.id} className="px-2 py-1.5 font-medium">
               {s.stationId}

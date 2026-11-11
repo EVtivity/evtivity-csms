@@ -100,7 +100,7 @@ export function MarketingSettings({ settings }: MarketingSettingsProps): React.J
           }}
         />
         {marketingMutation.isSuccess && (
-          <p className="text-sm text-green-600">{t('settings.marketingSaved')}</p>
+          <p className="text-sm text-success">{t('settings.marketingSaved')}</p>
         )}
         {marketingMutation.isError && (
           <p className="text-sm text-destructive">{t('settings.marketingSaveFailed')}</p>

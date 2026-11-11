@@ -247,7 +247,7 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
             </dl>
             {station.displayMessage != null && (
               <div
-                className="mb-3 flex items-start gap-1.5 rounded border border-primary/20 bg-primary/5 px-2 py-1.5"
+                className="mb-3 flex items-start gap-1.5 rounded-sm border border-primary/20 bg-primary/5 px-2 py-1.5"
                 aria-label={t('sites.layoutView.displayMessage')}
               >
                 <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-link" aria-hidden="true" />
@@ -258,7 +258,7 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
             )}
             {station.screenMessage != null && (
               <section
-                className="mb-3 rounded border bg-muted/50 px-2 py-1.5"
+                className="mb-3 rounded-sm border bg-muted/50 px-2 py-1.5"
                 aria-label={t('sites.layoutView.screenShows')}
                 data-testid="layout-screen-message"
               >

@@ -299,6 +299,7 @@ function driverRow(over: Record<string, unknown> = {}): Record<string, unknown> 
     language: 'en',
     timezone: 'UTC',
     themePreference: 'light',
+    uiTheme: 'default',
     distanceUnit: 'km',
     priceDisplay: null,
     isActive: true,

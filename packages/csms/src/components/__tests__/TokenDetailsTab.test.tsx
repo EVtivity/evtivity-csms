@@ -199,7 +199,7 @@ describe('TokenDetailsTab expiry and deactivation', () => {
 
     fireEvent.click(screen.getByText('common.edit'));
     const date = screen.getByLabelText('tokens.expiresAt');
-    expect(date.getAttribute('type')).toBe('date');
+    expect(date.getAttribute('type')).toBe('text');
     expect(document.querySelector('input[type="datetime-local"]')).toBeNull();
     fireEvent.change(date, { target: { value: '2031-03-04' } });
     fireEvent.change(screen.getByLabelText('common.hour'), { target: { value: '17' } });

@@ -6,7 +6,15 @@ import { api, ApiError } from './api';
 import { queryClient } from './query';
 import { useAiPanelStore } from '../components/ai/use-ai-panel-store';
 import { loadLanguage } from '../i18n';
-import { applyTheme, resolveInitialTheme, type Theme } from './theme';
+import {
+  adoptUiTheme,
+  applyTheme,
+  applyUiTheme,
+  resolveInitialTheme,
+  resolveInitialUiTheme,
+  type Theme,
+  type UiTheme,
+} from './theme';
 import { mfaPendingFromReply, type MfaPendingReply, type MfaPendingState } from './mfa-pending';
 import {
   mfaEnrollmentFromReply,
@@ -28,7 +36,10 @@ export interface User {
   lastName: string | null;
   language: string;
   timezone: string;
+  /** The Mode, light or dark. */
   themePreference: Theme;
+  /** The theme: default, soft or high-contrast. */
+  uiTheme?: UiTheme;
 }
 
 interface LoginResponse {
@@ -80,7 +91,10 @@ interface AuthState {
    * false: hiding a control is the safe side, and the API enforces access anyway.
    */
   hasAllSiteAccess: boolean;
+  /** The Mode (light or dark). */
   theme: Theme;
+  /** The theme (Default, Soft, High Contrast). */
+  uiTheme: UiTheme;
   isAuthenticated: boolean;
   /** The user chose Log Out: the next sign-in opens the dashboard, not the page they left. */
   signedOut: boolean;
@@ -101,6 +115,7 @@ interface AuthState {
   setLanguage: (language: string) => Promise<void>;
   setTimezone: (timezone: string) => Promise<void>;
   setTheme: (theme: Theme) => Promise<void>;
+  setUiTheme: (uiTheme: UiTheme) => Promise<void>;
   /**
    * Apply language locally only (localStorage + loadLanguage + Zustand state).
    * Use when the caller has already persisted the value via another endpoint
@@ -114,9 +129,15 @@ interface AuthState {
 function getInitialState(): {
   role: string | null;
   theme: Theme;
+  uiTheme: UiTheme;
   isAuthenticated: boolean;
 } {
-  return { role: null, theme: resolveInitialTheme(), isAuthenticated: false };
+  return {
+    role: null,
+    theme: resolveInitialTheme(),
+    uiTheme: resolveInitialUiTheme(),
+    isAuthenticated: false,
+  };
 }
 
 const initial = getInitialState();
@@ -196,6 +217,7 @@ export const useAuth = create<AuthState>((set, get) => ({
   permissions: [],
   hasAllSiteAccess: false,
   theme: initial.theme,
+  uiTheme: initial.uiTheme,
   isAuthenticated: initial.isAuthenticated,
   signedOut: false,
   isHydrating: true,
@@ -230,6 +252,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('timezone', loginData.user.timezone);
     localStorage.setItem('theme', loginData.user.themePreference);
     applyTheme(loginData.user.themePreference);
+    const uiTheme = adoptUiTheme(loginData.user.uiTheme);
     await loadLanguage(loginData.user.language);
     adoptCacheFor(loginData.user.id);
 
@@ -241,6 +264,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       permissions: access.permissions,
       hasAllSiteAccess: access.hasAllSiteAccess,
       theme: loginData.user.themePreference,
+      uiTheme,
       isAuthenticated: true,
       signedOut: false,
       mfaPending: null,
@@ -254,6 +278,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('timezone', user.timezone);
     localStorage.setItem('theme', user.themePreference);
     applyTheme(user.themePreference);
+    const uiTheme = adoptUiTheme(user.uiTheme);
     await loadLanguage(user.language);
     adoptCacheFor(user.id);
 
@@ -265,6 +290,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       permissions: access.permissions,
       hasAllSiteAccess: access.hasAllSiteAccess,
       theme: user.themePreference,
+      uiTheme,
       isAuthenticated: true,
       signedOut: false,
       mfaPending: null,
@@ -326,6 +352,7 @@ export const useAuth = create<AuthState>((set, get) => ({
         localStorage.setItem('timezone', me.timezone);
         localStorage.setItem('theme', me.themePreference);
         applyTheme(me.themePreference);
+        const uiTheme = adoptUiTheme(me.uiTheme);
         void loadLanguage(me.language);
         adoptCacheFor(me.id);
         set({
@@ -337,8 +364,10 @@ export const useAuth = create<AuthState>((set, get) => ({
             language: me.language,
             timezone: me.timezone,
             themePreference: me.themePreference,
+            uiTheme,
           },
           theme: me.themePreference,
+          uiTheme,
           role: me.role?.name ?? null,
           permissions: me.permissions,
           hasAllSiteAccess: me.hasAllSiteAccess,
@@ -398,6 +427,17 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (user != null) {
       set({ user: { ...user, themePreference: theme } });
       await api.patch('/v1/users/me', { themePreference: theme });
+    }
+  },
+
+  setUiTheme: async (uiTheme: UiTheme) => {
+    localStorage.setItem('ui_theme', uiTheme);
+    applyUiTheme(uiTheme);
+    set({ uiTheme });
+    const user = get().user;
+    if (user != null) {
+      set({ user: { ...user, uiTheme } });
+      await api.patch('/v1/users/me', { uiTheme });
     }
   },
 

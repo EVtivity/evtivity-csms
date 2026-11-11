@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { SaveButton } from '@/components/save-button';
 import { Select } from '@/components/ui/select';
@@ -255,14 +256,13 @@ function DepartureForm({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-start">
         <div className="grid gap-2">
           <Label htmlFor="departure-date">{t('fleets.departures.departureDate')}</Label>
-          <Input
+          <DateInput
             id="departure-date"
-            type="date"
             value={date}
-            onChange={(e) => {
-              setDate(e.target.value);
+            onChange={(value) => {
+              setDate(value);
             }}
-            className={shown('when') != null ? 'border-destructive' : ''}
+            invalid={shown('when') != null}
           />
         </div>
         <div className="grid gap-2">
@@ -284,14 +284,13 @@ function DepartureForm({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 items-start">
         <div className="grid gap-2">
           <Label htmlFor="departure-arrival-date">{t('fleets.departures.arrivalDate')}</Label>
-          <Input
+          <DateInput
             id="departure-arrival-date"
-            type="date"
             value={arrivalDate}
-            onChange={(e) => {
-              setArrivalDate(e.target.value);
+            onChange={(value) => {
+              setArrivalDate(value);
             }}
-            className={shown('arrival') != null ? 'border-destructive' : ''}
+            invalid={shown('arrival') != null}
           />
         </div>
         <div className="grid gap-2">

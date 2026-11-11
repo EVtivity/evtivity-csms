@@ -78,7 +78,7 @@ function DetailRow({ log, colSpan }: { log: AccessLog; colSpan: number }): React
           {body != null && (
             <div className="md:col-span-2">
               <p className="font-medium text-muted-foreground mb-1">{t('logs.requestBody')}</p>
-              <div className="rounded border bg-background p-3 font-mono text-xs whitespace-pre-wrap">
+              <div className="rounded-sm border bg-background p-3 font-mono text-xs whitespace-pre-wrap">
                 {JSON.stringify(body, null, 2)}
               </div>
             </div>

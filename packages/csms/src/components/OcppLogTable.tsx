@@ -114,7 +114,7 @@ export function OcppLogTable({
               onChange={(e) => {
                 onActionFilterChange(e.target.value);
               }}
-              className="px-2 pr-8 text-xs"
+              className="w-auto"
             >
               <option value="">{t('ocppLogs.allActions')}</option>
               {actions.map((a) => (
@@ -170,7 +170,7 @@ export function OcppLogTable({
                       {showStationColumn && <TableCell>{log.stationOcppId ?? 'n/a'}</TableCell>}
                       <TableCell>
                         <span className="flex items-center gap-1">
-                          <span className="font-medium text-blue-600 dark:text-blue-400">CSMS</span>
+                          <span className="font-medium text-link">CSMS</span>
                           {isCsms ? (
                             <ArrowRight className="h-3 w-3" />
                           ) : (
@@ -218,7 +218,7 @@ export function OcppLogTable({
                             </p>
                           )}
                           {log.payload != null && Object.keys(log.payload).length > 0 && (
-                            <pre className="text-xs bg-background rounded p-2 overflow-x-auto max-h-64">
+                            <pre className="text-xs bg-background rounded-sm p-2 overflow-x-auto max-h-64">
                               {JSON.stringify(log.payload, null, 2)}
                             </pre>
                           )}

@@ -164,7 +164,7 @@ export function TemplateEditor({
                 onClick={() => {
                   handleVariableClick(v.name);
                 }}
-                className="cursor-pointer px-2 py-1 bg-muted rounded text-sm select-none hover:bg-muted/80 transition-colors"
+                className="cursor-pointer px-2 py-1 bg-muted rounded-sm text-sm select-none hover:bg-muted/80 transition-colors"
                 title={v.description}
               >
                 {`{{${v.name}}}`}

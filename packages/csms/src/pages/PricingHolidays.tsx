@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { CreateButton } from '@/components/create-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import {
   Table,
@@ -244,13 +245,12 @@ export function PricingHolidays(): React.JSX.Element {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="holiday-date">{t('pricing.holidayDate')}</Label>
-                <Input
+                <DateInput
                   id="holiday-date"
-                  type="date"
                   aria-label={t('pricing.holidayDate')}
                   value={date}
-                  onChange={(e) => {
-                    setDate(e.target.value);
+                  onChange={(value) => {
+                    setDate(value);
                   }}
                 />
               </div>

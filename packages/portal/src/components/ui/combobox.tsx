@@ -16,7 +16,7 @@ interface ComboboxProps extends Omit<InputProps, 'onChange'> {
 /**
  * Free-text input with a typeahead suggestions popup. The user can either
  * pick from the filtered list or type a value not in the list. Built for
- * Safari (the native HTML <datalist> does not show a visible dropdown
+ * Safari (the native HTML datalist element does not show a visible dropdown
  * affordance there). Keyboard: arrow keys navigate, Enter selects, Esc closes.
  */
 export const Combobox = React.forwardRef<HTMLInputElement, ComboboxProps>(

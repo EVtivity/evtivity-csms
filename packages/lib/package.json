@@ -20,6 +20,9 @@
     "./admin-equivalent": {
       "import": "./src/admin-equivalent.ts"
     },
+    "./calendar-date": {
+      "import": "./src/calendar-date.ts"
+    },
     "./currency": {
       "import": "./src/currency.ts"
     },
@@ -139,6 +142,12 @@
     },
     "./account-avatar": {
       "import": "./src/account-avatar.ts"
+    },
+    "./ui-theme": {
+      "import": "./src/ui-theme.ts"
+    },
+    "./ui-theme-tokens": {
+      "import": "./src/ui-theme-tokens.ts"
     },
     "./storage-upload": {
       "import": "./src/storage-upload.ts"

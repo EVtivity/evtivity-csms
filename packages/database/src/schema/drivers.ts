@@ -51,6 +51,8 @@ export const drivers = pgTable(
     language: varchar('language', { length: 10 }).notNull().default('en'),
     timezone: varchar('timezone', { length: 50 }).notNull().default('America/New_York'),
     themePreference: varchar('theme_preference', { length: 10 }).notNull().default('light'),
+    // The UI theme (default, soft, high-contrast; @evtivity/lib/ui-theme). theme_preference is the mode.
+    uiTheme: varchar('ui_theme', { length: 20 }).notNull().default('default'),
     distanceUnit: varchar('distance_unit', { length: 10 }).notNull().default('miles'),
     // 'gross' or 'net'. Null follows the company setting company.priceDisplay.
     priceDisplay: varchar('price_display', { length: 10 }),
@@ -102,6 +104,7 @@ export const drivers = pgTable(
   },
   (table) => [
     index('idx_drivers_email').on(table.email),
+    check('drivers_ui_theme_check', sql`"ui_theme" IN ('default', 'soft', 'high-contrast')`),
     check(
       'drivers_avatar_check',
       sql`(${table.avatarKind} IS NULL AND ${table.avatarOptions} IS NULL AND ${table.avatarS3Key} IS NULL AND ${table.avatarS3Bucket} IS NULL)

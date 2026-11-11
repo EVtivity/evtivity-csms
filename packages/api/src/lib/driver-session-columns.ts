@@ -13,6 +13,7 @@ export const driverSessionColumns = {
   language: drivers.language,
   timezone: drivers.timezone,
   themePreference: drivers.themePreference,
+  uiTheme: drivers.uiTheme,
   distanceUnit: drivers.distanceUnit,
   priceDisplay: drivers.priceDisplay,
   isActive: drivers.isActive,

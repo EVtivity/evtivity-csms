@@ -5,7 +5,14 @@ import { create } from 'zustand';
 import { api, ApiError } from './api';
 import { queryClient } from './query';
 import { loadLanguage } from '../i18n/index';
-import { applyTheme, type Theme } from './theme';
+import {
+  adoptUiTheme,
+  applyTheme,
+  applyUiTheme,
+  storedUiTheme,
+  type Theme,
+  type UiTheme,
+} from './theme';
 import { mfaPendingFromReply, type MfaPendingReply, type MfaPendingState } from './mfa-pending';
 import {
   isMfaEnrollmentReply,
@@ -23,7 +30,10 @@ export interface Driver {
   phone: string | null;
   language: string;
   timezone: string;
+  /** The Mode, light or dark. */
   themePreference: Theme;
+  /** The theme: default, soft or high-contrast. */
+  uiTheme?: UiTheme;
   distanceUnit: 'miles' | 'km';
   // Null follows the company setting (see usePriceDisplay).
   priceDisplay: PriceDisplay | null;
@@ -40,7 +50,10 @@ interface AuthState {
   isAuthenticated: boolean;
   isHydrating: boolean;
   apiDown: boolean;
+  /** The Mode (light or dark). */
   theme: Theme;
+  /** The theme (Default, Soft, High Contrast). */
+  uiTheme: UiTheme;
   mfaPending: MfaPendingState | null;
   /** Required MFA: the setup the sign-in asks for before it issues a session. Memory only. */
   mfaEnrollment: MfaEnrollmentState | null;
@@ -67,10 +80,12 @@ interface AuthState {
   setLanguage: (lang: string) => Promise<void>;
   setTimezone: (tz: string) => Promise<void>;
   setTheme: (theme: Theme) => Promise<void>;
+  setUiTheme: (uiTheme: UiTheme) => Promise<void>;
   setDistanceUnit: (unit: 'miles' | 'km') => Promise<void>;
   applyLanguageLocal: (lang: string) => Promise<void>;
   applyTimezoneLocal: (tz: string) => void;
   applyThemeLocal: (theme: Theme) => void;
+  applyUiThemeLocal: (uiTheme: UiTheme) => void;
   applyDistanceUnitLocal: (unit: 'miles' | 'km') => void;
 }
 
@@ -80,6 +95,7 @@ export const useAuth = create<AuthState>((set, get) => ({
   isHydrating: true,
   apiDown: false,
   theme: localStorage.getItem('portal_theme') === 'dark' ? 'dark' : 'light',
+  uiTheme: storedUiTheme(),
   mfaPending: null,
   mfaEnrollment: null,
 
@@ -106,10 +122,12 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('portal_theme', loginData.driver.themePreference);
     localStorage.setItem('portal_distance_unit', loginData.driver.distanceUnit);
     applyTheme(loginData.driver.themePreference);
+    const uiTheme = adoptUiTheme(loginData.driver.uiTheme);
     await loadLanguage(loginData.driver.language);
     set({
       driver: loginData.driver,
       theme: loginData.driver.themePreference,
+      uiTheme,
       isAuthenticated: true,
       mfaPending: null,
     });
@@ -128,10 +146,12 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('portal_theme', driver.themePreference);
     localStorage.setItem('portal_distance_unit', driver.distanceUnit);
     applyTheme(driver.themePreference);
+    const uiTheme = adoptUiTheme(driver.uiTheme);
     await loadLanguage(driver.language);
     set({
       driver,
       theme: driver.themePreference,
+      uiTheme,
       isAuthenticated: true,
       mfaPending: null,
       mfaEnrollment: null,
@@ -166,6 +186,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.removeItem('portal_language');
     localStorage.removeItem('portal_timezone');
     localStorage.removeItem('portal_theme');
+    localStorage.removeItem('portal_ui_theme');
     localStorage.removeItem('portal_distance_unit');
     set({ driver: null, isAuthenticated: false });
     // Drop every cached driver query (billing, sessions, payment methods), so
@@ -181,8 +202,15 @@ export const useAuth = create<AuthState>((set, get) => ({
         localStorage.setItem('portal_timezone', driver.timezone);
         localStorage.setItem('portal_theme', driver.themePreference);
         applyTheme(driver.themePreference);
+        const uiTheme = adoptUiTheme(driver.uiTheme);
         void loadLanguage(driver.language);
-        set({ driver, isAuthenticated: true, isHydrating: false, theme: driver.themePreference });
+        set({
+          driver,
+          isAuthenticated: true,
+          isHydrating: false,
+          theme: driver.themePreference,
+          uiTheme,
+        });
       })
       .catch((err: unknown) => {
         if (err instanceof TypeError || (err instanceof ApiError && err.isServerDown)) {
@@ -228,6 +256,17 @@ export const useAuth = create<AuthState>((set, get) => ({
     }
   },
 
+  setUiTheme: async (uiTheme: UiTheme) => {
+    localStorage.setItem('portal_ui_theme', uiTheme);
+    applyUiTheme(uiTheme);
+    set({ uiTheme });
+    const driver = get().driver;
+    if (driver != null) {
+      set({ driver: { ...driver, uiTheme } });
+      await api.patch('/v1/portal/driver/profile', { uiTheme });
+    }
+  },
+
   setDistanceUnit: async (unit: 'miles' | 'km') => {
     localStorage.setItem('portal_distance_unit', unit);
     const driver = get().driver;
@@ -260,6 +299,13 @@ export const useAuth = create<AuthState>((set, get) => ({
     set({ theme });
     const driver = get().driver;
     if (driver != null) set({ driver: { ...driver, themePreference: theme } });
+  },
+  applyUiThemeLocal: (uiTheme: UiTheme) => {
+    localStorage.setItem('portal_ui_theme', uiTheme);
+    applyUiTheme(uiTheme);
+    set({ uiTheme });
+    const driver = get().driver;
+    if (driver != null) set({ driver: { ...driver, uiTheme } });
   },
   applyDistanceUnitLocal: (unit: 'miles' | 'km') => {
     localStorage.setItem('portal_distance_unit', unit);

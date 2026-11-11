@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import {
@@ -252,14 +252,13 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
               <Label htmlFor="invoice-start-date" className="leading-6">
                 {t('invoices.startDate')}
               </Label>
-              <Input
+              <DateInput
                 id="invoice-start-date"
-                type="date"
                 value={startDate}
-                onChange={(e) => {
-                  setStartDate(e.target.value);
+                onChange={(value) => {
+                  setStartDate(value);
                 }}
-                className={hasSubmitted && errors['startDate'] != null ? 'border-destructive' : ''}
+                invalid={hasSubmitted && errors['startDate'] != null}
               />
               {hasSubmitted && errors['startDate'] != null && (
                 <p className="text-sm text-destructive">{errors['startDate']}</p>
@@ -269,14 +268,13 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
               <Label htmlFor="invoice-end-date" className="leading-6">
                 {t('invoices.endDate')}
               </Label>
-              <Input
+              <DateInput
                 id="invoice-end-date"
-                type="date"
                 value={endDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value);
+                onChange={(value) => {
+                  setEndDate(value);
                 }}
-                className={hasSubmitted && errors['endDate'] != null ? 'border-destructive' : ''}
+                invalid={hasSubmitted && errors['endDate'] != null}
               />
               {hasSubmitted && errors['endDate'] != null && (
                 <p className="text-sm text-destructive">{errors['endDate']}</p>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it } from 'vitest';
-import csmsCss from '../../index.css?raw';
+import csmsCss from '../../themes.css?raw';
 import { STATUS_ICON_COLORS, statusIconColor } from '../chart-theme';
 
 /**

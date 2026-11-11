@@ -9,7 +9,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Download, Leaf, Zap, Activity, TreePine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Select } from '@/components/ui/select';
 import {
   Table,
@@ -163,23 +163,21 @@ export function SustainabilityTab(): React.JSX.Element {
     <div className="space-y-6">
       <Card>
         <CardContent className="flex flex-wrap items-center gap-2 pt-6">
-          <Input
-            type="date"
+          <DateInput
             aria-label={t('common.startDate')}
             value={fromDate}
-            onChange={(e) => {
-              setFromDate(e.target.value);
+            onChange={(value) => {
+              setFromDate(value);
             }}
             className="w-auto"
             max={toDate}
           />
           <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
-          <Input
-            type="date"
+          <DateInput
             aria-label={t('common.endDate')}
             value={toDate}
-            onChange={(e) => {
-              setToDate(e.target.value);
+            onChange={(value) => {
+              setToDate(value);
             }}
             className="w-auto"
             min={fromDate}

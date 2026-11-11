@@ -130,7 +130,7 @@ export function PdfBrandingSettings({ settings }: Props): React.JSX.Element {
         <div className="space-y-2">
           <Label className="leading-6">{t('settings.pdfLogo')}</Label>
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex h-20 w-64 items-center justify-center rounded border bg-white p-2">
+            <div className="flex h-20 w-64 items-center justify-center rounded-sm border bg-white p-2">
               <img
                 src={isDefaultLogo ? defaultPdfLogoDataUri() : storedLogo}
                 alt={t('settings.pdfLogo')}

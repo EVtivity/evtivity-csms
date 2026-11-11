@@ -26,7 +26,7 @@ export function LinkIconButton({ href, title, disabled }: LinkIconButtonProps): 
       >
         <ExternalLink className={iconClass} />
       </Button>
-      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-50 hidden rounded bg-foreground px-2 py-1 text-xs text-background whitespace-nowrap group-hover:block">
+      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-50 hidden rounded-sm bg-foreground px-2 py-1 text-xs text-background whitespace-nowrap group-hover:block">
         {title}
       </span>
     </span>

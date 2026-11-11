@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { Pause, Play, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Select } from '@/components/ui/select';
 import { LoadingLogo } from '@/components/loading-logo';
 import { localDate, REPLAY_SPEEDS, type ReplaySpeed } from './site-layout-replay';
@@ -95,15 +96,13 @@ export function LayoutReplayBar({
         <label htmlFor={dateId} className="text-muted-foreground">
           {t('sites.layoutView.replayDay')}
         </label>
-        <Input
+        <DateInput
           id={dateId}
-          type="date"
           className="w-auto"
           value={date}
           min={earliest}
           max={today}
-          onChange={(e) => {
-            const value = e.target.value;
+          onChange={(value) => {
             if (value !== '' && value >= earliest && value <= today) onDateChange(value);
           }}
         />
