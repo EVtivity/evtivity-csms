@@ -822,8 +822,8 @@
             "id": "tfm_66e917b3c04a",
             "kind": "service",
             "name": "Bus Charging Transformer",
-            "ratedKva": 2000,
-            "maxContinuousKw": 1900
+            "ratedKva": 2500,
+            "maxContinuousKw": 2375
           },
           {
             "id": "tfm_019cc1ea0e79",
@@ -879,8 +879,8 @@
             {
               "id": "cir_demoevse46",
               "name": "Charger CS-3046",
-              "breakerRatingAmps": 300,
-              "maxContinuousKw": 199.44
+              "breakerRatingAmps": 600,
+              "maxContinuousKw": 398.88
             }
           ]
         },
@@ -948,7 +948,7 @@
           "row": 0,
           "circuitId": "cir_demolayout10",
           "free": null,
-          "evses": 2
+          "evses": 1
         },
         {
           "id": "sta_demolayout46",
@@ -1244,6 +1244,66 @@
           "circuitId": "cir_demoevse61",
           "free": null,
           "evses": 2
+        }
+      ]
+    },
+    {
+      "id": "sit_demogarage01",
+      "name": "Parkhaus Lindenhof",
+      "settings": {
+        "siteType": "parking_lot",
+        "spotsPerRow": 18,
+        "rows": 2,
+        "facingDeg": 0,
+        "chargerPlacement": "islands",
+        "transformers": [
+          {
+            "id": "tfm_fc68c23245fe",
+            "x": -2.5,
+            "z": 2.5
+          }
+        ],
+        "energyAssets": []
+      },
+      "powerEquipment": {
+        "transformers": [
+          {
+            "id": "tfm_fc68c23245fe",
+            "kind": "service",
+            "name": "Utility Transformer",
+            "ratedKva": 225,
+            "maxContinuousKw": 213.75
+          }
+        ],
+        "energyAssets": []
+      },
+      "panels": [
+        {
+          "id": "pnl_demogarage01",
+          "parentPanelId": null,
+          "transformerId": "tfm_fc68c23245fe",
+          "name": "Main Distribution Board",
+          "breakerRatingAmps": 400,
+          "maxContinuousKw": 220.8,
+          "circuits": [
+            {
+              "id": "cir_demogarage01",
+              "name": "EM4-MASTER-01 Boxes 1 to 8",
+              "breakerRatingAmps": 350,
+              "maxContinuousKw": 193.2
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "id": "sta_demounits001",
+          "kind": "ac",
+          "col": 0,
+          "row": 0,
+          "circuitId": "cir_demogarage01",
+          "free": null,
+          "evses": 16
         }
       ]
     }

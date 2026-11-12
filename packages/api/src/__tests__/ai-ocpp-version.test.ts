@@ -168,6 +168,13 @@ describe('AI OCPP version mapping', () => {
       'ocppv16_UnlockConnector',
       { connectorId: 2 },
     ],
+    // The CSMS stores a 1.6 connector N as EVSE N with connector N.
+    [
+      'ocppv21_unlock_connector',
+      { evseId: 3, connectorId: 3 },
+      'ocppv16_UnlockConnector',
+      { connectorId: 3 },
+    ],
     [
       'ocppv21_request_start_transaction',
       { remoteStartId: 5, idToken: { idToken: 'TAG1', type: 'ISO14443' }, evseId: 2 },

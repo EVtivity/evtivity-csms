@@ -56,7 +56,8 @@ describe('station watch alerts', () => {
     expect(await findDueStationWatch(sql, 'sta_1')).toBe('CS-1');
     expect(calls[0]?.text).toContain('FROM station_watches w');
     expect(calls[0]?.text).toContain('w.expires_at > now()');
-    expect(calls[0]?.values).toContain(availableEvseCountSql('cs'));
+    // A unit watch counts only the EVSEs of its unit.
+    expect(calls[0]?.values).toContain(availableEvseCountSql('cs', 'w.unit_id'));
     expect(calls[0]?.values).toContain('sta_1');
   });
 
@@ -81,11 +82,19 @@ describe('station watch alerts', () => {
   });
 
   it('claims the watches in one statement only while the station is free', async () => {
-    results = [[{ driver_id: 'drv_1' }, { driver_id: 'drv_2' }]];
-    expect(await claimStationWatches(sql, 'CS-1')).toEqual(['drv_1', 'drv_2']);
+    results = [
+      [
+        { driver_id: 'drv_1', unit_name: null },
+        { driver_id: 'drv_2', unit_name: 'Box 3' },
+      ],
+    ];
+    expect(await claimStationWatches(sql, 'CS-1')).toEqual([
+      { driverId: 'drv_1', unitName: null },
+      { driverId: 'drv_2', unitName: 'Box 3' },
+    ]);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.text).toContain('DELETE FROM station_watches');
-    expect(calls[0]?.text).toContain('RETURNING w.driver_id');
-    expect(calls[0]?.values).toContain(availableEvseCountSql('cs'));
+    expect(calls[0]?.text).toContain('RETURNING w.driver_id, w.unit_id');
+    expect(calls[0]?.values).toContain(availableEvseCountSql('cs', 'w.unit_id'));
   });
 });

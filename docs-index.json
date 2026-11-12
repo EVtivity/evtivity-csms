@@ -315,9 +315,19 @@
     "description": "Per-entity history of every operator-initiated change across sites, stations, drivers, fleets, users, support cases, certificates, settings, and more."
   },
   {
+    "path": "/docs/guides/charging-site-connection-setups",
+    "title": "Charging Site Connection Setups",
+    "description": "The five ways a charging site connects to EVtivity over OCPP, what the CSMS sees in each, and when station units apply."
+  },
+  {
     "path": "/docs/guides/ev-charging-behaviors",
     "title": "EV Charging Behaviors",
     "description": "Vehicle-specific quirks that surface in OCPP states. When a station reports SuspendedEV, prolonged EVConnected, or unusual stop reasons, the cause is usually on the vehicle side."
+  },
+  {
+    "path": "/docs/guides/evses-and-connectors",
+    "title": "EVSEs and Connectors",
+    "description": "How OCPP 1.6, 2.0.1 and 2.1 describe EVSEs and connectors, how EVtivity stores them, and what operators and drivers see."
   },
   {
     "path": "/docs/guides/how-drivers-start-and-pay",

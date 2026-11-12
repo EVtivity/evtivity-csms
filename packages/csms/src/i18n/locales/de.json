@@ -2013,7 +2013,8 @@
     "endSessionConfirmDescription": "Die Ladestation {{station}} ist offline. Das CSMS schließt die Sitzung jetzt ohne die Ladestation ab und berechnet sie zur zuletzt gemessenen Energie, {{energy}}. Eine Stopp- oder Ende-Nachricht, die die Ladestation nach dem erneuten Verbinden sendet, öffnet die Sitzung nicht wieder und berechnet sie nicht erneut.",
     "endSessionConfirmDescriptionWithCost": "Die Ladestation {{station}} ist offline. Das CSMS schließt die Sitzung jetzt ohne die Ladestation ab und berechnet sie zur zuletzt gemessenen Energie, {{energy}}, bisher {{cost}}. Eine Stopp- oder Ende-Nachricht, die die Ladestation nach dem erneuten Verbinden sendet, öffnet die Sitzung nicht wieder und berechnet sie nicht erneut.",
     "endSessionRequested": "Abschluss der Sitzung angefordert",
-    "endSessionFailed": "Sitzung konnte nicht abgeschlossen werden"
+    "endSessionFailed": "Sitzung konnte nicht abgeschlossen werden",
+    "unit": "Einheit"
   },
   "drivers": {
     "title": "Fahrer",
@@ -4793,6 +4794,9 @@
     "STATION_HAS_SIM": "Dieser Station ist bereits eine SIM zugeordnet. Heben Sie die Zuordnung zuerst auf",
     "STATION_ID_EXISTS": "Eine Station mit dieser ID existiert bereits",
     "STATION_NOT_FOUND": "Station nicht gefunden",
+    "STATION_UNIT_NOT_FOUND": "Einheit nicht gefunden",
+    "STATION_UNIT_NAME_IN_USE": "Eine andere Einheit dieser Ladestation hat bereits diesen Namen",
+    "STATION_UNIT_LIMIT_REACHED": "Eine Ladestation hat höchstens 64 Einheiten",
     "STATION_OFFLINE": "Station ist offline",
     "STATION_ONLINE": "Die Ladestation ist online. Stoppen Sie den Ladevorgang an der Ladestation.",
     "STATION_REJECTED": "Station hat Start abgelehnt: ...",
@@ -6292,6 +6296,7 @@
       "display_message_cleared": "Displaynachricht gelöscht",
       "nevi_data_changed": "NEVI-Daten geändert",
       "evse_changed": "EVSE geändert",
+      "unit_changed": "Einheit geändert",
       "monitoring_changed": "Überwachung geändert",
       "alert_acknowledged": "Warnung bestätigt",
       "payment_method_added": "Zahlungsmethode hinzugefügt",
@@ -7728,5 +7733,34 @@
     },
     "replacePassword": "Passwort ersetzen",
     "replacePasswordConfirm": "Das aktuelle Passwort funktioniert sofort nicht mehr und das Depotsystem bleibt getrennt, bis der Anbieter das neue eingibt."
+  },
+  "layout": {
+    "units": {
+      "chargerName": "{{station}}, {{unit}}",
+      "plateLabel": "{{unit}}, EVSE {{evses}}",
+      "and": "und"
+    }
+  },
+  "stationUnits": {
+    "title": "Einheiten",
+    "description": "Die physischen Ladeboxen dieser Ladestation, etwa eine Master-Box und ihre Erweiterungen. Fahrer sehen jede Einheit als eigenen Ladepunkt; Sitzungen und Befehle bleiben bei der Ladestation.",
+    "addUnit": "Einheit Hinzufügen",
+    "renameUnit": "Einheit Umbenennen",
+    "deleteUnit": "Einheit Löschen",
+    "deleteConfirm": "{{name}} löschen? Ihre EVSEs bleiben ohne Einheit an der Ladestation, und Favoriten und Beobachtungen der Fahrer für sie werden entfernt.",
+    "unitName": "Name der Einheit",
+    "evses": "EVSEs",
+    "noEvses": "Keine EVSEs",
+    "noUnit": "Keine Einheit",
+    "evsesWithoutUnit": "EVSEs ohne Einheit",
+    "assignTitle": "Einheiten der EVSEs",
+    "empty": "Diese Ladestation hat keine Einheiten. Fügen Sie eine Einheit hinzu, um ihre EVSEs nach physischer Ladebox zu gruppieren.",
+    "evseCount_one": "{{count}} EVSE",
+    "evseCount_other": "{{count}} EVSEs",
+    "unitCount_one": "{{count}} Einheit",
+    "unitCount_other": "{{count}} Einheiten",
+    "unassignedNotice_one": "{{count}} EVSE hat keine Einheit. Fahrer sehen ihn als weiteren Ladepunkt mit dem Namen der Ladestation.",
+    "unassignedNotice_other": "{{count}} EVSEs haben keine Einheit. Fahrer sehen sie als weiteren Ladepunkt mit dem Namen der Ladestation.",
+    "manageUnits": "Einheiten Verwalten"
   }
 }

@@ -6,7 +6,8 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// P3: station_layout_positions and sites.layout_settings have one writer, packages/database/src/lib/station-layout.ts.
+// P3: station_layout_positions, station_unit_board_positions and sites.layout_settings have one
+// writer, packages/database/src/lib/station-layout.ts.
 // Station create, the CSV import, a site move and the layout Save call it, so a
 // station is always placed on a free slot of its own site.
 
@@ -19,6 +20,9 @@ const ALLOWED = /^database\/src\/lib\/station-layout\.ts$/;
 const WRITE_PATTERNS: RegExp[] = [
   /\.(?:insert|update|delete)\(\s*stationLayoutPositions\s*\)/g,
   /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?station_layout_positions"?/gi,
+  // The 2D board cards of units (a unit delete removes its card by cascade).
+  /\.(?:insert|update|delete)\(\s*stationUnitBoardPositions\s*\)/g,
+  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?station_unit_board_positions"?/gi,
   // sites.layout_settings (the lot and the transformers).
   /\.set\(\{[^}]*\blayoutSettings\b/g,
   /"?layout_settings"?\s*=/g,
@@ -65,7 +69,7 @@ function findWrites(): string[] {
 }
 
 describe('station layout writer guard', () => {
-  it('writes station_layout_positions and sites.layout_settings only in lib/station-layout.ts', () => {
+  it('writes station_layout_positions, station_unit_board_positions and sites.layout_settings only in lib/station-layout.ts', () => {
     expect(findWrites()).toEqual([]);
   });
 
@@ -75,5 +79,18 @@ describe('station layout writer guard', () => {
     expect(pattern).toBeDefined();
     pattern!.lastIndex = 0;
     expect(pattern!.test(text)).toBe(true);
+  });
+
+  it('finds a unit board card write outside the module', () => {
+    for (const text of [
+      'await tx.delete(stationUnitBoardPositions).where(x);',
+      'INSERT INTO station_unit_board_positions (unit_id) VALUES ($1)',
+    ]) {
+      const hits = WRITE_PATTERNS.filter((p) => {
+        p.lastIndex = 0;
+        return p.test(text);
+      });
+      expect(hits.length).toBeGreaterThan(0);
+    }
   });
 });

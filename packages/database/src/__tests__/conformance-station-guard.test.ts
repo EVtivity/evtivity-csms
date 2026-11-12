@@ -70,6 +70,7 @@ const BY_ID_ONLY = new Set([
   'api/src/services/ai/engine/explain-context.ts',
   'api/src/services/free-vend.service.ts',
   'api/src/services/session-rebill.service.ts',
+  'api/src/services/station-unit.service.ts',
   'api/src/services/station-ai-insights.service.ts',
   'api/src/services/station-evse-retire.service.ts',
   'api/src/services/station-onboarding.service.ts',
@@ -92,6 +93,8 @@ const BY_ID_ONLY = new Set([
   'database/src/lib/session-site.ts',
   'database/src/lib/station-offline.ts',
   'database/src/lib/station-status.ts',
+  // Units of one station, locked and read by its id.
+  'database/src/lib/station-units.ts',
   'database/src/lib/station-watch.ts',
   'database/src/lib/tariff-resolution.ts',
   'database/src/lib/vehicle-departures.ts',

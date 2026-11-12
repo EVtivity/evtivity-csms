@@ -59,6 +59,13 @@ const { mockEvseAvailableSql, mockEvseOpenToDriversSql, mockSqlRaw } = vi.hoiste
   mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
 }));
 
+// Stations of these tests have no units: the unit loader reads nothing.
+vi.mock('../lib/portal-units.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/portal-units.js')>()),
+  loadStationDriverUnits: vi.fn(() => Promise.resolve(new Map())),
+  extraUnitChargerCount: vi.fn(() => Promise.resolve(0)),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
@@ -75,6 +82,7 @@ vi.mock('@evtivity/database', async () => ({
   client: { end: vi.fn() },
   chargingStations: {},
   evses: {},
+  stationUnits: {},
   connectors: {},
   sites: {},
   chargingSessions: {},
@@ -301,6 +309,8 @@ describe('Portal location routes', () => {
         stationId: 'CS-0250',
         stationName: 'CS-0250',
         evseId: 1,
+        unitId: null,
+        unitName: null,
         connectorType: 'CCS2',
         maxPowerKw: '50',
         status: 'available',

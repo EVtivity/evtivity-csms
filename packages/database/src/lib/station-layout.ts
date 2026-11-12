@@ -1,7 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// The one writer of station_layout_positions and of a site's layout settings
+// The one writer of station_layout_positions, of station_unit_board_positions
+// (the 2D board card of each unit of a station with units, written with the
+// layout Save and pruned when the station leaves the site; a deleted unit's
+// row goes by cascade) and of a site's layout settings
 // (sites.layout_settings: the site type and the fields of every type). A
 // station that gets a site (create, CSV import, site move) is placed on the
 // first free spot of that site's layout (the rows below it when every spot is
@@ -32,18 +35,23 @@
 // that turns into one of these types regroups its stations
 // (`fitGroupedPositions`). A layout Save keeps the positions an operator set.
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
+  bayInLayout,
   effectiveLayoutSettings,
+  heldSpots,
+  spanSpots,
   firstFreePlacement,
   firstFreeSlotFor,
   sharesSpotPair,
-  splitDispenserCount,
+  stationFreeSpotCount,
+  stationSpanCount,
+  stationUnitChargers,
+  unitChargerKinds,
   fitFreePlacementsInReach,
   fitGroupedPositions,
   fitPositionsToGrid,
   freePlacementFromSlot,
-  freeSpotCount,
   freeFootprintsOverlap,
   freeSlotsFor,
   layoutStationCountsOfKinds,
@@ -79,6 +87,8 @@ import {
   evses,
   sites,
   stationLayoutPositions,
+  stationUnitBoardPositions,
+  stationUnits,
 } from '../schema/assets.js';
 import { circuits, panels, siteEnergyAssets, transformers } from '../schema/load-management.js';
 import { isOperatorStation } from './conformance-stations.js';
@@ -101,6 +111,23 @@ export interface LayoutPosition {
    * one. Never moves the 3D spot.
    */
   board?: { x: number; y: number } | null | undefined;
+  /**
+   * The 2D board cards of the station's units (a station with units shows
+   * one card per unit): a position, or null to clear it (the card shows its
+   * computed default slot). Units left out keep their stored card. Every unit
+   * must be a unit of this station (LayoutUnitNotFoundError otherwise).
+   */
+  unitBoards?:
+    | ReadonlyArray<{ unitId: string; board: { x: number; y: number } | null }>
+    | undefined;
+}
+
+/** A layout Save names a unit that is not a unit of the station it is sent with. */
+export class LayoutUnitNotFoundError extends Error {
+  constructor(readonly unitIds: string[]) {
+    super(`Unit not found on its station: ${unitIds.join(', ')}`);
+    this.name = 'LayoutUnitNotFoundError';
+  }
 }
 
 /**
@@ -164,6 +191,8 @@ export async function readStationLayoutKinds(
     .select({
       stationId: evses.stationId,
       evseId: evses.id,
+      evseNumber: evses.evseId,
+      unitId: evses.unitId,
       connectorType: connectors.connectorType,
       maxPowerKw: connectors.maxPowerKw,
     })
@@ -176,18 +205,57 @@ export async function readStationLayoutKinds(
     string,
     Array<{ connectorType: string | null; maxPowerKw: string | null }>
   >();
-  const evsesOf = new Map<string, Set<string>>();
+  interface KindEvse {
+    evseId: number;
+    unitId: string | null;
+    connectors: Array<{ connectorType: string | null; maxPowerKw: string | null }>;
+  }
+  const evsesOf = new Map<string, Map<string, KindEvse>>();
   for (const r of rows) {
     const list = byStation.get(r.stationId) ?? [];
-    list.push({ connectorType: r.connectorType, maxPowerKw: r.maxPowerKw });
+    const connector = { connectorType: r.connectorType, maxPowerKw: r.maxPowerKw };
+    list.push(connector);
     byStation.set(r.stationId, list);
-    const set = evsesOf.get(r.stationId) ?? new Set<string>();
-    set.add(r.evseId);
-    evsesOf.set(r.stationId, set);
+    const map = evsesOf.get(r.stationId) ?? new Map<string, KindEvse>();
+    const evse: KindEvse = map.get(r.evseId) ?? {
+      evseId: r.evseNumber,
+      unitId: r.unitId,
+      connectors: [],
+    };
+    evse.connectors.push(connector);
+    map.set(r.evseId, evse);
+    evsesOf.set(r.stationId, map);
   }
-  // The in-service EVSEs are the station's ports (a dual-port AC pedestal shares two spots).
+  // The units of the stations whose in-service EVSEs name one (a station
+  // without units reads no unit row and keeps its kind of today).
+  const withUnits = [...evsesOf].flatMap(([id, map]) =>
+    [...map.values()].some((e) => e.unitId != null) ? [id] : [],
+  );
+  const unitRows =
+    withUnits.length === 0
+      ? []
+      : await executor
+          .select({
+            id: stationUnits.id,
+            stationId: stationUnits.stationId,
+            name: stationUnits.name,
+          })
+          .from(stationUnits)
+          .where(inArray(stationUnits.stationId, withUnits))
+          .orderBy(asc(stationUnits.sortOrder), asc(stationUnits.name), asc(stationUnits.id));
+  // The in-service EVSEs are the station's ports (a dual-port AC pedestal
+  // shares two spots); a station with units adds the kind of each unit charger.
   for (const [id, list] of byStation) {
-    out.set(id, layoutStationKind(list, evsesOf.get(id)?.size ?? 1));
+    const stationEvses = [...(evsesOf.get(id)?.values() ?? [])];
+    const units = unitRows
+      .filter((u) => u.stationId === id)
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        evseIds: stationEvses.filter((e) => e.unitId === u.id).map((e) => e.evseId),
+      }));
+    const chargers = stationUnitChargers({ units, evses: stationEvses });
+    out.set(id, layoutStationKind(list, stationEvses.length || 1, unitChargerKinds(chargers)));
   }
   return out;
 }
@@ -431,6 +499,82 @@ export function boardOf(row: {
   return row.boardX != null && row.boardY != null ? { x: row.boardX, y: row.boardY } : null;
 }
 
+/**
+ * The stored 2D board cards of the units of a site's stations, by unit id:
+ * only units whose station stands at the site now.
+ */
+export async function readSiteUnitBoardPositions(
+  siteId: string,
+  executor: Pick<typeof db, 'select'> = db,
+): Promise<Map<string, { x: number; y: number }>> {
+  const rows = await executor
+    .select({
+      unitId: stationUnitBoardPositions.unitId,
+      boardX: stationUnitBoardPositions.boardX,
+      boardY: stationUnitBoardPositions.boardY,
+    })
+    .from(stationUnitBoardPositions)
+    .innerJoin(stationUnits, eq(stationUnits.id, stationUnitBoardPositions.unitId))
+    .innerJoin(chargingStations, eq(chargingStations.id, stationUnits.stationId))
+    .where(and(eq(stationUnitBoardPositions.siteId, siteId), eq(chargingStations.siteId, siteId)));
+  return new Map(rows.map((r) => [r.unitId, { x: r.boardX, y: r.boardY }]));
+}
+
+/** Drops the stored 2D board cards of a station's units (the station left its site). */
+async function deleteUnitBoards(tx: StationLayoutDb, stationId: string): Promise<void> {
+  await tx
+    .delete(stationUnitBoardPositions)
+    .where(
+      inArray(
+        stationUnitBoardPositions.unitId,
+        tx
+          .select({ id: stationUnits.id })
+          .from(stationUnits)
+          .where(eq(stationUnits.stationId, stationId)),
+      ),
+    );
+}
+
+/** Writes the 2D board cards of units sent with their stations (`LayoutPosition.unitBoards`). */
+async function writeUnitBoards(
+  tx: StationLayoutDb,
+  siteId: string,
+  positions: Iterable<LayoutPosition>,
+): Promise<void> {
+  const sent = [...positions].flatMap((p) =>
+    (p.unitBoards ?? []).map((u) => ({ stationId: p.stationId, ...u })),
+  );
+  if (sent.length === 0) return;
+  const own = await tx
+    .select({ id: stationUnits.id, stationId: stationUnits.stationId })
+    .from(stationUnits)
+    .where(
+      inArray(
+        stationUnits.id,
+        sent.map((u) => u.unitId),
+      ),
+    );
+  const stationOf = new Map(own.map((u) => [u.id, u.stationId]));
+  const foreign = sent.filter((u) => stationOf.get(u.unitId) !== u.stationId);
+  if (foreign.length > 0) throw new LayoutUnitNotFoundError(foreign.map((u) => u.unitId));
+  for (const u of sent) {
+    if (u.board == null) {
+      await tx
+        .delete(stationUnitBoardPositions)
+        .where(eq(stationUnitBoardPositions.unitId, u.unitId));
+      continue;
+    }
+    const board = { boardX: Math.round(u.board.x), boardY: Math.round(u.board.y) };
+    await tx
+      .insert(stationUnitBoardPositions)
+      .values({ unitId: u.unitId, siteId, ...board })
+      .onConflictDoUpdate({
+        target: stationUnitBoardPositions.unitId,
+        set: { siteId, ...board, updatedAt: new Date() },
+      });
+  }
+}
+
 /** The stored positions of a site's stations. */
 export async function readSiteLayoutPositions(
   siteId: string,
@@ -527,6 +671,7 @@ export async function placeStationOnLayout(
   if (own != null) return { x: Number(own.positionX), y: Number(own.positionY) };
   // A row of another site (the station moved without going through here).
   await tx.delete(stationLayoutPositions).where(eq(stationLayoutPositions.stationId, stationId));
+  await deleteUnitBoards(tx, stationId);
   const points = rows.map((r) => ({ x: Number(r.positionX), y: Number(r.positionY) }));
   // The stations placed at the site and this one.
   const ids = [...rows.map((r) => r.stationId), stationId];
@@ -560,7 +705,8 @@ export async function placeStationOnLayout(
       y: Number(r.positionY),
       charging: kinds.get(r.stationId)?.charging ?? null,
       pair: sharesSpotPair(kinds.get(r.stationId), settings),
-      span: splitDispenserCount(kinds.get(r.stationId), settings),
+      span: stationSpanCount(kinds.get(r.stationId), settings),
+      unitRun: (kinds.get(r.stationId)?.units?.length ?? 0) > 0,
     })),
     settings,
     kind,
@@ -569,7 +715,9 @@ export async function placeStationOnLayout(
     ? firstFreePlacement(
         rows.flatMap((r) => {
           const placement = freeOf(r);
-          return placement != null ? [{ placement, spots: freeSpotCount(r.evseCount) }] : [];
+          return placement != null
+            ? [{ placement, spots: stationFreeSpotCount(r.evseCount, kinds.get(r.stationId)) }]
+            : [];
         }),
       )
     : null;
@@ -581,6 +729,92 @@ export async function placeStationOnLayout(
     ...(free != null ? freeColumns(free) : {}),
   });
   return slot;
+}
+
+/** A station whose run of spots changed with its units, and where it stands now. */
+export interface StationRunRefit {
+  stationId: string;
+  siteId: string;
+  before: LayoutPosition;
+  after: LayoutPosition;
+}
+
+/**
+ * Keeps a station's run valid after its units change (a unit created,
+ * deleted, or an EVSE moved in or out of one): the station's spots
+ * (`stationSpanCount`, a custom site `stationFreeSpotCount`) must stay in its
+ * row and clear of every other station's. A station whose run still fits
+ * keeps its position; any other takes the first free slot of its group
+ * (`firstFreeSlotFor`; a custom site a free position right of the others,
+ * `firstFreePlacement`), so its unit chargers never stand on a neighbour's
+ * spots. Under the site's layout lock; returns the move, or null.
+ */
+export async function refitStationRun(
+  tx: StationLayoutDb,
+  stationId: string,
+): Promise<StationRunRefit | null> {
+  const [station] = await tx
+    .select({ siteId: chargingStations.siteId })
+    .from(chargingStations)
+    .where(eq(chargingStations.id, stationId));
+  const siteId = station?.siteId ?? null;
+  if (siteId == null) return null;
+  await lockSiteLayout(tx, siteId);
+  const rows = await readSiteStations(tx, siteId);
+  const own = rows.find((r) => r.id === stationId);
+  if (own == null || own.positionX == null || own.positionY == null) return null;
+  const point = { x: Number(own.positionX), y: Number(own.positionY) };
+  const others = rows.filter(
+    (r) => r.id !== stationId && r.positionX != null && r.positionY != null,
+  );
+  const settings = await readSiteLayoutSettings(
+    siteId,
+    tx,
+    layoutStationCountsOfKinds(rows.map((r) => r.kind)),
+  );
+  const before: LayoutPosition = {
+    stationId,
+    positionX: point.x,
+    positionY: point.y,
+    free: freeOf(own),
+  };
+  if (usesFreePositions(settings)) {
+    const placement = freeOf(own);
+    if (placement == null) return null;
+    const spots = stationFreeSpotCount(own.evseCount ?? 1, own.kind);
+    const placed = others.flatMap((r) => {
+      const p = freeOf(r);
+      return p == null
+        ? []
+        : [{ placement: p, spots: stationFreeSpotCount(r.evseCount ?? 1, r.kind) }];
+    });
+    if (!placed.some((o) => freeFootprintsOverlap({ placement, spots }, o))) return null;
+    const free = firstFreePlacement(placed, spots);
+    const after: LayoutPosition = { ...before, free };
+    await writePositions(tx, siteId, [after]);
+    return { stationId, siteId, before, after };
+  }
+  const span = stationSpanCount(own.kind, settings);
+  const slots = others.map((r) => ({
+    x: Number(r.positionX),
+    y: Number(r.positionY),
+    charging: r.kind?.charging ?? null,
+    pair: sharesSpotPair(r.kind, settings),
+    span: stationSpanCount(r.kind, settings),
+    unitRun: (r.kind?.units?.length ?? 0) > 0,
+  }));
+  const bay = positionToBay(point);
+  const run = spanSpots(bay, span, settings);
+  const held = heldSpots(slots, settings);
+  const fits =
+    !bayInLayout(bay, settings) ||
+    (run != null && run.every((b) => !held.has(`${String(b.col)}:${String(b.row)}`)));
+  if (fits) return null;
+  const slot = firstFreeSlotFor(slots, settings, own.kind);
+  if (slot.x === point.x && slot.y === point.y) return null;
+  const after: LayoutPosition = { stationId, positionX: slot.x, positionY: slot.y };
+  await writePositions(tx, siteId, [after]);
+  return { stationId, siteId, before, after };
 }
 
 /** The free columns of a row: the position, or all null. */
@@ -605,6 +839,7 @@ export async function moveStationLayout(
 ): Promise<void> {
   if (siteId == null) {
     await tx.delete(stationLayoutPositions).where(eq(stationLayoutPositions.stationId, stationId));
+    await deleteUnitBoards(tx, stationId);
     return;
   }
   await placeStationOnLayout(tx, siteId, stationId);
@@ -752,7 +987,7 @@ function freeLayoutOf(
   const known: Array<{ key: string; placement: FreePlacement; spots: number }> = [];
   const missing: Array<{ id: string; spots: number; point: LayoutPoint | null }> = [];
   for (const s of stations) {
-    const spots = freeSpotCount(s.row.evseCount ?? 1);
+    const spots = stationFreeSpotCount(s.row.evseCount ?? 1, s.row.kind);
     const placement = sent.get(s.id) ?? freeOf(s.row);
     if (placement != null) known.push({ key: s.id, placement: storedFree(placement), spots });
     else missing.push({ id: s.id, spots, point: s.point });
@@ -875,7 +1110,8 @@ export async function saveSiteLayout(
             ...s.point,
             charging: kindById.get(s.id)?.charging ?? null,
             pair: sharesSpotPair(kindById.get(s.id), placementGrid),
-            span: splitDispenserCount(kindById.get(s.id), placementGrid),
+            span: stationSpanCount(kindById.get(s.id), placementGrid),
+            unitRun: (kindById.get(s.id)?.units?.length ?? 0) > 0,
           },
         ]
       : [],
@@ -938,6 +1174,7 @@ export async function saveSiteLayout(
   const toWrite = new Map(positions.map((p) => [p.stationId, p]));
   for (const m of moved) toWrite.set(m.stationId, { ...toWrite.get(m.stationId), ...m });
   await writePositions(tx, siteId, toWrite.values());
+  await writeUnitBoards(tx, siteId, positions);
 
   // Stored as sent with the transformers and batteries on the grass; null
   // resets. Without sent settings the stored ones stay, less the positions of
@@ -1072,7 +1309,7 @@ export async function setSiteLayoutType(
               key: row.id,
               point: at.point,
               placement: freePlacementFromSlot(positionToBay(at.point), settingsBefore),
-              spots: freeSpotCount(row.evseCount ?? 1),
+              spots: stationFreeSpotCount(row.evseCount ?? 1, row.kind),
             },
           ];
     });

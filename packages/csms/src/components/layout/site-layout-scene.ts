@@ -69,6 +69,7 @@ import { installLinks } from './site-layout-scene-links';
 import { installMerge, mergesStations } from './site-layout-scene-merge';
 import { installRebuild } from './site-layout-scene-rebuild';
 import { evsePlateLights, installEvsePlates } from './site-layout-scene-evse-plates';
+import { installUnitPlates } from './site-layout-scene-unit-plates';
 import { installRfidPads } from './site-layout-scene-rfid';
 import { installScreenText } from './site-layout-scene-screen-text';
 import { installSigns } from './site-layout-scene-signs';
@@ -249,6 +250,7 @@ export function createSiteScene(
   installConnectors(scn);
   installRfidPads(scn);
   installEvsePlates(scn);
+  installUnitPlates(scn);
   installScreenText(scn);
   installFreeSpots(scn);
   installGround(scn);
@@ -487,6 +489,7 @@ export function createSiteScene(
     linkLabelPoint: scn.linkLabelPoint,
     virtualSignPoint: scn.virtualSignPoint,
     evsePlatePoint: scn.evsePlatePoint,
+    unitPlatePoint: scn.unitPlatePoint,
     dispose() {
       disposed = true;
       cancelAnimationFrame(animationFrame);

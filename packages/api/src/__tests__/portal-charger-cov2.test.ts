@@ -56,6 +56,13 @@ const { mockRecordSessionEndRequest, mockWriteCsmsSessionAudit, mockFailUnstarte
     mockFailUnstartedRemoteSession: vi.fn().mockResolvedValue({ outcome: 'failed', session: {} }),
   }));
 
+// Stations of these tests have no units: the unit loader reads nothing.
+vi.mock('../lib/portal-units.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/portal-units.js')>()),
+  loadStationDriverUnits: vi.fn(() => Promise.resolve(new Map())),
+  extraUnitChargerCount: vi.fn(() => Promise.resolve(0)),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   writeAudit: vi.fn(() => Promise.resolve()),
@@ -103,6 +110,7 @@ vi.mock('@evtivity/database', async () => ({
   client: {},
   chargingStations: {},
   evses: {},
+  stationUnits: {},
   connectors: {},
   sites: {},
   chargingSessions: {},
@@ -717,6 +725,9 @@ describe('Portal charger routes - remaining branches', () => {
       expect(body.evses).toEqual([
         {
           evseId: 1,
+          unitId: null,
+          // CCS2 available, Type2 with no status: the EVSE shows available.
+          status: 'available',
           connectors: [
             {
               connectorId: 1,
@@ -739,12 +750,16 @@ describe('Portal charger routes - remaining branches', () => {
         },
         {
           evseId: 2,
+          unitId: null,
+          status: 'unavailable',
           connectors: [],
           reservationExpiresAt: '2030-01-01T09:00:00.000Z',
           reserved: true,
           reservedByMe: false,
         },
       ]);
+      // A station without units lists no unit.
+      expect(body.units).toEqual([]);
     });
 
     it('hides the site contact when it is not public and flags a disabled station', async () => {

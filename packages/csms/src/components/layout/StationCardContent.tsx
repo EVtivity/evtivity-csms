@@ -25,6 +25,7 @@ import { StationThumbnail } from './StationThumbnail';
 import { connectorKindOf } from './site-layout-connectors';
 import { useStationCardExtras } from './station-card-context';
 import type { LayoutStation } from './StationCard';
+import { layoutChargerName } from './site-layout-units';
 
 function totalEnergy(station: LayoutStation): number {
   let total = 0;
@@ -103,10 +104,10 @@ export function StationCardContent({
       <div className="mb-1 flex min-w-0 items-center gap-1.5">
         <span
           className="min-w-0 flex-1 truncate text-sm leading-4 font-semibold tabular-nums"
-          title={station.stationId}
+          title={layoutChargerName(station, t)}
           data-testid="station-card-id"
         >
-          {station.stationId}
+          {layoutChargerName(station, t)}
         </span>
         <span
           className="flex shrink-0 items-center gap-1 [&_svg]:h-3.5 [&_svg]:w-3.5"

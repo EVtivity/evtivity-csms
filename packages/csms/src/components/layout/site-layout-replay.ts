@@ -123,6 +123,7 @@ export function replayLayoutSession(
     energyDeliveredWh: session.energySoFarWh,
     currentCostCents: null,
     currency: session.currency ?? '',
+    evseId: session.evseId ?? null,
     driver: session.driver ?? null,
     vehicle: session.vehicle ?? null,
   };
@@ -202,14 +203,50 @@ export function replayFrame(
           flat.find((c) => c.status === 'occupied') ??
           flat[0] ??
           null);
-    const evses = withStatus.map((evse) => ({
-      ...evse,
-      connectors: evse.connectors.map((conn) => ({
-        ...conn,
-        isPluggedIn: conn === carrier,
-        energyDeliveredWh: conn === carrier && session != null ? session.energySoFarWh : null,
-      })),
-    }));
+    // Every EVSE plugs in for the session that ran on it, with its own car and
+    // driver (the live layout's `evses[].session`); a session that names no EVSE
+    // plugs in on the carrier connector, as before.
+    const unknownEvse = session != null && session.evseId == null;
+    const evses = withStatus.map((evse) => {
+      const own = sessionAt(
+        r.sessions.filter((x) => x.evseId === evse.evseId),
+        at,
+        openUntil,
+      );
+      const plug =
+        own == null
+          ? null
+          : (evse.connectors.find((c) => c.status === 'occupied') ?? evse.connectors[0] ?? null);
+      const layoutSession = own != null ? replayLayoutSession(own) : null;
+      return {
+        ...evse,
+        session:
+          layoutSession == null
+            ? null
+            : {
+                id: layoutSession.id,
+                startedAt: layoutSession.startedAt,
+                energyDeliveredWh: layoutSession.energyDeliveredWh,
+                currentCostCents: null,
+                currency: layoutSession.currency,
+                driver: layoutSession.driver,
+                vehicle: layoutSession.vehicle ?? null,
+              },
+        connectors: evse.connectors.map((conn) => {
+          const byEvse = own != null && conn === plug;
+          const byCarrier = unknownEvse && conn === carrier;
+          return {
+            ...conn,
+            isPluggedIn: byEvse || byCarrier,
+            energyDeliveredWh: byEvse
+              ? own.energySoFarWh
+              : byCarrier
+                ? session.energySoFarWh
+                : null,
+          };
+        }),
+      };
+    });
     const statuses = evses.flatMap((e) => e.connectors.map((c) => c.status));
     const status = statuses.includes('faulted')
       ? 'faulted'

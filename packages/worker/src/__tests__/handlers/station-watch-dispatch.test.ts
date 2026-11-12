@@ -106,8 +106,40 @@ describe('handleStationWatchDispatch', () => {
     await handleStationWatchDispatch('CS-0001', makeLog());
 
     expect(queries[1]).toContain('DELETE FROM station_watches');
-    expect(queryValues[1]).toContain(availableEvseCountSql('cs'));
+    expect(queryValues[1]).toContain(availableEvseCountSql('cs', 'w.unit_id'));
     expect(dispatchDriverNotification).not.toHaveBeenCalled();
+  });
+
+  // A watch of one unit (charger box) of a master with extenders names the box,
+  // so the driver knows which charger is free.
+  it('names the watched unit in the alert', async () => {
+    mockClient.setResults(
+      [{ station_id: 'CS-0001', site_name: 'Main Site' }],
+      [
+        { driver_id: 'drv_a', unit_name: 'Box 3' },
+        { driver_id: 'drv_b', unit_name: null },
+      ],
+    );
+    const { handleStationWatchDispatch } = stationWatchDispatchModule;
+    await handleStationWatchDispatch('CS-0001', makeLog());
+    expect(dispatchDriverNotification).toHaveBeenNthCalledWith(
+      1,
+      mockClient,
+      'watch.StationAvailable',
+      'drv_a',
+      expect.objectContaining({ stationName: 'CS-0001, Box 3', unitName: 'Box 3' }),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(dispatchDriverNotification).toHaveBeenNthCalledWith(
+      2,
+      mockClient,
+      'watch.StationAvailable',
+      'drv_b',
+      expect.objectContaining({ stationName: 'CS-0001', unitName: '' }),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('does nothing when the station is not found', async () => {

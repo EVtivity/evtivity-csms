@@ -28,6 +28,8 @@ export interface EvseByUid {
   stationPending: boolean;
   /** Last change of the station row. */
   stationUpdatedAt: Date;
+  /** The unit (physical charger box) of the EVSE, null when none. */
+  unitId: string | null;
 }
 
 export async function findEvseByUid(uid: string): Promise<EvseByUid | null> {
@@ -40,6 +42,7 @@ export async function findEvseByUid(uid: string): Promise<EvseByUid | null> {
       siteId: chargingStations.siteId,
       updatedAt: evses.updatedAt,
       retiredAt: evses.retiredAt,
+      unitId: evses.unitId,
       disabledReason: chargingStations.disabledReason,
       firmwareState: chargingStations.firmwareState,
       reportedStatus: chargingStations.reportedStatus,

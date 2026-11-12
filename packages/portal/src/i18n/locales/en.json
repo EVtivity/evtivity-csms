@@ -496,7 +496,7 @@
     "newReservation": "New reservation",
     "findStation": "Find a station to reserve",
     "searchPlaceholder": "Search by station ID or site name",
-    "reserveConnector": "Reserve Connector",
+    "reserveConnector": "Reserve Port",
     "stationId": "Station ID",
     "stationSearchPlaceholder": "Search by station ID or site...",
     "selectStation": "Select a station",
@@ -898,6 +898,9 @@
     "STATION_HAS_SIM": "This station already has a SIM attached. Detach it first",
     "STATION_ID_EXISTS": "A station with this ID already exists",
     "STATION_NOT_FOUND": "Station not found",
+    "STATION_UNIT_NOT_FOUND": "Unit not found",
+    "STATION_UNIT_NAME_IN_USE": "Another unit of this station has this name",
+    "STATION_UNIT_LIMIT_REACHED": "A station holds at most 64 units",
     "STATION_OFFLINE": "Station is offline",
     "STATION_ONLINE": "The station is online. Stop the session at the station instead.",
     "STATION_REJECTED": "Station rejected start: ...",
@@ -1287,7 +1290,7 @@
     "loading": "Loading location..."
   },
   "stationDetail": {
-    "selectConnector": "Select a connector to start charging",
+    "selectConnector": "Select a port to start charging",
     "reportProblem": "Report a Problem",
     "startCharging": "Start Charging",
     "starting": "Starting...",
@@ -1297,7 +1300,7 @@
     "failedToStart": "Failed to start charging",
     "freeCharging": "Free",
     "connectorPort": "Port {{id}}",
-    "showAllConnectors": "Show All {{total}} Connectors",
+    "showAllConnectors": "Show All {{total}} Ports",
     "activeSessionWarning": "You already have an active session. You cannot start another one."
   },
   "homeCards": {
@@ -1324,7 +1327,7 @@
     "invalidMessage": "This QR code is not valid or has expired. Scan the QR code shown on the charging station again."
   },
   "watch": {
-    "notifyWhenFree": "Notify me when free",
+    "notifyWhenFree": "Notify Me When Free",
     "watching": "Remove from Watching",
     "added": "You will be notified when this station is free.",
     "removed": "Watch removed.",

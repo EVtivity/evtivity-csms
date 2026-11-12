@@ -72,7 +72,7 @@ export type ThumbnailSiteShape = LayoutShape & { mounting?: ChargerMounting | un
  * curb post, else the DC dispenser or the AC pedestal (dual port for two EVSEs).
  */
 export function stationThumbnailModel(
-  station: Pick<LayoutStation, 'evses' | 'freePosition'>,
+  station: Pick<LayoutStation, 'evses' | 'freePosition' | 'units' | 'unitCharger'>,
   settings: ThumbnailSiteShape,
 ): ThumbnailModel {
   const kind = stationLayoutKindOf(station);
@@ -94,11 +94,18 @@ export function stationThumbnailModel(
     const spot = freeSpotTypeOf(station.freePosition);
     const m = large(spot);
     if (m != null) return m;
-    if (spot === 'car' && kind.charging === 'dc' && ports >= SPLIT_SYSTEM.minDispensers) {
+    if (
+      spot === 'car' &&
+      kind.charging === 'dc' &&
+      ports >= SPLIT_SYSTEM.minDispensers &&
+      station.unitCharger == null
+    ) {
       return 'split-satellite';
     }
   }
   if (kind.charging === 'dc') {
+    // A unit charger is never a split system: one dispenser (`unitChargerSpotCount`).
+    if (station.unitCharger != null) return 'dc-dispenser';
     return splitDispenserCount(kind, settings) > 1 ? 'split-satellite' : 'dc-dispenser';
   }
   if (type === 'office_retail' && chargerMountingOf(settings) === 'wall') {

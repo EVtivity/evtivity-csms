@@ -26,7 +26,7 @@ import {
   heldSpots,
   settlePairs,
   sharesSpotPair,
-  splitDispenserCount,
+  stationSpanCount,
 } from '@evtivity/lib/site-layout';
 import { SaveButton } from '@/components/save-button';
 import { ResetButton } from '@/components/reset-button';
@@ -63,7 +63,13 @@ import {
   type ReplaySpeed,
 } from './site-layout-replay';
 import { formatNumber } from '@/lib/formatting';
-import { freeStationPlaces, layoutStationCountsOf, stationLayoutKindOf } from './site-layout-free';
+import {
+  freeStationPlaces,
+  layoutStationCountsOf,
+  layoutViewStations,
+  stationLayoutKindOf,
+} from './site-layout-free';
+import { viewStationTerminals } from './site-layout-units';
 import { isCaliforniaSite } from './site-layout-signs';
 import { layoutLegend } from './site-layout-legend';
 import { StationCardBoard } from './StationCardBoard';
@@ -200,6 +206,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         positionY: number;
         freePosition?: FreePlacement;
         boardPosition?: BoardPoint;
+        unitBoardPositions?: Array<{ unitId: string; boardPosition: BoardPoint }>;
       }>;
       settings?: SiteLayoutSettings;
     }) => api.put(`/v1/sites/${siteId}/layout`, body),
@@ -315,16 +322,43 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   );
   const shownStations = replaying && frame != null ? frame.stations : resolvedStations;
   const shownPower = replaying && frame != null ? frame.power : stationPowerMap;
+  // The 2D board's chargers: a station with units as one card per unit charger
+  // (`layoutViewStations`); the 3D view expands the stations itself.
+  const viewStations = useMemo(
+    () => layoutViewStations(shownStations, layoutSettings),
+    [shownStations, layoutSettings],
+  );
+  // The live draw is the station's: a unit card shows none of its own.
+  const viewPower = useMemo(() => {
+    if (viewStations === shownStations) return shownPower;
+    const map = new Map(shownPower);
+    for (const v of viewStations) if (v.unitCharger != null) map.delete(v.id);
+    return map;
+  }, [viewStations, shownStations, shownPower]);
+  const viewTerminals = useMemo(
+    () => viewStationTerminals(viewStations, terminals),
+    [viewStations, terminals],
+  );
+  // A custom site's 2D cards stand in the spatial order of the view stations.
+  const viewFreePlaces = useMemo(
+    () =>
+      custom
+        ? viewStations === shownStations && freePlaces != null
+          ? freePlaces
+          : freeStationPlaces(viewStations)
+        : null,
+    [custom, viewStations, shownStations, freePlaces],
+  );
   // The legend lists only what this view draws at this site.
   const legend = useMemo(
     () =>
       layoutLegend({
-        stations: shownStations,
+        stations: viewStations,
         settings: placedSettings,
         show3d,
         reservationsEnabled: site?.reservationsEnabled,
       }),
-    [shownStations, placedSettings, show3d, site],
+    [viewStations, placedSettings, show3d, site],
   );
 
   function startReplay(): void {
@@ -344,15 +378,13 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   const cardExtras = useMemo<StationCardExtras>(
     () => ({
       thumbnailModel: (station) => stationThumbnailModel(station, layoutSettings),
-      terminals: (stationId) => terminals.get(stationId) ?? [],
+      terminals: (stationId) => viewTerminals.get(stationId) ?? [],
       plateColors,
     }),
-    [layoutSettings, terminals, plateColors],
+    [layoutSettings, viewTerminals, plateColors],
   );
 
-  const selected2dStation = show3d
-    ? null
-    : (shownStations.find((s) => s.id === selected2d) ?? null);
+  const selected2dStation = show3d ? null : (viewStations.find((s) => s.id === selected2d) ?? null);
 
   // The 2D popup stands beside its card, inside the visible part of the board.
   useLayoutEffect(() => {
@@ -378,7 +410,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
       },
       8,
     );
-  }, [selected2dStation, shownStations, layoutSettings]);
+  }, [selected2dStation, viewStations, layoutSettings]);
 
   // Dual-port AC pedestals and dual-outlet DC dispensers hold their partner spot, DC split systems a spot
   // per dispenser, and the accessible charging space its access aisle
@@ -394,7 +426,9 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
           y: s.positionY,
           charging: s.chargingKind,
           pair: sharesSpotPair(stationLayoutKindOf(s), layoutSettings),
-          span: splitDispenserCount(stationLayoutKindOf(s), layoutSettings),
+          // A station with units holds one run of its unit chargers' spots (`stationSpanCount`).
+          span: stationSpanCount(stationLayoutKindOf(s), layoutSettings),
+          unitRun: (stationLayoutKindOf(s).units?.length ?? 0) > 0,
         })),
         layoutSettings,
       ),
@@ -415,16 +449,16 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   }, [placedSlots, layoutSettings]);
   const cardLayoutFor = useCallback(
     (boardWidth: number): CardLayout => {
-      if (custom && freePlaces != null) {
+      if (custom && viewFreePlaces != null) {
         return customCardLayout(
-          shownStations.flatMap((s) => {
-            const place = freePlaces.get(s.id);
+          viewStations.flatMap((s) => {
+            const place = viewFreePlaces.get(s.id);
             return place == null ? [] : [{ id: s.id, x: place.placement.x, z: place.placement.z }];
           }),
         );
       }
-      const bays = stationBays(shownStations, layoutSettings);
-      const list = shownStations.flatMap((s) => {
+      const bays = stationBays(viewStations, layoutSettings);
+      const list = viewStations.flatMap((s) => {
         const bay = bays.get(s.id);
         return bay == null ? [] : [{ id: s.id, bay }];
       });
@@ -432,13 +466,13 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         ? depotCardLayout(list, layoutRowLengths(layoutSettings), boardWidth)
         : gridCardLayout(list, layoutRowLengths(layoutSettings), blockedSpots);
     },
-    [custom, depot, freePlaces, shownStations, layoutSettings, blockedSpots],
+    [custom, depot, viewFreePlaces, viewStations, layoutSettings, blockedSpots],
   );
   // Each card's 2D board position: a pending move, else the saved one.
   const boardPoints = useMemo(
     () =>
-      new Map(shownStations.map((s) => [s.id, pendingBoard.get(s.id) ?? s.boardPosition ?? null])),
-    [shownStations, pendingBoard],
+      new Map(viewStations.map((s) => [s.id, pendingBoard.get(s.id) ?? s.boardPosition ?? null])),
+    [viewStations, pendingBoard],
   );
 
   function handleBoardMove(stationId: string, point: BoardPoint): void {
@@ -515,17 +549,34 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
 
   function handleSave(): void {
     // A custom site saves every station's free position (a picked one is stored too).
+    // A station with units: each unit card's board position goes with its unit
+    // (`unitBoardPositions`); the card of its EVSEs without a unit is the station's own.
+    const boardsOf = new Map<
+      string,
+      { station?: BoardPoint; units: Array<{ unitId: string; boardPosition: BoardPoint }> }
+    >();
+    const whole = (p: BoardPoint): BoardPoint => ({ x: Math.round(p.x), y: Math.round(p.y) });
+    for (const v of layoutViewStations(resolvedStations, layoutSettings)) {
+      const board = pendingBoard.get(v.id);
+      if (board == null) continue;
+      const unit = v.unitCharger;
+      const key = unit?.stationUuid ?? v.id;
+      const entry = boardsOf.get(key) ?? { units: [] };
+      if (unit?.unitId != null)
+        entry.units.push({ unitId: unit.unitId, boardPosition: whole(board) });
+      else entry.station = whole(board);
+      boardsOf.set(key, entry);
+    }
     const positions = resolvedStations.map((s) => {
       const free = freePlaces?.get(s.id)?.placement;
-      const board = pendingBoard.get(s.id);
+      const boards = boardsOf.get(s.id);
       return {
         stationId: s.id,
         positionX: s.positionX,
         positionY: s.positionY,
         ...(free != null ? { freePosition: free } : {}),
-        ...(board != null
-          ? { boardPosition: { x: Math.round(board.x), y: Math.round(board.y) } }
-          : {}),
+        ...(boards?.station != null ? { boardPosition: boards.station } : {}),
+        ...(boards != null && boards.units.length > 0 ? { unitBoardPositions: boards.units } : {}),
       };
     });
     saveMutation.mutate(
@@ -758,10 +809,10 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
           )}
           <StationCardContext value={cardExtras}>
             <StationCardBoard
-              stations={shownStations}
+              stations={viewStations}
               layoutFor={cardLayoutFor}
               editable={canWrite && !replaying}
-              power={shownPower}
+              power={viewPower}
               boardRef={boardRef}
               onOpenDetails={setSelected2d}
               positions={boardPoints}
@@ -771,9 +822,9 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
                 <StationLayoutPopup
                   ref={popup2dRef}
                   station={selected2dStation}
-                  currentDrawKw={shownPower.get(selected2dStation.id)?.currentDrawKw}
-                  allocatedLimitKw={shownPower.get(selected2dStation.id)?.allocatedLimitKw}
-                  terminals={terminals.get(selected2dStation.id)}
+                  currentDrawKw={viewPower.get(selected2dStation.id)?.currentDrawKw}
+                  allocatedLimitKw={viewPower.get(selected2dStation.id)?.allocatedLimitKw}
+                  terminals={viewTerminals.get(selected2dStation.id)}
                   onClose={() => {
                     setSelected2d(null);
                   }}

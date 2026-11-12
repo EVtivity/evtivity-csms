@@ -187,6 +187,7 @@ vi.mock('@evtivity/database', async () => {
     },
     evses: {},
     connectors: {},
+    stationUnits: { id: 'id', name: 'name' },
     chargingSessions: {},
     drivers: {},
     meterValues: {},
@@ -464,6 +465,9 @@ describe('Station routes - handler logic', () => {
         status: 'available',
         connectorCount: 2,
         connectorTypes: ['CCS2'],
+        unitCount: 0,
+        units: null,
+        unassignedConnectorTypes: null,
         siteName: null,
         siteFreeVendEnabled: false,
         underMaintenance: false,
@@ -590,6 +594,7 @@ describe('Station routes - handler logic', () => {
         siteTimezone: null,
         siteFreeVendEnabled: false,
         underMaintenance: false,
+        unitCount: 0,
         aiInsightsSuppressed: true,
         aiInsightsSuppressedByMaintenance: false,
         aiInsightsSuppressedSources: ['station'],
@@ -1368,6 +1373,8 @@ describe('Station routes - handler logic', () => {
           evseId: 1,
           evseAutoCreated: false,
           evseRetiredAt: null,
+          unitId: null,
+          unitName: null,
           connectorId: 1,
           connectorType: 'CCS2',
           maxPowerKw: '150',
@@ -1382,6 +1389,8 @@ describe('Station routes - handler logic', () => {
           evseId: 1,
           evseAutoCreated: false,
           evseRetiredAt: null,
+          unitId: null,
+          unitName: null,
           connectorId: 2,
           connectorType: 'CHAdeMO',
           maxPowerKw: '50',
@@ -1407,6 +1416,9 @@ describe('Station routes - handler logic', () => {
       // The record id a payment terminal pairs with (features/payment-terminals.md).
       expect(body[0].id).toBe('evs_000000000001');
       expect(body[0].connectors).toHaveLength(2);
+      // A station without units: the EVSE names no unit.
+      expect(body[0].unitId).toBeNull();
+      expect(body[0].unitName).toBeNull();
     });
 
     it('returns empty array when no EVSEs exist', async () => {

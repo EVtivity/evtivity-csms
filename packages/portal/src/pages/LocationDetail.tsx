@@ -21,6 +21,9 @@ import { EmptyState } from '@/components/ui/content-state';
 interface ChargerInfo {
   stationId: string;
   evseId: number;
+  // The unit (charger box) of the EVSE on a station with units; null otherwise.
+  unitId?: string | null;
+  unitName?: string | null;
   connectorType: string | null;
   maxPowerKw: string | null;
   status: string;
@@ -180,7 +183,9 @@ export function LocationDetail(): React.JSX.Element {
                           <Plug
                             className={`h-4 w-4 shrink-0 ${isStartable ? 'text-success' : 'text-muted-foreground'}`}
                           />
-                          <span className="truncate font-medium">{c.stationId}</span>
+                          <span className="truncate font-medium">
+                            {c.unitName != null ? `${c.stationId}, ${c.unitName}` : c.stationId}
+                          </span>
                         </span>
                         <span className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                           {meta}

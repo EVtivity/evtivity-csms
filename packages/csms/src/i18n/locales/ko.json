@@ -2013,7 +2013,8 @@
     "endSessionConfirmDescription": "충전소 {{station}}이(가) 오프라인 상태입니다. CSMS가 충전소 없이 지금 세션을 종료하고 마지막으로 측정된 에너지 {{energy}}로 요금을 청구합니다. 충전소가 다시 연결된 후 보내는 중지 또는 종료 메시지는 세션을 다시 열거나 다시 청구하지 않습니다.",
     "endSessionConfirmDescriptionWithCost": "충전소 {{station}}이(가) 오프라인 상태입니다. CSMS가 충전소 없이 지금 세션을 종료하고 마지막으로 측정된 에너지 {{energy}}로 청구합니다(현재까지 {{cost}}). 충전소가 다시 연결된 후 보내는 중지 또는 종료 메시지는 세션을 다시 열거나 다시 청구하지 않습니다.",
     "endSessionRequested": "세션 종료가 요청되었습니다",
-    "endSessionFailed": "세션을 종료하지 못했습니다"
+    "endSessionFailed": "세션을 종료하지 못했습니다",
+    "unit": "유닛"
   },
   "drivers": {
     "title": "운전자",
@@ -4793,6 +4794,9 @@
     "STATION_HAS_SIM": "이 충전소에는 이미 SIM이 연결되어 있습니다. 먼저 분리하세요",
     "STATION_ID_EXISTS": "이 ID의 충전소가 이미 존재합니다",
     "STATION_NOT_FOUND": "충전소를 찾을 수 없습니다",
+    "STATION_UNIT_NOT_FOUND": "유닛을 찾을 수 없습니다",
+    "STATION_UNIT_NAME_IN_USE": "이 충전소의 다른 유닛이 이미 이 이름을 사용합니다",
+    "STATION_UNIT_LIMIT_REACHED": "충전소에는 유닛을 최대 64개까지 둘 수 있습니다",
     "STATION_OFFLINE": "충전소가 오프라인 상태입니다",
     "STATION_ONLINE": "충전소가 온라인 상태입니다. 충전소에서 세션을 중지하세요.",
     "STATION_REJECTED": "충전소가 시작을 거부했습니다: ...",
@@ -6292,6 +6296,7 @@
       "display_message_cleared": "표시 메시지 삭제됨",
       "nevi_data_changed": "NEVI 데이터 변경됨",
       "evse_changed": "EVSE 변경됨",
+      "unit_changed": "유닛 변경됨",
       "monitoring_changed": "모니터링 변경됨",
       "alert_acknowledged": "알림 확인됨",
       "payment_method_added": "결제 수단 추가됨",
@@ -7728,5 +7733,34 @@
     },
     "replacePassword": "비밀번호 교체",
     "replacePasswordConfirm": "현재 비밀번호는 즉시 사용할 수 없게 되며, 공급업체가 새 비밀번호를 입력할 때까지 차고지 시스템의 연결이 끊깁니다."
+  },
+  "layout": {
+    "units": {
+      "chargerName": "{{station}}, {{unit}}",
+      "plateLabel": "{{unit}}, EVSE {{evses}}",
+      "and": "및"
+    }
+  },
+  "stationUnits": {
+    "title": "유닛",
+    "description": "이 충전소의 물리적 충전기 박스(마스터 박스와 확장 박스 등)입니다. 운전자에게는 각 유닛이 별도의 충전기로 보이며, 세션과 명령은 충전소 단위로 유지됩니다.",
+    "addUnit": "유닛 추가",
+    "renameUnit": "유닛 이름 변경",
+    "deleteUnit": "유닛 삭제",
+    "deleteConfirm": "{{name}}을(를) 삭제할까요? EVSE는 유닛 없이 충전소에 남고, 이 유닛에 대한 운전자의 즐겨찾기와 알림은 삭제됩니다.",
+    "unitName": "유닛 이름",
+    "evses": "EVSE",
+    "noEvses": "EVSE 없음",
+    "noUnit": "유닛 없음",
+    "evsesWithoutUnit": "유닛이 없는 EVSE",
+    "assignTitle": "EVSE 유닛",
+    "empty": "이 충전소에는 유닛이 없습니다. 유닛을 추가하여 EVSE를 물리적 충전기 박스별로 묶으세요.",
+    "evseCount_one": "EVSE {{count}}개",
+    "evseCount_other": "EVSE {{count}}개",
+    "unitCount_one": "유닛 {{count}}개",
+    "unitCount_other": "유닛 {{count}}개",
+    "unassignedNotice_one": "EVSE {{count}}개에 유닛이 없습니다. 운전자에게는 충전소 이름의 충전기가 하나 더 보입니다.",
+    "unassignedNotice_other": "EVSE {{count}}개에 유닛이 없습니다. 운전자에게는 충전소 이름의 충전기가 하나 더 보입니다.",
+    "manageUnits": "유닛 관리"
   }
 }

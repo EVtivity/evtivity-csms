@@ -3,6 +3,7 @@
 
 // Depot chargers of the 3D site scene: pantographs, bus and MCS dispensers and their vehicles.
 
+import { plateUnderScreen } from './site-layout-model-unit-plate';
 import { freeSpotRects, freeSpotTypeOf, type FreeSpotRect } from '@evtivity/lib/site-layout';
 import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 import * as THREE from 'three';
@@ -63,6 +64,7 @@ import {
   pantographDropFor,
 } from './site-layout-model-pantograph-pole';
 import { ROOF_PANTOGRAPH, createRoofPantographKit } from './site-layout-model-roof-pantograph';
+import { busDispenserEvsePlate } from './site-layout-model-evse-plate';
 import type { DepotMaterials } from './site-layout-model-scissor';
 
 import type { SceneSlice } from './site-layout-scene-context';
@@ -79,7 +81,9 @@ import {
 type LargeChargersCtx = SceneSlice<
   | 'M'
   | 'addScreenMessage'
+  | 'addUnitPlate'
   | 'addRfidPad'
+  | 'addEvsePlate'
   | 'cabinetGlow'
   | 'cable'
   | 'carKit'
@@ -142,6 +146,10 @@ export function installLargeChargers(scn: LargeChargersCtx): void {
         if (i === 0) {
           scn.addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);
           glow = scn.cabinetGlow(g, s, screen);
+          // A unit charger's box number under the screen.
+          if (s.unitPlate != null) {
+            scn.addUnitPlate(g, s, plateUnderScreen(screen, MCS_DISPENSER.screen.heightM));
+          }
         }
         g.add(scn.logoPanel('truck_mcs', palette, { x: r.chargerX, z: r.chargerZ }));
         const kind = s.connectorKinds?.[i]?.[0] ?? 'mcs';
@@ -198,12 +206,21 @@ export function installLargeChargers(scn: LargeChargersCtx): void {
       const screen: [number, number, number] = [sc[0], sc[1], sc[2]];
       scn.addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);
       glow = scn.cabinetGlow(g, s, screen);
+      if (s.unitPlate != null) {
+        scn.addUnitPlate(g, s, plateUnderScreen(screen, BUS_DISPENSER.screen.heightM));
+      }
       g.add(scn.logoPanel('bus_dispenser', palette));
       rects.forEach((_r, i) => {
         const tip = tips[i];
         const hp = BUS_DISPENSER_HOLSTERS[i % BUS_DISPENSER_HOLSTERS.length];
         if (tip == null || hp == null) return;
-        const charging = s.prop === 'car' && (s.propSpot ?? 0) === i;
+        // A dual-outlet dispenser (two bays): each outlet's number plate and its own
+        // status light over its holster, outlet 1 on the left; a bus per outlet.
+        if (rects.length >= 2) scn.addEvsePlate(g, s, i, busDispenserEvsePlate(i));
+        const charging =
+          s.stallCars != null
+            ? s.stallCars[i] != null
+            : s.prop === 'car' && (s.propSpot ?? 0) === i;
         const kind = slotKind(s, i, 0);
         const end = scn.holsteredConnector(
           g,
@@ -263,6 +280,9 @@ export function installLargeChargers(scn: LargeChargersCtx): void {
       const screen: [number, number, number] = [sc.x, sc.y, columnZ + sc.z];
       scn.addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);
       glow = scn.cabinetGlow(g, s, screen);
+      if (s.unitPlate != null) {
+        scn.addUnitPlate(g, s, plateUnderScreen(screen, P.module.screen.heightM));
+      }
       g.add(scn.logoPanel(model, palette, { x: 0, z: columnZ + PANTOGRAPH_POLE_LOGO.centerZ }));
       points.forEach((pt, i) => {
         const charging = s.prop === 'car' && (s.propSpot ?? 0) === i;

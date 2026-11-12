@@ -15,7 +15,9 @@ import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
+  connectors,
   drivers,
+  evses,
   isFleetChargingEnabled,
   siteLoadManagement,
   sites,
@@ -66,6 +68,8 @@ export interface LayoutStationSession {
   energyDeliveredWh: number;
   currentCostCents: number | null;
   currency: string;
+  /** The OCPP EVSE id the session runs on, null when the station has not named it. */
+  evseId: number | null;
   driver: LayoutSessionDriver | null;
   vehicle: LayoutSessionVehicle | null;
   /** Present only when the route asked for departures (fleets:read). */
@@ -270,8 +274,11 @@ export async function readLayoutStationSessions(
       currency: chargingSessions.currency,
       driverId: chargingSessions.driverId,
       vehicleId: chargingSessions.vehicleId,
+      evseNumber: evses.evseId,
     })
     .from(chargingSessions)
+    .leftJoin(connectors, eq(connectors.id, chargingSessions.connectorId))
+    .leftJoin(evses, eq(evses.id, sql`coalesce(${chargingSessions.evseId}, ${connectors.evseId})`))
     .where(
       and(
         inArray(chargingSessions.stationId, [...stationIds]),
@@ -305,9 +312,86 @@ export async function readLayoutStationSessions(
       energyDeliveredWh: Number(r.energyDeliveredWh ?? '0'),
       currentCostCents: r.currentCostCents,
       currency: r.currency.toUpperCase(),
+      evseId: r.evseNumber ?? null,
       driver: r.driverId != null ? (driverById.get(r.driverId) ?? null) : null,
       vehicle: vehicleBySession.get(r.id) ?? null,
       ...(departureBySession != null ? { departure: departureBySession.get(r.id) ?? null } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * The car and driver of one EVSE's active session on the layout (GET
+ * /v1/sites/:id/layout `evses[].session`), for every station: each charging
+ * car parks at the stall of its own session's EVSE. The same rules as the station session (security case
+ * 283): the caller reads it only with sessions:read; the driver needs
+ * drivers:read too and an erased driver shows as no driver.
+ */
+export interface LayoutEvseSession {
+  id: string;
+  startedAt: string;
+  energyDeliveredWh: number;
+  currentCostCents: number | null;
+  currency: string;
+  driver: LayoutSessionDriver | null;
+  vehicle: LayoutSessionVehicle | null;
+}
+
+/**
+ * The newest active session of each EVSE of the given stations (by start,
+ * then creation), keyed by the EVSE row id. With `includeDriver` false every
+ * `driver` is null and no driver row is read.
+ */
+export async function readLayoutEvseSessions(
+  stationIds: readonly string[],
+  includeDriver: boolean,
+): Promise<Map<string, LayoutEvseSession>> {
+  const out = new Map<string, LayoutEvseSession>();
+  if (stationIds.length === 0) return out;
+  // The session's EVSE: the one the session names, else its connector's.
+  const evseOf = sql<string>`coalesce(${chargingSessions.evseId}, ${connectors.evseId})`;
+  const rows = await db
+    .selectDistinctOn([evseOf], {
+      id: chargingSessions.id,
+      evseId: evseOf,
+      startedAt: sql<
+        Date | string
+      >`coalesce(${chargingSessions.startedAt}, ${chargingSessions.createdAt})`,
+      energyDeliveredWh: chargingSessions.energyDeliveredWh,
+      currentCostCents: chargingSessions.currentCostCents,
+      currency: chargingSessions.currency,
+      driverId: chargingSessions.driverId,
+      vehicleId: chargingSessions.vehicleId,
+    })
+    .from(chargingSessions)
+    .leftJoin(connectors, eq(connectors.id, chargingSessions.connectorId))
+    .where(
+      and(
+        inArray(chargingSessions.stationId, [...stationIds]),
+        eq(chargingSessions.status, 'active'),
+        sql`${evseOf} IS NOT NULL`,
+      ),
+    )
+    .orderBy(
+      evseOf,
+      desc(sql`coalesce(${chargingSessions.startedAt}, ${chargingSessions.createdAt})`),
+      desc(chargingSessions.createdAt),
+    );
+  const vehicleBySession = await readSessionVehicles(rows);
+  const driverById = includeDriver
+    ? await readLayoutDrivers(rows.flatMap((r) => (r.driverId != null ? [r.driverId] : [])))
+    : new Map<string, LayoutSessionDriver>();
+  for (const r of rows) {
+    const startedAt = r.startedAt instanceof Date ? r.startedAt : new Date(r.startedAt);
+    out.set(r.evseId, {
+      id: r.id,
+      startedAt: startedAt.toISOString(),
+      energyDeliveredWh: Number(r.energyDeliveredWh ?? '0'),
+      currentCostCents: r.currentCostCents,
+      currency: r.currency.toUpperCase(),
+      driver: r.driverId != null ? (driverById.get(r.driverId) ?? null) : null,
+      vehicle: vehicleBySession.get(r.id) ?? null,
     });
   }
   return out;

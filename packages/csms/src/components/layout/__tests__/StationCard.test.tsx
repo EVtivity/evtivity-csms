@@ -163,6 +163,13 @@ describe('standard 2D charger card', () => {
     renderCard(station());
     const evses = screen.getByTestId('station-card-evses');
     expect(within(evses).getAllByRole('listitem')).toHaveLength(2);
+    // 10 px between EVSEs, 4 px between the connectors of one EVSE.
+    expect(evses.className).toContain('gap-2.5');
+    for (const li of within(evses).getAllByRole('listitem'))
+      expect(li.className).toContain('gap-1');
+    expect(
+      within(screen.getByTestId('station-card-evse-1')).getAllByTestId('connector-type-icon'),
+    ).toHaveLength(2);
     const icons = within(evses).getAllByTestId('connector-type-icon');
     expect(icons.map((i) => i.getAttribute('data-connector'))).toEqual(['ccs1', 'chademo', 'ccs1']);
     expect(icons.map((i) => i.getAttribute('aria-label'))).toEqual([

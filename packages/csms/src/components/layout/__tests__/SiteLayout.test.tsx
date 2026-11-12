@@ -852,3 +852,78 @@ describe('SiteLayout save', () => {
     );
   });
 });
+
+describe('SiteLayout 2D unit cards', () => {
+  // The discussion 59 setup, two boxes of 2 AC EVSEs each.
+  const em4 = {
+    id: 'sta_em4',
+    stationId: 'ABL-EM4',
+    model: 'eM4 Twin',
+    status: 'available',
+    statusReason: null,
+    isOnline: true,
+    securityProfile: 1,
+    positionX: 20,
+    positionY: 20,
+    placed: true,
+    chargingKind: 'ac',
+    cellular: false,
+    connectionType: 'wifi_or_wired',
+    signal: null,
+    inMaintenance: false,
+    displayMessage: null,
+    boardPosition: null,
+    evses: [1, 2, 3, 4].map((evseId) => ({
+      evseId,
+      unitId: evseId <= 2 ? 'unt_1' : 'unt_2',
+      connectors: [connector()],
+    })),
+    units: [
+      { id: 'unt_1', name: 'Box 1', evseIds: [1, 2], boardPosition: null },
+      { id: 'unt_2', name: 'Box 2', evseIds: [3, 4], boardPosition: { x: 620, y: 20 } },
+    ],
+  };
+  beforeEach(() => {
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith('/layout') ? [em4] : { config: null, hierarchy: [], stations: [] },
+      ),
+    );
+    window.localStorage.setItem('site-layout-view', '2d');
+  });
+
+  it('shows one card per unit and saves a moved unit card with its unit', async () => {
+    permissions.add('sites:write');
+    putMock.mockResolvedValue({});
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    const first = within(board).getByTestId('site-layout-card-sta_em4');
+    const second = within(board).getByTestId('site-layout-card-sta_em4#u2');
+    // Box 2's saved card position.
+    expect(parseFloat(second.style.left)).toBe(620);
+    expect(within(first).getByTestId('station-card-id').textContent).toBe(
+      'layout.units.chargerName',
+    );
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    const moved = within(board).getByTestId('site-layout-card-sta_em4');
+    const boardPosition = { x: parseFloat(moved.style.left), y: parseFloat(moved.style.top) };
+    fireEvent.click(screen.getByRole('button', { name: /common\.save/ }));
+    await waitFor(() => {
+      expect(putMock).toHaveBeenCalled();
+    });
+    // The card of Box 1 goes with its unit, never as the station's own card.
+    expect(putMock).toHaveBeenCalledWith(
+      '/v1/sites/sit_1/layout',
+      expect.objectContaining({
+        positions: [
+          {
+            stationId: 'sta_em4',
+            positionX: 20,
+            positionY: 20,
+            unitBoardPositions: [{ unitId: 'unt_1', boardPosition }],
+          },
+        ],
+      }),
+    );
+  });
+});

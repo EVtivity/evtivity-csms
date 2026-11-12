@@ -473,7 +473,9 @@ const TRANSLATE_21_TO_16: Record<string, (args: Args) => Translation> = {
     };
   },
   ocppv21_UnlockConnector: (args) => {
-    if (args['connectorId'] !== 1) {
+    // A 1.6 EVSE holds one connector: numbered 1 within a 2.1 EVSE, or N as
+    // the CSMS stores a 1.6 connector N (EVSE N with connector N).
+    if (args['connectorId'] !== 1 && args['connectorId'] !== args['evseId']) {
       return { unsupported: 'OCPP 1.6 addresses a connector by its EVSE number only' };
     }
     return {

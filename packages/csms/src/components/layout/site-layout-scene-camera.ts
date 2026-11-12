@@ -3,6 +3,7 @@
 
 // Camera framing, zoom limits, fog and the screen points of labels in the 3D site scene.
 
+import { unitPlateAnchor } from './site-layout-scene-unit-plates';
 import { evsePlateAnchor } from './site-layout-scene-evse-plates';
 import * as THREE from 'three';
 import {
@@ -68,6 +69,7 @@ type CameraCtx = SceneSlice<
   | 'updateFog'
   | 'virtualSignPoint'
   | 'evsePlatePoint'
+  | 'unitPlatePoint'
 >;
 
 export function installCamera(scn: CameraCtx): void {
@@ -195,6 +197,12 @@ export function installCamera(scn: CameraCtx): void {
     return v == null ? null : project(v);
   }
   scn.evsePlatePoint = evsePlatePoint;
+
+  function unitPlatePoint(stationId: string): ScreenPoint | null {
+    const v = unitPlateAnchor(scn, scn.built, stationId);
+    return v == null ? null : project(v);
+  }
+  scn.unitPlatePoint = unitPlatePoint;
 
   // A camera move in progress (a double click, a station picked from the
   // list or Enter on its marker): eased over FOCUS_EASE_MS in the frame loop,

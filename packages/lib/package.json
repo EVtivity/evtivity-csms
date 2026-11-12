@@ -107,6 +107,12 @@
     "./secret-config": {
       "import": "./src/secret-config.ts"
     },
+    "./display-label": {
+      "import": "./src/display-label.ts"
+    },
+    "./evse-status": {
+      "import": "./src/evse-status.ts"
+    },
     "./security-severity": {
       "import": "./src/security-severity.ts"
     },

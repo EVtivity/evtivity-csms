@@ -745,7 +745,7 @@ describe('Event projections', () => {
       watchDue = false;
       await eventBus.emit('ocpp.StatusNotification', available());
       const check = sqlCalls.find((c) => c.strings.join('?').includes('FROM station_watches w'));
-      expect(check?.values).toContain(availableEvseCountSql('cs'));
+      expect(check?.values).toContain(availableEvseCountSql('cs', 'w.unit_id'));
       expect(watchSignals()).toHaveLength(0);
 
       watchDue = true;

@@ -1680,13 +1680,21 @@ export class TransactionProjector {
     return gateFailure;
   }
 
-  /** Clears the session driver's watch of this station (see the Started step). Fail-open. */
+  /**
+   * Clears the session driver's watch of this station and of the unit (charger
+   * box) the session's EVSE belongs to; watches of the station's other units
+   * stay (see the Started step). Fail-open.
+   */
   private async clearStationWatch(stationUuid: string, sessionId: string): Promise<void> {
     try {
       await this.deps.sql`
         DELETE FROM station_watches
         WHERE station_id = ${stationUuid}
           AND driver_id = (SELECT driver_id FROM charging_sessions WHERE id = ${sessionId})
+          AND (unit_id IS NULL OR unit_id = (
+            SELECT e.unit_id FROM charging_sessions s JOIN evses e ON e.id = s.evse_id
+            WHERE s.id = ${sessionId}
+          ))
       `;
     } catch (err) {
       this.deps.logger.warn({ err, stationUuid }, 'Station-watch clear-on-start failed');

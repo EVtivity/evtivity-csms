@@ -42,7 +42,7 @@ export async function handleStationWatchDispatch(stationId: string, logger: Logg
   if (claimed.length === 0) return;
 
   const pubsub = getPubSub();
-  for (const driverId of claimed) {
+  for (const { driverId, unitName } of claimed) {
     // dispatchDriverNotification is fail-open internally (warn + continue), so
     // one driver's delivery failure never blocks the rest.
     await dispatchDriverNotification(
@@ -51,7 +51,9 @@ export async function handleStationWatchDispatch(stationId: string, logger: Logg
       driverId,
       {
         stationId: station.station_id,
-        stationName: station.station_id,
+        // A watched unit is its own charger to the driver: the name says which.
+        stationName: unitName != null ? `${station.station_id}, ${unitName}` : station.station_id,
+        unitName: unitName ?? '',
         siteName: station.site_name ?? '',
       },
       ALL_TEMPLATES_DIRS,

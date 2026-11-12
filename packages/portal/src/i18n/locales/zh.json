@@ -496,7 +496,7 @@
     "newReservation": "新预约",
     "findStation": "查找要预约的充电桩",
     "searchPlaceholder": "按充电桩 ID 或充电站名称搜索",
-    "reserveConnector": "预约连接器",
+    "reserveConnector": "预约端口",
     "stationId": "充电桩 ID",
     "stationSearchPlaceholder": "按充电桩 ID 或充电站搜索...",
     "selectStation": "选择充电桩",
@@ -898,6 +898,9 @@
     "STATION_HAS_SIM": "此充电桩已关联 SIM。请先取消关联",
     "STATION_ID_EXISTS": "已存在具有该 ID 的充电桩",
     "STATION_NOT_FOUND": "未找到充电桩",
+    "STATION_UNIT_NOT_FOUND": "未找到单元",
+    "STATION_UNIT_NAME_IN_USE": "此充电桩的另一个单元已使用此名称",
+    "STATION_UNIT_LIMIT_REACHED": "一个充电桩最多有 64 个单元",
     "STATION_OFFLINE": "充电桩离线",
     "STATION_ONLINE": "充电桩在线。请改为在充电桩停止会话。",
     "STATION_REJECTED": "充电桩拒绝启动：...",
@@ -1286,7 +1289,7 @@
     "noStations": "此位置没有充电桩。"
   },
   "stationDetail": {
-    "selectConnector": "选择连接器以开始充电",
+    "selectConnector": "选择端口以开始充电",
     "reportProblem": "报告问题",
     "startCharging": "开始充电",
     "starting": "启动中...",
@@ -1296,7 +1299,7 @@
     "failedToStart": "启动充电失败",
     "freeCharging": "免费",
     "connectorPort": "端口 {{id}}",
-    "showAllConnectors": "显示全部 {{total}} 个连接器",
+    "showAllConnectors": "显示全部 {{total}} 个端口",
     "activeSessionWarning": "您已有一个活动的充电会话，无法启动另一个。"
   },
   "homeCards": {

@@ -67,7 +67,30 @@ export interface EvseRow {
   /** OCPI tariff ids for the connectors of this EVSE, for the partner the
    *  location is rendered for (`connectorTariffIds`). Omitted when none. */
   tariffIds?: string[];
+  /** Name of the unit (physical charger box) of the EVSE, sent as its
+   *  `physical_reference`. Omitted or null when the EVSE has no unit. */
+  unitName?: string | null;
+  /** Last change of that unit (a rename changes the published EVSE). */
+  unitUpdatedAt?: Date;
   connectors: ConnectorRow[];
+}
+
+/** OCPI 2.1.1, 2.2.1 and 2.3.0 EVSE `physical_reference` is string(16). */
+export const OCPI_PHYSICAL_REFERENCE_MAX = 16;
+
+/**
+ * The `physical_reference` of an EVSE: its unit name cut to the OCPI length
+ * (in characters, never splitting one), or none for an EVSE without a unit.
+ */
+export function physicalReferenceOf(unitName: string | null | undefined): string | undefined {
+  if (unitName == null) return undefined;
+  const trimmed = unitName.trim();
+  if (trimmed === '') return undefined;
+  const graphemes = Array.from(
+    new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(trimmed),
+    (s) => s.segment,
+  );
+  return graphemes.slice(0, OCPI_PHYSICAL_REFERENCE_MAX).join('').trimEnd();
 }
 
 interface ConnectorRow {
@@ -242,6 +265,7 @@ export function evseLastUpdated(evse: EvseRow): Date {
     evse.updatedAt,
     evse.stationUpdatedAt,
     evse.retiredConnectorsUpdatedAt,
+    evse.unitUpdatedAt,
     ...evse.connectors.map((c) => c.updatedAt),
   ]);
 }
@@ -265,12 +289,14 @@ function transformEvse(
   underMaintenance: boolean,
   removed: boolean,
 ): OcpiEVSE {
+  const physicalReference = physicalReferenceOf(evse.unitName);
   return {
     uid: ocpiEvseUid(evse),
     evse_id: ocpiEvseId(evse.stationOcppId, evse.evseId),
     status: evseStatus(evse, underMaintenance, removed),
     connectors: evse.connectors.map((c) => transformConnector(c, version, evse.tariffIds)),
     capabilities: ['REMOTE_START_STOP_CAPABLE', 'RFID_READER'],
+    ...(physicalReference != null ? { physical_reference: physicalReference } : {}),
     last_updated: evseLastUpdated(evse).toISOString(),
   };
 }

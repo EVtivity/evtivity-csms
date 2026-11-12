@@ -1217,6 +1217,16 @@ export interface LayoutStationCounts {
   spots?: number;
   /** Office or retail row positions the stations take (`heldSpotCount` on that row); absent: one each. */
   rowSpots?: number;
+  /**
+   * The most parking lot spots one station holds in its row (`stationSpanCount`):
+   * a lot without stored settings is at least this wide, so a station with
+   * units fits in one row. Absent: one.
+   */
+  widestSpan?: number;
+  /** A street: the curb posts the stations take, a station with units one per unit; absent: one each. */
+  curbSpots?: number;
+  /** A street: the most curb posts one station holds along one curb; absent: one. */
+  widestCurbRun?: number;
 }
 
 /** Station counts from a plain number (every station a bus station) or as given. */
@@ -1247,6 +1257,24 @@ export interface LayoutStationKind {
   depot: 'bus' | 'truck' | null;
   /** In-service EVSEs (charging ports); absent counts as one. */
   ports?: number | undefined;
+  /**
+   * A bus station charging through an overhead pantograph (an `OppCharge` or
+   * `Pan` connector, SAE J3105-1 and J3105-2): its pole serves one bay per
+   * station, never a dual-outlet bay pair. Absent: a plug-in or no bus station.
+   */
+  overhead?: boolean | undefined;
+  /**
+   * A station with units (`stationUnitChargers`): the AC or DC kind and the
+   * in-service EVSEs of each charger it draws, in order. Absent or empty: a
+   * station without units, placed and drawn as one charger.
+   */
+  units?: readonly UnitChargerKind[] | undefined;
+}
+
+/** The kind of one charger of a station with units (`UnitCharger`). */
+export interface UnitChargerKind {
+  charging: ChargingKind;
+  ports: number;
 }
 
 /**
@@ -1256,11 +1284,17 @@ export interface LayoutStationKind {
 export function layoutStationKind(
   connectors: readonly ConnectorPowerInput[],
   ports?: number,
+  units?: readonly UnitChargerKind[] | null,
 ): LayoutStationKind {
   return {
     charging: stationChargingKind(connectors),
     depot: depotStationKind(connectors),
+    ...(depotStationKind(connectors) === 'bus' &&
+    connectors.some((c) => c.connectorType === 'OppCharge' || c.connectorType === 'Pan')
+      ? { overhead: true }
+      : {}),
     ...(ports != null ? { ports } : {}),
+    ...(units != null && units.length > 0 ? { units } : {}),
   };
 }
 
@@ -1274,8 +1308,14 @@ export function layoutStationCountsOfKinds(
 ): LayoutStationCounts {
   return {
     total: kinds.length,
-    bus: kinds.filter((k) => k == null || k.depot === 'bus').length,
-    truck: kinds.filter((k) => k?.depot === 'truck').length,
+    // A station with units takes a bay or lane per unit, a dual-outlet bus
+    // charger two bays (`stationSpanCount`).
+    bus: kinds
+      .filter((k) => k == null || k.depot === 'bus')
+      .reduce((n, k) => n + (k == null ? 1 : stationSpanCount(k, DEPOT_SHAPE)), 0),
+    truck: kinds
+      .filter((k) => k?.depot === 'truck')
+      .reduce((n, k) => n + (k == null ? 1 : stationSpanCount(k, DEPOT_SHAPE)), 0),
     // The spots each station holds where that site type pairs or splits it
     // (`heldSpotCount`): on a parking lot a dual-port AC pedestal and a
     // dual-outlet DC dispenser two, a DC split system one per dispenser; on
@@ -1283,12 +1323,28 @@ export function layoutStationCountsOfKinds(
     // per dispenser, a dual-outlet DC dispenser one.
     spots: kinds.reduce((n, k) => n + heldSpotCount(k, PARKING_LOT_SHAPE), 0),
     rowSpots: kinds.reduce((n, k) => n + heldSpotCount(k, OFFICE_ROW_SHAPE), 0),
+    // Only a station with units can hold more spots in one row than the
+    // default lot is wide (a split system holds at most 8), so the field is
+    // set only for one: the counts of a site without units stay as they were.
+    // A curb post per unit along one curb, a two-port curb post two spots
+    // (`stationSpanCount` on a street); set only where a station holds more than one.
+    ...(kinds.some((k) => (k?.units?.length ?? 0) > 0 || stationSpanCount(k, CURB_SHAPE) > 1)
+      ? {
+          curbSpots: kinds.reduce((n, k) => n + stationSpanCount(k, CURB_SHAPE), 0),
+          widestCurbRun: Math.max(1, ...kinds.map((k) => stationSpanCount(k, CURB_SHAPE))),
+        }
+      : {}),
+    ...(kinds.some((k) => (k?.units?.length ?? 0) > 0)
+      ? { widestSpan: Math.max(1, ...kinds.map((k) => stationSpanCount(k, PARKING_LOT_SHAPE))) }
+      : {}),
   };
 }
 
 /** A parking lot and an office or retail row, for the spots a station kind holds there. */
 const PARKING_LOT_SHAPE: LayoutShape = { ...DEFAULT_LAYOUT_GRID, siteType: 'parking_lot' };
 const OFFICE_ROW_SHAPE: LayoutShape = { ...DEFAULT_LAYOUT_GRID, siteType: 'office_retail' };
+const DEPOT_SHAPE: LayoutShape = { ...DEFAULT_LAYOUT_GRID, siteType: 'depot' };
+const CURB_SHAPE: LayoutShape = { ...DEFAULT_LAYOUT_GRID, siteType: 'curbside' };
 
 /**
  * The fields of a site type filled in where absent, from the stations at the
@@ -1335,8 +1391,13 @@ function withTypeDefaults(
       let left = settings.chargersLeft;
       let right = settings.chargersRight;
       if (left == null && right == null) {
-        left = Math.min(side, Math.ceil(n / 2));
-        right = Math.min(side, n - left);
+        // A station with units: its run along one curb, the left one (`curbSpots`).
+        const total =
+          counts.curbSpots != null
+            ? Math.max(1, Math.min(2 * side, Math.round(counts.curbSpots)))
+            : n;
+        left = Math.min(side, Math.max(Math.ceil(total / 2), counts.widestCurbRun ?? 1));
+        right = Math.min(side, Math.max(0, total - left));
       } else if (left == null) {
         left = Math.min(side, Math.max(right === 0 ? 1 : 0, n - (right ?? 0)));
       } else if (right == null) {
@@ -1414,6 +1475,13 @@ export function effectiveLayoutSettings(
   // the lot in creation order, where AC and DC would interleave. Rows come in
   // pairs (double-loaded, back to back on an island), with one row to spare:
   // the two groups fill from opposite ends and pedestals take spot pairs.
+  // A station with units holds its spots in one row (`stationSpanCount`).
+  if (typeof count !== 'number' && count.widestSpan != null) {
+    spotsPerRow = Math.min(
+      LAYOUT_GRID_LIMITS.spotsPerRow.max,
+      Math.max(spotsPerRow, Math.round(count.widestSpan)),
+    );
+  }
   const spots = typeof count === 'number' ? count : (count.spots ?? count.total);
   const needed = Math.ceil((spots + 1) / spotsPerRow) + 1;
   let rows = Math.min(
@@ -1563,6 +1631,12 @@ export type PlacedSlot = LayoutPoint & {
    * along its row from its slot, one per dispenser (absent or 1: its own spot).
    */
   span?: number | undefined;
+  /**
+   * A station with units (`stationSpanCount`): the first and the last spot of
+   * its run may hold the accessible charging space (`accessibleChargingSpace`),
+   * as a paired station's stall does. Absent: a split system's run, which never does.
+   */
+  unitRun?: boolean | undefined;
 };
 
 /**
@@ -1675,10 +1749,12 @@ export function drawnConnectorCounts(
  * type, whose posts stand on a public sidewalk).
  */
 export function splitDispenserCount(
-  kind: Pick<LayoutStationKind, 'charging' | 'ports'> | null | undefined,
+  kind: Pick<LayoutStationKind, 'charging' | 'ports' | 'units'> | null | undefined,
   settings: LayoutShape,
 ): number {
   if (kind == null || kind.charging !== 'dc') return 1;
+  // A station with units draws one charger per unit, never a split system (`stationSpanCount`).
+  if ((kind.units?.length ?? 0) > 0) return 1;
   const ports = kind.ports ?? 1;
   if (ports < SPLIT_SYSTEM.minDispensers) return 1;
   const type = siteTypeOf(settings);
@@ -1695,6 +1771,215 @@ export function spanSpots(bay: LayoutBay, span: number, settings: LayoutShape): 
     out.push(b);
   }
   return out;
+}
+
+/** One unit of a station as the layout reply lists it (`GET /v1/sites/{id}/layout` `units`). */
+export interface LayoutUnitInput {
+  id: string;
+  name: string;
+  /** The OCPP EVSE numbers of the unit. */
+  evseIds: readonly number[];
+}
+
+/**
+ * One charger a station with units draws (owner decision D5, 2026-11-11): a
+ * unit is one physical charger box under one OCPP station, such as the ABL
+ * eM4 master and its extenders, 2 charging points per box, behind one Charge
+ * Point ID (GitHub discussion 59). The layout draws each box as its own
+ * charger, by its own kind and EVSE count, so CHARGER_PORT_LIMITS applies per
+ * unit: an 8-unit station with 2 AC EVSEs each draws 8 dual-port pedestals.
+ */
+export interface UnitCharger extends UnitChargerKind {
+  /** The unit id; null for the charger holding the station's EVSEs without a unit. */
+  unitId: string | null;
+  /** The unit name; null for the EVSEs without a unit (the station names it). */
+  name: string | null;
+  /** The charger's place in the station's order, from 0. */
+  index: number;
+  /** The OCPP EVSE numbers it draws, ascending. */
+  evseIds: number[];
+}
+
+/**
+ * The chargers a station draws: one per unit (in the order given, the units'
+ * sort order) that holds an EVSE of the station, then one for the EVSEs
+ * without a unit. A unit whose EVSEs the station does not list (none, or only
+ * retired ones) draws nothing. A station without units, or whose units hold
+ * none of its EVSEs, returns null and every caller keeps today's
+ * single-charger path (owner decision D3: a station without units looks and
+ * behaves exactly as before).
+ */
+export function stationUnitChargers(station: {
+  units?: readonly LayoutUnitInput[] | null | undefined;
+  evses: ReadonlyArray<{ evseId: number; connectors: readonly ConnectorPowerInput[] }>;
+}): UnitCharger[] | null {
+  const units = station.units ?? [];
+  if (units.length === 0) return null;
+  const byNumber = new Map(station.evses.map((e) => [e.evseId, e]));
+  const inUnit = new Set<number>();
+  const out: UnitCharger[] = [];
+  const charger = (
+    unitId: string | null,
+    name: string | null,
+    numbers: number[],
+  ): UnitCharger | null => {
+    const list = numbers
+      .flatMap((n) => {
+        const e = byNumber.get(n);
+        return e == null ? [] : [e];
+      })
+      .sort((a, b) => a.evseId - b.evseId);
+    if (list.length === 0) return null;
+    return {
+      unitId,
+      name,
+      index: out.length,
+      evseIds: list.map((e) => e.evseId),
+      charging: stationChargingKind(list.flatMap((e) => e.connectors)),
+      ports: list.length,
+    };
+  };
+  for (const u of units) {
+    const numbers = [...new Set(u.evseIds)].filter((n) => byNumber.has(n) && !inUnit.has(n));
+    for (const n of numbers) inUnit.add(n);
+    const c = charger(u.id, u.name, numbers);
+    if (c != null) out.push(c);
+  }
+  if (out.length === 0) return null;
+  const rest = station.evses.map((e) => e.evseId).filter((n) => !inUnit.has(n));
+  const last = charger(null, null, rest);
+  if (last != null) out.push(last);
+  return out;
+}
+
+/** The kinds of a station's unit chargers, for `layoutStationKind` (null without units). */
+export function unitChargerKinds(
+  chargers: readonly UnitCharger[] | null,
+): UnitChargerKind[] | null {
+  return chargers == null ? null : chargers.map((c) => ({ charging: c.charging, ports: c.ports }));
+}
+
+/**
+ * The spots one unit charger holds on a parking lot or an office or retail
+ * row: two where its kind serves a spot pair (`sharesSpotPair`: an AC unit
+ * with two or more EVSEs, on a lot also a DC unit with two or more; a unit
+ * draws at most two EVSEs, CHARGER_PORT_LIMITS), else one. A unit charger is
+ * never a split system: a DC unit with three or more EVSEs draws the first two
+ * on one dispenser (derived: a box is one charger, and the port limits cap one
+ * charger at two EVSEs). One on every other site type.
+ */
+export function unitChargerSpotCount(charger: UnitChargerKind, settings: LayoutShape): number {
+  const type = siteTypeOf(settings);
+  if (charger.ports < 2) return 1;
+  if (type === 'office_retail') return charger.charging === 'ac' ? 2 : 1;
+  if (type === 'parking_lot') return 2;
+  return 1;
+}
+
+/**
+ * The spots a station holds along its row from its slot: the sum of its unit
+ * chargers' spots for a station with units on a parking lot or an office or
+ * retail row (one contiguous run, the split system rule; a station with units
+ * is never a split system as a whole), else a split system's dispensers
+ * (`splitDispenserCount`), else 1. A depot keeps one bay or lane and a street
+ * one curb post per station, as for a split system.
+ */
+export function stationSpanCount(kind: SpanKind | null | undefined, settings: LayoutShape): number {
+  const units = kind?.units ?? [];
+  const type = siteTypeOf(settings);
+  if (units.length === 0) {
+    // A dual-outlet bus charger between two bays, a two-port curb post between
+    // two parallel spots (owner decisions 2026-11-12).
+    if (type === 'depot' && dualOutletBusCharger(kind)) return DUAL_OUTLET_BUS_CHARGER.outlets;
+    if (type === 'curbside' && twoPortCurbPost(kind)) return TWO_PORT_CURB_POST.outlets;
+    return splitDispenserCount(kind, settings);
+  }
+  // A depot gives each unit its own bay or lane, a street its own curb post
+  // (owner decision 2026-11-12), contiguous along the row from the slot.
+  if (type === 'depot' || type === 'curbside') return units.length;
+  if (type !== 'parking_lot' && type !== 'office_retail') return 1;
+  return units.reduce((n, u) => n + unitChargerSpotCount(u, settings), 0);
+}
+
+/** What `stationSpanCount` reads of a station kind. */
+type SpanKind = Pick<LayoutStationKind, 'charging' | 'ports' | 'units'> &
+  Partial<Pick<LayoutStationKind, 'depot' | 'overhead'>>;
+
+/**
+ * A plug-in depot bus charger with two outlets: one dispenser box at the head
+ * of two adjacent bus bays, an outlet (EVSE) and its cable on its own cable
+ * arm per bay, one bus per outlet. Generic class; reference the ABB "Depot
+ * charge box dual connector for HVC360 multi-outlet cabinet" datasheet
+ * (9AKK108468A6766, read 2026-11-12): "Designed with two outlets", "able to
+ * charge two vehicles in same footprint as the Depot charge box single
+ * outlet", 90 to 180 kW per vehicle with the HVC360 cabinet; output 50 to
+ * 180 kW, the maximum per connector set by the cabinet (HVC200 100 kW,
+ * HVC300 150 kW, HVC360 180 kW; cabinet power 200 to 360 kW, 2 to 4
+ * outlets); CCS1 (NA) or CCS2 (CE), 9.5 m cables; box 940 by 699 by 280 mm,
+ * 2440 mm high on its pedestal. A pantograph pole and a megawatt dispenser
+ * stay at one EVSE (no dual-outlet source found).
+ */
+export const DUAL_OUTLET_BUS_CHARGER = {
+  outlets: 2,
+  kwPerOutlet: { min: 90, max: 180 },
+  cabinetKw: { min: 200, max: 360 },
+  cableM: 9.5,
+} as const;
+
+/** A station a depot draws as a dual-outlet plug-in bus charger (`DUAL_OUTLET_BUS_CHARGER`). */
+export function dualOutletBusCharger(kind: SpanKind | null | undefined): boolean {
+  return (
+    kind != null &&
+    kind.charging === 'dc' &&
+    kind.depot === 'bus' &&
+    kind.overhead !== true &&
+    (kind.units?.length ?? 0) === 0 &&
+    (kind.ports ?? 1) >= 2
+  );
+}
+
+/**
+ * A two-port street charging post on the line between two parallel parking
+ * spots, one car per port (owner decision 2026-11-12): EVSE 1's car in the
+ * spot on its left seen from the street, EVSE 2's on its right (the OCPP
+ * left to right numbering). Generic class; references: the Alfen Eve Double
+ * PG-line, a two-socket public post
+ * (https://alfen.com/en/ev-charging/public/eve-double-pg-line); NKL
+ * Nederland, Uniform Standards for Charging Stations EN-V1.0
+ * (https://nklnederland.nl/wp-content/uploads/2021/12/NKL-Engels-2018-def-charging-stations.pdf):
+ * OL3 two arrows on the sign for two charge locations, OL5 the sign central
+ * to the parking spaces and the station, AR25 at least 30 cm from the curb
+ * for parallel parking (90 cm where possible), AR22 at least 90 cm of free
+ * passage on the pavement. A station with two or more AC EVSEs at a street.
+ */
+export const TWO_PORT_CURB_POST = { outlets: 2 } as const;
+
+/** A station a street draws as a two-port curb post (`TWO_PORT_CURB_POST`). */
+export function twoPortCurbPost(kind: SpanKind | null | undefined): boolean {
+  return (
+    kind != null &&
+    kind.charging === 'ac' &&
+    (kind.units?.length ?? 0) === 0 &&
+    (kind.ports ?? 1) >= 2
+  );
+}
+
+/**
+ * Where each unit charger of a station stands in the station's run: the
+ * column offset of its first spot from the station's slot and its spots, in
+ * charger order (`unitChargerSpotCount`).
+ */
+export function unitChargerSpans(
+  units: readonly UnitChargerKind[],
+  settings: LayoutShape,
+): Array<{ offset: number; spots: number }> {
+  let offset = 0;
+  return units.map((u) => {
+    const spots = unitChargerSpotCount(u, settings);
+    const at = { offset, spots };
+    offset += spots;
+    return at;
+  });
 }
 
 /**
@@ -1733,10 +2018,12 @@ export function spanSpots(bay: LayoutBay, span: number, settings: LayoutShape): 
  * spot per EVSE).
  */
 export function sharesSpotPair(
-  kind: Pick<LayoutStationKind, 'charging' | 'ports'> | null | undefined,
+  kind: Pick<LayoutStationKind, 'charging' | 'ports' | 'units'> | null | undefined,
   settings: LayoutShape,
 ): boolean {
   if (kind == null) return false;
+  // A station with units holds a run of spots; each unit charger pairs inside it (`unitChargerSpans`).
+  if ((kind.units?.length ?? 0) > 0) return false;
   const ports = kind.ports ?? 1;
   const type = siteTypeOf(settings);
   if (type === 'office_retail') {
@@ -1778,10 +2065,10 @@ export function settlePairs<T extends PlacedSlot>(
  * one per dispenser for a split system (`splitDispenserCount`), else one.
  */
 export function heldSpotCount(
-  kind: Pick<LayoutStationKind, 'charging' | 'ports'> | null | undefined,
+  kind: Pick<LayoutStationKind, 'charging' | 'ports' | 'units'> | null | undefined,
   settings: LayoutShape,
 ): number {
-  const span = splitDispenserCount(kind, settings);
+  const span = stationSpanCount(kind, settings);
   if (span > 1) return span;
   return sharesSpotPair(kind, settings) ? 2 : 1;
 }
@@ -1841,7 +2128,9 @@ const bayKey = (b: LayoutBay): string => `${String(b.col)}:${String(b.row)}`;
  * when none has a free neighbor does one stall of a paired station (a
  * dual-port pedestal or dual-outlet DC dispenser, `sharesSpotPair`) whose
  * outer neighbor is free become the space, so a site whose chargers all
- * serve two spots still has one. Null on a depot, a street, a custom site,
+ * serve two spots still has one; the stalls at the ends of a station with
+ * units' run count as paired stalls (`PlacedSlot.unitRun`), a split system's
+ * never. Null on a depot, a street, a custom site,
  * and when no station spot has a free neighbor.
  */
 export function accessibleChargingSpace(
@@ -1858,7 +2147,15 @@ export function accessibleChargingSpace(
     held.add(bayKey(bay));
     const span = p.span ?? 1;
     if (span > 1) {
-      for (const b of spanSpots(bay, span, settings) ?? [bay]) held.add(bayKey(b));
+      const run = spanSpots(bay, span, settings) ?? [bay];
+      for (const b of run) held.add(bayKey(b));
+      // A station with units: the stalls at the ends of its run, like paired stalls.
+      if (p.unitRun === true) {
+        const first = run[0];
+        const last = run[run.length - 1];
+        if (first != null) paired.add(bayKey(first));
+        if (last != null) paired.add(bayKey(last));
+      }
       continue;
     }
     const partner = p.pair === true ? spotPairPartner(bay, settings) : null;
@@ -1900,7 +2197,7 @@ export function heldSpots(
     held.set(bayKey(bay), p.charging ?? null);
     const partner = p.pair === true ? spotPairPartner(bay, settings) : null;
     if (partner != null) held.set(bayKey(partner), p.charging ?? null);
-    // A split system's dispensers, one spot each (`splitDispenserCount`).
+    // A split system's dispensers, one spot each, or a station's unit chargers (`stationSpanCount`).
     const span = p.span ?? 1;
     if (span > 1) {
       for (const b of spanSpots(bay, span, settings) ?? []) held.set(bayKey(b), p.charging ?? null);
@@ -1931,20 +2228,23 @@ export function firstFreeSlotFor(
   kind?: LayoutStationKind,
 ): LayoutPoint {
   if (kind == null || usesFreePositions(settings)) return firstFreeSlot(placed, settings);
-  if (usesDepotSpots(settings)) return firstFreeDepotSlot(placed, settings, kind.depot);
+  if (usesDepotSpots(settings)) {
+    return firstFreeDepotSlot(placed, settings, kind.depot, stationSpanCount(kind, settings));
+  }
   const held = heldSpots(placed, settings, false);
   const other = (b: LayoutBay): boolean => {
     const k = held.get(bayKey(b));
     return k != null && k !== kind.charging;
   };
   const pair = sharesSpotPair(kind, settings);
-  const span = splitDispenserCount(kind, settings);
+  const span = stationSpanCount(kind, settings);
   for (const bay of groupedSpotOrder(settings, kind.charging)) {
     // The other kind's range starts here.
     if (other(bay)) break;
     if (held.has(bayKey(bay))) continue;
     if (span > 1) {
-      // A split system needs a free spot for every dispenser, contiguous in its row.
+      // A split system or a station with units needs a free spot for every
+      // dispenser or unit charger spot, contiguous in its row.
       const spots = spanSpots(bay, span, settings);
       if (spots == null || spots.some((b) => held.has(bayKey(b)))) continue;
       return bayToPosition(bay);
@@ -1980,7 +2280,8 @@ export function freeSlotsFor(
       ...slot,
       charging: kind?.charging ?? null,
       pair: sharesSpotPair(kind, settings),
-      span: splitDispenserCount(kind, settings),
+      span: stationSpanCount(kind, settings),
+      unitRun: (kind?.units?.length ?? 0) > 0,
     });
     out.push(slot);
   }
@@ -2006,7 +2307,8 @@ export function fitGroupedPositions<K>(
   // No station's connectors known yet: nothing to group (the positions rule).
   if (stations.every((s) => s.kind == null)) return fitPositionsToGrid(stations, settings);
   const lengths = layoutRowLengths(settings);
-  // The DC group's spots: a split system holds one per dispenser, a dual-outlet dispenser two.
+  // The DC group's spots: a split system holds one per dispenser, a dual-outlet dispenser two,
+  // a station with units the spots of its unit chargers (`stationSpanCount`).
   const dcCount = stations
     .filter((s) => s.kind?.charging === 'dc')
     .reduce((n, s) => n + heldSpotCount(s.kind, settings), 0);
@@ -2042,7 +2344,7 @@ export function fitGroupedPositions<K>(
     const bay = positionToBay(s.position);
     const charging = s.kind?.charging ?? null;
     const pair = sharesSpotPair(s.kind, settings);
-    const span = splitDispenserCount(s.kind, settings);
+    const span = stationSpanCount(s.kind, settings);
     // An unknown station keeps any spot; a known one a spot of its group
     // (a pedestal: both spots of its pair; a split system: a spot per dispenser).
     const spots = freeWith(bay, pair, span);
@@ -2395,6 +2697,13 @@ export const FREE_LAYOUT = {
    * or pedestal, up to four for a DC split system's dispensers (`SPLIT_SYSTEM`).
    */
   maxSpots: 4,
+  /**
+   * Spots a station with units has at most (`stationFreeSpotCount`): one car
+   * spot per unit charger spot, up to 16 (derived: 8 boxes of 2 charging
+   * points, the ABL eM4 master with seven extenders of GitHub discussion 59,
+   * is the largest group of one station the owner named).
+   */
+  maxUnitSpots: 16,
   /** A free position stays within this distance of the site origin on each axis, in meters. */
   reachM: 400,
   /** The curbed island a truck dispenser stands on beside its pull-through lane, in meters. */
@@ -2411,6 +2720,27 @@ export const FREE_LAYOUT = {
 /** The spots a station gets on a custom site: one per EVSE, 1 to `maxSpots`. */
 export function freeSpotCount(evseCount: number): number {
   return Math.max(1, Math.min(FREE_LAYOUT.maxSpots, Math.round(evseCount)));
+}
+
+/**
+ * The car spots a station gets on a custom site: for a station with units one
+ * per EVSE of each unit charger, two at most per charger (a unit draws two
+ * EVSEs at most, CHARGER_PORT_LIMITS), up to `maxUnitSpots` in all, without
+ * the four-spot cap of a split system; else `freeSpotCount` of its EVSEs.
+ */
+export function stationFreeSpotCount(
+  evseCount: number,
+  kind?: Pick<LayoutStationKind, 'units'> | null,
+): number {
+  const units = kind?.units ?? [];
+  if (units.length === 0) return freeSpotCount(evseCount);
+  const spots = units.reduce((n, u) => n + Math.max(1, Math.min(2, Math.round(u.ports))), 0);
+  return Math.max(1, Math.min(FREE_LAYOUT.maxUnitSpots, spots));
+}
+
+/** A spot count for the spot geometry: 1 to `maxUnitSpots` (callers pass `stationFreeSpotCount`). */
+function geometrySpotCount(spots: number): number {
+  return Math.max(1, Math.min(FREE_LAYOUT.maxUnitSpots, Math.round(spots)));
 }
 
 /** An angle as degrees from 0 to under 360, one decimal. */
@@ -2521,7 +2851,7 @@ export function freeSpotRects(
   spots: number,
   spotType: FreeSpotType = DEFAULT_FREE_SPOT_TYPE,
 ): FreeSpotRect[] {
-  const n = freeSpotCount(spots);
+  const n = geometrySpotCount(spots);
   const dim = FREE_SPOT_DIMENSIONS[spotType];
   if (spotType === 'truck_pull_through') {
     const island = FREE_LAYOUT.truckIslandM;
@@ -3187,12 +3517,25 @@ export function depotSlotPlacement(bay: LayoutBay, settings: LayoutShape): FreeP
  * (`firstFreeSlotBelowLayout`).
  */
 export function firstFreeDepotSlot(
-  placed: readonly LayoutPoint[],
+  placed: readonly PlacedSlot[],
   settings: LayoutShape,
   kind: 'bus' | 'truck' | null,
+  span = 1,
 ): LayoutPoint {
   if (kind == null) return firstFreeSlotBelowLayout(placed, settings);
   const lengths = layoutRowLengths(settings);
+  if (span > 1) {
+    // A station with units: a free bay or lane for every unit, contiguous in its area.
+    const held = heldSpots(placed, settings, false);
+    for (const row of [DEPOT_ROWS[kind], 1 - DEPOT_ROWS[kind]]) {
+      for (let col = 0; col < (lengths[row] ?? 0); col++) {
+        const run = spanSpots({ col, row }, span, settings);
+        if (run != null && run.every((b) => !held.has(bayKey(b))))
+          return bayToPosition({ col, row });
+      }
+    }
+    return firstFreeSlotBelowLayout(placed, settings);
+  }
   for (const row of [DEPOT_ROWS[kind], 1 - DEPOT_ROWS[kind]]) {
     for (let col = 0; col < (lengths[row] ?? 0); col++) {
       const slot = bayToPosition({ col, row });
@@ -3217,7 +3560,7 @@ export function fitDepotPositions<K>(
   const moved = new Map<K, LayoutPoint>();
   const unfit: K[] = [];
   const occupied: LayoutBay[] = [];
-  const rest: Array<{ key: K; bay: LayoutBay; kind: 'bus' | 'truck' }> = [];
+  const rest: Array<{ key: K; bay: LayoutBay; kind: 'bus' | 'truck'; span: number }> = [];
   // AC stations take no bay or lane: those inside the layout move below it.
   const below = stations
     .map((s) => positionToBay(s.position))
@@ -3236,21 +3579,50 @@ export function fitDepotPositions<K>(
       continue;
     }
     const own = DEPOT_ROWS[depot];
-    const taken = occupied.some((o) => o.col === bay.col && o.row === bay.row);
-    if (bay.row === own && bay.col < (lengths[own] ?? 0) && !taken) occupied.push(bay);
-    else rest.push({ key: s.key, bay, kind: depot });
+    // A station with units holds a bay or lane per unit from its slot (`stationSpanCount`).
+    const span = stationSpanCount(s.kind, settings);
+    const run = spanSpots(bay, span, settings);
+    const taken = (run ?? [bay]).some((b) =>
+      occupied.some((o) => o.col === b.col && o.row === b.row),
+    );
+    if (bay.row === own && run != null && !taken) occupied.push(...run);
+    else rest.push({ key: s.key, bay, kind: depot, span });
   }
+  // The free run of `span` bays nearest `from` in `rows` (one bay: `nearestFreeBay`).
+  const nearestRun = (from: LayoutBay, span: number, rows: readonly number[]): LayoutBay | null => {
+    let best: LayoutBay | null = null;
+    let bestD = Infinity;
+    for (const row of rows) {
+      for (let col = 0; col < (lengths[row] ?? 0); col++) {
+        const run = spanSpots({ col, row }, span, settings);
+        if (
+          run == null ||
+          run.some((b) => occupied.some((o) => o.col === b.col && o.row === b.row))
+        )
+          continue;
+        const d = (col - from.col) ** 2 + (row - from.row) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = { col, row };
+        }
+      }
+    }
+    return best;
+  };
   for (const s of rest) {
     const own = DEPOT_ROWS[s.kind];
     const ownOnly = lengths.map((n, r) => (r === own ? n : 0));
     const target =
-      nearestFreeBay({ col: s.bay.col, row: own }, occupied, ownOnly) ??
-      nearestFreeBay({ col: s.bay.col, row: 1 - own }, occupied, lengths);
+      s.span > 1
+        ? (nearestRun({ col: s.bay.col, row: own }, s.span, [own]) ??
+          nearestRun({ col: s.bay.col, row: 1 - own }, s.span, [1 - own]))
+        : (nearestFreeBay({ col: s.bay.col, row: own }, occupied, ownOnly) ??
+          nearestFreeBay({ col: s.bay.col, row: 1 - own }, occupied, lengths));
     if (target == null) {
       unfit.push(s.key);
       continue;
     }
-    occupied.push(target);
+    occupied.push(...(spanSpots(target, s.span, settings) ?? [target]));
     if (target.col !== s.bay.col || target.row !== s.bay.row) {
       moved.set(s.key, bayToPosition(target));
     }

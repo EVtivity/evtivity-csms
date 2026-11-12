@@ -17,9 +17,11 @@ import { availableEvseCountSql } from './driver-availability.js';
 /** The BullMQ job name of one dispatch on the worker's station-watch queue. */
 export const STATION_WATCH_JOB_NAME = 'station-watch-dispatch';
 
-// The OCPP station id when the station has an active watch and a free EVSE by
-// the shared driver availability rule, otherwise null. The watch EXISTS comes
-// first, so a station nobody watches costs one index lookup.
+// The OCPP station id when the station has an active watch with a free EVSE by
+// the shared driver availability rule, otherwise null. A watch of a unit counts
+// only the EVSEs of that unit (a free EVSE of another unit does not fire it).
+// The watch EXISTS comes first, so a station nobody watches costs one index
+// lookup.
 export async function findDueStationWatch(
   sql: postgres.Sql,
   stationUuid: string,
@@ -28,9 +30,10 @@ export async function findDueStationWatch(
     SELECT cs.station_id FROM charging_stations cs
     WHERE cs.id = ${stationUuid}
       AND EXISTS (
-        SELECT 1 FROM station_watches w WHERE w.station_id = cs.id AND w.expires_at > now()
+        SELECT 1 FROM station_watches w
+        WHERE w.station_id = cs.id AND w.expires_at > now()
+          AND ${sql.unsafe(availableEvseCountSql('cs', 'w.unit_id'))} > 0
       )
-      AND ${sql.unsafe(availableEvseCountSql('cs'))} > 0
   `;
   const row = rows[0] as { station_id: string } | undefined;
   return row?.station_id ?? null;
@@ -54,22 +57,36 @@ export async function alertStationWatchersIfAvailable(
   return true;
 }
 
-// Claims (deletes and returns) the station's active watches, only while the
-// station still has a free EVSE by the shared rule. One statement, so two
-// workers or two signals never alert a driver twice, and a stale signal for a
-// station that is no longer free alerts nobody and keeps the watches.
+/** A claimed watch: the driver to alert and the unit it watched (null: the whole station). */
+export interface ClaimedStationWatch {
+  driverId: string;
+  unitName: string | null;
+}
+
+// Claims (deletes and returns) the station's active watches that have a free
+// EVSE by the shared rule: a station watch any EVSE of the station, a unit
+// watch an EVSE of its unit. One statement, so two workers or two signals never
+// alert a driver twice, and a stale signal for a station that is no longer free
+// alerts nobody and keeps the watches.
 export async function claimStationWatches(
   sql: postgres.Sql,
   stationOcppId: string,
-): Promise<string[]> {
+): Promise<ClaimedStationWatch[]> {
   const rows = await sql`
-    DELETE FROM station_watches w
-    USING charging_stations cs
-    WHERE w.station_id = cs.id
-      AND cs.station_id = ${stationOcppId}
-      AND w.expires_at > now()
-      AND ${sql.unsafe(availableEvseCountSql('cs'))} > 0
-    RETURNING w.driver_id
+    WITH claimed AS (
+      DELETE FROM station_watches w
+      USING charging_stations cs
+      WHERE w.station_id = cs.id
+        AND cs.station_id = ${stationOcppId}
+        AND w.expires_at > now()
+        AND ${sql.unsafe(availableEvseCountSql('cs', 'w.unit_id'))} > 0
+      RETURNING w.driver_id, w.unit_id
+    )
+    SELECT c.driver_id, u.name AS unit_name
+    FROM claimed c LEFT JOIN station_units u ON u.id = c.unit_id
   `;
-  return (rows as unknown as Array<{ driver_id: string }>).map((r) => r.driver_id);
+  return (rows as unknown as Array<{ driver_id: string; unit_name: string | null }>).map((r) => ({
+    driverId: r.driver_id,
+    unitName: r.unit_name,
+  }));
 }

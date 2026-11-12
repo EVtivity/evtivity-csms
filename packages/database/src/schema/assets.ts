@@ -17,6 +17,7 @@ import {
   unique,
   uniqueIndex,
   check,
+  foreignKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib/load-allocation';
@@ -251,6 +252,31 @@ export const chargingStations = pgTable(
   ],
 );
 
+// A physical charger box under one OCPP station: the master's own box or an
+// extender. A CSMS grouping only; OCPP, sessions and commands stay at the
+// station. Written only by lib/station-units.ts.
+export const stationUnits = pgTable(
+  'station_units',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('unit')),
+    stationId: text('station_id')
+      .notNull()
+      .references(() => chargingStations.id, { onDelete: 'cascade' }),
+    // Operator-chosen name, 1 to 50 characters (the display label rule).
+    name: varchar('name', { length: 50 }).notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_station_units_station_id').on(table.stationId),
+    uniqueIndex('uq_station_units_station_name').on(table.stationId, sql`lower(${table.name})`),
+    unique('uq_station_units_id_station').on(table.id, table.stationId),
+  ],
+);
+
 export const evses = pgTable(
   'evses',
   {
@@ -266,12 +292,23 @@ export const evses = pgTable(
     // sessions and reservations, the derived status and uptime, with its
     // history kept (station-evse-retire.ts). Null while in service.
     retiredAt: timestamp('retired_at', { withTimezone: true }),
+    // The unit this EVSE belongs to; null means none. The composite key below
+    // keeps a unit on the EVSE's own station. Written only by station-units.ts.
+    unitId: text('unit_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_evses_station_id').on(table.stationId),
     uniqueIndex('uq_evses_station_evse').on(table.stationId, table.evseId),
+    index('idx_evses_unit_id')
+      .on(table.unitId)
+      .where(sql`${table.unitId} IS NOT NULL`),
+    foreignKey({
+      columns: [table.unitId, table.stationId],
+      foreignColumns: [stationUnits.id, stationUnits.stationId],
+      name: 'fk_evses_unit_same_station',
+    }),
   ],
 );
 
@@ -339,6 +376,26 @@ export const stationLayoutPositions = pgTable(
       sql`(${table.boardX} IS NULL) = (${table.boardY} IS NULL)`,
     ),
   ],
+);
+
+// The 2D board card of one unit of a station with units, in board px (a
+// station without units keeps its card on station_layout_positions). Written
+// only by lib/station-layout.ts; none shows the computed default slot.
+export const stationUnitBoardPositions = pgTable(
+  'station_unit_board_positions',
+  {
+    unitId: text('unit_id')
+      .primaryKey()
+      .references(() => stationUnits.id, { onDelete: 'cascade' }),
+    siteId: text('site_id')
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    boardX: integer('board_x').notNull(),
+    boardY: integer('board_y').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_station_unit_board_positions_site').on(table.siteId)],
 );
 
 export const loadAllocationStrategyEnum = pgEnum(

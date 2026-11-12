@@ -49,6 +49,7 @@ import { formatConnectorType } from '@/lib/charger-utils';
 import { noShowFeeEstimate, noShowFeeNote } from '@/lib/reservation-fee';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { useCableCheck } from '@/hooks/use-cable-check';
+import { evseDisplayStatus } from '@evtivity/lib/evse-status';
 
 interface ConnectorItem {
   connectorId: number;
@@ -60,6 +61,8 @@ interface ConnectorItem {
 
 interface EvseItem {
   evseId: number;
+  /** The unit (physical charger box) of the EVSE, null when it has none. */
+  unitId?: string | null;
   connectors: ConnectorItem[];
   reservationExpiresAt: string | null;
   reserved: boolean;
@@ -87,6 +90,8 @@ interface StationDetail {
   siteContactPhone: string | null;
   paymentEnabled: boolean;
   evses: EvseItem[];
+  /** Units of a station with several charger boxes; each is its own charger to drivers. */
+  units?: { id: string; name: string; evseIds: number[]; availableCount: number }[];
   maintenance: MaintenanceInfo | null;
   stationUnavailable: boolean;
 }
@@ -226,11 +231,30 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  // A station with units (a master box and its extenders) shows one unit as
+  // its own charger: the `unit` param from a search row, or the unit of the
+  // QR-scanned EVSE. A unit id the station does not have is ignored, so the
+  // page never names another station's unit.
+  const unitParam = searchParams.get('unit');
+  const stationUnits = station?.units ?? [];
+  const evseFocusUnitId =
+    focusedEvseId != null
+      ? (station?.evses.find((evse) => evse.evseId === focusedEvseId)?.unitId ?? null)
+      : null;
+  const activeUnit =
+    stationUnits.find((unit) => unit.id === unitParam) ??
+    (evseFocusUnitId != null
+      ? stationUnits.find((unit) => unit.id === evseFocusUnitId)
+      : undefined);
+  const activeUnitId = activeUnit?.id ?? null;
+  const unitQuery = activeUnitId != null ? `?unitId=${encodeURIComponent(activeUnitId)}` : '';
+  const unitBody = activeUnitId != null ? { unitId: activeUnitId } : {};
+
   const { data: favoriteData } = useQuery({
-    queryKey: ['favorite-check', stationId],
+    queryKey: ['favorite-check', stationId, activeUnitId],
     queryFn: () =>
       api.get<{ isFavorite: boolean; favoriteId: number | null }>(
-        `/v1/portal/favorites/check/${stationId ?? ''}`,
+        `/v1/portal/favorites/check/${stationId ?? ''}${unitQuery}`,
       ),
     enabled: stationId != null && isAuthenticated,
   });
@@ -248,7 +272,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
     activeSessions.data.every((s) => s.stationId !== stationId);
 
   const addFavoriteMutation = useMutation({
-    mutationFn: () => api.post('/v1/portal/favorites', { stationId }),
+    mutationFn: () => api.post('/v1/portal/favorites', { stationId, ...unitBody }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['favorite-check', stationId] });
       void queryClient.invalidateQueries({ queryKey: ['portal-favorites'] });
@@ -271,16 +295,16 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   // Station Watch: alert me when this station has a free connector. Charge mode
   // only (reserve mode has its own flow).
   const { data: watchData } = useQuery({
-    queryKey: ['station-watch-check', stationId],
+    queryKey: ['station-watch-check', stationId, activeUnitId],
     queryFn: () =>
       api.get<{ isWatching: boolean; watchId: number | null }>(
-        `/v1/portal/station-watches/check/${stationId ?? ''}`,
+        `/v1/portal/station-watches/check/${stationId ?? ''}${unitQuery}`,
       ),
     enabled: stationId != null && isAuthenticated && mode === 'charge',
   });
 
   const addWatchMutation = useMutation({
-    mutationFn: () => api.post('/v1/portal/station-watches', { stationId }),
+    mutationFn: () => api.post('/v1/portal/station-watches', { stationId, ...unitBody }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['station-watch-check', stationId] });
       void queryClient.invalidateQueries({ queryKey: ['portal-station-watches'] });
@@ -447,8 +471,12 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   // An evse param that the station does not have falls back to the full grid.
   const focusedEvse =
     focusedEvseId != null ? station.evses.find((evse) => evse.evseId === focusedEvseId) : undefined;
-  const visibleEvses = focusedEvse != null ? [focusedEvse] : station.evses;
-  const hiddenEvseCount = station.evses.length - visibleEvses.length;
+  const scopeEvses =
+    activeUnit != null && unitParam === activeUnit.id
+      ? station.evses.filter((evse) => evse.unitId === activeUnit.id)
+      : station.evses;
+  const visibleEvses = focusedEvse != null ? [focusedEvse] : scopeEvses;
+  const hiddenEvseCount = scopeEvses.length - visibleEvses.length;
   if (selectedEvseId == null) {
     const selectable = visibleEvses.filter((evse) =>
       isEvseSelectable(evse, {
@@ -509,11 +537,18 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="flex items-center gap-1.5">
-            <h1 className="text-xl font-bold">{station.stationId}</h1>
+            <h1 className="text-xl font-bold" data-testid="charger-title">
+              {activeUnit?.name ?? station.stationId}
+            </h1>
             {favoriteData?.isFavorite === true && (
               <Star className="h-4 w-4 shrink-0 text-warning" fill="currentColor" />
             )}
           </div>
+          {activeUnit != null && (
+            <p className="text-xs text-muted-foreground" data-testid="charger-station-id">
+              {station.stationId}
+            </p>
+          )}
           {station.siteName != null && (
             <p className="text-xs text-muted-foreground">{station.siteName}</p>
           )}
@@ -639,7 +674,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       {station.evses.length > 0 && !hasActiveSession && (
         <div className={`grid gap-3 ${visibleEvses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
           {visibleEvses.map((evse) => {
-            const connectorStatus = evse.connectors[0]?.status ?? 'unavailable';
+            const connectorStatus = evseDisplayStatus(evse.connectors.map((c) => c.status));
             const isAvailable = isEvseSelectable(evse, {
               mode,
               isOnline: station.isOnline,
@@ -933,7 +968,11 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       {/* Station Watch: only when nothing is free to wait on. */}
       {mode === 'charge' &&
         isAuthenticated &&
-        !station.evses.some((e) => e.connectors.some((c) => c.status === 'available')) &&
+        !(
+          activeUnit != null
+            ? station.evses.filter((e) => e.unitId === activeUnit.id)
+            : station.evses
+        ).some((e) => e.connectors.some((c) => c.status === 'available')) &&
         (watchData?.isWatching === true ? (
           <Button
             variant="outline"

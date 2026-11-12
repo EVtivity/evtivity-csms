@@ -27,6 +27,7 @@ import { AC_PEDESTAL } from './site-layout-model-ac-pedestal';
 import { DC_HOLSTER, DC_SIDE_X } from './site-layout-model-dc-dispenser';
 import { SPLIT_SATELLITE } from './site-layout-model-split-satellite';
 import { wallBoxPlateAt } from './site-layout-model-wall-box';
+import { BUS_DISPENSER, BUS_DISPENSER_HOLSTERS } from './site-layout-model-bus-dispenser';
 
 /** The material slots of the plate: its body, the number face and the light's bezel. */
 export const EVSE_PLATE_SLOTS = ['plate', 'face', 'bezel'] as const;
@@ -151,6 +152,17 @@ export function acEvsePlate(side: -1 | 1): EvsePlateMount {
  */
 export function wallBoxEvsePlate(bottomM: number, side: -1 | 1): EvsePlateMount {
   return { at: wallBoxPlateAt(bottomM, side), turnY: 0 };
+}
+
+/**
+ * The plate of outlet `index` (EVSE order) of a dual-outlet bus dispenser: on
+ * the cabinet front over that outlet's holster (1.2 m), its center 0.26 m
+ * above it as on the DC dispenser (1.46 m, inside the 40 to 70 in band of
+ * 2010 ADA Standards 703.5.5), facing the bays.
+ */
+export function busDispenserEvsePlate(index: number): EvsePlateMount {
+  const h = BUS_DISPENSER_HOLSTERS[index % BUS_DISPENSER_HOLSTERS.length] ?? [0, 1.2, 0];
+  return { at: [h[0], h[1] + 0.26, BUS_DISPENSER.depthM / 2 + 0.004], turnY: 0 };
 }
 
 /**

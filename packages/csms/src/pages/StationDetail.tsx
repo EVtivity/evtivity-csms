@@ -56,6 +56,8 @@ import { StationChargingNeedsTab } from '@/components/StationChargingNeedsTab';
 import { useHasPermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 import { isOcpp2x } from '@evtivity/lib/ocpp-version';
+import type { StationUnit } from '@/lib/station-units';
+import { StationUnitsCard } from '@/components/station/StationUnitsCard';
 
 interface Station {
   id: string;
@@ -109,6 +111,8 @@ interface Connector {
 interface Evse {
   evseId: number;
   status: string;
+  unitId?: string | null;
+  unitName?: string | null;
   connectors: Connector[];
 }
 
@@ -151,6 +155,12 @@ export function StationDetail(): React.JSX.Element {
   } = useQuery({
     queryKey: ['stations', id, 'connectors'],
     queryFn: () => api.get<Evse[]>(`/v1/stations/${id ?? ''}/connectors`),
+    enabled: id != null,
+  });
+
+  const { data: units } = useQuery({
+    queryKey: ['stations', id, 'units'],
+    queryFn: () => api.get<StationUnit[]>(`/v1/stations/${id ?? ''}/units`),
     enabled: id != null,
   });
 
@@ -459,7 +469,11 @@ export function StationDetail(): React.JSX.Element {
             ocppProtocol={station.ocppProtocol}
             isOnline={station.isOnline}
             isSimulator={station.isSimulator}
+            units={units}
+            stationStatus={station.status}
+            statusReason={station.statusReason}
           />
+          <StationUnitsCard stationId={station.id} units={units} evses={connectorsData} />
           <StationPaymentTerminalsCard stationId={station.id} />
         </TabsContent>
 

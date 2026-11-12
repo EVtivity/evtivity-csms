@@ -496,7 +496,7 @@
     "newReservation": "Nueva reserva",
     "findStation": "Encontrar una estación para reservar",
     "searchPlaceholder": "Buscar por ID de estación o nombre del sitio",
-    "reserveConnector": "Reservar conector",
+    "reserveConnector": "Reservar puerto",
     "stationId": "ID de estación",
     "stationSearchPlaceholder": "Buscar por ID de estación o sitio...",
     "selectStation": "Seleccione una estación",
@@ -898,6 +898,9 @@
     "STATION_HAS_SIM": "Esta estación ya tiene una SIM vinculada. Desvincúlela primero",
     "STATION_ID_EXISTS": "Ya existe una estación con este ID",
     "STATION_NOT_FOUND": "Estación no encontrada",
+    "STATION_UNIT_NOT_FOUND": "Unidad no encontrada",
+    "STATION_UNIT_NAME_IN_USE": "Otra unidad de esta estación ya tiene este nombre",
+    "STATION_UNIT_LIMIT_REACHED": "Una estación admite como máximo 64 unidades",
     "STATION_OFFLINE": "La estación está fuera de línea",
     "STATION_ONLINE": "La estación está en línea. Detenga la sesión en la estación.",
     "STATION_REJECTED": "La estación rechazó el inicio: ...",
@@ -1287,7 +1290,7 @@
     "noStations": "No hay estaciones en esta ubicación."
   },
   "stationDetail": {
-    "selectConnector": "Seleccione un conector para comenzar a cargar",
+    "selectConnector": "Seleccione un puerto para comenzar a cargar",
     "reportProblem": "Reportar un problema",
     "startCharging": "Iniciar carga",
     "starting": "Iniciando...",
@@ -1297,7 +1300,7 @@
     "failedToStart": "Error al iniciar la carga",
     "freeCharging": "Gratis",
     "connectorPort": "Puerto {{id}}",
-    "showAllConnectors": "Mostrar los {{total}} conectores",
+    "showAllConnectors": "Mostrar los {{total}} puertos",
     "activeSessionWarning": "Ya tiene una sesión activa. No puede iniciar otra."
   },
   "homeCards": {
@@ -1324,7 +1327,7 @@
     "invalidMessage": "Este código QR no es válido o ha caducado. Vuelva a escanear el código QR que muestra la estación de carga."
   },
   "watch": {
-    "notifyWhenFree": "Avisarme cuando esté libre",
+    "notifyWhenFree": "Avisarme Cuando Esté Libre",
     "watching": "Dejar de seguir",
     "added": "Le avisaremos cuando esta estación esté libre.",
     "removed": "Vigilancia eliminada.",

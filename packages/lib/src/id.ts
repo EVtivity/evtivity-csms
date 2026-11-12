@@ -71,6 +71,7 @@ export const ID_PREFIXES = {
   departureSchedule: 'vds',
   departure: 'vdp',
   depotSystem: 'dms',
+  unit: 'unt',
 } as const;
 
 export type EntityType = keyof typeof ID_PREFIXES;

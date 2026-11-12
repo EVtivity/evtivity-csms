@@ -9,10 +9,8 @@
 
 import {
   layoutStationCountsOfKinds,
-  layoutStationKind,
   type LayoutStationKind,
   firstFreePlacement,
-  freeSpotCount,
   freeSpotRects,
   freeSpotTypeOf,
   SPLIT_SYSTEM,
@@ -22,6 +20,22 @@ import {
   type LayoutStationCounts,
 } from '@evtivity/lib/site-layout';
 import type { LayoutStation } from './StationCard';
+import {
+  expandUnitStations,
+  layoutKindOfStation,
+  layoutStationFreeSpots,
+  layoutUnitChargers,
+} from './site-layout-units';
+import { usesFreePositions, type LayoutShape } from '@evtivity/lib/site-layout';
+
+/**
+ * The car spots of a station or a unit charger view on a custom site: a unit
+ * charger its own (`expandUnitStations`), a station with units one per unit
+ * EVSE (`stationFreeSpotCount`), else one per EVSE up to four.
+ */
+function freeSpotsOf(station: Pick<LayoutStation, 'evses' | 'units' | 'unitCharger'>): number {
+  return station.unitCharger?.spots ?? layoutStationFreeSpots(station);
+}
 
 /** A station of a custom site: where it stands and its spots (one per EVSE, at most two). */
 export interface FreeStationPlace {
@@ -45,9 +59,7 @@ export function freeStationPlaces(
 ): Map<string, FreeStationPlace> {
   const places = new Map<string, FreeStationPlace>();
   const stored = stations.flatMap((s) =>
-    s.freePosition != null
-      ? [{ key: s.id, placement: s.freePosition, spots: freeSpotCount(s.evses.length) }]
-      : [],
+    s.freePosition != null ? [{ key: s.id, placement: s.freePosition, spots: freeSpotsOf(s) }] : [],
   );
   const moved = resolveFreeOverlaps(stored, { nearest: true });
   for (const s of stored) {
@@ -55,7 +67,7 @@ export function freeStationPlaces(
   }
   for (const s of stations) {
     if (places.has(s.id)) continue;
-    const spots = freeSpotCount(s.evses.length);
+    const spots = freeSpotsOf(s);
     places.set(s.id, { placement: firstFreePlacement([...places.values()], spots), spots });
   }
   return places;
@@ -138,11 +150,10 @@ export function stationConnectorTypes(station: LayoutStation): Array<string | nu
 }
 
 /** The layout kind of a station (AC or DC, its depot spot) from its connectors, as the API reads it. */
-export function stationLayoutKindOf(station: Pick<LayoutStation, 'evses'>): LayoutStationKind {
-  return layoutStationKind(
-    station.evses.flatMap((e) => e.connectors),
-    station.evses.length,
-  );
+export function stationLayoutKindOf(
+  station: Pick<LayoutStation, 'evses' | 'units'>,
+): LayoutStationKind {
+  return layoutKindOfStation(station);
 }
 
 /**
@@ -151,7 +162,7 @@ export function stationLayoutKindOf(station: Pick<LayoutStation, 'evses'>): Layo
  * station; an AC station takes neither), as the API counts them.
  */
 export function layoutStationCountsOf(
-  stations: ReadonlyArray<Pick<LayoutStation, 'evses'>>,
+  stations: ReadonlyArray<Pick<LayoutStation, 'evses' | 'units'>>,
 ): LayoutStationCounts {
   return layoutStationCountsOfKinds(stations.map(stationLayoutKindOf));
 }
@@ -162,16 +173,57 @@ export function layoutStationCountsOf(
  * in its own frame, EVSE order; null for any other station or spot type.
  */
 export function customSplitDispenserXs(
-  station: Pick<LayoutStation, 'chargingKind' | 'evses'>,
+  station: Pick<LayoutStation, 'chargingKind' | 'evses' | 'units' | 'unitCharger'>,
   place: FreeStationPlace,
 ): number[] | null {
   if (station.chargingKind !== 'dc' || station.evses.length < SPLIT_SYSTEM.minDispensers) {
     return null;
   }
+  // A unit charger is never a split system, nor is a station with units.
+  if (station.unitCharger != null || layoutUnitChargers(station) != null) return null;
   if (freeSpotTypeOf(place.placement) !== 'car' || place.spots < SPLIT_SYSTEM.minDispensers) {
     return null;
   }
   return freeSpotRects(place.spots, 'car').map(
     (r) => Math.round(((r.minX + r.maxX) / 2) * 100) / 100 + 0,
   );
+}
+
+/**
+ * The stalls of a custom site's station with two or more car spots (one per
+ * EVSE, EVSE order, the first on the left in its own frame, `freeSpotRects`):
+ * each EVSE with a cable in gets its own vehicle in its own spot, as on a
+ * parking lot (`stationStalls`). Null for one spot and for bus bays and truck
+ * lanes (their large chargers place their one vehicle themselves).
+ */
+export function freeCarStalls(place: FreeStationPlace): Array<{ x: number; width: number }> | null {
+  if (freeSpotTypeOf(place.placement) !== 'car' || place.spots < 2) return null;
+  return freeSpotRects(place.spots, 'car').map((r) => ({
+    x: Math.round(((r.minX + r.maxX) / 2) * 100) / 100 + 0,
+    width: r.maxX - r.minX,
+  }));
+}
+
+/**
+ * The view stations of the site layout (`expandUnitStations`): a station with
+ * units as one view station per unit charger. On a custom site each station
+ * with units first takes its resolved free position (`freeStationPlaces`
+ * over the stations), so its unit chargers stand together across its car
+ * spots. A site without a station with units returns the list as given.
+ */
+export function layoutViewStations(
+  stations: readonly LayoutStation[],
+  settings: LayoutShape,
+): readonly LayoutStation[] {
+  if (!stations.some((s) => layoutUnitChargers(s) != null)) return stations;
+  let base = stations;
+  if (usesFreePositions(settings)) {
+    const places = freeStationPlaces(stations);
+    base = stations.map((s) =>
+      layoutUnitChargers(s) == null
+        ? s
+        : { ...s, freePosition: places.get(s.id)?.placement ?? s.freePosition ?? null },
+    );
+  }
+  return expandUnitStations(base, settings);
 }

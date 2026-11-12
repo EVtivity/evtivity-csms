@@ -33,6 +33,7 @@ import {
 import { guestStartExtras } from '@/lib/guest-start';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { useCableCheck } from '@/hooks/use-cable-check';
+import { evseDisplayStatus } from '@evtivity/lib/evse-status';
 
 interface ChargerInfo {
   stationId: string;
@@ -183,7 +184,7 @@ export function ChargerLanding(): React.JSX.Element {
     );
   }
 
-  const connectorStatus = charger.evse.connectors[0]?.status ?? 'unavailable';
+  const connectorStatus = evseDisplayStatus(charger.evse.connectors.map((c) => c.status));
   // Reserved connectors are never available for guest checkout, even when
   // their status flips to `preparing`/`occupied` after the reservation
   // holder plugs in. The portal-authenticated flow (ChargerDetail) handles

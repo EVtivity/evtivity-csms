@@ -3,13 +3,14 @@
 
 import { useNavigate } from 'react-router';
 import { StationSearchList } from '@/components/StationSearchList';
+import { chargerUnitQuery } from '@/lib/station-units';
 
 export function ChargerSearch(): React.JSX.Element {
   const navigate = useNavigate();
   return (
     <StationSearchList
-      onSelect={(stationId) => {
-        void navigate(`/start/${stationId}`);
+      onSelect={(stationId, unitId) => {
+        void navigate(`/start/${stationId}${chargerUnitQuery(unitId)}`);
       }}
     />
   );

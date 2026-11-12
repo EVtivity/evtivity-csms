@@ -2013,7 +2013,8 @@
     "endSessionConfirmDescription": "充電樁 {{station}} 已離線。CSMS 將在沒有充電樁的情況下立即結束工作階段，並按其最後計量的電量 {{energy}} 計費。充電樁重新連線後傳送的停止或結束訊息不會重新開啟工作階段，也不會再次計費。",
     "endSessionConfirmDescriptionWithCost": "充電樁 {{station}} 已離線。CSMS 將在沒有充電樁的情況下立即結束工作階段，並按其最後計量的電量 {{energy}} 計費，目前為 {{cost}}。充電樁重新連線後傳送的停止或結束訊息不會重新開啟工作階段，也不會再次計費。",
     "endSessionRequested": "已要求結束工作階段",
-    "endSessionFailed": "無法結束工作階段"
+    "endSessionFailed": "無法結束工作階段",
+    "unit": "單元"
   },
   "drivers": {
     "title": "駕駛員",
@@ -4793,6 +4794,9 @@
     "STATION_HAS_SIM": "此充電樁已關聯 SIM。請先取消關聯",
     "STATION_ID_EXISTS": "已存在相同 ID 的充電樁",
     "STATION_NOT_FOUND": "找不到充電樁",
+    "STATION_UNIT_NOT_FOUND": "找不到單元",
+    "STATION_UNIT_NAME_IN_USE": "此充電樁的另一個單元已使用此名稱",
+    "STATION_UNIT_LIMIT_REACHED": "一個充電樁最多有 64 個單元",
     "STATION_OFFLINE": "充電樁已離線",
     "STATION_ONLINE": "充電樁在線上。請改為在充電樁停止工作階段。",
     "STATION_REJECTED": "充電樁拒絕啟動：...",
@@ -6292,6 +6296,7 @@
       "display_message_cleared": "顯示訊息已清除",
       "nevi_data_changed": "NEVI 資料已變更",
       "evse_changed": "EVSE 已變更",
+      "unit_changed": "單元已變更",
       "monitoring_changed": "監控已變更",
       "alert_acknowledged": "警示已確認",
       "payment_method_added": "付款方式已新增",
@@ -7728,5 +7733,34 @@
     },
     "replacePassword": "更換密碼",
     "replacePasswordConfirm": "目前密碼立即失效，車場系統將中斷連線，直到供應商輸入新密碼。"
+  },
+  "layout": {
+    "units": {
+      "chargerName": "{{station}}，{{unit}}",
+      "plateLabel": "{{unit}}，EVSE {{evses}}",
+      "and": "和"
+    }
+  },
+  "stationUnits": {
+    "title": "單元",
+    "description": "此充電樁的實體充電箱，例如主箱及其擴充箱。駕駛員會將每個單元視為獨立的充電器；工作階段與命令仍屬於充電樁。",
+    "addUnit": "新增單元",
+    "renameUnit": "重新命名單元",
+    "deleteUnit": "刪除單元",
+    "deleteConfirm": "刪除 {{name}}？其 EVSE 會保留在充電樁上且不屬於任何單元，駕駛員對它的收藏與提醒將被移除。",
+    "unitName": "單元名稱",
+    "evses": "EVSE",
+    "noEvses": "無 EVSE",
+    "noUnit": "無單元",
+    "evsesWithoutUnit": "未分配單元的 EVSE",
+    "assignTitle": "EVSE 所屬單元",
+    "empty": "此充電樁沒有單元。新增單元可依實體充電箱將其 EVSE 分組。",
+    "evseCount_one": "{{count}} 個 EVSE",
+    "evseCount_other": "{{count}} 個 EVSE",
+    "unitCount_one": "{{count}} 個單元",
+    "unitCount_other": "{{count}} 個單元",
+    "unassignedNotice_one": "{{count}} 個 EVSE 沒有單元。駕駛員會將它們視為另一個以充電樁命名的充電器。",
+    "unassignedNotice_other": "{{count}} 個 EVSE 沒有單元。駕駛員會將它們視為另一個以充電樁命名的充電器。",
+    "manageUnits": "管理單元"
   }
 }

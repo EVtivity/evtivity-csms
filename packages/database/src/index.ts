@@ -251,6 +251,7 @@ export {
   evseOpenToDriversSql,
   evseAvailableSql,
   availableEvseCountSql,
+  inServiceEvseCountSql,
 } from './lib/driver-availability.js';
 export {
   OFFLINE_SWEEP_REASON,
@@ -281,6 +282,7 @@ export {
   alertStationWatchersIfAvailable,
   claimStationWatches,
 } from './lib/station-watch.js';
+export type { ClaimedStationWatch } from './lib/station-watch.js';
 export type {
   StationAvailability,
   StationDisabledReason,
@@ -836,14 +838,17 @@ export {
   ChargerPlacementSiteTypeError,
   LayoutGridTooSmallError,
   LayoutSpotsOverlapError,
+  LayoutUnitNotFoundError,
   moveStationLayout,
   placeStationOnLayout,
   readLayoutPowerEquipment,
   readSiteLayoutPositions,
   readSiteLayoutSettings,
   readSiteStationCounts,
+  readSiteUnitBoardPositions,
   readStationLayoutKinds,
   readStoredLayoutSettings,
+  refitStationRun,
   saveSiteLayout,
   setSiteLayoutType,
   boardOf,
@@ -851,9 +856,27 @@ export {
 export type {
   LayoutPosition,
   SavedSiteLayout,
+  StationRunRefit,
   SiteTypeChange,
   StationLayoutDb,
 } from './lib/station-layout.js';
+export {
+  STATION_UNITS_MAX,
+  STATION_UNIT_NAME_MAX,
+  createStationUnit,
+  deleteStationUnit,
+  readStationUnits,
+  readUnitsOfStations,
+  setEvseUnit,
+  updateStationUnit,
+} from './lib/station-units.js';
+export type {
+  StationUnitRow,
+  StationUnitView,
+  UnitSnapshot,
+  UnitWriteFailure,
+  UnitWriteResult,
+} from './lib/station-units.js';
 export {
   deleteUserDashboardLayout,
   existingDashboardSiteIds,

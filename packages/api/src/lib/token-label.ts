@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
+import { DISPLAY_LABEL_PATTERN } from '@evtivity/lib/display-label';
 
 /** The most characters a label holds after trimming (`driver_tokens.label` varchar(100)). */
 export const TOKEN_LABEL_MAX_LENGTH = 100;
@@ -13,22 +14,11 @@ export const TOKEN_LABEL_MAX_LENGTH = 100;
 export const TOKEN_LABEL_INPUT_MAX_LENGTH = 1000;
 
 /**
- * Control characters (`\p{Cc}`: C0 and C1, line breaks and tabs included) and
- * invisible format characters (`\p{Cf}`: the bidirectional controls ALM, LRM,
- * RLM, the embeddings, overrides and isolates, and the zero-width space,
- * joiners, word joiner and byte order mark). A label is one line of plain
- * text: a bidi override makes it read differently on screen than it is
- * stored, and a zero-width character makes two labels look equal while they
- * differ (security review PP-I2). The one exception is the zero-width joiner
- * between two emoji (a family or a profession emoji is one such sequence).
+ * Matches a string free of control and invisible format characters (a zero-width
+ * joiner only inside an emoji), the shared display label rule. Also in the
+ * route JSON schema.
  */
-const EMOJI_PART = '[\\p{Extended_Pictographic}\\p{Emoji_Modifier}]';
-
-/** Matches a string free of the forbidden characters (also in the route JSON schema). */
-export const TOKEN_LABEL_PATTERN = new RegExp(
-  `^(?:[^\\p{Cc}\\p{Cf}]|(?<=${EMOJI_PART}\\uFE0F?)\\u200D(?=\\p{Extended_Pictographic}))*$`,
-  'u',
-);
+export const TOKEN_LABEL_PATTERN = DISPLAY_LABEL_PATTERN;
 
 export type TokenLabelProblem = 'control_characters' | 'too_long';
 

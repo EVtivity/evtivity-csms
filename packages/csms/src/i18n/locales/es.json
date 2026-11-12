@@ -2013,7 +2013,8 @@
     "endSessionConfirmDescription": "La estación {{station}} está fuera de línea. El CSMS cierra la sesión ahora y la factura según su última energía medida, {{energy}}, sin la estación. Un mensaje de detención o finalización que la estación envíe al reconectarse no reabre la sesión ni la vuelve a facturar.",
     "endSessionConfirmDescriptionWithCost": "La estación {{station}} está fuera de línea. El CSMS cierra la sesión ahora y la factura según su última energía medida, {{energy}}, por {{cost}} hasta ahora, sin la estación. Un mensaje de detención o finalización que la estación envíe al reconectarse no reabre la sesión ni la vuelve a facturar.",
     "endSessionRequested": "Finalización de la sesión solicitada",
-    "endSessionFailed": "No se pudo finalizar la sesión"
+    "endSessionFailed": "No se pudo finalizar la sesión",
+    "unit": "Unidad"
   },
   "drivers": {
     "title": "Conductores",
@@ -4793,6 +4794,9 @@
     "STATION_HAS_SIM": "Esta estación ya tiene una SIM vinculada. Desvincúlela primero",
     "STATION_ID_EXISTS": "Ya existe una estación con este ID",
     "STATION_NOT_FOUND": "Estación no encontrada",
+    "STATION_UNIT_NOT_FOUND": "Unidad no encontrada",
+    "STATION_UNIT_NAME_IN_USE": "Otra unidad de esta estación ya tiene este nombre",
+    "STATION_UNIT_LIMIT_REACHED": "Una estación admite como máximo 64 unidades",
     "STATION_OFFLINE": "La estación está fuera de línea",
     "STATION_ONLINE": "La estación está en línea. Detenga la sesión en la estación.",
     "STATION_REJECTED": "La estación rechazó el inicio: ...",
@@ -6292,6 +6296,7 @@
       "display_message_cleared": "Mensaje de pantalla borrado",
       "nevi_data_changed": "Datos NEVI modificados",
       "evse_changed": "EVSE modificado",
+      "unit_changed": "Unidad modificada",
       "monitoring_changed": "Monitorización modificada",
       "alert_acknowledged": "Alerta reconocida",
       "payment_method_added": "Método de pago añadido",
@@ -7728,5 +7733,34 @@
     },
     "replacePassword": "Reemplazar contraseña",
     "replacePasswordConfirm": "La contraseña actual deja de funcionar de inmediato y el sistema de depósito queda desconectado hasta que el proveedor introduzca la nueva."
+  },
+  "layout": {
+    "units": {
+      "chargerName": "{{station}}, {{unit}}",
+      "plateLabel": "{{unit}}, EVSE {{evses}}",
+      "and": "y"
+    }
+  },
+  "stationUnits": {
+    "title": "Unidades",
+    "description": "Las cajas de carga físicas de esta estación, como una caja maestra y sus extensiones. Los conductores ven cada unidad como su propio cargador; las sesiones y los comandos siguen en la estación.",
+    "addUnit": "Agregar Unidad",
+    "renameUnit": "Renombrar Unidad",
+    "deleteUnit": "Eliminar Unidad",
+    "deleteConfirm": "¿Eliminar {{name}}? Sus EVSE siguen en la estación sin unidad, y se quitan los favoritos y avisos de los conductores para ella.",
+    "unitName": "Nombre de la Unidad",
+    "evses": "EVSE",
+    "noEvses": "Sin EVSE",
+    "noUnit": "Sin Unidad",
+    "evsesWithoutUnit": "EVSE sin Unidad",
+    "assignTitle": "Unidades de los EVSE",
+    "empty": "Esta estación no tiene unidades. Agregue una unidad para agrupar sus EVSE por caja de carga física.",
+    "evseCount_one": "{{count}} EVSE",
+    "evseCount_other": "{{count}} EVSE",
+    "unitCount_one": "{{count}} Unidad",
+    "unitCount_other": "{{count}} Unidades",
+    "unassignedNotice_one": "{{count}} EVSE no tiene unidad. Los conductores lo ven como un cargador más con el nombre de la estación.",
+    "unassignedNotice_other": "{{count}} EVSE no tienen unidad. Los conductores los ven como un cargador más con el nombre de la estación.",
+    "manageUnits": "Administrar Unidades"
   }
 }

@@ -21,6 +21,7 @@ import type { FreePlacement } from '@evtivity/lib/site-layout';
 import type { ScreenMessage } from './site-layout-screen-text';
 import { STATION_CARD_SIZE } from './site-layout-2d-placement';
 import { StationCardContent } from './StationCardContent';
+import { layoutChargerName } from './site-layout-units';
 
 let globalDragCounter = 0;
 
@@ -37,6 +38,33 @@ interface EvseData {
   evseId: number;
   status: string;
   connectors: ConnectorData[];
+  /** The unit the EVSE belongs to (unt_), null or absent for none. */
+  unitId?: string | null | undefined;
+  /** The EVSE is retired (out of service); absent in older replies. */
+  retired?: boolean | undefined;
+  /** This EVSE's active session (each EVSE draws its own car); null or absent without one. */
+  session?: LayoutEvseSession | null | undefined;
+}
+
+/** The active session of one EVSE (only with sessions:read). */
+export interface LayoutEvseSession {
+  id: string;
+  startedAt: string;
+  energyDeliveredWh: number;
+  currentCostCents: number | null;
+  currency: string;
+  driver: LayoutSessionDriver | null;
+  vehicle?: { color: string | null; bodyType: string | null } | null | undefined;
+}
+
+/** One unit of a station (a physical charger box under one OCPP station). */
+export interface LayoutUnit {
+  id: string;
+  name: string;
+  /** OCPP EVSE IDs of the unit. */
+  evseIds: number[];
+  /** Where the unit card stands on the 2D board; null or absent shows its computed default slot. */
+  boardPosition?: { x: number; y: number } | null | undefined;
 }
 
 /** The driver of an active session (only with drivers:read). */
@@ -72,6 +100,8 @@ export interface LayoutSession {
   energyDeliveredWh: number;
   currentCostCents: number | null;
   currency: string;
+  /** The OCPP EVSE id the session runs on; null or absent when the station has not named it. */
+  evseId?: number | null | undefined;
   driver: LayoutSessionDriver | null;
   /** The car the layout draws (color and body type); null or absent draws a grey sedan. */
   vehicle?: { color: string | null; bodyType: string | null } | null | undefined;
@@ -118,6 +148,40 @@ export interface LayoutStation {
   freePosition?: FreePlacement | null | undefined;
   /** Where its card stands on the 2D board (board px); null or absent shows the computed default slot. */
   boardPosition?: { x: number; y: number } | null | undefined;
+  /** The station's units in order, each drawn as its own charger; empty or absent for none (one charger). */
+  units?: LayoutUnit[] | undefined;
+  /**
+   * Set on the view of one unit charger of a station with units
+   * (`expandUnitStations`, site-layout-units.ts): the station it belongs to
+   * and the unit it draws. Absent on a station without units.
+   */
+  unitCharger?: LayoutUnitCharger | undefined;
+}
+
+/** The unit charger a layout view station draws (`expandUnitStations`). */
+export interface LayoutUnitCharger {
+  /** The station (internal id) the charger belongs to. */
+  stationUuid: string;
+  /** The unit id; null for the charger of the EVSEs without a unit. */
+  unitId: string | null;
+  /** The unit name; null for the EVSEs without a unit. */
+  name: string | null;
+  /** The charger's place in the station's order, from 0. */
+  index: number;
+  /** Grid sites: the column offset of its first spot from the station's slot. */
+  offset: number;
+  /** Grid sites: the spots it holds (2: on the line between its two spots); a custom site: its car spots. */
+  spots: number;
+  /** A custom site: how far across the station's frame it stands from the station's point, in meters. */
+  freeOffsetX: number;
+  /** The station's own charging kind, which places its run (DC when any unit is DC). */
+  stationKind: 'ac' | 'dc';
+  /**
+   * The box number on its plate: the unit's 1-based place in the station's
+   * unit order (sort order), never read from the name; null for the EVSEs
+   * without a unit.
+   */
+  number: number | null;
 }
 
 /** The connector an EVSE shows the status of: the one plugged in, else the first. */
@@ -274,7 +338,7 @@ export function PlacedStationCard({
       tabIndex={0}
       aria-haspopup="dialog"
       aria-label={t('sites.layoutView.stateDetailsLabel', {
-        id: station.stationId,
+        id: layoutChargerName(station, t),
         state: t(stationStateLabelKey(state)),
       })}
       data-testid={`site-layout-card-${station.id}`}

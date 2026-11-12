@@ -223,6 +223,7 @@ export const AUDIT_ACTIONS = [
   'tokens_added',
   'tokens_removed',
   'tool_called',
+  'unit_changed',
   'unpaired',
   'updated',
   'uploaded',

@@ -40,6 +40,8 @@ interface TransactionEvent {
 interface SessionOverview {
   stationId: string;
   stationName: string | null;
+  /** The unit (physical charger box) of the session's EVSE, null when it has none. */
+  unitName?: string | null;
   siteName: string | null;
   driverId: string | null;
   driverName: string | null;
@@ -150,6 +152,11 @@ export function SessionDetailsTab({
                 : (session.stationName ?? t('common.na'))}
             </Link>
           </Row>
+          {session.unitName != null && (
+            <Row label={t('sessions.unit')}>
+              <span data-testid="session-unit-name">{session.unitName}</span>
+            </Row>
+          )}
           <Row label={t('sessions.driver')}>
             {session.freeVend === true ? (
               <span className="text-muted-foreground">{t('sessions.freeVend')}</span>

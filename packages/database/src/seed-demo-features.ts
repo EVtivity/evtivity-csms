@@ -1322,6 +1322,8 @@ export interface DemoFeatureCounts {
   terminalPayments: number;
   /** Stations of the site layout demo (seed-demo-layout.ts). */
   layoutStations: number;
+  /** Units created on the layout demo's station with units (Parkhaus Lindenhof). */
+  stationUnits: number;
   /** Sites outside the layout demo whose power equipment this run sized (seed-site-power.ts). */
   powerSites: number;
   /** Demo drivers given a generated avatar (seed-demo-avatars.ts). */
@@ -1376,6 +1378,7 @@ export async function seedDemoFeatures(
     sims,
     terminalPayments,
     layoutStations: layout.stations,
+    stationUnits: layout.units,
     powerSites: power.filter((p) => p.treeWritten || p.layoutWritten).length,
     driverAvatars,
     vehicleLooks: vehicleLooks.vehicles,

@@ -11,10 +11,14 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
+import { chargerUnitQuery } from '@/lib/station-units';
 
 interface WatchStation {
   id: number;
   stationId: string;
+  /** The unit (charger box) watched or favorited, null for the whole station. */
+  unitId?: string | null;
+  unitName?: string | null;
   siteName: string | null;
   siteAddress: string | null;
   siteCity: string | null;
@@ -74,12 +78,14 @@ export function Watching(): React.JSX.Element {
             key={w.id}
             className="flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors hover:bg-accent/50"
             onClick={() => {
-              void navigate(`/start/${w.stationId}`);
+              void navigate(`/start/${w.stationId}${chargerUnitQuery(w.unitId)}`);
             }}
           >
             <div className="space-y-1 min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold truncate">{w.stationId}</span>
+                <span className="text-sm font-semibold truncate">
+                  {w.unitName != null ? `${w.stationId}, ${w.unitName}` : w.stationId}
+                </span>
                 <div
                   className={`h-2 w-2 rounded-full shrink-0 ${w.isOnline ? 'bg-success' : 'bg-destructive'}`}
                 />

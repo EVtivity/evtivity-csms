@@ -12,6 +12,7 @@ import {
   chargingStations,
   evses,
   connectors,
+  stationUnits,
   maintenanceEvents,
   isStationLevelUnavailable,
   removedOcpiEvses,
@@ -22,6 +23,28 @@ import type { RemovedOcpiEvse } from '@evtivity/database';
 import { config } from '../lib/config.js';
 import type { EvseRow, LocationTransformInput } from '../transformers/location.transformer.js';
 import type { TariffStation } from './connector-tariffs.js';
+
+/** The units named by `unitIds`, keyed by id (EVSE `physical_reference`). */
+export async function unitsOf(
+  unitIds: readonly (string | null)[],
+): Promise<Map<string, { name: string; updatedAt: Date }>> {
+  const ids = [...new Set(unitIds.filter((id): id is string => id != null))];
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({ id: stationUnits.id, name: stationUnits.name, updatedAt: stationUnits.updatedAt })
+    .from(stationUnits)
+    .where(inArray(stationUnits.id, ids));
+  return new Map(rows.map((r) => [r.id, { name: r.name, updatedAt: r.updatedAt }]));
+}
+
+/** The unit fields of an EVSE row: none for an EVSE without a unit. */
+export function unitFields(
+  unitId: string | null,
+  unitById: ReadonlyMap<string, { name: string; updatedAt: Date }>,
+): { unitName?: string; unitUpdatedAt?: Date } {
+  const unit = unitId == null ? undefined : unitById.get(unitId);
+  return unit == null ? {} : { unitName: unit.name, unitUpdatedAt: unit.updatedAt };
+}
 
 export interface SiteLocation {
   input: LocationTransformInput;
@@ -112,6 +135,7 @@ export async function loadSiteLocation(
     list.push(c);
     connectorsByEvse.set(c.evseId, list);
   }
+  const unitById = await unitsOf(evseRows.map((e) => e.unitId));
 
   const stationById = new Map(stationRows.map((s) => [s.id, s]));
   const evsesWithConnectors = evseRows.map((e) => {
@@ -125,6 +149,7 @@ export async function loadSiteLocation(
       stationLevelUnavailable: station != null && isStationLevelUnavailable(station),
       stationOnline: station?.isOnline ?? false,
       ...(station != null ? { stationUpdatedAt: station.updatedAt } : {}),
+      ...unitFields(e.unitId, unitById),
       // A deleted station is kept with onboarding status `blocked`; a retired
       // EVSE is out of service. Both are REMOVED (OCPI 8.1).
       removed: station?.onboardingStatus === 'blocked' || e.retiredAt != null,

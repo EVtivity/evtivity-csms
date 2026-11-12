@@ -86,6 +86,7 @@ import {
   chargingStations,
   evses,
   connectors,
+  stationUnits,
   chargingSessions,
   drivers,
   meterValues,
@@ -489,6 +490,38 @@ const passwordChangeResponse = z
   })
   .loose();
 
+// Unit summary columns of the station list and detail: a station without
+// units reads unitCount 0 and null for the rest, so its reply is as before.
+const stationUnitSummarySelect = {
+  unitCount: sql<number>`(
+    SELECT count(*)::int FROM station_units su WHERE su.station_id = ${chargingStations.id}
+  )`,
+  units: sql<{ id: string; name: string; connectorTypes: string[] }[] | null>`(
+    SELECT json_agg(
+      json_build_object(
+        'id', su.id,
+        'name', su.name,
+        'connectorTypes', (
+          SELECT coalesce(array_agg(DISTINCT cu.connector_type), '{}')
+          FROM evses eu JOIN connectors cu ON cu.evse_id = eu.id
+          WHERE eu.unit_id = su.id AND cu.connector_type IS NOT NULL
+        )
+      ) ORDER BY su.sort_order, su.name
+    )
+    FROM station_units su WHERE su.station_id = ${chargingStations.id}
+  )`,
+  unassignedConnectorTypes: sql<string[] | null>`(
+    SELECT CASE WHEN EXISTS (
+      SELECT 1 FROM station_units su WHERE su.station_id = ${chargingStations.id}
+    ) THEN coalesce((
+      SELECT array_agg(DISTINCT cn.connector_type)
+      FROM evses en JOIN connectors cn ON cn.evse_id = en.id
+      WHERE en.station_id = ${chargingStations.id} AND en.unit_id IS NULL
+        AND cn.connector_type IS NOT NULL
+    ), '{}') END
+  )`,
+};
+
 const stationItem = z
   .object({
     id: z.string().describe('Internal station identifier (nanoid)'),
@@ -586,6 +619,27 @@ const stationItem = z
       .max(20)
       .nullable()
       .describe('Distinct connector types present on this station'),
+    unitCount: z.number().int().min(0).describe('Number of units (physical boxes) of the station'),
+    units: z
+      .array(
+        z
+          .object({
+            id: z.string().describe('Unit ID'),
+            name: z.string().describe('Unit name'),
+            connectorTypes: z
+              .array(z.string())
+              .describe('Distinct connector types of the EVSEs of the unit'),
+          })
+          .loose(),
+      )
+      .nullable()
+      .describe('Units of the station in their order, null for a station without units'),
+    unassignedConnectorTypes: z
+      .array(z.string())
+      .nullable()
+      .describe(
+        'Distinct connector types of the EVSEs without a unit, on a station with units; null for a station without units',
+      ),
     siteFreeVendEnabled: z
       .boolean()
       .describe("Whether the station's site has free vend mode enabled"),
@@ -723,6 +777,7 @@ const stationDetail = z
     underMaintenance: z
       .boolean()
       .describe('Whether an active maintenance event currently covers this station'),
+    unitCount: z.number().int().min(0).describe('Number of units (physical boxes) of the station'),
     aiInsightsSuppressed: z
       .boolean()
       .describe(
@@ -907,6 +962,8 @@ const evseDetail = z
       .nullable()
       .describe('When the EVSE was retired (out of service, history kept), null when in service'),
     connectors: z.array(connectorDetail).describe('Connectors on this EVSE'),
+    unitId: z.string().nullable().describe('Unit (physical box) of the EVSE, null when none'),
+    unitName: z.string().nullable().describe('Name of that unit, null when none'),
   })
   .loose();
 
@@ -1330,6 +1387,7 @@ export function stationRoutes(app: FastifyInstance): void {
             WHERE e4.station_id = ${chargingStations.id}
             AND c4.connector_type IS NOT NULL
           )`,
+          ...stationUnitSummarySelect,
           siteFreeVendEnabled: sql<boolean>`coalesce(${sites.freeVendEnabled}, false)`,
           underMaintenance: buildUnderMaintenanceSubquery(
             chargingStations.id,
@@ -1422,6 +1480,7 @@ export function stationRoutes(app: FastifyInstance): void {
           dataPlan: chargingStations.dataPlan,
           effectiveDataPlan: effectiveDataPlanSql,
           dataPlanSource: dataPlanSourceSql,
+          unitCount: stationUnitSummarySelect.unitCount,
           aiInsightsSuppressed: sql<boolean>`${sql.raw(stationInsightsSuppressedSql('charging_stations'))}`,
           aiInsightsSuppressedByMaintenance: sql<boolean>`${sql.raw(stationUnderActiveMaintenanceSql('charging_stations'))}`,
           aiInsightsSuppressedSources: sql<
@@ -2309,6 +2368,8 @@ export function stationRoutes(app: FastifyInstance): void {
           evseId: evses.evseId,
           evseAutoCreated: evses.autoCreated,
           evseRetiredAt: evses.retiredAt,
+          unitId: evses.unitId,
+          unitName: stationUnits.name,
           connectorId: connectors.connectorId,
           connectorType: connectors.connectorType,
           maxPowerKw: connectors.maxPowerKw,
@@ -2325,6 +2386,7 @@ export function stationRoutes(app: FastifyInstance): void {
         })
         .from(evses)
         .leftJoin(connectors, eq(connectors.evseId, evses.id))
+        .leftJoin(stationUnits, eq(stationUnits.id, evses.unitId))
         .where(eq(evses.stationId, id))
         .orderBy(evses.evseId, connectors.connectorId);
 
@@ -2335,6 +2397,8 @@ export function stationRoutes(app: FastifyInstance): void {
           evseId: number;
           autoCreated: boolean;
           retiredAt: Date | null;
+          unitId: string | null;
+          unitName: string | null;
           connectors: {
             connectorId: number;
             connectorType: string | null;
@@ -2355,6 +2419,8 @@ export function stationRoutes(app: FastifyInstance): void {
             evseId: row.evseId,
             autoCreated: row.evseAutoCreated,
             retiredAt: row.evseRetiredAt,
+            unitId: row.unitId,
+            unitName: row.unitName,
             connectors: [],
           });
         }

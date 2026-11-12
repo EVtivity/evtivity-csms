@@ -898,6 +898,9 @@
     "STATION_HAS_SIM": "Dieser Station ist bereits eine SIM zugeordnet. Heb die Zuordnung zuerst auf",
     "STATION_ID_EXISTS": "Eine Station mit dieser ID existiert bereits",
     "STATION_NOT_FOUND": "Station nicht gefunden",
+    "STATION_UNIT_NOT_FOUND": "Einheit nicht gefunden",
+    "STATION_UNIT_NAME_IN_USE": "Eine andere Einheit dieser Ladestation hat bereits diesen Namen",
+    "STATION_UNIT_LIMIT_REACHED": "Eine Ladestation hat höchstens 64 Einheiten",
     "STATION_OFFLINE": "Station ist offline",
     "STATION_ONLINE": "Die Ladestation ist online. Stoppe den Ladevorgang an der Ladestation.",
     "STATION_REJECTED": "Station hat Start abgelehnt: ...",
@@ -1324,7 +1327,7 @@
     "invalidMessage": "Dieser QR-Code ist ungültig oder abgelaufen. Scanne den QR-Code an der Station erneut."
   },
   "watch": {
-    "notifyWhenFree": "Benachrichtigen wenn frei",
+    "notifyWhenFree": "Benachrichtigen, Wenn Frei",
     "watching": "Nicht mehr beobachten",
     "added": "Du wirst benachrichtigt, wenn diese Station frei ist.",
     "removed": "Beobachtung entfernt.",

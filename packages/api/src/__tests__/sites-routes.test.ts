@@ -68,12 +68,28 @@ vi.mock('../services/ai-insight-scope.service.js', () => ({
   siteAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
   stationAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
 }));
-const { mockReadLayoutStationSessions, mockIsFleetEnabled } = vi.hoisted(() => ({
+const {
+  mockReadLayoutStationSessions,
+  mockReadLayoutEvseSessions,
+  mockReadUnitsOfStations,
+  mockReadSiteUnitBoardPositions,
+  MockLayoutUnitNotFoundError,
+  mockIsFleetEnabled,
+} = vi.hoisted(() => ({
   mockIsFleetEnabled: vi.fn(async () => true),
   mockReadLayoutStationSessions: vi.fn(async () => new Map()),
+  mockReadLayoutEvseSessions: vi.fn(async () => new Map()),
+  mockReadUnitsOfStations: vi.fn(async () => new Map()),
+  mockReadSiteUnitBoardPositions: vi.fn(async () => new Map()),
+  MockLayoutUnitNotFoundError: class extends Error {
+    constructor(readonly unitIds: string[]) {
+      super('Unit not found');
+    }
+  },
 }));
 vi.mock('../lib/site-layout-sessions.js', () => ({
   readLayoutStationSessions: mockReadLayoutStationSessions,
+  readLayoutEvseSessions: mockReadLayoutEvseSessions,
 }));
 // The charger screen text reads its settings and templates apart (site-layout-screen-message.test.ts).
 vi.mock('../lib/site-layout-screen-message.js', () => ({
@@ -197,6 +213,9 @@ vi.mock('@evtivity/database', async () => ({
   readSiteLayoutPositions: mockReadSiteLayoutPositions,
   readSiteLayoutSettings: mockReadSiteLayoutSettings,
   readStationLayoutKinds: mockReadStationLayoutKinds,
+  readUnitsOfStations: mockReadUnitsOfStations,
+  readSiteUnitBoardPositions: mockReadSiteUnitBoardPositions,
+  LayoutUnitNotFoundError: MockLayoutUnitNotFoundError,
   LayoutGridTooSmallError: MockLayoutGridTooSmallError,
   LayoutSpotsOverlapError: MockLayoutSpotsOverlapError,
   LoadTreeValidationError: MockLoadTreeValidationError,
@@ -1795,6 +1814,129 @@ describe('Site routes - handler logic', () => {
   // --- GET /v1/sites/:id/layout ---
 
   describe('GET /v1/sites/:id/layout', () => {
+    const unitStation = {
+      id: 'sta_000000000003',
+      stationId: 'ABL-EM4',
+      model: 'eM4',
+      status: 'charging',
+      statusReason: null,
+      isOnline: true,
+      securityProfile: 0,
+      positionX: '20',
+      positionY: '20',
+      inMaintenance: false,
+      isSimulator: false,
+    };
+    const unitEvses = [
+      { id: 'evs_1', stationId: unitStation.id, evseId: 1, unitId: 'unt_1' },
+      { id: 'evs_2', stationId: unitStation.id, evseId: 2, unitId: 'unt_1' },
+      { id: 'evs_3', stationId: unitStation.id, evseId: 3, unitId: null },
+    ];
+    const evseSession = {
+      id: 'ses_2',
+      startedAt: '2026-11-11T08:00:00.000Z',
+      energyDeliveredWh: 3200,
+      currentCostCents: 120,
+      currency: 'EUR',
+      driver: { id: 'drv_1', name: 'Ann Lee', avatar: null },
+      vehicle: { color: 'blue', bodyType: 'suv' },
+    };
+    const box1 = (evseIds: string[], evseNumbers: number[]) =>
+      new Map([
+        [
+          unitStation.id,
+          [
+            {
+              id: 'unt_1',
+              stationId: unitStation.id,
+              name: 'Box 1',
+              sortOrder: 0,
+              evseIds,
+              evseNumbers,
+            },
+          ],
+        ],
+      ]);
+    const getLayout = () =>
+      app.inject({
+        method: 'GET',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+    it('answers a station without units as before: no units, and no EVSE session while none is active (D3)', async () => {
+      vi.mocked(requestHasPermission).mockResolvedValue(true);
+      mockReadUnitsOfStations.mockResolvedValueOnce(new Map());
+      mockReadLayoutEvseSessions.mockClear();
+      setupDbResults(
+        [{ id: VALID_SITE_ID }],
+        [unitStation],
+        [{ id: 'evs_1', stationId: unitStation.id, evseId: 1, unitId: null }],
+        [],
+        [],
+        [],
+      );
+      const response = await getLayout();
+      expect(response.statusCode).toBe(200);
+      const [station] = response.json();
+      expect(station.units).toEqual([]);
+      expect(station.evses).toEqual([
+        { evseId: 1, unitId: null, retired: false, session: null, connectors: [] },
+      ]);
+      // Every station's EVSE sessions are read: each car parks at its own EVSE.
+      expect(mockReadLayoutEvseSessions).toHaveBeenCalledWith([unitStation.id], true);
+    });
+
+    it('lists the units with their board cards and the session of each unit EVSE', async () => {
+      vi.mocked(requestHasPermission).mockResolvedValue(true);
+      mockReadUnitsOfStations.mockResolvedValueOnce(box1(['evs_1', 'evs_2'], [1, 2]));
+      mockReadSiteUnitBoardPositions.mockResolvedValueOnce(new Map([['unt_1', { x: 40, y: 60 }]]));
+      mockReadLayoutEvseSessions.mockResolvedValueOnce(new Map([['evs_2', evseSession]]));
+      setupDbResults([{ id: VALID_SITE_ID }], [unitStation], unitEvses, [], [], []);
+      const response = await getLayout();
+      expect(response.statusCode).toBe(200);
+      const [station] = response.json();
+      expect(station.units).toEqual([
+        { id: 'unt_1', name: 'Box 1', evseIds: [1, 2], boardPosition: { x: 40, y: 60 } },
+      ]);
+      expect(
+        station.evses.map((e: { evseId: number; unitId: string | null; session: unknown }) => [
+          e.evseId,
+          e.unitId,
+          e.session,
+        ]),
+      ).toEqual([
+        [1, 'unt_1', null],
+        [2, 'unt_1', evseSession],
+        [3, null, null],
+      ]);
+      expect(mockReadLayoutEvseSessions).toHaveBeenLastCalledWith([unitStation.id], true);
+    });
+
+    it('reads no EVSE session without sessions:read and no driver without drivers:read', async () => {
+      vi.mocked(requestHasPermission).mockImplementation(
+        async (_r, permission) => permission !== 'sessions:read',
+      );
+      mockReadLayoutEvseSessions.mockClear();
+      mockReadUnitsOfStations.mockResolvedValueOnce(box1(['evs_1'], [1]));
+      setupDbResults([{ id: VALID_SITE_ID }], [unitStation], unitEvses, [], [], []);
+      const hidden = await getLayout();
+      expect(hidden.statusCode).toBe(200);
+      expect(hidden.json()[0].evses.every((e: { session: unknown }) => e.session == null)).toBe(
+        true,
+      );
+      expect(mockReadLayoutEvseSessions).not.toHaveBeenCalled();
+
+      vi.mocked(requestHasPermission).mockImplementation(
+        async (_r, permission) => permission !== 'drivers:read',
+      );
+      mockReadUnitsOfStations.mockResolvedValueOnce(box1(['evs_1'], [1]));
+      setupDbResults([{ id: VALID_SITE_ID }], [unitStation], unitEvses, [], [], []);
+      await getLayout();
+      expect(mockReadLayoutEvseSessions).toHaveBeenLastCalledWith([unitStation.id], false);
+      vi.mocked(requestHasPermission).mockResolvedValue(true);
+    });
+
     it('returns layout with station positions and EVSEs', async () => {
       const stationRow = {
         id: 'sta_000000000003',
@@ -1813,6 +1955,7 @@ describe('Site routes - handler logic', () => {
         id: 'evs_000000000001',
         stationId: 'sta_000000000003',
         evseId: 1,
+        unitId: null,
       };
       const connectorRow = {
         id: 'con_000000000002',
@@ -2046,6 +2189,7 @@ describe('Site routes - handler logic', () => {
         energyDeliveredWh: 1200,
         currentCostCents: 150,
         currency: 'USD',
+        evseId: null,
         driver: null,
         vehicle: { color: 'red', bodyType: 'suv' },
       };
@@ -2118,6 +2262,7 @@ describe('Site routes - handler logic', () => {
         energyDeliveredWh: 1200,
         currentCostCents: 150,
         currency: 'USD',
+        evseId: null,
         driver: null,
         vehicle: null,
         departure,
@@ -2209,6 +2354,72 @@ describe('Site routes - handler logic', () => {
         },
         notes: 'station layout updated',
       });
+    });
+
+    it('passes the unit board cards to the layout writer and audits them', async () => {
+      vi.mocked(databaseModule.writeAudit).mockClear();
+      mockSaveSiteLayout.mockClear();
+      mockReadSiteUnitBoardPositions.mockResolvedValueOnce(new Map([['unt_1', { x: 1, y: 2 }]]));
+      setupDbResults(
+        [{ id: VALID_SITE_ID }],
+        [{ id: VALID_STATION_ID }],
+        [{ stationId: VALID_STATION_ID, positionX: '10', positionY: '20' }],
+      );
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {
+          positions: [
+            {
+              stationId: VALID_STATION_ID,
+              positionX: 50,
+              positionY: 100,
+              unitBoardPositions: [
+                { unitId: 'unt_1', boardPosition: { x: 200, y: 300 } },
+                { unitId: 'unt_2', boardPosition: null },
+              ],
+            },
+          ],
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const sent = mockSaveSiteLayout.mock.calls[0]?.[2] as Array<{ unitBoards?: unknown }>;
+      expect(sent[0]?.unitBoards).toEqual([
+        { unitId: 'unt_1', board: { x: 200, y: 300 } },
+        { unitId: 'unt_2', board: null },
+      ]);
+      expect(vi.mocked(databaseModule.writeAudit).mock.calls[0]?.[1]).toMatchObject({
+        before: { unitBoardPositions: [{ unitId: 'unt_1', board: { x: 1, y: 2 } }] },
+      });
+    });
+
+    it('answers 404 STATION_UNIT_NOT_FOUND for a unit of another station', async () => {
+      vi.mocked(databaseModule.writeAudit).mockClear();
+      mockSaveSiteLayout.mockRejectedValueOnce(new MockLayoutUnitNotFoundError(['unt_x']));
+      setupDbResults(
+        [{ id: VALID_SITE_ID }],
+        [{ id: VALID_STATION_ID }],
+        [{ stationId: VALID_STATION_ID, positionX: '10', positionY: '20' }],
+      );
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {
+          positions: [
+            {
+              stationId: VALID_STATION_ID,
+              positionX: 50,
+              positionY: 100,
+              unitBoardPositions: [{ unitId: 'unt_x', boardPosition: { x: 1, y: 1 } }],
+            },
+          ],
+        },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('STATION_UNIT_NOT_FOUND');
+      expect(vi.mocked(databaseModule.writeAudit)).not.toHaveBeenCalled();
     });
 
     it('returns 404 for a station of another site and writes nothing', async () => {

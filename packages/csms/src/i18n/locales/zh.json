@@ -2013,7 +2013,8 @@
     "endSessionConfirmDescription": "充电桩 {{station}} 离线。CSMS 将在没有充电桩的情况下立即结束会话，并按其最后计量的电量 {{energy}} 计费。充电桩重新连接后发送的停止或结束消息不会重新打开会话，也不会再次计费。",
     "endSessionConfirmDescriptionWithCost": "充电桩 {{station}} 离线。CSMS 将在没有充电桩的情况下立即结束会话，并按其最后计量的电量 {{energy}} 计费，目前为 {{cost}}。充电桩重新连接后发送的停止或结束消息不会重新打开会话，也不会再次计费。",
     "endSessionRequested": "已请求结束会话",
-    "endSessionFailed": "无法结束会话"
+    "endSessionFailed": "无法结束会话",
+    "unit": "单元"
   },
   "drivers": {
     "title": "驾驶员",
@@ -4793,6 +4794,9 @@
     "STATION_HAS_SIM": "此充电桩已关联 SIM。请先取消关联",
     "STATION_ID_EXISTS": "已存在具有该 ID 的充电桩",
     "STATION_NOT_FOUND": "未找到充电桩",
+    "STATION_UNIT_NOT_FOUND": "未找到单元",
+    "STATION_UNIT_NAME_IN_USE": "此充电桩的另一个单元已使用此名称",
+    "STATION_UNIT_LIMIT_REACHED": "一个充电桩最多有 64 个单元",
     "STATION_OFFLINE": "充电桩离线",
     "STATION_ONLINE": "充电桩在线。请改为在充电桩停止会话。",
     "STATION_REJECTED": "充电桩拒绝启动：...",
@@ -6292,6 +6296,7 @@
       "display_message_cleared": "显示消息已清除",
       "nevi_data_changed": "NEVI 数据已更改",
       "evse_changed": "EVSE 已更改",
+      "unit_changed": "单元已更改",
       "monitoring_changed": "监控已更改",
       "alert_acknowledged": "告警已确认",
       "payment_method_added": "支付方式已添加",
@@ -7728,5 +7733,34 @@
     },
     "replacePassword": "更换密码",
     "replacePasswordConfirm": "当前密码立即失效，车场系统将断开连接，直到供应商输入新密码。"
+  },
+  "layout": {
+    "units": {
+      "chargerName": "{{station}}，{{unit}}",
+      "plateLabel": "{{unit}}，EVSE {{evses}}",
+      "and": "和"
+    }
+  },
+  "stationUnits": {
+    "title": "单元",
+    "description": "此充电桩的物理充电箱，例如主箱及其扩展箱。驾驶员会把每个单元视为单独的充电器；会话和命令仍属于充电桩。",
+    "addUnit": "添加单元",
+    "renameUnit": "重命名单元",
+    "deleteUnit": "删除单元",
+    "deleteConfirm": "删除 {{name}}？其 EVSE 将保留在充电桩上且不属于任何单元，驾驶员对它的收藏和提醒将被移除。",
+    "unitName": "单元名称",
+    "evses": "EVSE",
+    "noEvses": "无 EVSE",
+    "noUnit": "无单元",
+    "evsesWithoutUnit": "未分配单元的 EVSE",
+    "assignTitle": "EVSE 所属单元",
+    "empty": "此充电桩没有单元。添加单元可按物理充电箱对其 EVSE 分组。",
+    "evseCount_one": "{{count}} 个 EVSE",
+    "evseCount_other": "{{count}} 个 EVSE",
+    "unitCount_one": "{{count}} 个单元",
+    "unitCount_other": "{{count}} 个单元",
+    "unassignedNotice_one": "{{count}} 个 EVSE 没有单元。驾驶员会把它们视为另一个以充电桩命名的充电器。",
+    "unassignedNotice_other": "{{count}} 个 EVSE 没有单元。驾驶员会把它们视为另一个以充电桩命名的充电器。",
+    "manageUnits": "管理单元"
   }
 }

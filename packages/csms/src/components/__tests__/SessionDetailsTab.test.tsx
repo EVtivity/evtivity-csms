@@ -114,6 +114,14 @@ describe('SessionDetailsTab cost and events', () => {
     expect(screen.queryByText('cost:300')).toBeNull();
   });
 
+  it('names the unit (charger box) of the session EVSE, and shows no unit row without one', () => {
+    renderSession({ unitName: 'Box 3' });
+    expect(screen.getByTestId('session-unit-name').textContent).toBe('Box 3');
+    cleanup();
+    renderSession({});
+    expect(screen.queryByTestId('session-unit-name')).toBeNull();
+  });
+
   it('titles its first panel Details, not the page heading', () => {
     renderSession({});
     expect(screen.getByText('common.details')).toBeDefined();

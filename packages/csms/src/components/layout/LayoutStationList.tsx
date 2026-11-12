@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils';
 import { LAYOUT_CHIP_FRAME_CLASS, LAYOUT_CHIP_ITEM_CLASS } from './layout-chip';
 import type { LayoutStation } from './StationCard';
+import { layoutChargerName } from './site-layout-units';
 
 /** The states the summary counts, in this order. */
 export const SUMMARY_STATES = [
@@ -171,7 +172,7 @@ export function LayoutStationList({
               data-testid={`site-layout-list-${s.id}`}
               aria-current={selectedId === s.id ? 'true' : undefined}
               aria-label={t('sites.layoutView.listItemLabel', {
-                id: s.stationId,
+                id: layoutChargerName(s, t),
                 state: stateLabel,
                 power,
                 session: sessionText,
@@ -191,7 +192,7 @@ export function LayoutStationList({
               }}
             >
               <span className="flex min-w-0 items-baseline justify-between gap-2">
-                <span className="min-w-0 truncate font-semibold">{s.stationId}</span>
+                <span className="min-w-0 truncate font-semibold">{layoutChargerName(s, t)}</span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">{power}</span>
               </span>
               <span className="flex min-w-0 items-baseline justify-between gap-2">

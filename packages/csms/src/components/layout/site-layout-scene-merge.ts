@@ -117,6 +117,8 @@ export function installMerge(scn: MergeCtx): void {
         if (o.userData['chargeFlow'] === true) return;
         // The EVSE plates stay pickable for their label, their lights animate.
         if (o.userData['evsePlate'] === true) return;
+        // The box number plates of unit chargers stay pickable for their label.
+        if (o.userData['unitPlate'] === true) return;
         // A port's own status light shares its EVSE's plate light, which animates.
         if (o.userData['evseLight'] === true) return;
         // The rotation handle shows only in Edit Layout, where stations are not merged.

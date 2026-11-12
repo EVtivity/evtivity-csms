@@ -385,7 +385,9 @@ export async function readSiteLayoutReplay(
           coalesce(c.energy_delivered_wh, 0)::float AS energy_wh, e.evse_id AS evse_number,
           c.driver_id, c.vehicle_id, c.currency
         FROM charging_sessions c
-        LEFT JOIN evses e ON e.id = c.evse_id
+        LEFT JOIN connectors cn ON cn.id = c.connector_id
+        -- The session's EVSE: the one it names, else its connector's (the live layout's rule).
+        LEFT JOIN evses e ON e.id = coalesce(c.evse_id, cn.evse_id)
         WHERE c.site_id = ${siteId} AND c.station_id IN (${idList})
           AND coalesce(c.started_at, c.created_at) < ${toIso}::timestamptz
           AND (c.ended_at IS NULL OR c.ended_at >= ${fromIso}::timestamptz)

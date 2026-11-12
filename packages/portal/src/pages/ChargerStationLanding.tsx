@@ -20,6 +20,7 @@ import {
 import { formatConnectorType } from '@/lib/charger-utils';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { EmptyState } from '@/components/ui/content-state';
+import { evseDisplayStatus } from '@evtivity/lib/evse-status';
 
 interface ConnectorItem {
   connectorId: number;
@@ -169,7 +170,7 @@ export function ChargerStationLanding(): React.JSX.Element {
                 className={`grid gap-3 ${station.evses.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}
               >
                 {station.evses.map((evse) => {
-                  const connectorStatus = evse.connectors[0]?.status ?? 'unavailable';
+                  const connectorStatus = evseDisplayStatus(evse.connectors.map((c) => c.status));
                   const maintenanceBlocks = station.maintenance?.active === true;
                   // Block reserved EVSEs even after the holder plugs in: the
                   // connector flips to `preparing`/`occupied`, both of which

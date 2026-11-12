@@ -187,13 +187,17 @@ describe('day replay', () => {
       energyDeliveredWh: 4000,
       currentCostCents: null,
       currency: 'USD',
+      evseId: 2,
       driver,
       vehicle: { color: 'red', bodyType: 'suv' },
     });
-    // The car plugs in at the EVSE the session ran on (a dual-port pedestal's second port).
+    // The car plugs in at the EVSE the session ran on (a dual-port pedestal's second port),
+    // and that EVSE carries the session, as the live layout's `evses[].session`.
     expect(s.evses[0]?.connectors[0]?.isPluggedIn).toBe(false);
     expect(s.evses[1]?.connectors[0]?.isPluggedIn).toBe(true);
     expect(s.evses[1]?.connectors[0]?.energyDeliveredWh).toBe(4000);
+    expect(s.evses[0]?.session).toBeNull();
+    expect(s.evses[1]?.session?.id).toBe('ses_9');
   });
 
   it('shows no session data the replay did not return (no sessions:read)', () => {

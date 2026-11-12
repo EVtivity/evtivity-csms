@@ -7,6 +7,7 @@ import { type FreePlacement, type LayoutBay } from '@evtivity/lib/site-layout';
 import * as THREE from 'three';
 import { type Point3 } from './site-layout-cable';
 import { type SceneCar } from './site-layout-car';
+import type { CurbSpot } from './site-layout-curb-cable';
 import { SCENE_COLORS } from './site-layout-colors';
 import { type ConnectorKind } from './site-layout-connectors';
 import type { FreeChargerModel } from './site-layout-free';
@@ -93,6 +94,12 @@ export interface SceneStation {
   shiftX?: number | undefined;
   /** How far behind its spot point the charger stands, in its own z (`stationBackShift`: an AC pedestal behind the stall head). */
   backShift?: number | undefined;
+  /**
+   * A two-port curb post (`TWO_PORT_CURB_POST`) on the line between its two
+   * parallel spots: EVSE 1's car on its left, EVSE 2's on its right
+   * (`stallCars`, `CurbSpot`). Absent: a one-port post.
+   */
+  curbPair?: boolean | undefined;
   /** A dual-port pedestal: the vehicle in each stall (null: empty), EVSE order. */
   stallCars?: ReadonlyArray<SceneCar | null> | undefined;
   /**
@@ -125,6 +132,11 @@ export interface SceneStation {
   stallPlugged?: readonly number[] | undefined;
   /** Each EVSE's number and own status light, EVSE order: the EVSE plates of a charger with more than one EVSE. */
   evseLamps?: readonly EvseLamp[] | undefined;
+  /**
+   * A unit charger of a station with units: its box number plate (the unit's
+   * 1-based place in the station's unit order, site-layout-model-unit-plate.ts).
+   */
+  unitPlate?: { number: number } | undefined;
 }
 
 /** The number and status light of one EVSE (`evseLampState`). */
@@ -345,6 +357,8 @@ export interface SiteScene {
   virtualSignPoint: (stationId: string) => ScreenPoint | null;
   /** Where the label of a station's EVSE plate goes (EVSE order; null: no such plate). */
   evsePlatePoint: (stationId: string, index: number) => ScreenPoint | null;
+  /** Where the label of a unit charger's box number plate goes (null: no plate). */
+  unitPlatePoint: (stationId: string) => ScreenPoint | null;
   dispose: () => void;
 }
 
@@ -420,7 +434,7 @@ export interface Templates {
    */
   car: (look: SceneCar, frontZ?: number) => THREE.Group;
   /** The car parallel parked along a curb, in front of a curbside post. */
-  carParallel: (look: SceneCar) => THREE.Group;
+  carParallel: (look: SceneCar, spot?: CurbSpot) => THREE.Group;
   /** A vehicle of its body type in its color in its own frame (nose at the origin facing -z). */
   vehicle: (look: SceneCar) => THREE.Group;
   /**
@@ -449,6 +463,8 @@ export interface Templates {
       wallPorts?: 1 | 2;
       /** The cable's length (default: the charger class's, a DC dispenser's 3.6 m). */
       lengthM?: number;
+      /** A two-port curb post: the spot of the car this cable reaches (`CurbSpot`). */
+      curbSpot?: CurbSpot;
     },
   ) => THREE.Group;
   /** A precast concrete wheel stop (WHEEL_STOP), centered on the origin, across x. */

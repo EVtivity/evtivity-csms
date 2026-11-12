@@ -12,7 +12,14 @@
 // `SPLIT_SYSTEM`). Every other station serves its own spot.
 
 import { ACCESSIBLE_SPACE, type LayoutBay } from '@evtivity/lib/site-layout';
-import { chargersAtBack, isSpot, spotRect, type Box, type Lot } from './site-layout-grid';
+import {
+  CURB_POST_IN_M,
+  chargersAtBack,
+  isSpot,
+  spotRect,
+  type Box,
+  type Lot,
+} from './site-layout-grid';
 
 /** One stall a station serves: its middle across the row, in the station's own frame, and its width. */
 export interface Stall {
@@ -33,6 +40,26 @@ export interface StationStalls {
 export interface AccessibleSpaceBoxes {
   vehicle: Box;
   aisle: Box;
+}
+
+/**
+ * A two-port curb post (`TWO_PORT_CURB_POST`) from its spot `bay` and the
+ * next one along its curb: it stands on the line between them, its two
+ * spots in its own frame, EVSE 1's left of it (x from minus the spot length
+ * to 0) and EVSE 2's right of it. The left curb (row 0) runs +x, so the post
+ * moves the spot length less `CURB_POST_IN_M` along it; the right curb is
+ * turned, so it moves `CURB_POST_IN_M`. Null off a street spot.
+ */
+export function curbPairStalls(bay: LayoutBay, lot: Lot): StationStalls | null {
+  if (lot.siteType !== 'curbside' || !isSpot(bay, lot) || bay.row > 1) return null;
+  const w = lot.spotW;
+  return {
+    shiftX: bay.row === 0 ? w - CURB_POST_IN_M : CURB_POST_IN_M,
+    stalls: [
+      { x: -w / 2, width: w },
+      { x: w / 2, width: w },
+    ],
+  };
 }
 
 /** The partner spot of a parking lot or office or retail row spot on the 3D lot (columns 0 and 1, 2 and 3, ...). */
@@ -80,6 +107,12 @@ export function stationStalls(
     access: { stall: LayoutBay; aisle: LayoutBay } | null;
     /** A DC split system's dispensers, one per stall from `bay` along its row (`splitDispenserCount`). */
     span?: number | undefined;
+    /**
+     * The partner column of a two-spot unit charger (`unitPartnerCol`): the
+     * next spot of its station's run, whatever the lot's column parity.
+     * With `pair` it replaces `lotPairPartner`.
+     */
+    partnerCol?: number | null | undefined;
   },
 ): StationStalls | null {
   if ((lot.siteType !== 'parking_lot' && lot.siteType !== 'office_retail') || !isSpot(bay, lot)) {
@@ -106,7 +139,14 @@ export function stationStalls(
     };
   }
   const access = opts.access;
-  const partner = opts.pair ? lotPairPartner(bay, lot) : null;
+  const forced = opts.partnerCol != null ? { col: opts.partnerCol, row: bay.row } : null;
+  const partner = !opts.pair
+    ? null
+    : forced != null
+      ? isSpot(forced, lot)
+        ? forced
+        : null
+      : lotPairPartner(bay, lot);
   if (partner != null) {
     const lineX = w * Math.max(bay.col, partner.col);
     // EVSE 1 serves the left stall seen from the charger's front (OCPP 2.0.1

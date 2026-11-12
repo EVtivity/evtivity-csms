@@ -49,14 +49,20 @@ function makeChain() {
   return chain;
 }
 
-const { mockAvailableEvseCountSql, mockSqlRaw } = vi.hoisted(() => ({
-  mockAvailableEvseCountSql: vi.fn((alias: string) => `AVAILABLE_EVSE_COUNT(${alias})`),
+const { mockAvailableEvseCountSql, mockInServiceEvseCountSql, mockSqlRaw } = vi.hoisted(() => ({
+  mockAvailableEvseCountSql: vi.fn((alias: string, unit?: string) =>
+    unit == null ? `AVAILABLE_EVSE_COUNT(${alias})` : `AVAILABLE_EVSE_COUNT(${alias},${unit})`,
+  ),
+  mockInServiceEvseCountSql: vi.fn(
+    (alias: string, unit?: string) => `IN_SERVICE(${alias},${unit ?? ''})`,
+  ),
   mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
 }));
 
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   availableEvseCountSql: mockAvailableEvseCountSql,
+  inServiceEvseCountSql: mockInServiceEvseCountSql,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -68,6 +74,7 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: {},
   sites: {},
   evses: {},
+  stationUnits: {},
   connectors: {},
 }));
 
@@ -141,24 +148,24 @@ describe('Portal station-watch routes', () => {
     it('returns watches with station data', async () => {
       const now = new Date();
       const later = new Date(now.getTime() + 86_400_000);
-      setupDbResults(
-        [
-          {
-            id: 1,
-            stationOcppId: STATION_OCPP_ID,
-            stationUuid: STATION_UUID,
-            siteName: 'Test Site',
-            siteAddress: '123 Main St',
-            siteCity: 'Springfield',
-            siteState: 'IL',
-            isOnline: false,
-            availableCount: 0,
-            createdAt: now,
-            expiresAt: later,
-          },
-        ],
-        [{ stationId: STATION_UUID, total: 2 }],
-      );
+      setupDbResults([
+        {
+          id: 1,
+          stationOcppId: STATION_OCPP_ID,
+          stationUuid: STATION_UUID,
+          siteName: 'Test Site',
+          siteAddress: '123 Main St',
+          siteCity: 'Springfield',
+          siteState: 'IL',
+          isOnline: false,
+          unitId: null,
+          unitName: null,
+          evseCount: 2,
+          availableCount: 0,
+          createdAt: now,
+          expiresAt: later,
+        },
+      ]);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/station-watches',
@@ -179,8 +186,14 @@ describe('Portal station-watch routes', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      expect(mockAvailableEvseCountSql).toHaveBeenCalledWith('charging_stations');
-      expect(mockSqlRaw).toHaveBeenCalledWith('AVAILABLE_EVSE_COUNT(charging_stations)');
+      // A watch of a unit counts only the EVSEs of that unit.
+      expect(mockAvailableEvseCountSql).toHaveBeenCalledWith(
+        'charging_stations',
+        'station_watches.unit_id',
+      );
+      expect(mockSqlRaw).toHaveBeenCalledWith(
+        'AVAILABLE_EVSE_COUNT(charging_stations,station_watches.unit_id)',
+      );
     });
   });
 

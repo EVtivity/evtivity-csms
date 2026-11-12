@@ -2013,7 +2013,8 @@
     "endSessionConfirmDescription": "Station {{station}} is offline. The CSMS closes the session now and bills it at its last metered energy, {{energy}}, without the station. A stop or end message the station sends after it reconnects does not reopen or bill the session again.",
     "endSessionConfirmDescriptionWithCost": "Station {{station}} is offline. The CSMS closes the session now and bills it at its last metered energy, {{energy}}, for {{cost}} so far, without the station. A stop or end message the station sends after it reconnects does not reopen or bill the session again.",
     "endSessionRequested": "Session end requested",
-    "endSessionFailed": "Failed to end the session"
+    "endSessionFailed": "Failed to end the session",
+    "unit": "Unit"
   },
   "drivers": {
     "title": "Drivers",
@@ -4793,6 +4794,9 @@
     "STATION_HAS_SIM": "This station already has a SIM attached. Detach it first",
     "STATION_ID_EXISTS": "A station with this name already exists. Please choose a different name.",
     "STATION_NOT_FOUND": "Station not found",
+    "STATION_UNIT_NOT_FOUND": "Unit not found",
+    "STATION_UNIT_NAME_IN_USE": "Another unit of this station has this name",
+    "STATION_UNIT_LIMIT_REACHED": "A station holds at most 64 units",
     "STATION_OFFLINE": "Station is offline",
     "STATION_ONLINE": "The station is online. Stop the session at the station instead.",
     "STATION_REJECTED": "Station rejected start: ...",
@@ -6292,6 +6296,7 @@
       "display_message_cleared": "Display message cleared",
       "nevi_data_changed": "NEVI data changed",
       "evse_changed": "EVSE changed",
+      "unit_changed": "Unit changed",
       "monitoring_changed": "Monitoring changed",
       "alert_acknowledged": "Alert acknowledged",
       "payment_method_added": "Payment method added",
@@ -7728,5 +7733,34 @@
     },
     "replacePassword": "Replace Password",
     "replacePasswordConfirm": "The current password stops working at once and the depot system disconnects until the vendor enters the new one."
+  },
+  "layout": {
+    "units": {
+      "chargerName": "{{station}}, {{unit}}",
+      "plateLabel": "{{unit}}, EVSE {{evses}}",
+      "and": "and"
+    }
+  },
+  "stationUnits": {
+    "title": "Units",
+    "description": "The physical charger boxes of this station, such as a master box and its extenders. Drivers see each unit as its own charger; sessions and commands stay with the station.",
+    "addUnit": "Add Unit",
+    "renameUnit": "Rename Unit",
+    "deleteUnit": "Delete Unit",
+    "deleteConfirm": "Delete {{name}}? Its EVSEs stay on the station without a unit, and drivers' favorites and watches of it are removed.",
+    "unitName": "Unit Name",
+    "evses": "EVSEs",
+    "noEvses": "No EVSEs",
+    "noUnit": "No Unit",
+    "evsesWithoutUnit": "EVSEs Without a Unit",
+    "assignTitle": "EVSE Units",
+    "empty": "This station has no units. Add a unit to group its EVSEs by physical charger box.",
+    "evseCount_one": "{{count}} EVSE",
+    "evseCount_other": "{{count}} EVSEs",
+    "unitCount_one": "{{count}} Unit",
+    "unitCount_other": "{{count}} Units",
+    "unassignedNotice_one": "{{count}} EVSE has no unit. Drivers see it as one more charger named after the station.",
+    "unassignedNotice_other": "{{count}} EVSEs have no unit. Drivers see them as one more charger named after the station.",
+    "manageUnits": "Manage Units"
   }
 }

@@ -289,6 +289,8 @@ describe('demo electrical trees on the 3D layout', () => {
       'custom',
       'depot',
       'parking_lot',
+      // Parkhaus Lindenhof: the master with extenders.
+      'parking_lot',
     ]);
   });
 
@@ -316,10 +318,12 @@ describe('demo electrical trees on the 3D layout', () => {
       const padGap = Math.max(-t.x, t.x - lot.width) - 2.9 / 2;
       expect(padGap, site.name).toBeGreaterThanOrEqual(0.91);
       expect(padGap, site.name).toBeLessThan(1.52);
-      // Beside the first DC spot: within the clearance plus one spot of a DC charger.
+      // Beside the first DC spot: within the clearance plus one spot of a DC
+      // charger (an AC-only site: beside the AC group it feeds).
+      const hasDc = site.stations.some((s) => s.kind === 'dc');
       const nearestDc = Math.min(
         ...site.stations
-          .filter((s) => s.kind === 'dc')
+          .filter((s) => !hasDc || s.kind === 'dc')
           .map((s) => {
             const p = stationBackPoint({ col: s.col, row: s.row }, lot, -STATION_BACK_OFFSET);
             return Math.hypot(p.x - t.x, p.z - t.z);

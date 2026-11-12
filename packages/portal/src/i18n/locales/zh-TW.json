@@ -496,7 +496,7 @@
     "newReservation": "新預約",
     "findStation": "尋找要預約的充電站",
     "searchPlaceholder": "按充電站 ID 或位置名稱搜尋",
-    "reserveConnector": "預約連接器",
+    "reserveConnector": "預約充電埠",
     "stationId": "充電站 ID",
     "stationSearchPlaceholder": "按充電站 ID 或位置搜尋...",
     "selectStation": "選擇充電站",
@@ -898,6 +898,9 @@
     "STATION_HAS_SIM": "此充電樁已關聯 SIM。請先取消關聯",
     "STATION_ID_EXISTS": "已存在相同 ID 的充電樁",
     "STATION_NOT_FOUND": "找不到充電樁",
+    "STATION_UNIT_NOT_FOUND": "找不到單元",
+    "STATION_UNIT_NAME_IN_USE": "此充電樁的另一個單元已使用此名稱",
+    "STATION_UNIT_LIMIT_REACHED": "一個充電樁最多有 64 個單元",
     "STATION_OFFLINE": "充電樁已離線",
     "STATION_ONLINE": "充電樁在線上。請改為在充電樁停止工作階段。",
     "STATION_REJECTED": "充電樁拒絕啟動：...",
@@ -1286,7 +1289,7 @@
     "noStations": "此位置沒有充電樁。"
   },
   "stationDetail": {
-    "selectConnector": "選擇連接器以開始充電",
+    "selectConnector": "選擇充電埠以開始充電",
     "reportProblem": "報告問題",
     "startCharging": "開始充電",
     "starting": "啟動中...",
@@ -1296,7 +1299,7 @@
     "failedToStart": "啟動充電失敗",
     "freeCharging": "免費",
     "connectorPort": "充電埠 {{id}}",
-    "showAllConnectors": "顯示全部 {{total}} 個連接器",
+    "showAllConnectors": "顯示全部 {{total}} 個充電埠",
     "activeSessionWarning": "您已有一個活躍的充電工作階段，無法啟動另一個。"
   },
   "homeCards": {

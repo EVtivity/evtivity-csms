@@ -41,6 +41,7 @@ const PADS: Record<IdleChargerModel, number | 'per-satellite'> = {
   'wall-box-dual': 0,
   'split-satellite': 'per-satellite',
   'bus-dispenser': 1,
+  'bus-dispenser-dual': 1,
   'mcs-dispenser': 1,
   pantograph: 1,
 };

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft } from 'lucide-react';
 import { StationSearchList } from '@/components/StationSearchList';
+import { chargerUnitQuery } from '@/lib/station-units';
 
 export function ReservationSearch(): React.JSX.Element {
   const { t } = useTranslation();
@@ -24,8 +25,8 @@ export function ReservationSearch(): React.JSX.Element {
         title={t('reservations.findStation')}
         searchPlaceholder={t('reservations.searchPlaceholder')}
         hideRoamingTab
-        onSelect={(stationId) => {
-          void navigate(`/reservations/new/${stationId}`);
+        onSelect={(stationId, unitId) => {
+          void navigate(`/reservations/new/${stationId}${chargerUnitQuery(unitId)}`);
         }}
       />
     </div>

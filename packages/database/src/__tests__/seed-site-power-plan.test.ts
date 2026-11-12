@@ -304,15 +304,16 @@ describe('site layout demo power equipment', () => {
 
   it('rates the demo transformers from the connected kVA, compared without a power factor', () => {
     // Connected kVA (research 2026-11-03): Terra 184 sqrt(3) x 480 x 230 =
-    // 191.2 kVA, Level 2 208 x 32 = 6.66 kVA, ABB HVC 450PD 510 kVA and HVC-C
-    // 150 170 kVA (datasheets), other DC kW / (0.96 x 0.96).
+    // 191.2 kVA, Level 2 208 x 32 = 6.66 kVA, ABB HVC 450PD 510 kVA, HVC-C
+    // 150 170 kVA and HVC360 (NA) 391 kVA (datasheets), other DC kW / (0.96 x 0.96).
     const terra = (Math.sqrt(3) * 480 * 230) / 1000;
     const l2 = (208 * 32) / 1000;
     const truck = (2 * 1000 + 240) / (0.96 * 0.96);
     expect(serviceTransformerKva(11 * terra)).toBe(2500);
     expect(serviceTransformerKva(4 * terra + 8 * l2)).toBe(1000);
     expect(serviceTransformerKva(3 * terra + 5 * l2)).toBe(750);
-    expect(serviceTransformerKva(3 * 510 + 2 * 170)).toBe(2000);
+    // The depot bus group: 3 HVC 450PD, one HVC-C 150 and the dual-outlet charger's HVC360.
+    expect(serviceTransformerKva(3 * 510 + 170 + 391)).toBe(2500);
     // The truck group's 2431 kVA would take 2500 kVA at 97 percent; the plan keeps headroom at 3000.
     expect(serviceTransformerKva(truck)).toBe(2500);
     const rated = (siteId: string) =>
@@ -320,7 +321,7 @@ describe('site layout demo power equipment', () => {
     expect(rated('sit_demolayout01')).toEqual([2500]);
     expect(rated('sit_demolayout07')).toEqual([1000]);
     expect(rated('sit_demolayout05')).toEqual([750]);
-    expect(rated('sit_demolayout06')).toEqual([2000, 3000]);
+    expect(rated('sit_demolayout06')).toEqual([2500, 3000]);
     // A load at a rating's kVA fits it: no division by 0.95 first.
     expect(serviceTransformerKva(750)).toBe(750);
     // The standard low-voltage list ends at 3750 kVA (SMU App. 26-C 1.1).

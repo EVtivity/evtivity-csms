@@ -12,10 +12,14 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
+import { chargerUnitQuery } from '@/lib/station-units';
 
 interface FavoriteStation {
   id: number;
   stationId: string;
+  /** The unit (charger box) watched or favorited, null for the whole station. */
+  unitId?: string | null;
+  unitName?: string | null;
   siteName: string | null;
   siteAddress: string | null;
   siteCity: string | null;
@@ -80,12 +84,14 @@ export function Favorites(): React.JSX.Element {
             key={fav.id}
             className="flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors hover:bg-accent/50"
             onClick={() => {
-              void navigate(`/start/${fav.stationId}`);
+              void navigate(`/start/${fav.stationId}${chargerUnitQuery(fav.unitId)}`);
             }}
           >
             <div className="space-y-1 min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold truncate">{fav.stationId}</span>
+                <span className="text-sm font-semibold truncate">
+                  {fav.unitName != null ? `${fav.stationId}, ${fav.unitName}` : fav.stationId}
+                </span>
                 <div
                   className={`h-2 w-2 rounded-full shrink-0 ${fav.isOnline ? 'bg-success' : 'bg-destructive'}`}
                 />

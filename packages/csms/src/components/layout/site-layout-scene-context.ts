@@ -116,6 +116,8 @@ export interface SceneCtx {
     at: readonly [number, number, number],
     tiltX?: number,
   ) => THREE.Mesh;
+  /** The box number plate of a unit charger (site-layout-scene-unit-plates.ts); null without one. */
+  addUnitPlate: (g: THREE.Object3D, s: SceneStation, mount: EvsePlateMount) => THREE.Group | null;
   /** A wall box port's ring reader: the tap pictogram in its status ring and the tap line under it. */
   addRingReader: (g: THREE.Object3D, reader: WallBoxRingReader, dz?: number) => THREE.Group;
   /** An RFID reader pad with its tap label (site-layout-scene-rfid.ts). */
@@ -214,7 +216,7 @@ export interface SceneCtx {
   haloTexture: THREE.CanvasTexture | null;
   glowTexture: () => THREE.CanvasTexture;
   templates: (palette: Palette) => Templates;
-  evSignTexture: (kind: 'chargingOnly' | 'towAway') => THREE.CanvasTexture;
+  evSignTexture: (kind: 'chargingOnly' | 'towAway', arrows?: 'both') => THREE.CanvasTexture;
   virtualSignSprite: (kind: VirtualSign, stationId: string) => THREE.Sprite;
   warningTexture: () => THREE.CanvasTexture;
   logoPanel: (
@@ -304,6 +306,7 @@ export interface SceneCtx {
   avatarPoint: (stationId: string) => ScreenPoint | null;
   virtualSignPoint: (stationId: string) => ScreenPoint | null;
   evsePlatePoint: (stationId: string, index: number) => ScreenPoint | null;
+  unitPlatePoint: (stationId: string) => ScreenPoint | null;
   focusStation: (stationId: string) => void;
   /** Makes a point the orbit center, easing in to frame `heightM` when given (`site-layout-camera-nav.ts`). */
   focusAt: (point: THREE.Vector3, heightM: number | null) => void;

@@ -113,6 +113,10 @@ export interface Station {
   statusReason?: string | null;
   connectorCount: number;
   connectorTypes: string[] | null;
+  /** Units (physical charger boxes) of the station; 0 and null for a station without units. */
+  unitCount?: number;
+  units?: { id: string; name: string; connectorTypes: string[] }[] | null;
+  unassignedConnectorTypes?: string[] | null;
   isOnline: boolean;
   isSimulator?: boolean;
   siteFreeVendEnabled?: boolean;
@@ -182,6 +186,42 @@ function ConnectorTypeIcon({ type }: { type: string }): React.JSX.Element {
   }
 
   return <Tooltip content={name}>{icon}</Tooltip>;
+}
+
+// The connector icons of a station with units: one group per unit (its name as
+// the group title), then the EVSEs without a unit, divided by a thin line.
+function UnitConnectorGroups({
+  units,
+  unassigned,
+}: {
+  units: { id: string; name: string; connectorTypes: string[] }[];
+  unassigned: string[];
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const groups = [
+    ...units.map((u) => ({ key: u.id, name: u.name, types: u.connectorTypes })),
+    ...(unassigned.length > 0
+      ? [{ key: 'unassigned', name: t('stationUnits.evsesWithoutUnit'), types: unassigned }]
+      : []),
+  ];
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap" data-testid="unit-connector-groups">
+      {groups.map((g) => (
+        <span
+          key={g.key}
+          role="group"
+          aria-label={g.name}
+          title={g.name}
+          data-testid="unit-connector-group"
+          className="flex items-center gap-1 border-l border-border pl-1.5 first:border-l-0 first:pl-0"
+        >
+          {g.types.map((type) => (
+            <ConnectorTypeIcon key={type} type={type} />
+          ))}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 interface StationsTableProps {
@@ -407,7 +447,14 @@ export function StationsTable({
                 <TableCell className="whitespace-nowrap">{station.vendorName ?? '-'}</TableCell>
               )}
               {isVisible('model') && (
-                <TableCell className="whitespace-nowrap">{station.model ?? '-'}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {station.model ?? '-'}
+                  {(station.unitCount ?? 0) > 0 && (
+                    <div className="text-xs text-muted-foreground" data-testid="station-unit-count">
+                      {t('stationUnits.unitCount', { count: station.unitCount })}
+                    </div>
+                  )}
+                </TableCell>
               )}
               {isVisible('securityProfile') && (
                 <TableCell className="whitespace-nowrap">
@@ -429,11 +476,18 @@ export function StationsTable({
               )}
               {isVisible('connectors') && (
                 <TableCell>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {station.connectorTypes?.map((type) => (
-                      <ConnectorTypeIcon key={type} type={type} />
-                    ))}
-                  </div>
+                  {station.units != null && station.units.length > 0 ? (
+                    <UnitConnectorGroups
+                      units={station.units}
+                      unassigned={station.unassignedConnectorTypes ?? []}
+                    />
+                  ) : (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {station.connectorTypes?.map((type) => (
+                        <ConnectorTypeIcon key={type} type={type} />
+                      ))}
+                    </div>
+                  )}
                 </TableCell>
               )}
               {isVisible('online') && (

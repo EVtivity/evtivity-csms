@@ -76,6 +76,7 @@ const { mockReadLayoutStationSessions, mockIsFleetEnabled } = vi.hoisted(() => (
 }));
 vi.mock('../lib/site-layout-sessions.js', () => ({
   readLayoutStationSessions: mockReadLayoutStationSessions,
+  readLayoutEvseSessions: vi.fn(() => Promise.resolve(new Map())),
 }));
 // The charger screen text reads its settings and templates apart (site-layout-screen-message.test.ts).
 vi.mock('../lib/site-layout-screen-message.js', () => ({
@@ -143,6 +144,9 @@ vi.mock('@evtivity/database', async () => {
       (await import('@evtivity/lib/site-layout')).effectiveLayoutSettings(null),
     ),
     readStationLayoutKinds: vi.fn(() => Promise.resolve(new Map())),
+    readUnitsOfStations: vi.fn(() => Promise.resolve(new Map())),
+    readSiteUnitBoardPositions: vi.fn(() => Promise.resolve(new Map())),
+    LayoutUnitNotFoundError: class extends Error {},
     ChargerPlacementSiteTypeError: class extends Error {},
     db: {
       select: vi.fn(() => makeChain()),

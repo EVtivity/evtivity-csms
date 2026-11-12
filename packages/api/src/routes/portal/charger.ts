@@ -29,6 +29,7 @@ import { config as apiConfig } from '../../lib/config.js';
 import {
   chargingStations,
   evses,
+  stationUnits,
   connectors,
   sites,
   chargingSessions,
@@ -48,6 +49,14 @@ import {
   publicStationListed,
   publicStationServed,
 } from '../../lib/public-station.js';
+import {
+  driverChargers,
+  expandToDriverChargers,
+  extraUnitChargerCount,
+  loadStationDriverUnits,
+  SEARCH_ROW_LIMIT,
+} from '../../lib/portal-units.js';
+import { evseDisplayStatus } from '@evtivity/lib/evse-status';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { optionalDriverId } from '../../lib/optional-driver.js';
 import { requestSessionEnd } from '../../lib/session-end.js';
@@ -174,6 +183,11 @@ const portalChargerDetail = z
     evse: z
       .object({
         evseId: z.number().int().min(1).describe('EVSE ID on the station'),
+        status: z
+          .string()
+          .describe(
+            'EVSE status from all its connectors: a connector in use wins, then a reservation, then an available connector; faulted or unavailable only when no connector can serve',
+          ),
         connectors: z.array(portalConnectorItem).describe('Connectors on this EVSE'),
         reservationExpiresAt: z
           .string()
@@ -187,6 +201,14 @@ const portalChargerDetail = z
           ),
       })
       .describe('Selected EVSE detail with reservation context'),
+    unit: z
+      .object({
+        id: z.string().describe('Unit ID'),
+        name: z.string().describe('Unit name'),
+      })
+      .loose()
+      .nullable()
+      .describe('The unit (physical charger box) holding this EVSE, null when it has none'),
     maintenance: z
       .object({
         active: z.boolean(),
@@ -207,6 +229,15 @@ const portalChargerDetail = z
 const portalEvseItem = z
   .object({
     evseId: z.number().int().min(1).describe('EVSE ID on the station'),
+    unitId: z
+      .string()
+      .nullable()
+      .describe('Unit (physical charger box) of the EVSE, null when it has none'),
+    status: z
+      .string()
+      .describe(
+        'EVSE status from all its connectors: a connector in use wins, then a reservation, then an available connector; faulted or unavailable only when no connector can serve',
+      ),
     connectors: z.array(portalConnectorItem).describe('Connectors on this EVSE'),
     reservationExpiresAt: z
       .string()
@@ -285,6 +316,24 @@ const portalStationDetail = z
       .boolean()
       .describe('Whether Stripe is configured for this site and payment is required'),
     evses: z.array(portalEvseItem).describe('All EVSEs on the station'),
+    units: z
+      .array(
+        z
+          .object({
+            id: z.string().describe('Unit ID'),
+            name: z.string().describe('Unit name'),
+            evseIds: z.array(z.number().int()).describe('EVSE IDs of the unit'),
+            availableCount: z
+              .number()
+              .int()
+              .min(0)
+              .describe('EVSEs of the unit a driver can use now (the charger search rule)'),
+          })
+          .loose(),
+      )
+      .describe(
+        'Units of a station with several charger boxes, each shown to drivers as its own charger; the EVSEs without a unit form one more charger named by the station. Empty for a station without units',
+      ),
     maintenance: z
       .object({
         active: z.boolean().describe('True when the site has an active maintenance window'),
@@ -340,6 +389,13 @@ const portalChargerSearch = z
     connectors: z
       .array(portalConnectorSummary)
       .describe('Summary of all connectors on the station for filtering and display'),
+    unitId: z
+      .string()
+      .nullable()
+      .describe(
+        'On a station with units, the unit this row shows (each unit is its own row); null for a station without units and for the EVSEs without a unit',
+      ),
+    unitName: z.string().nullable().describe('Name of that unit, null when the row shows none'),
   })
   .loose();
 
@@ -721,8 +777,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .select({
           id: evses.id,
           evseId: evses.evseId,
+          unitId: evses.unitId,
+          unitName: stationUnits.name,
         })
         .from(evses)
+        .leftJoin(stationUnits, eq(stationUnits.id, evses.unitId))
         .where(
           and(
             eq(evses.stationId, station.id),
@@ -799,11 +858,16 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         paymentEnabled: paymentProvider != null,
         evse: {
           evseId: evse.evseId,
+          status: evseDisplayStatus(evseConnectors.map((c) => c.status)),
           connectors: evseConnectors,
           reservationExpiresAt,
           reserved: reservationExpiresAt != null,
           reservedByMe,
         },
+        unit:
+          evse.unitId != null && evse.unitName != null
+            ? { id: evse.unitId, name: evse.unitName }
+            : null,
         maintenance,
         stationUnavailable: isStationLevelUnavailable(station),
       };
@@ -963,7 +1027,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .innerJoin(sites, eq(chargingStations.siteId, sites.id))
         .where(and(publicStationListed(), whereClause))
-        .limit(20);
+        .limit(SEARCH_ROW_LIMIT);
 
       const stationUuids = rows.map((r) => r.stationUuid);
       const connectorRows =
@@ -971,6 +1035,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           ? await db
               .select({
                 stationId: evses.stationId,
+                evseId: evses.evseId,
                 connectorType: connectors.connectorType,
                 maxPowerKw: connectors.maxPowerKw,
                 maxCurrentAmps: connectors.maxCurrentAmps,
@@ -990,22 +1055,22 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         connectorsByStation.set(c.stationId, list);
       }
 
-      return rows.map((r) => ({
-        stationId: r.stationId,
-        model: r.model,
-        isOnline: r.isOnline,
-        siteName: r.siteName,
-        siteAddress: r.siteAddress,
-        siteCity: r.siteCity,
-        evseCount: r.evseCount,
-        availableCount: r.availableCount,
-        connectors: (connectorsByStation.get(r.stationUuid) ?? []).map((c) => ({
-          connectorType: c.connectorType,
-          maxPowerKw: c.maxPowerKw,
-          maxCurrentAmps: c.maxCurrentAmps,
-          status: c.status,
+      const unitData = await loadStationDriverUnits(stationUuids);
+      return expandToDriverChargers(
+        rows.map((r) => ({
+          ...r,
+          connectors: connectorsByStation.get(r.stationUuid) ?? [],
         })),
-      }));
+        unitData,
+        (r) => ({
+          stationId: r.stationId,
+          model: r.model,
+          isOnline: r.isOnline,
+          siteName: r.siteName,
+          siteAddress: r.siteAddress,
+          siteCity: r.siteCity,
+        }),
+      ).slice(0, SEARCH_ROW_LIMIT);
     },
   );
 
@@ -1071,6 +1136,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           ? await db
               .select({
                 stationId: evses.stationId,
+                evseId: evses.evseId,
                 connectorType: connectors.connectorType,
                 maxPowerKw: connectors.maxPowerKw,
                 maxCurrentAmps: connectors.maxCurrentAmps,
@@ -1090,23 +1156,23 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         connectorsByStation.set(c.stationId, list);
       }
 
-      return rows.map((r) => ({
-        stationId: r.stationId,
-        model: r.model,
-        isOnline: r.isOnline,
-        siteName: r.siteName,
-        siteAddress: r.siteAddress,
-        siteCity: r.siteCity,
-        distanceKm: Math.round(r.distanceKm * 10) / 10,
-        evseCount: r.evseCount,
-        availableCount: r.availableCount,
-        connectors: (connectorsByStation.get(r.stationUuid) ?? []).map((c) => ({
-          connectorType: c.connectorType,
-          maxPowerKw: c.maxPowerKw,
-          maxCurrentAmps: c.maxCurrentAmps,
-          status: c.status,
+      const unitData = await loadStationDriverUnits(stationUuids);
+      return expandToDriverChargers(
+        rows.map((r) => ({
+          ...r,
+          connectors: connectorsByStation.get(r.stationUuid) ?? [],
         })),
-      }));
+        unitData,
+        (r) => ({
+          stationId: r.stationId,
+          model: r.model,
+          isOnline: r.isOnline,
+          siteName: r.siteName,
+          siteAddress: r.siteAddress,
+          siteCity: r.siteCity,
+          distanceKm: Math.round(r.distanceKm * 10) / 10,
+        }),
+      ).slice(0, limit);
     },
   );
 
@@ -1206,7 +1272,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .string()
         .nullable()
         .describe('Public contact phone (null when contact is private)'),
-      stationCount: z.number().describe('Number of stations at this site'),
+      stationCount: z
+        .number()
+        .describe(
+          'Number of chargers at this site: a station without units counts once, a station with units counts each unit with an EVSE in service, plus one for its EVSEs without a unit',
+        ),
       evseCount: z.number().describe('Total EVSEs across all stations at this site'),
       availableCount: z
         .number()
@@ -1220,6 +1290,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               stationId: z.string().describe('OCPP station identity'),
               stationName: z.string().describe('Station display name'),
               evseId: z.number().int().describe('OCPP EVSE ID'),
+              unitId: z
+                .string()
+                .nullable()
+                .describe('Unit (physical charger box) of the EVSE, null when it has none'),
+              unitName: z.string().nullable().describe('Name of that unit, null when none'),
               connectorType: z.string().nullable().describe('Physical connector type'),
               maxPowerKw: z.string().nullable().describe('Maximum power in kW (decimal string)'),
               status: z.string().describe('Live connector status'),
@@ -1336,6 +1411,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           stationId: chargingStations.stationId,
           stationName: chargingStations.stationId,
           evseId: evses.evseId,
+          unitId: evses.unitId,
+          unitName: stationUnits.name,
           connectorType: connectors.connectorType,
           maxPowerKw: connectors.maxPowerKw,
           status: connectors.status,
@@ -1344,8 +1421,14 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .innerJoin(evses, and(eq(evses.stationId, chargingStations.id), isNull(evses.retiredAt)))
         .innerJoin(connectors, and(eq(connectors.evseId, evses.id), isNull(connectors.retiredAt)))
+        .leftJoin(stationUnits, eq(stationUnits.id, evses.unitId))
         .where(and(eq(chargingStations.siteId, siteId), publicStationListed()))
-        .orderBy(chargingStations.stationId, evses.evseId);
+        .orderBy(
+          chargingStations.stationId,
+          sql`${stationUnits.sortOrder} NULLS LAST`,
+          stationUnits.name,
+          evses.evseId,
+        );
 
       const isContactPublic = site.contactIsPublic;
 
@@ -1362,7 +1445,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         contactName: isContactPublic ? site.contactName : null,
         contactEmail: isContactPublic ? site.contactEmail : null,
         contactPhone: isContactPublic ? site.contactPhone : null,
-        stationCount: counts?.stationCount ?? 0,
+        stationCount: (counts?.stationCount ?? 0) + (await extraUnitChargerCount(siteId)),
         evseCount: counts?.evseCount ?? 0,
         availableCount: counts?.availableCount ?? 0,
         chargers,
@@ -1613,6 +1696,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .select({
           id: evses.id,
           evseId: evses.evseId,
+          unitId: evses.unitId,
           connectorId: connectors.connectorId,
           connectorType: connectors.connectorType,
           maxPowerKw: connectors.maxPowerKw,
@@ -1629,6 +1713,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         {
           evseUuid: string;
           evseId: number;
+          unitId: string | null;
           connectors: Array<{
             connectorId: number;
             connectorType: string | null;
@@ -1640,7 +1725,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       >();
       for (const row of evseRows) {
         if (!evseMap.has(row.evseId)) {
-          evseMap.set(row.evseId, { evseUuid: row.id, evseId: row.evseId, connectors: [] });
+          evseMap.set(row.evseId, {
+            evseUuid: row.id,
+            evseId: row.evseId,
+            unitId: row.unitId,
+            connectors: [],
+          });
         }
         if (row.connectorId != null) {
           const evseEntry = evseMap.get(row.evseId);
@@ -1706,6 +1796,23 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const siteListed = station.siteListed;
       const isContactPublic = siteListed && station.siteContactIsPublic === true;
       const maintenance = await getMaintenancePayloadForStation(station.id, request.log);
+      const unitData = (await loadStationDriverUnits([station.id])).get(station.id);
+      const units =
+        unitData == null
+          ? []
+          : (driverChargers(unitData.evses, unitData.units) ?? []).flatMap((c) =>
+              c.unitId != null && c.unitName != null
+                ? [
+                    {
+                      id: c.unitId,
+                      name: c.unitName,
+                      evseIds: c.evseIds,
+                      availableCount: c.availableCount,
+                    },
+                  ]
+                : [],
+            );
+      const shownUnits = new Set(units.map((u) => u.id));
 
       return {
         stationId: station.stationId,
@@ -1724,12 +1831,15 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         paymentEnabled: paymentProvider != null,
         evses: Array.from(evseMap.values()).map((e) => ({
           evseId: e.evseId,
+          unitId: e.unitId != null && shownUnits.has(e.unitId) ? e.unitId : null,
+          status: evseDisplayStatus(e.connectors.map((c) => c.status)),
           connectors: e.connectors,
           reservationExpiresAt: reservationExpiryMap.get(e.evseUuid) ?? null,
           reserved: reservationExpiryMap.has(e.evseUuid),
           reservedByMe:
             callerDriverId != null && reservationDriverMap.get(e.evseUuid) === callerDriverId,
         })),
+        units,
         maintenance,
         stationUnavailable: isStationLevelUnavailable(station),
       };

@@ -307,6 +307,7 @@ const NO_PROVIDER_PAYMENT = 'the seeded payments have no provider payment';
 const NO_S3 = 'no S3 storage is configured in the test database';
 const NO_DEPOT_SYSTEM = 'the matrix fixtures hold no bus depot system';
 const NO_DEPOT_SITE = 'the matrix sites are not Depot sites';
+const NO_UNIT = 'the matrix fixtures hold no station unit';
 const DEPOT_PROOF = { kind: 'password', password: 'TestPassword1' } as const;
 
 const st = (f: SiteFixture): string => `/stations/${f.station}`;
@@ -3857,6 +3858,43 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `${st(f)}/ai-insights/resume`,
     'STATION_NOT_FOUND',
     { unsited: true, body: () => ({}) },
+  ),
+  // Station units: the site check answers before any unit is read, so a
+  // unit id that does not exist is enough for the restricted callers.
+  s('GET', '/stations/:id/units', 'stations:read', (f) => `${st(f)}/units`, 'STATION_NOT_FOUND', {
+    unsited: true,
+  }),
+  s('POST', '/stations/:id/units', 'stations:write', (f) => `${st(f)}/units`, 'STATION_NOT_FOUND', {
+    unsited: true,
+    body: () => ({ name: 'Matrix Unit' }),
+  }),
+  s(
+    'PATCH',
+    '/stations/:id/units/:unitId',
+    'stations:write',
+    (f) => `${st(f)}/units/unt_000000000000`,
+    'STATION_NOT_FOUND',
+    {
+      unsited: true,
+      body: () => ({ name: 'Matrix Unit' }),
+      control: ctl(404, 'STATION_UNIT_NOT_FOUND', NO_UNIT),
+    },
+  ),
+  s(
+    'DELETE',
+    '/stations/:id/units/:unitId',
+    'stations:write',
+    (f) => `${st(f)}/units/unt_000000000000`,
+    'STATION_NOT_FOUND',
+    { unsited: true, control: ctl(404, 'STATION_UNIT_NOT_FOUND', NO_UNIT) },
+  ),
+  s(
+    'PUT',
+    '/stations/:id/evses/:evseId/unit',
+    'stations:write',
+    (f) => `${st(f)}/evses/${String(f.evse)}/unit`,
+    'STATION_NOT_FOUND',
+    { unsited: true, body: () => ({ unitId: null }) },
   ),
   s(
     'POST',

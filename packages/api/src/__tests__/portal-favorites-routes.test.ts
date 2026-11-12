@@ -49,14 +49,20 @@ function makeChain() {
   return chain;
 }
 
-const { mockAvailableEvseCountSql, mockSqlRaw } = vi.hoisted(() => ({
-  mockAvailableEvseCountSql: vi.fn((alias: string) => `AVAILABLE_EVSE_COUNT(${alias})`),
+const { mockAvailableEvseCountSql, mockInServiceEvseCountSql, mockSqlRaw } = vi.hoisted(() => ({
+  mockAvailableEvseCountSql: vi.fn((alias: string, unit?: string) =>
+    unit == null ? `AVAILABLE_EVSE_COUNT(${alias})` : `AVAILABLE_EVSE_COUNT(${alias},${unit})`,
+  ),
+  mockInServiceEvseCountSql: vi.fn(
+    (alias: string, unit?: string) => `IN_SERVICE(${alias},${unit ?? ''})`,
+  ),
   mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
 }));
 
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   availableEvseCountSql: mockAvailableEvseCountSql,
+  inServiceEvseCountSql: mockInServiceEvseCountSql,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -68,6 +74,7 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: {},
   sites: {},
   evses: {},
+  stationUnits: {},
   connectors: {},
 }));
 
@@ -178,28 +185,23 @@ describe('Portal favorite routes', () => {
       const now = new Date();
       // First DB call: select favorites with joins
       // Second DB call: select EVSE counts
-      setupDbResults(
-        [
-          {
-            id: 1,
-            stationOcppId: STATION_OCPP_ID,
-            stationUuid: STATION_UUID,
-            siteName: 'Test Site',
-            siteAddress: '123 Main St',
-            siteCity: 'Springfield',
-            siteState: 'IL',
-            isOnline: true,
-            availableCount: 2,
-            createdAt: now,
-          },
-        ],
-        [
-          {
-            stationId: STATION_UUID,
-            total: 4,
-          },
-        ],
-      );
+      setupDbResults([
+        {
+          id: 1,
+          stationOcppId: STATION_OCPP_ID,
+          stationUuid: STATION_UUID,
+          siteName: 'Test Site',
+          siteAddress: '123 Main St',
+          siteCity: 'Springfield',
+          siteState: 'IL',
+          isOnline: true,
+          unitId: null,
+          unitName: null,
+          evseCount: 4,
+          availableCount: 2,
+          createdAt: now,
+        },
+      ]);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/favorites',
@@ -226,8 +228,14 @@ describe('Portal favorite routes', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      expect(mockAvailableEvseCountSql).toHaveBeenCalledWith('charging_stations');
-      expect(mockSqlRaw).toHaveBeenCalledWith('AVAILABLE_EVSE_COUNT(charging_stations)');
+      // A favorite of a unit counts only the EVSEs of that unit.
+      expect(mockAvailableEvseCountSql).toHaveBeenCalledWith(
+        'charging_stations',
+        'driver_favorite_stations.unit_id',
+      );
+      expect(mockSqlRaw).toHaveBeenCalledWith(
+        'AVAILABLE_EVSE_COUNT(charging_stations,driver_favorite_stations.unit_id)',
+      );
     });
   });
 

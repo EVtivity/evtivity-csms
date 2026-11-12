@@ -96,6 +96,9 @@ import {
   sitePaymentConfigs,
   paymentRecords,
   vendors,
+  readUnitsOfStations,
+  readSiteUnitBoardPositions,
+  LayoutUnitNotFoundError,
 } from '@evtivity/database';
 import {
   isValidTimezone,
@@ -117,24 +120,24 @@ import {
   firstFreePlacement,
   freeSlotsFor,
   sharesSpotPair,
-  splitDispenserCount,
+  stationSpanCount,
   layoutStationCountsOfKinds,
   CHARGER_PLACEMENTS,
-  freeSpotCount,
+  stationFreeSpotCount,
   SITE_TYPES,
   usesFreePositions,
   type FreePlacement,
 } from '@evtivity/lib/site-layout';
 import { VEHICLE_BODY_TYPES, VEHICLE_COLORS } from '@evtivity/lib/vehicle-appearance';
 import { avatarItem } from '../lib/avatar-item.js';
-import { readLayoutStationSessions } from '../lib/site-layout-sessions.js';
+import { readLayoutEvseSessions, readLayoutStationSessions } from '../lib/site-layout-sessions.js';
 import {
   connectorPluggedIn,
   downConnectorKey,
   isDownConnectorStatus,
   readStatusesBeforeDown,
 } from '../lib/site-layout-plugged.js';
-import type { LayoutStationSession } from '../lib/site-layout-sessions.js';
+import type { LayoutEvseSession, LayoutStationSession } from '../lib/site-layout-sessions.js';
 import {
   resolveLayoutScreenMessages,
   SCREEN_MESSAGE_SOURCES,
@@ -1089,10 +1092,20 @@ const layoutConnector = z
   })
   .loose();
 
-const layoutEvse = z
+const layoutUnit = z
   .object({
-    evseId: z.number().describe('OCPP EVSE ID within the station'),
-    connectors: z.array(layoutConnector).describe('Connectors belonging to this EVSE'),
+    id: z.string().describe('Unit id (unt_)'),
+    name: z.string().describe('Unit name, as the operator set it'),
+    evseIds: z.array(z.number()).describe('OCPP EVSE IDs of the unit, ascending'),
+    boardPosition: z
+      .object({
+        x: z.number().int().describe('X of the unit card on the 2D board in board px'),
+        y: z.number().int().describe('Y of the unit card on the 2D board in board px'),
+      })
+      .nullable()
+      .describe(
+        'Where the card of this unit stands on the 2D board (board px), saved by the layout save. Null: no saved position (the 2D view shows its computed default slot)',
+      ),
   })
   .loose();
 
@@ -1120,6 +1133,54 @@ const layoutSessionVehicle = z
   })
   .loose();
 
+const layoutEvseSession = z
+  .object({
+    id: z.string().describe('Charging session id'),
+    startedAt: z
+      .string()
+      .describe(
+        'When the session started (ISO 8601; the creation time when the station sent none)',
+      ),
+    energyDeliveredWh: z.number().describe('Energy delivered so far in watt-hours'),
+    currentCostCents: z
+      .number()
+      .nullable()
+      .describe('Running cost in cents of the session currency, null when not priced yet'),
+    currency: z.string().describe('ISO 4217 currency of the session cost'),
+    driver: layoutSessionDriver
+      .nullable()
+      .describe(
+        'The driver of the session, null without drivers:read, for a session without a driver, or for an erased driver',
+      ),
+    vehicle: layoutSessionVehicle
+      .nullable()
+      .describe(
+        "The car the layout draws at this EVSE: the session's vehicle, else the driver's only vehicle, else the driver's most recently used vehicle; null when none",
+      ),
+  })
+  .loose();
+
+const layoutEvse = z
+  .object({
+    evseId: z.number().describe('OCPP EVSE ID within the station'),
+    unitId: z
+      .string()
+      .nullable()
+      .describe('The unit (unt_) the EVSE belongs to, null when it belongs to none'),
+    retired: z
+      .boolean()
+      .describe(
+        'Whether the EVSE is retired (out of service). A station with units draws only in-service EVSEs with a connector, as the placement counts them',
+      ),
+    session: layoutEvseSession
+      .nullable()
+      .describe(
+        "The newest active session of this EVSE (start, energy, cost, car and driver): the layout parks its car at this EVSE's stall. Null when no session is active on the EVSE, when the station has not named the session's EVSE, or without sessions:read",
+      ),
+    connectors: z.array(layoutConnector).describe('Connectors belonging to this EVSE'),
+  })
+  .loose();
+
 const layoutSession = z
   .object({
     id: z.string().describe('Charging session id'),
@@ -1134,6 +1195,10 @@ const layoutSession = z
       .nullable()
       .describe('Running cost in cents of the session currency, null when not priced yet'),
     currency: z.string().describe('ISO 4217 currency of the session cost'),
+    evseId: z
+      .number()
+      .nullable()
+      .describe('The OCPP EVSE id the session runs on, null when the station has not named it'),
     driver: layoutSessionDriver
       .nullable()
       .describe(
@@ -1328,6 +1393,11 @@ const layoutStation = z
         'What the charger screen shows now. Set for every station of the reply; null only if it could not be decided',
       ),
     evses: z.array(layoutEvse).describe('EVSEs installed on this station'),
+    units: z
+      .array(layoutUnit)
+      .describe(
+        'The units of the station (physical charger boxes under one OCPP station) in their order, each drawn as its own charger; empty for a station without units, which is drawn as one charger',
+      ),
     session: layoutSession
       .nullable()
       .describe(
@@ -3194,7 +3264,8 @@ export function siteRoutes(app: FastifyInstance): void {
           y: Number(s.positionY),
           charging: layoutKinds.get(s.id)?.charging ?? null,
           pair: sharesSpotPair(layoutKinds.get(s.id), layoutSettings),
-          span: splitDispenserCount(layoutKinds.get(s.id), layoutSettings),
+          span: stationSpanCount(layoutKinds.get(s.id), layoutSettings),
+          unitRun: (layoutKinds.get(s.id)?.units?.length ?? 0) > 0,
         }));
       const freeSlots = freeSlotsFor(
         unplaced.map((s) => layoutKinds.get(s.id)),
@@ -3249,12 +3320,25 @@ export function siteRoutes(app: FastifyInstance): void {
         readLayoutMaintenanceWindows(id, stationUuids),
       ]);
 
+      // The units of the stations and the board cards of those units.
+      const [unitsByStation, unitBoards] = await Promise.all([
+        readUnitsOfStations(stationUuids),
+        readSiteUnitBoardPositions(id),
+      ]);
+      // Each charging car parks at the stall of its own session's EVSE: the
+      // session of every EVSE of every station, under the station session's
+      // permission rules (security case 283).
+      const evseSessions = canReadSessions
+        ? await readLayoutEvseSessions(stationUuids, canReadDrivers)
+        : new Map<string, LayoutEvseSession>();
       const [evseRows, connectorRows, sessionRows, displayMessageRows] = await Promise.all([
         db
           .select({
             id: evses.id,
             stationId: evses.stationId,
             evseId: evses.evseId,
+            unitId: evses.unitId,
+            retiredAt: evses.retiredAt,
           })
           .from(evses)
           .where(inArray(evses.stationId, stationUuids)),
@@ -3346,7 +3430,10 @@ export function siteRoutes(app: FastifyInstance): void {
       const freeByStation = new Map<string, { placement: FreePlacement; picked: boolean }>();
       if (usesFreePositions(layoutSettings)) {
         const spotsOf = (stationId: string): number =>
-          freeSpotCount((evsesByStation.get(stationId) ?? []).length);
+          stationFreeSpotCount(
+            (evsesByStation.get(stationId) ?? []).length,
+            layoutKinds.get(stationId),
+          );
         const known: Array<{ placement: FreePlacement; spots: number }> = [];
         for (const station of stationRows) {
           if (station.freeXM == null || station.freeZM == null || station.freeRotationDeg == null)
@@ -3452,10 +3539,19 @@ export function siteRoutes(app: FastifyInstance): void {
           maintenanceWindow: station.inMaintenance
             ? (maintenanceWindows.get(station.id) ?? null)
             : null,
+          units: (unitsByStation.get(station.id) ?? []).map((unit) => ({
+            id: unit.id,
+            name: unit.name,
+            evseIds: unit.evseNumbers,
+            boardPosition: unitBoards.get(unit.id) ?? null,
+          })),
           evses: stationEvses.map((evse) => {
             const evseConnectors = connectorsByEvse.get(evse.id) ?? [];
             return {
               evseId: evse.evseId,
+              unitId: evse.unitId ?? null,
+              retired: evse.retiredAt != null,
+              session: evseSessions.get(evse.id) ?? null,
               connectors: evseConnectors.map((conn) => {
                 const session = activeSessionsByConnector.get(conn.id);
                 return {
@@ -3586,6 +3682,36 @@ export function siteRoutes(app: FastifyInstance): void {
             .describe(
               'Where the station card stands on the 2D board (board px). Omitted keeps the saved one; null clears it (the 2D view shows the computed default slot). Never moves the station 3D position',
             ),
+          unitBoardPositions: z
+            .array(
+              z.object({
+                unitId: z.string().min(1).max(64).describe('Unit id (unt_) of this station'),
+                boardPosition: z
+                  .object({
+                    x: z
+                      .number()
+                      .int()
+                      .min(-1_000_000)
+                      .max(1_000_000)
+                      .describe('X of the unit card on the 2D board in board px'),
+                    y: z
+                      .number()
+                      .int()
+                      .min(-1_000_000)
+                      .max(1_000_000)
+                      .describe('Y of the unit card on the 2D board in board px'),
+                  })
+                  .nullable()
+                  .describe(
+                    'Where the unit card stands; null clears it (the computed default slot)',
+                  ),
+              }),
+            )
+            .max(64)
+            .optional()
+            .describe(
+              'A station with units: the 2D board cards of its units (one card per unit). Units left out keep their saved card. A unit that is no unit of this station answers 404 STATION_UNIT_NOT_FOUND and nothing is saved. Never moves the station 3D position',
+            ),
         }),
       )
       .describe('Station positions to save'),
@@ -3638,9 +3764,10 @@ export function siteRoutes(app: FastifyInstance): void {
             'Invalid settings, an equipment position naming no transformer or energy asset of the site, the lot has no free spot for every station, or the parking spots of stations on a custom site overlap',
             [ERROR_CODES.VALIDATION_ERROR],
           ),
-          404: errorWith('Site or station not found', [
+          404: errorWith('Site, station or unit not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
+            ERROR_CODES.STATION_UNIT_NOT_FOUND,
           ]),
         },
       },
@@ -3661,6 +3788,14 @@ export function siteRoutes(app: FastifyInstance): void {
         positionY: p.positionY,
         ...(p.freePosition !== undefined ? { free: p.freePosition } : {}),
         ...(p.boardPosition !== undefined ? { board: p.boardPosition } : {}),
+        ...(p.unitBoardPositions != null
+          ? {
+              unitBoards: p.unitBoardPositions.map((u) => ({
+                unitId: u.unitId,
+                board: u.boardPosition,
+              })),
+            }
+          : {}),
       }));
       // Ajv checks the ranges; the Zod schema also checks the 10 cm steps and
       // the unique transformer ids.
@@ -3711,6 +3846,17 @@ export function siteRoutes(app: FastifyInstance): void {
             : eq(stationLayoutPositions.siteId, id),
         );
 
+      // The unit board cards before the save, for the audit row.
+      const sentUnits = new Set(
+        positions.flatMap((p) => (p.unitBoards ?? []).map((u) => u.unitId)),
+      );
+      const previousUnitBoards =
+        sentUnits.size > 0
+          ? [...(await readSiteUnitBoardPositions(id))]
+              .filter(([unitId]) => sentUnits.has(unitId))
+              .map(([unitId, board]) => ({ unitId, board }))
+          : [];
+
       // One position row per station: a station that moved here from another
       // site takes this site with its new position, and the layout saves whole.
       // The lot moves stations outside it to free spots inside.
@@ -3731,6 +3877,11 @@ export function siteRoutes(app: FastifyInstance): void {
           await reply
             .status(400)
             .send({ error: err.message, code: 'VALIDATION_ERROR', field: err.field });
+          return;
+        }
+        if (err instanceof LayoutUnitNotFoundError) {
+          // A unit card sent with a station it does not belong to.
+          await reply.status(404).send({ error: 'Unit not found', code: 'STATION_UNIT_NOT_FOUND' });
           return;
         }
         if (err instanceof LayoutSpotsOverlapError) {
@@ -3776,6 +3927,7 @@ export function siteRoutes(app: FastifyInstance): void {
             ...getAuditActor(request),
             before: {
               layoutPositions: previousPositions,
+              ...(sentUnits.size > 0 ? { unitBoardPositions: previousUnitBoards } : {}),
               ...(settingsChanged ? { layoutSettings: saved.settingsBefore } : {}),
             },
             after: {

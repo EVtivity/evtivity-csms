@@ -6,7 +6,13 @@
 import * as THREE from 'three';
 import { SCENE_COLORS } from './site-layout-colors';
 import { VIRTUAL_SIGN_OPACITY, type VirtualSign } from './site-layout-grid';
-import { SIGN_FONT_FAMILY, signCanvasSize, signLetterPx, signLines } from './site-layout-signs';
+import {
+  CURB_PAIR_SIGN,
+  SIGN_FONT_FAMILY,
+  signCanvasSize,
+  signLetterPx,
+  signLines,
+} from './site-layout-signs';
 
 import type { SceneSlice } from './site-layout-scene-context';
 import { VIRTUAL_SIGN_WIDTH_M } from './site-layout-scene-types';
@@ -22,7 +28,9 @@ export function installSigns(scn: SignsCtx): void {
   // 12 by 18 in, MUTCD 11th Edition Section 2B.53) or the California
   // tow-away sign of Vehicle Code 22511(d)(1) (17 by 22 in, its required
   // statement; the reclaim place and telephone are the operator's, left blank).
-  function evSignTexture(kind: 'chargingOnly' | 'towAway'): THREE.CanvasTexture {
+  // With `arrows` the R7-113 shows a double-headed arrow under the legend (a
+  // two-port curb post, `CURB_PAIR_SIGN`).
+  function evSignTexture(kind: 'chargingOnly' | 'towAway', arrows?: 'both'): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
     const ink = kind === 'chargingOnly' ? SCENE_COLORS.signRegulatoryRed : SCENE_COLORS.signInk;
     const face = signCanvasSize(kind);
@@ -48,7 +56,9 @@ export function installSigns(scn: SignsCtx): void {
       const lines = signLines(
         kind === 'chargingOnly' ? scn.theme.signs.chargingOnly : scn.theme.signs.towAway,
       );
-      const step = (canvas.height - 2 * face.marginY) / lines.length;
+      const arrowH =
+        arrows === 'both' ? (canvas.height - 2 * face.marginY) * CURB_PAIR_SIGN.arrowShare : 0;
+      const step = (canvas.height - 2 * face.marginY - arrowH) / lines.length;
       const floor = signLetterPx(kind, 0);
       lines.forEach((line, i) => {
         let size = signLetterPx(kind, step);
@@ -59,6 +69,27 @@ export function installSigns(scn: SignsCtx): void {
         }
         ctx.fillText(line, canvas.width / 2, face.marginY + step * (i + 0.5));
       });
+      if (arrows === 'both') {
+        // A double-headed arrow across the face: a shaft and a head at each end.
+        const y = canvas.height - face.marginY - arrowH / 2;
+        const x0 = face.marginX;
+        const x1 = canvas.width - face.marginX;
+        const head = arrowH * 0.45;
+        const shaft = arrowH * 0.16;
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x0 + head, y - head * 0.75);
+        ctx.lineTo(x0 + head, y - shaft / 2);
+        ctx.lineTo(x1 - head, y - shaft / 2);
+        ctx.lineTo(x1 - head, y - head * 0.75);
+        ctx.lineTo(x1, y);
+        ctx.lineTo(x1 - head, y + head * 0.75);
+        ctx.lineTo(x1 - head, y + shaft / 2);
+        ctx.lineTo(x0 + head, y + shaft / 2);
+        ctx.lineTo(x0 + head, y + head * 0.75);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
     const texture = scn.track(new THREE.CanvasTexture(canvas));
     texture.colorSpace = THREE.SRGBColorSpace;

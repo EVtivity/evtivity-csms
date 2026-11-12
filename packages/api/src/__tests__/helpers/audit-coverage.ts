@@ -118,6 +118,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'DELETE /stations/:id': { audited: 'station' },
   'DELETE /stations/:id/evses/:evseId': { audited: 'station' },
   'DELETE /stations/:id/evses/:evseId/connectors/:connectorId': { audited: 'station' },
+  'DELETE /stations/:id/units/:unitId': {
+    audited: 'station',
+    service: 'api/src/services/station-unit.service.ts',
+  },
   'DELETE /stations/:id/images/:imageId': { audited: 'station_image' },
   'DELETE /stations/:id/monitoring-rules/:ruleId': { audited: 'station' },
   'DELETE /stations/:id/pricing-groups/:pricingGroupId': { audited: 'pricing_assignment' },
@@ -239,6 +243,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PATCH /smart-charging/templates/:id': { audited: 'smart_charging_template' },
   'PATCH /stations/:id': { audited: 'station' },
   'PATCH /stations/:id/evses/:evseId': { audited: 'station' },
+  'PATCH /stations/:id/units/:unitId': {
+    audited: 'station',
+    service: 'api/src/services/station-unit.service.ts',
+  },
   'PATCH /stations/:id/images/:imageId': { audited: 'station_image' },
   'PATCH /stations/:id/images/reorder': { audited: 'station_image' },
   'PATCH /support-cases/:id': {
@@ -713,6 +721,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'station',
     service: 'api/src/services/station-evse-retire.service.ts',
   },
+  'POST /stations/:id/units': {
+    audited: 'station',
+    service: 'api/src/services/station-unit.service.ts',
+  },
   'POST /stations/:id/evses/:evseId/stop-active-session': { audited: ['station', 'session'] },
   'POST /stations/:id/ai-insights/suppress': {
     audited: ['station', 'ai_insight'],
@@ -858,6 +870,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PUT /stations/:id/web-payments': {
     audited: 'station',
     service: 'api/src/services/web-payment.service.ts',
+  },
+  'PUT /stations/:id/evses/:evseId/unit': {
+    audited: 'station',
+    service: 'api/src/services/station-unit.service.ts',
   },
   'PUT /users/:id/permissions': { audited: 'user' },
   'PUT /users/me/chatbot-ai-config': { audited: 'user' },

@@ -16,6 +16,7 @@ import {
 import { isDoubleTap } from './site-layout-camera-nav';
 import type { SceneSlice } from './site-layout-scene-context';
 import { pickEvsePlate } from './site-layout-scene-evse-plates';
+import { pickUnitPlate } from './site-layout-scene-unit-plates';
 import { pickChargerScreen } from './site-layout-scene-screen-text';
 import { type PickKind, type StationObject } from './site-layout-scene-types';
 
@@ -299,7 +300,9 @@ export function installInteraction(scn: InteractionCtx): void {
         // An EVSE plate shows its EVSE label instead.
         const screen =
           sign == null && hit?.kind === 'station'
-            ? (pickChargerScreen(scn, ray, hit.id) ?? pickEvsePlate(scn, scn.built, ray, hit.id))
+            ? (pickChargerScreen(scn, ray, hit.id) ??
+              pickEvsePlate(scn, scn.built, ray, hit.id) ??
+              pickUnitPlate(scn, scn.built, ray, hit.id))
             : null;
         hoverStation(sign == null && screen == null && hit?.kind === 'station' ? hit.id : null);
         hoverEquipment(

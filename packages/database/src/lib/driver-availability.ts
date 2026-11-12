@@ -67,9 +67,25 @@ export function evseAvailableSql(evseAlias: string, stationAlias: string): strin
   ))`;
 }
 
-// Number of free EVSEs at the station aliased `stationAlias`, as an int.
-export function availableEvseCountSql(stationAlias: string): string {
+// Only the EVSEs of the unit in `unitColumn` (a column holding a unit id, such
+// as a favorite's or a watch's unit_id); a null unit means the whole station.
+function unitFilterSql(evseAlias: string, unitColumn: string | undefined): string {
+  if (unitColumn == null) return '';
+  return ` AND (${unitColumn} IS NULL OR ${evseAlias}.unit_id = ${unitColumn})`;
+}
+
+// Number of free EVSEs at the station aliased `stationAlias`, as an int. With
+// `unitColumn`, only the EVSEs of that unit when the column is not null.
+export function availableEvseCountSql(stationAlias: string, unitColumn?: string): string {
   const s = stationAlias;
   return `(SELECT count(*)::int FROM evses dav_e
-    WHERE dav_e.station_id = ${s}.id AND ${evseAvailableSql('dav_e', s)})`;
+    WHERE dav_e.station_id = ${s}.id AND ${evseAvailableSql('dav_e', s)}${unitFilterSql('dav_e', unitColumn)})`;
+}
+
+// Number of in-service EVSEs at the station aliased `stationAlias`, as an int,
+// with the same unit rule as availableEvseCountSql.
+export function inServiceEvseCountSql(stationAlias: string, unitColumn?: string): string {
+  const s = stationAlias;
+  return `(SELECT count(*)::int FROM evses dav_e
+    WHERE dav_e.station_id = ${s}.id AND dav_e.retired_at IS NULL${unitFilterSql('dav_e', unitColumn)})`;
 }

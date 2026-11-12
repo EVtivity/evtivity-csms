@@ -196,7 +196,8 @@ describe('custom site editing', () => {
     pantograph.evses[0]!.connectors[0]!.connectorType = 'OppCharge';
     expect(layoutStationCountsOf([truck, pantograph, station('c', 2)])).toMatchObject({
       total: 3,
-      bus: 2,
+      // The two-EVSE plug-in bus station is a dual-outlet charger over two bays (2026-11-12).
+      bus: 3,
       truck: 1,
     });
   });

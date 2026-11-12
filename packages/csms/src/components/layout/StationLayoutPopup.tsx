@@ -20,6 +20,7 @@ import { stationDisplayState } from '@/lib/station-display-state';
 import type { LayoutStation } from './StationCard';
 import type { LayoutTerminal } from './layout-terminals';
 import { LayoutSimulatePanel } from './LayoutSimulatePanel';
+import { layoutChargerName, layoutStationIdOf } from './site-layout-units';
 import { screenPlainText } from './site-layout-screen-text';
 import {
   ConnectionBadge,
@@ -140,7 +141,7 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
       <div
         ref={ref}
         role="dialog"
-        aria-label={t('sites.layoutView.detailsLabel', { id: station.stationId })}
+        aria-label={t('sites.layoutView.detailsLabel', { id: layoutChargerName(station, t) })}
         data-testid="station-layout-popup"
         className="absolute z-[1000] max-h-[calc(100%-24px)] w-[280px] max-w-[calc(100%-24px)] overflow-y-auto overscroll-contain rounded-lg border bg-card p-4 text-card-foreground shadow-lg"
         onPointerDown={(e) => {
@@ -160,7 +161,9 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <h3 className="flex items-center gap-1.5 text-base font-semibold">
-                  <span className="truncate">{station.stationId}</span>
+                  <span className="truncate" data-testid="layout-popup-title">
+                    {layoutChargerName(station, t)}
+                  </span>
                   <ConnectionBadge station={station} />
                 </h3>
                 <p className="text-xs text-muted-foreground">
@@ -196,8 +199,11 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
               )}
               <dt className="text-muted-foreground">{t('sites.layoutView.power')}</dt>
               <dd className="text-right tabular-nums">
-                {formatNumber(currentDrawKw ?? 0, 1)} /{' '}
-                {max != null ? formatConnectorPowerKw(max) : '-'} kW
+                {/* A unit charger: the live draw is the station's, so none shows for the unit. */}
+                {currentDrawKw == null && station.unitCharger != null
+                  ? '-'
+                  : formatNumber(currentDrawKw ?? 0, 1)}{' '}
+                / {max != null ? formatConnectorPowerKw(max) : '-'} kW
               </dd>
               {allocatedLimitKw != null && allocatedLimitKw > 0 && (
                 <>
@@ -330,7 +336,7 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
             )}
             <div className="mt-3 flex gap-2">
               <Link
-                to={`/stations/${station.id}`}
+                to={`/stations/${layoutStationIdOf(station.id)}`}
                 className={cn(buttonVariants({ variant: 'outline' }), 'min-w-0 flex-1')}
               >
                 {t('sites.layoutView.openStation')}

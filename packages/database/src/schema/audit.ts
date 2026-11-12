@@ -92,6 +92,8 @@ export const stationAuditActionEnum = pgEnum('station_audit_action', [
   'evse_changed',
   'monitoring_changed',
   'alert_acknowledged',
+  // Station units (v0.1.52, 0490).
+  'unit_changed',
 ]);
 
 export const stationAuditLog = pgTable(

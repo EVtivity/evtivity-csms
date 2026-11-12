@@ -42,6 +42,7 @@ import { healthRoutes } from './routes/health.js';
 import { siteRoutes } from './routes/sites.js';
 import { siteOcppMessageRoutes } from './routes/site-ocpp-messages.js';
 import { stationRoutes } from './routes/stations.js';
+import { stationUnitRoutes } from './routes/station-units.js';
 import { stationSimRoutes } from './routes/station-sim.js';
 import { simRoutes } from './routes/sims.js';
 import { sessionRoutes } from './routes/sessions.js';
@@ -226,6 +227,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(siteRoutes);
       await v1.register(siteOcppMessageRoutes);
       await v1.register(stationRoutes);
+      await v1.register(stationUnitRoutes);
       await v1.register(stationSimRoutes);
       await v1.register(simRoutes);
       await v1.register(sessionRoutes);

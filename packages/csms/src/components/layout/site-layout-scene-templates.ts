@@ -208,9 +208,9 @@ export function installTemplates(scn: TemplatesCtx): void {
             return g;
           },
         ),
-      carParallel: (look) =>
+      carParallel: (look, spot) =>
         once(
-          `carParallel-${look.bodyType}-${look.color}-${carLookPort(look)}-${inletKey(look)}`,
+          `carParallel-${look.bodyType}-${look.color}-${carLookPort(look)}-${inletKey(look)}-${spot ?? ''}`,
           () => {
             const g = new THREE.Group();
             // Parallel along the curb, facing -x, never backed in (site-layout-curb-cable.ts).
@@ -221,7 +221,7 @@ export function installTemplates(scn: TemplatesCtx): void {
             });
             const place = isLargeBodyType(look.bodyType)
               ? null
-              : parallelPlace(CAR_PROFILES[look.bodyType], port);
+              : parallelPlace(CAR_PROFILES[look.bodyType], port, spot);
             const at = parallelAt(look.bodyType);
             car.rotation.y = Math.PI / 2;
             car.position.set(place?.noseX ?? at[0], 0, place?.centerZ ?? at[1]);
@@ -232,7 +232,7 @@ export function installTemplates(scn: TemplatesCtx): void {
       // From the plugged connector's holster to the handle in the car's port (`carPortInStation`).
       cable: (kind, look, offsetX = 0, frontZ = CAR_FRONT, flowing = true, plug = {}) =>
         perStation(
-          `cable-${kind}-${look.bodyType}-${carLookPort(look)}-${String(offsetX)}-${String(frontZ)}-${String(flowing)}-${plug.connector ?? ''}-${String(plug.side ?? '')}-${String(plug.backM ?? 0)}-${plug.mouth == null ? '' : `${String(plug.mouth.x)},${String(plug.mouth.y)},${String(plug.mouth.z)}`}-${plug.bounds == null ? '' : `${String(plug.bounds.minX)},${String(plug.bounds.maxX)}`}-${String(plug.wallPorts ?? 1)}-${String(plug.lengthM ?? '')}`,
+          `cable-${kind}-${look.bodyType}-${carLookPort(look)}-${String(offsetX)}-${String(frontZ)}-${String(flowing)}-${plug.connector ?? ''}-${String(plug.side ?? '')}-${String(plug.backM ?? 0)}-${plug.mouth == null ? '' : `${String(plug.mouth.x)},${String(plug.mouth.y)},${String(plug.mouth.z)}`}-${plug.bounds == null ? '' : `${String(plug.bounds.minX)},${String(plug.bounds.maxX)}`}-${String(plug.wallPorts ?? 1)}-${String(plug.lengthM ?? '')}-${plug.curbSpot ?? ''}`,
           () => {
             const bodyType = look.bodyType;
             const legacy = portAt(bodyType, frontZ);
@@ -264,7 +264,7 @@ export function installTemplates(scn: TemplatesCtx): void {
                   : acGlandOut(plug.glandX ?? 0, chargerCableDiameterM(connector, !dcKind))
               ).map((p) => [p[0], p[1], p[2]] as const);
               const profile = CAR_PROFILES[bodyType as CarBodyType];
-              const place = parallelPlace(profile, carPort);
+              const place = parallelPlace(profile, carPort, plug.curbSpot);
               const pp = parallelPort(profile, carPort, place);
               const entry = placePlug(pp.at, pp.yaw);
               const route = curbChargingRoute({
@@ -423,7 +423,7 @@ export function installTemplates(scn: TemplatesCtx): void {
         }),
       evSigns: (mount: StationSigns) =>
         once(
-          `evSigns:${String(mount.onWall)}:${String(mount.chargingOnlyBottomM)}:${String(mount.towAwayBottomM)}:${String(mount.towAwayDxM)}`,
+          `evSigns:${String(mount.onWall)}:${String(mount.chargingOnlyBottomM)}:${String(mount.towAwayBottomM)}:${String(mount.towAwayDxM)}:${mount.arrows ?? ''}`,
           () => {
             // A wall sign is placed at the facade by the caller (mount.z).
             const g = new THREE.Group();
@@ -452,7 +452,7 @@ export function installTemplates(scn: TemplatesCtx): void {
               EV_SIGNS.chargingOnly.widthM,
               EV_SIGNS.chargingOnly.heightM,
               mount.chargingOnlyBottomM,
-              scn.evSignTexture('chargingOnly'),
+              scn.evSignTexture('chargingOnly', mount.arrows),
             );
             if (mount.towAwayBottomM != null) {
               panel(

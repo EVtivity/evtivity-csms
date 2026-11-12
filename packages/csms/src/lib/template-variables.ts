@@ -909,7 +909,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
   'watch.StationAvailable': [
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
-    { name: 'stationName', description: 'Station name or OCPP identifier' },
+    {
+      name: 'stationName',
+      description: 'Station name or OCPP identifier, with the unit name for a watched unit',
+    },
+    { name: 'unitName', description: 'Watched unit name, empty for a whole station' },
     { name: 'siteName', description: 'Site name' },
     { name: 'stationId', description: 'Station OCPP identifier' },
   ],

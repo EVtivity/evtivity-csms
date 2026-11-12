@@ -332,6 +332,42 @@ export function withSplitCabinets(
   return hierarchy.map(walk);
 }
 
+/**
+ * The hierarchy as the 3D view routes it with stations with units
+ * (`expandUnitStations`): the circuit that feeds such a station runs on to
+ * every unit charger of it (`chargers`: the station's view ids in order, the
+ * first its own id), so the station's run reaches its first unit charger and
+ * continues along the row behind the chargers with a short branch to each
+ * other unit (the trunk and branch of a circuit's stations, `loadLinks`;
+ * ids `<station id>#u<n>`, the split dispenser pattern). The circuit still
+ * feeds the station as one load (owner decision O1 A: no circuit per unit);
+ * a run per unit breaker is not drawn (derived: the master meters and
+ * shares the power of its extenders, GitHub discussion 59). Other circuits
+ * stay as they are.
+ */
+export function withUnitChargers(
+  hierarchy: readonly LinkPanel[],
+  chargers: ReadonlyMap<string, readonly string[]>,
+): LinkPanel[] {
+  if (chargers.size === 0) return [...hierarchy];
+  const walk = (panel: LinkPanel): LinkPanel => ({
+    ...panel,
+    circuits: panel.circuits.map((circuit) => ({
+      ...circuit,
+      stations: circuit.stations.flatMap((st) => {
+        const ids = chargers.get(st.id);
+        if (ids == null || ids.length < 2) return [st];
+        return [
+          st,
+          ...ids.filter((id) => id !== st.id).map((id) => ({ id, allocatedLimitKw: null })),
+        ];
+      }),
+    })),
+    childPanels: panel.childPanels.map(walk),
+  });
+  return hierarchy.map(walk);
+}
+
 /** Where a station's cables end: its charger and the back of it (the side away from its spot). */
 export interface LinkStationPoint {
   charger: Point;

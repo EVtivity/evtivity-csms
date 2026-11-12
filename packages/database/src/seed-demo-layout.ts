@@ -97,6 +97,7 @@ import {
   readStoredLayoutSettings,
   saveSiteLayout,
 } from './lib/station-layout.js';
+import { seedDemoStationUnitsOf } from './seed-demo-station-units.js';
 import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import { seedStationFaultInsight } from './seed-ai-insights.js';
 import type { DemoFeatureContext } from './seed-demo-features.js';
@@ -172,8 +173,10 @@ async function seedSite(
   await sql`
     INSERT INTO sites (id, name, address, city, state, postal_code, country, latitude, longitude,
       timezone, hours_of_operation, created_at, updated_at)
-    VALUES (${site.id}, ${site.name}, ${site.address}, ${site.city}, 'NY', '12207', 'US',
-      ${site.latitude}, ${site.longitude}, 'America/New_York', '24/7', ${createdAt}, ${createdAt})
+    VALUES (${site.id}, ${site.name}, ${site.address}, ${site.city},
+      ${site.state === undefined ? 'NY' : site.state}, ${site.postalCode ?? '12207'},
+      ${site.country ?? 'US'}, ${site.latitude}, ${site.longitude},
+      ${site.timezone ?? 'America/New_York'}, '24/7', ${createdAt}, ${createdAt})
     ON CONFLICT (id) DO NOTHING
   `;
   await ensureSiteElectricityRates(db, site.id);
@@ -277,16 +280,20 @@ async function seedSite(
   let inserted = 0;
   let moved = 0;
   for (const station of site.stations) {
-    const n = station.id.slice(-2);
+    const n = station.rowKey ?? station.id.slice(-2);
     const isDc = station.kind === 'dc';
+    const model = station.model ?? (isDc ? 'Terra 184' : 'Pulsar Plus');
+    const supply =
+      station.acSupply ?? (isDc ? { phases: 3, voltage: 400 } : { phases: 1, voltage: 208 });
     const created = await sql`
       INSERT INTO charging_stations (id, station_id, site_id, vendor_id, model, serial_number,
         firmware_version, onboarding_status, availability, is_online, security_profile,
         ocpp_protocol, basic_auth_password_hash, is_simulator, circuit_id, data_plan, created_at,
         updated_at)
       VALUES (${station.id}, ${station.stationId}, ${site.id}, ${vendorId},
-        ${isDc ? 'Terra 184' : 'Pulsar Plus'}, ${`SN-LY-00${n}`}, '2.4.1', 'accepted',
-        'available', false, 1, 'ocpp2.1', ${passwordHash}, true, ${station.circuitId},
+        ${model}, ${`SN-LY-00${n}`}, '2.4.1', 'accepted',
+        'available', false, 1, ${station.ocppProtocol ?? 'ocpp2.1'}, ${passwordHash}, true,
+        ${station.circuitId},
         ${station.cellular === true ? 'cellular' : null}, ${createdAt}, ${createdAt})
       ON CONFLICT DO NOTHING
       RETURNING id
@@ -404,6 +411,20 @@ async function seedSite(
         },
       );
     }
+    // Connectors still at a power an earlier plan seeded take the plan's power.
+    if (station.maxPowerKwBefore != null && station.maxPowerKwBefore.length > 0) {
+      const earlier = station.maxPowerKwBefore.map(String);
+      const earlierW = station.maxPowerKwBefore.map((kw) => Math.round(kw * 1000));
+      await sql`
+        UPDATE connectors SET max_power_kw = ${String(connector.kw)}, max_current_amps = ${connector.amps}
+        WHERE evse_id IN (SELECT id FROM evses WHERE station_id = ${station.id})
+          AND max_power_kw IN ${sql(earlier)}
+      `;
+      await sql`
+        UPDATE css_evses SET max_power_w = ${Math.round(connector.kw * 1000)}
+        WHERE css_station_id = ${`css_demolayout${n}`} AND max_power_w IN ${sql(earlierW)}
+      `;
+    }
     // Connectors still on the earlier European defaults take the North American plugs.
     if (station.connectorType == null && station.maxPowerKw == null) {
       for (let e = 1; e <= evseCount; e++) {
@@ -447,8 +468,8 @@ async function seedSite(
         INSERT INTO css_evses (id, css_station_id, evse_id, connector_id, connector_type,
           max_power_w, phases, voltage)
         VALUES (${`cev_demolayout${n}${String(e)}`}, ${cssId}, ${e}, 1,
-          ${connector.css}, ${Math.round(connector.kw * 1000)}, ${isDc ? 3 : 1},
-          ${isDc ? 400 : 208})
+          ${connector.css}, ${Math.round(connector.kw * 1000)}, ${supply.phases},
+          ${supply.voltage})
         ON CONFLICT DO NOTHING
       `;
       for (const c of extra) {
@@ -456,8 +477,8 @@ async function seedSite(
           INSERT INTO css_evses (id, css_station_id, evse_id, connector_id, connector_type,
             max_power_w, phases, voltage)
           VALUES (${`cev_demolayout${n}${String(e)}_${String(c.connectorId)}`}, ${cssId}, ${e},
-            ${c.connectorId}, ${c.css}, ${Math.round(connector.kw * 1000)}, ${isDc ? 3 : 1},
-            ${isDc ? 400 : 208})
+            ${c.connectorId}, ${c.css}, ${Math.round(connector.kw * 1000)}, ${supply.phases},
+            ${supply.voltage})
           ON CONFLICT DO NOTHING
         `;
       }
@@ -1070,6 +1091,8 @@ export interface LayoutDemoCounts {
   /** Stations of the earlier plan moved to the site of their charger type. */
   moved: number;
   layouts: number;
+  /** Units created on demo stations with units (a master and its extenders). */
+  units: number;
   terminals: number;
   /** Active display messages created on demo stations. */
   messages: number;
@@ -1521,6 +1544,15 @@ export async function seedLayoutDemo(
     moved += seeded.moved;
     present.set(site.id, seeded.present);
   }
+  // The units of the stations with units (a master and its extenders), before
+  // the layout save, so each such station holds its run of unit spots.
+  let units = 0;
+  for (const site of LAYOUT_DEMO.sites) {
+    for (const station of site.stations) {
+      if (station.units == null || !(present.get(site.id) ?? []).includes(station.id)) continue;
+      units += await seedDemoStationUnitsOf(sql, station.id, station.units, ctx.actorUserId);
+    }
+  }
   // After every move, so each site's save sees only its own stations.
   for (const site of LAYOUT_DEMO.sites) {
     const seeded = present.get(site.id) ?? [];
@@ -1579,6 +1611,7 @@ export async function seedLayoutDemo(
     stations,
     moved,
     layouts,
+    units,
     terminals,
     faultInsights,
     messages,

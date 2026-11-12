@@ -47,6 +47,18 @@ describe('isEvseSelectable (charge mode)', () => {
     expect(isEvseSelectable(evse('faulted'), chargeOnline)).toBe(false);
   });
 
+  // An OCPP 2.x EVSE with CCS and CHAdeMO charges on one connector at a time.
+  it('reads a 2-connector EVSE from all its connectors, not the first', () => {
+    const two = (a: string, b: string): SelectableEvse => ({
+      connectors: [{ status: a }, { status: b }],
+      reserved: false,
+      reservedByMe: false,
+    });
+    expect(isEvseSelectable(two('faulted', 'available'), chargeOnline)).toBe(true);
+    expect(isEvseSelectable(two('available', 'charging'), chargeOnline)).toBe(false);
+    expect(isEvseSelectable(two('unavailable', 'faulted'), chargeOnline)).toBe(false);
+  });
+
   it('rejects when the station is offline', () => {
     expect(isEvseSelectable(evse('available'), { ...chargeOnline, isOnline: false })).toBe(false);
   });

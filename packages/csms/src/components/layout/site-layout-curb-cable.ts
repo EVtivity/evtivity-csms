@@ -66,15 +66,52 @@ export function curbPortOf(port: CarPort): CarPort {
   return port;
 }
 
-/** Where the car of `port` stands at the curb. */
+/**
+ * The spot of a car at a two-port curb post (`TWO_PORT_CURB_POST`), which
+ * stands on the line between its two parallel spots: EVSE 1's car in the
+ * spot on its left seen from the street (`left`, x from minus the spot
+ * length to 0), EVSE 2's on its right (`right`, x from 0 to the spot
+ * length). Absent: a one-port post's own spot.
+ */
+export type CurbSpot = 'left' | 'right';
+
+/**
+ * The charge port a car draws at a two-port curb post (owner decision
+ * 2026-11-12): its curb side port (`curbPortOf`) at the post end of its spot,
+ * so the 5.79 m post cable reaches it. The car faces -x, so the left spot
+ * puts its tail by the post (a rear right port) and the right spot its nose
+ * (a front right port, or the nose port). A far end port would need 7.3 m
+ * (measured, a sedan's nose port from the left spot). Derived, as the curb
+ * side mirror.
+ */
+export function curbPairPortOf(port: CarPort, spot: CurbSpot): CarPort {
+  const curb = curbPortOf(port);
+  if (spot === 'left') return 'rear_right';
+  return curb === 'rear_right' ? 'front_right' : curb;
+}
+
+/**
+ * Where the car of `port` stands at the curb. At a two-port post (`spot`) the
+ * car parks as near the post as its spot allows, 0.2 m in from the line
+ * (`PARALLEL_CAR.endInsetM`): its nose by the post in the right spot, its
+ * tail by the post in the left spot (it faces -x, never backed in). Derived.
+ */
 export function parallelPlace(
   profile: { width: number; length: number },
   port: CarPort,
+  spot?: CurbSpot,
 ): ParallelPlace {
   const rear = port === 'rear_left' || port === 'rear_right';
   const front = -CURB_POST_IN_M + PARALLEL_CAR.endInsetM;
   const back = -CURB_POST_IN_M + STANDARD_DIMENSIONS.parallelSpotLengthM - PARALLEL_CAR.endInsetM;
-  const noseX = rear ? front : Math.min(PARALLEL_CAR.noseByPostX, back - profile.length);
+  const noseX =
+    spot === 'right'
+      ? PARALLEL_CAR.endInsetM
+      : spot === 'left'
+        ? -PARALLEL_CAR.endInsetM - profile.length
+        : rear
+          ? front
+          : Math.min(PARALLEL_CAR.noseByPostX, back - profile.length);
   const centerZ = CURB_FACE_Z + PARALLEL_CAR.curbGapM + profile.width / 2;
   // The car's own frame turned a quarter about y: its +z (nose to tail) along
   // +x, its left (-x) toward the street (+z).

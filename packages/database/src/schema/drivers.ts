@@ -20,11 +20,12 @@ import {
   uniqueIndex,
   unique,
   primaryKey,
+  foreignKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { VehicleBodyType, VehicleColor } from '@evtivity/lib/vehicle-appearance';
 import { createId } from '../lib/id.js';
-import { chargingStations } from './assets.js';
+import { chargingStations, stationUnits } from './assets.js';
 import { chargingSessions } from './charging.js';
 
 export const guestSessionStatusEnum = pgEnum('guest_session_status', [
@@ -633,11 +634,25 @@ export const driverFavoriteStations = pgTable(
     stationId: text('station_id')
       .notNull()
       .references(() => chargingStations.id, { onDelete: 'cascade' }),
+    // A unit of the station, or null for the whole station. Kept on the row's
+    // own station and deleted with its unit (composite key below).
+    unitId: text('unit_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('idx_driver_favorite_stations_unique').on(table.driverId, table.stationId),
+    // NULLS NOT DISTINCT in the migration (0490), which drizzle cannot express;
+    // this declaration is for drift detection only.
+    uniqueIndex('uq_driver_favorite_stations_unit').on(
+      table.driverId,
+      table.stationId,
+      table.unitId,
+    ),
     index('idx_driver_favorite_stations_driver').on(table.driverId),
+    foreignKey({
+      columns: [table.unitId, table.stationId],
+      foreignColumns: [stationUnits.id, stationUnits.stationId],
+      name: 'fk_driver_favorite_stations_unit',
+    }).onDelete('cascade'),
   ],
 );
 
@@ -657,9 +672,17 @@ export const stationWatches = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true })
       .notNull()
       .default(sql`now() + interval '24 hours'`),
+    // A unit of the station, or null for the whole station (as favorites).
+    unitId: text('unit_id'),
   },
   (table) => [
-    uniqueIndex('idx_station_watches_unique').on(table.driverId, table.stationId),
+    // NULLS NOT DISTINCT in the migration (0490); drift detection only.
+    uniqueIndex('uq_station_watches_unit').on(table.driverId, table.stationId, table.unitId),
+    foreignKey({
+      columns: [table.unitId, table.stationId],
+      foreignColumns: [stationUnits.id, stationUnits.stationId],
+      name: 'fk_station_watches_unit',
+    }).onDelete('cascade'),
     index('idx_station_watches_driver').on(table.driverId),
     index('idx_station_watches_station').on(table.stationId),
     // Supports the cache refresh (expires_at > now()) and the prune cron.

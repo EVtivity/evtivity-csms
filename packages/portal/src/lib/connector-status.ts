@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { evseDisplayStatus } from '@evtivity/lib/evse-status';
+
 // OCPP 1.6: available, preparing, finishing. OCPP 2.1: available, occupied, ev_connected.
 // Mirrored by `packages/api/src/routes/portal/charger.ts` and
 // `packages/api/src/routes/portal/guest.ts`; backend rejects with
@@ -43,7 +45,7 @@ export function isEvseSelectable(
 ): boolean {
   if (opts.maintenanceActive || !opts.isOnline || opts.stationUnavailable) return false;
   if (opts.mode === 'reserve') return !evse.reserved;
-  const connectorStatus = evse.connectors[0]?.status ?? 'unavailable';
+  const connectorStatus = evseDisplayStatus(evse.connectors.map((c) => c.status));
   const reservedByOther = evse.reserved && !evse.reservedByMe;
   return !reservedByOther && (isStartable(connectorStatus) || evse.reservedByMe);
 }

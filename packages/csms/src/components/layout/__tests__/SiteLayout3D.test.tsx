@@ -104,7 +104,7 @@ import {
 import type { LayoutStation } from '../StationCard';
 import type { LayoutTerminal } from '../layout-terminals';
 import type { LinkPanel } from '../site-layout-links';
-import { FACADE_Z } from '../site-layout-grid';
+import { FACADE_Z, depotStationPlacement, lotOf } from '../site-layout-grid';
 import type { LayoutInsight } from '../site-layout-data';
 
 const connector = (overrides: Record<string, unknown> = {}) => ({
@@ -1855,5 +1855,519 @@ describe('SiteLayout3D', () => {
       });
       expect(onMove).toHaveBeenCalledWith('bus', 20, 160);
     });
+  });
+});
+
+describe('SiteLayout3D stations with units', () => {
+  // The discussion 59 setup: an OCPP 1.6 ABL eM4 master and extenders, 2 AC EVSEs per box.
+  const type2 = (status = 'available', isPluggedIn = false) =>
+    connector({ connectorType: 'Type2', maxPowerKw: 22, status, isPluggedIn });
+  const evseSession = (id: string, color: string) => ({
+    id,
+    startedAt: '2026-11-11T08:00:00Z',
+    energyDeliveredWh: 500,
+    currentCostCents: null,
+    currency: 'EUR',
+    driver: null,
+    vehicle: { color, bodyType: null },
+  });
+  const em4 = (boxes = 3): LayoutStation =>
+    station({
+      id: 'sta_em4',
+      stationId: 'ABL-EM4',
+      model: 'eM4 Twin',
+      status: 'charging',
+      chargingKind: 'ac',
+      positionX: 20,
+      positionY: 20,
+      evses: Array.from({ length: boxes * 2 }, (_, i) => ({
+        evseId: i + 1,
+        status: 'available',
+        unitId: `unt_${String(Math.floor(i / 2) + 1)}`,
+        connectors: [type2()],
+      })),
+      units: Array.from({ length: boxes }, (_, i) => ({
+        id: `unt_${String(i + 1)}`,
+        name: `Box ${String(i + 1)}`,
+        evseIds: [2 * i + 1, 2 * i + 2],
+      })),
+    });
+
+  it('draws a station without units exactly as before: one charger, no unit id (D3)', () => {
+    const plain = station({ units: [] });
+    renderView([plain]);
+    expect(scene.stations.map((s) => s.id)).toEqual(['sta_1']);
+    expect(scene.stations[0]?.bay).toEqual({ col: 0, row: 0 });
+  });
+
+  it('draws one dual-port pedestal per unit in one run, each with its own stalls and state', () => {
+    const units = em4();
+    // Box 2 charges on its second EVSE; the others are free.
+    units.evses[3] = {
+      evseId: 4,
+      unitId: 'unt_2',
+      status: 'charging',
+      session: evseSession('ses_b', 'red'),
+      connectors: [type2('charging', true)],
+    };
+    renderView([units]);
+    expect(scene.stations.map((s) => s.id)).toEqual(['sta_em4', 'sta_em4#u2', 'sta_em4#u3']);
+    expect(scene.stations.map((s) => s.bay)).toEqual([
+      { col: 0, row: 0 },
+      { col: 2, row: 0 },
+      { col: 4, row: 0 },
+    ]);
+    const drawn = scene.stations as unknown as Array<{
+      stalls?: Array<{ x: number }>;
+      prop: string | null;
+      kind: string;
+      stallCars?: Array<{ color: string } | null>;
+      lightColor: string;
+    }>;
+    // Each box stands on the line between its two spots: two stalls each.
+    expect(drawn.map((s) => s.stalls?.length)).toEqual([2, 2, 2]);
+    expect(drawn.map((s) => s.kind)).toEqual(['ac', 'ac', 'ac']);
+    // Each box is one dual-port AC charger: two ports of one connector each (the
+    // dual-port pedestal model, `ports === 2` in the charger model), never single-port.
+    expect(
+      (scene.stations as unknown as Array<{ evseConnectors?: number[] }>).map(
+        (s) => s.evseConnectors,
+      ),
+    ).toEqual([
+      [1, 1],
+      [1, 1],
+      [1, 1],
+    ]);
+    // Each box carries its number plate: its place in the unit order, never read from the name.
+    expect(
+      (scene.stations as unknown as Array<{ unitPlate?: { number: number } }>).map(
+        (s) => s.unitPlate?.number,
+      ),
+    ).toEqual([1, 2, 3]);
+    expect(screen.getByTestId('site-layout-3d-unit-plate-sta_em4#u2').textContent).toBe(
+      'layout.units.plateLabel',
+    );
+    expect(drawn.map((s) => s.prop)).toEqual([null, 'car', null]);
+    expect(drawn[1]?.lightColor).toBe(resolveCssColor(stationStateColor('charging')));
+    expect(drawn[0]?.lightColor).toBe(resolveCssColor(stationStateColor('available')));
+  });
+
+  it('opens the popup of a unit with only its EVSEs and links to the station', () => {
+    renderView([em4()]);
+    act(() => {
+      scene.callbacks?.onPick('sta_em4#u2');
+    });
+    const popup = screen.getByTestId('station-layout-popup');
+    expect(screen.getByTestId('layout-popup-title').textContent).toBe('layout.units.chargerName');
+    expect(popup.textContent).toContain('sites.layoutView.evse:3');
+    expect(popup.textContent).toContain('sites.layoutView.evse:4');
+    expect(popup.textContent).not.toContain('sites.layoutView.evse:1');
+    const link = screen.getByRole('link', { name: 'sites.layoutView.openStation' });
+    expect(link.getAttribute('href')).toBe('/stations/sta_em4');
+  });
+
+  it('moves the whole station when one unit charger is dropped', () => {
+    const onMove = vi.fn();
+    renderView([em4(), station({ id: 'sta_2', stationId: 'CS-2', positionX: 1820 })], {
+      editing: true,
+      onMove,
+    });
+    // The run of the station is its own: its spots are not taken for its units.
+    expect(scene.callbacks?.isBayTaken({ col: 3, row: 0 }, 'sta_em4#u2')).toBe(false);
+    act(() => {
+      // Box 2 dropped on spot 4 of row 1: the run starts two spots before it.
+      scene.callbacks?.onDrop('sta_em4#u2', { col: 4, row: 1 });
+    });
+    expect(onMove).toHaveBeenLastCalledWith('sta_em4', 420, 160);
+  });
+
+  it('puts a paired reader only on the unit of its EVSE, at that port', () => {
+    const terminals = new Map<string, LayoutTerminal[]>([
+      [
+        'sta_em4',
+        [
+          {
+            id: 'pt_4',
+            name: 'Reader Box 2',
+            stationId: 'sta_em4',
+            evseNumber: 4,
+            hasDisplay: true,
+            online: true,
+          },
+        ],
+      ],
+    ]);
+    renderView([em4()], { terminals });
+    expect(scene.stations.map((s) => s.terminals.map((x) => [x.id, x.side]))).toEqual([
+      [],
+      [['pt_4', 1]],
+      [],
+    ]);
+  });
+
+  it('gives each unit its own bus bay at a depot and its own curb post on a street, numbered', () => {
+    const ccs = (status = 'available', isPluggedIn = false) =>
+      connector({ connectorType: 'CCS1', maxPowerKw: 150, status, isPluggedIn });
+    const busUnits = station({
+      id: 'sta_bus',
+      stationId: 'BUS-1',
+      chargingKind: 'dc',
+      positionX: 20,
+      positionY: 20,
+      evses: [1, 2, 3].map((evseId) => ({
+        evseId,
+        status: 'available',
+        unitId: `unt_${String(evseId)}`,
+        connectors: [ccs()],
+      })),
+      units: [1, 2, 3].map((n) => ({
+        id: `unt_${String(n)}`,
+        name: `Box ${String(n)}`,
+        evseIds: [n],
+      })),
+    });
+    const depot = placePowerEquipment(
+      effectiveLayoutSettings({
+        siteType: 'depot',
+        spotsPerRow: 1,
+        rows: 1,
+        facingDeg: 0,
+        busBays: 6,
+        truckLanes: 0,
+        transformers: [],
+      }),
+      { transformers: [], energyAssets: [] },
+    );
+    renderView([busUnits], { settings: depot });
+    expect(scene.stations.map((s) => [s.id, s.bay.col, s.bay.row])).toEqual([
+      ['sta_bus', 0, 0],
+      ['sta_bus#u2', 1, 0],
+      ['sta_bus#u3', 2, 0],
+    ]);
+    expect(
+      (scene.stations as unknown as Array<{ unitPlate?: { number: number } }>).map(
+        (s) => s.unitPlate?.number,
+      ),
+    ).toEqual([1, 2, 3]);
+    cleanup();
+
+    const curbUnits = station({
+      ...busUnits,
+      id: 'sta_curb',
+      stationId: 'CURB-1',
+      chargingKind: 'ac',
+      evses: [1, 2, 3].map((evseId) => ({
+        evseId,
+        status: 'available',
+        unitId: `unt_${String(evseId)}`,
+        connectors: [type2()],
+      })),
+    });
+    const street = placePowerEquipment(
+      effectiveLayoutSettings({
+        siteType: 'curbside',
+        spotsPerRow: 10,
+        rows: 2,
+        facingDeg: 0,
+        chargersLeft: 6,
+        chargersRight: 2,
+        transformers: [],
+      }),
+      { transformers: [], energyAssets: [] },
+    );
+    renderView(
+      [
+        curbUnits,
+        station({
+          id: 'sta_plain',
+          stationId: 'PLAIN',
+          positionX: 20,
+          positionY: 160,
+          chargingKind: 'ac',
+          evses: [{ evseId: 1, status: 'available', connectors: [type2()] }],
+        }),
+      ],
+      { settings: street },
+    );
+    expect(scene.stations.map((s) => [s.id, s.bay.col, s.bay.row])).toEqual([
+      ['sta_curb', 0, 0],
+      ['sta_curb#u2', 1, 0],
+      ['sta_curb#u3', 2, 0],
+      // A station without units keeps its one post (D3).
+      ['sta_plain', 0, 1],
+    ]);
+  });
+
+  it('runs the station circuit on to every unit charger', () => {
+    const hierarchy: LinkPanel[] = [
+      {
+        id: 'pnl_1',
+        name: 'Panel 1',
+        breakerRatingAmps: 225,
+        maxContinuousKw: 60,
+        childPanels: [],
+        circuits: [
+          {
+            id: 'cir_1',
+            name: 'eM4',
+            breakerRatingAmps: 100,
+            maxContinuousKw: 50,
+            stations: [{ id: 'sta_em4', allocatedLimitKw: 44 }],
+          },
+        ],
+      },
+    ];
+    renderView([em4()], { hierarchy, loadManaged: true });
+    const ids = JSON.stringify(scene.links.segments);
+    expect(ids).toContain('sta_em4#u2');
+    expect(ids).toContain('sta_em4#u3');
+  });
+});
+
+describe('SiteLayout3D car at its session EVSE', () => {
+  // Owner decision 2026-11-12: each charging car, its driver avatar and its cable go to
+  // the stall of its own session's EVSE; the first plugged stall only when it is unknown.
+  const RED = '#b3262e';
+  const BLUE = '#2f5d9e';
+  const session = (id: string, color: string, evseId: number | null) => ({
+    id,
+    startedAt: '2026-11-12T08:00:00Z',
+    energyDeliveredWh: 500,
+    currentCostCents: null,
+    currency: 'EUR',
+    evseId,
+    driver: null,
+    vehicle: { color, bodyType: null },
+  });
+  type Drawn = {
+    stalls?: Array<{ x: number }>;
+    stallCars?: Array<{ color: string } | null>;
+    pluggedSlot?: { evse: number; connector: number };
+    carOffsetX?: number;
+  };
+  const dual = (kind: 'ac' | 'dc', plugged: [boolean, boolean], evseId: number | null) => {
+    const plug = (on: boolean, n: number) =>
+      kind === 'ac'
+        ? connector({
+            connectorType: 'Type2',
+            maxPowerKw: 22,
+            status: on ? 'charging' : 'available',
+            isPluggedIn: on,
+            connectorId: 1,
+            energyDeliveredWh: on ? 1000 * n : null,
+          })
+        : connector({ status: on ? 'charging' : 'available', isPluggedIn: on });
+    return station({
+      id: `sta_${kind}`,
+      stationId: `DUAL-${kind}`,
+      chargingKind: kind,
+      session: session('ses_home', 'red', evseId),
+      evses: [1, 2].map((n) => ({
+        evseId: n,
+        status: plugged[n - 1] ? 'charging' : 'available',
+        session:
+          n === 2 && evseId === 2
+            ? session('ses_home', 'red', 2)
+            : plugged[n - 1]
+              ? session(`ses_${String(n)}`, 'blue', n)
+              : null,
+        connectors: [plug(plugged[n - 1] === true, n)],
+      })),
+    });
+  };
+
+  for (const kind of ['ac', 'dc'] as const) {
+    it(`parks the car of EVSE 2 charging alone at the EVSE 2 stall of a ${kind.toUpperCase()} charger`, () => {
+      renderView([dual(kind, [false, true], 2)]);
+      const s = scene.stations[0] as unknown as Drawn;
+      expect(s.stalls).toHaveLength(2);
+      expect(s.stallCars?.map((c) => c?.color ?? null)).toEqual([null, RED]);
+      // The cable plugs EVSE 2 and the avatar and the car offset follow its stall.
+      expect(s.pluggedSlot?.evse).toBe(1);
+      expect(s.carOffsetX).toBe(s.stalls?.[1]?.x);
+    });
+
+    it(`keeps each car at its own EVSE when both charge, the station session on EVSE 2 (${kind})`, () => {
+      renderView([dual(kind, [true, true], 2)]);
+      const s = scene.stations[0] as unknown as Drawn;
+      expect(s.stallCars?.map((c) => c?.color ?? null)).toEqual([BLUE, RED]);
+      expect(s.pluggedSlot?.evse).toBe(1);
+      expect(s.carOffsetX).toBe(s.stalls?.[1]?.x);
+    });
+  }
+
+  it('uses the first plugged stall while the station has not named the session EVSE', () => {
+    const s0 = dual('ac', [true, true], null);
+    renderView([{ ...s0, evses: s0.evses.map((e) => ({ ...e, session: null })) }]);
+    const s = scene.stations[0] as unknown as Drawn;
+    expect(s.pluggedSlot?.evse).toBe(0);
+    expect(s.stallCars?.[0]?.color).toBe(RED);
+  });
+});
+
+describe('SiteLayout3D dual-outlet depot bus charger', () => {
+  // Owner decision 2026-11-12: a plug-in bus station of two EVSEs draws one dispenser
+  // between two adjacent bays, a bus per outlet; a pantograph keeps one bay.
+  const depotSettings = () =>
+    placePowerEquipment(
+      effectiveLayoutSettings({
+        siteType: 'depot',
+        spotsPerRow: 1,
+        rows: 1,
+        facingDeg: 0,
+        busBays: 6,
+        truckLanes: 0,
+        transformers: [],
+      }),
+      { transformers: [], energyAssets: [] },
+    );
+  const ccs = (on: boolean) =>
+    connector({ connectorType: 'CCS1', status: on ? 'charging' : 'available', isPluggedIn: on });
+  const busSession = (id: string, evseId: number) => ({
+    id,
+    startedAt: '2026-11-12T08:00:00Z',
+    energyDeliveredWh: 500,
+    currentCostCents: null,
+    currency: 'EUR',
+    evseId,
+    driver: null,
+    vehicle: { color: 'red', bodyType: 'bus' },
+  });
+  const dualBus = (plugged: [boolean, boolean], connectorType = 'CCS1') =>
+    station({
+      id: 'sta_bus2',
+      stationId: 'BUS-DUAL',
+      chargingKind: 'dc',
+      positionX: 20,
+      positionY: 20,
+      session: plugged[1] ? busSession('ses_b', 2) : null,
+      evses: [1, 2].map((evseId) => ({
+        evseId,
+        status: plugged[evseId - 1] ? 'charging' : 'available',
+        session: plugged[evseId - 1] ? busSession(`ses_${String(evseId)}`, evseId) : null,
+        connectors: [{ ...ccs(plugged[evseId - 1] === true), connectorType }],
+      })),
+    });
+  type Drawn = {
+    spots?: number;
+    free?: { x: number };
+    charger?: string;
+    stallCars?: Array<{ bodyType: string } | null>;
+    pluggedSlot?: { evse: number };
+  };
+
+  it('stands between two bays with a bus per outlet, the session bus at its own outlet', () => {
+    const settings = depotSettings();
+    renderView([dualBus([false, true])], { settings });
+    const s = scene.stations[0] as unknown as Drawn;
+    expect(s.charger).toBe('bus_dispenser');
+    expect(s.spots).toBe(2);
+    // Bays 0 and 1 are 4.3 m wide: the dispenser stands on the line between them.
+    const bay0 = depotStationPlacement({ col: 0, row: 0 }, lotOf(settings));
+    expect(s.free?.x).toBeCloseTo(bay0.x + 2.15, 5);
+    expect(s.stallCars?.map((c) => c?.bodyType ?? null)).toEqual([null, 'bus']);
+    expect(s.pluggedSlot?.evse).toBe(1);
+    cleanup();
+
+    renderView([dualBus([true, true])], { settings });
+    const both = scene.stations[0] as unknown as Drawn;
+    expect(both.stallCars?.map((c) => c?.bodyType ?? null)).toEqual(['bus', 'bus']);
+  });
+
+  it('keeps one bay for a one-EVSE bus charger and a pantograph of two EVSEs, and when the next bay is taken', () => {
+    const settings = depotSettings();
+    const one = station({
+      id: 'sta_one',
+      stationId: 'BUS-ONE',
+      chargingKind: 'dc',
+      positionX: 220,
+      positionY: 20,
+      session: null,
+      evses: [{ evseId: 1, status: 'available', connectors: [ccs(false)] }],
+    });
+    const pantograph = {
+      ...dualBus([false, false], 'OppCharge'),
+      id: 'sta_pan',
+      stationId: 'PAN',
+      positionX: 820,
+    };
+    renderView([dualBus([false, false]), one, pantograph], { settings });
+    const drawn = scene.stations as unknown as Array<Drawn & { id: string }>;
+    // The dual charger's next bay holds BUS-ONE: it serves its own bay (stored positions stay valid).
+    expect(drawn.map((d) => [d.id, d.spots])).toEqual([
+      ['sta_bus2', 1],
+      ['sta_one', 1],
+      ['sta_pan', 1],
+    ]);
+  });
+});
+
+describe('SiteLayout3D two-port curb post', () => {
+  // Owner decision 2026-11-12: an AC station of two EVSEs at a street stands on the line
+  // between two parallel spots, EVSE 1's car on its left, EVSE 2's on its right.
+  const streetSettings = () =>
+    placePowerEquipment(
+      effectiveLayoutSettings({
+        siteType: 'curbside',
+        spotsPerRow: 8,
+        rows: 2,
+        facingDeg: 0,
+        chargersLeft: 8,
+        chargersRight: 0,
+        transformers: [],
+      }),
+      { transformers: [], energyAssets: [] },
+    );
+  const j1772 = (on: boolean) =>
+    connector({
+      connectorType: 'Type1',
+      maxPowerKw: 7,
+      status: on ? 'charging' : 'available',
+      isPluggedIn: on,
+    });
+  const post = (id: string, col: number, plugged: [boolean, boolean]) =>
+    station({
+      id,
+      stationId: id.toUpperCase(),
+      chargingKind: 'ac',
+      positionX: 20 + 200 * col,
+      positionY: 20,
+      session: null,
+      evses: [1, 2].map((evseId) => ({
+        evseId,
+        status: plugged[evseId - 1] ? 'charging' : 'available',
+        connectors: [j1772(plugged[evseId - 1] === true)],
+      })),
+    });
+  type Drawn = {
+    id: string;
+    curbPair?: boolean;
+    stalls?: Array<{ x: number; width: number }>;
+    shiftX?: number;
+    stallCars?: Array<object | null>;
+  };
+
+  it('stands between its two spots with a car per port, and on one spot when the next is taken', () => {
+    const settings = streetSettings();
+    renderView(
+      [
+        post('sta_pair', 0, [true, true]),
+        post('sta_full', 4, [false, true]),
+        post('sta_next', 5, [false, false]),
+      ],
+      {
+        settings,
+      },
+    );
+    const drawn = scene.stations as unknown as Drawn[];
+    const pair = drawn.find((d) => d.id === 'sta_pair');
+    expect(pair?.curbPair).toBe(true);
+    // The left curb runs +x: the post moves 6 m less 0.6 m onto the line between its spots.
+    expect(pair?.shiftX).toBeCloseTo(5.4, 5);
+    expect(pair?.stalls?.map((st) => st.x)).toEqual([-3, 3]);
+    expect(pair?.stallCars?.map((c) => c != null)).toEqual([true, true]);
+    // Its next spot holds sta_next: it serves its own spot (stored positions stay valid).
+    const full = drawn.find((d) => d.id === 'sta_full');
+    expect(full?.curbPair).toBeUndefined();
   });
 });

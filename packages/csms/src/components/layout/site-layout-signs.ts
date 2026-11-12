@@ -44,7 +44,30 @@ export interface StationSigns {
   towAwayDxM: number;
   /** The top of the post, in meters (null on a wall). */
   postTopM: number | null;
+  /**
+   * A two-port curb post's one sign for both its spots: the R7-113 legend over
+   * a double-headed arrow (`CURB_PAIR_SIGN`). Absent: no arrow.
+   */
+  arrows?: 'both' | undefined;
 }
+
+/**
+ * The sign of a two-port curb post (owner decision 2026-11-12): one R7-113
+ * with a double-headed arrow under its legend, the parking zone running both
+ * ways from the sign (MUTCD 11th Edition, Sections 2B.52 and 2B.53: parking
+ * signs for EV charging spaces with a double-headed arrow, as the Joint
+ * Office of Energy and Transportation handout "MUTCD 11th Edition: What's
+ * New in Signage for Electric Vehicle Charging and Parking", June 2024,
+ * shows them); NKL Nederland, Uniform Standards for Charging Stations
+ * EN-V1.0, OL3 ("When there are two charge locations, the sign or sub-sign
+ * should have two arrows") and OL5 ("placed in a central location in
+ * relation to the parking spaces and the charging station"). Its post stands
+ * on the post's center line, 0.6 m behind it on the sidewalk (derived: clear
+ * of the pedestal head, 1.05 m from the curb, leaving 1.35 m of the 2.4 m
+ * sidewalk, over the 90 cm of NKL AR22 and the 36 in of 2010 ADA 403.5.1).
+ * The arrow takes the lower 28 percent of the face (derived).
+ */
+export const CURB_PAIR_SIGN = { z: -0.6, arrowShare: 0.28 } as const;
 
 /**
  * The signs of a two-port wall box (`AC_WALL_BOX.dual`) hang over the box:
@@ -122,6 +145,8 @@ export function stationSignMount(input: {
   wallZ?: number | undefined;
   /** A wall box's ports: a two-port box hangs its signs over it (`DUAL_WALL_SIGN`). */
   wallPorts?: 1 | 2 | undefined;
+  /** A curb post's ports: a two-port post has one sign with two arrows (`CURB_PAIR_SIGN`). */
+  curbPorts?: 1 | 2 | undefined;
 }): StationSigns | null {
   if (input.siteType === 'depot' || input.largeSpot) return null;
   const onWallDual =
@@ -168,10 +193,12 @@ export function stationSignMount(input: {
     : towAwayBottomM == null
       ? EV_SIGNS.mountBottomM
       : Math.max(EV_SIGNS.mountBottomM, towAwayBottomM + EV_SIGNS.towAway.heightM + SIGN_GAP_M);
+  const curbPair = input.siteType === 'curbside' && input.curbPorts === 2;
   return {
-    x,
+    x: curbPair ? 0 : x,
     // A wall sign hangs on the facade above its wall box, not out over the sidewalk.
-    z: onWall ? (input.wallZ ?? 0) : 0,
+    z: onWall ? (input.wallZ ?? 0) : curbPair ? CURB_PAIR_SIGN.z : 0,
+    ...(curbPair ? { arrows: 'both' as const } : {}),
     onWall,
     chargingOnlyBottomM,
     towAwayBottomM,

@@ -63,6 +63,7 @@ const ALLOWED: Record<string, { max: number; reason: string }> = {
   'csms/src/components/layout/site-layout-cable.ts': { max: 2, reason: SCENE },
   'csms/src/components/layout/site-layout-colors.ts': { max: 90, reason: SCENE },
   'csms/src/components/layout/site-layout-model-evse-plate.ts': { max: 2, reason: SCENE },
+  'csms/src/components/layout/site-layout-model-unit-plate.ts': { max: 2, reason: SCENE },
   'csms/src/components/layout/site-layout-model-rfid-pad.ts': { max: 2, reason: SCENE },
   'csms/src/components/layout/site-layout-scene-cables.ts': { max: 1, reason: SCENE },
   'csms/src/components/layout/site-layout-scene-evse-plates.ts': { max: 1, reason: SCENE },

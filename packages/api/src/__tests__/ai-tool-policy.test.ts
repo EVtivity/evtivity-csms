@@ -284,6 +284,20 @@ describe('AI tool policy and catalog', () => {
     }
   });
 
+  it('the assistant reads station units and writes them only behind the confirm card, never through MCP', () => {
+    expect(toolPolicy('listStationUnits').exposure).toBe('read');
+    expect(mcpOffers('listStationUnits')).toBe(true);
+    for (const op of [
+      'createStationUnit',
+      'updateStationUnit',
+      'deleteStationUnit',
+      'setStationEvseUnit',
+    ]) {
+      expect(toolPolicy(op).exposure, op).toBe('write');
+      expect(mcpOffers(op), op).toBe(false);
+    }
+  });
+
   it('the assistant never changes whether the portal lists a station (portal listing)', () => {
     expect(toolPolicy('updateStation').exposure).toBe('write');
     expect(toolPolicy('updateStation').omit).toContain('portalListed');

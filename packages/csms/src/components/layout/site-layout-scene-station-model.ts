@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { isLargeBodyType, sceneCar } from './site-layout-car';
 import { SCENE_COLORS } from './site-layout-colors';
 import { holsterPose, holsterSlots } from './site-layout-connectors';
-import { curbPortOf } from './site-layout-curb-cable';
+import { curbPairPortOf, curbPortOf, type CurbSpot } from './site-layout-curb-cable';
 import {
   CURB_POST_BACK_M,
   FACADE_BASE_PROUD_M,
@@ -212,6 +212,7 @@ export function installStationModel(scn: StationModelCtx): void {
       // The sign's back on the facade (the sign standoff counts from FACADE_Z).
       wallZ: wallBoxOffset() - FACADE_BASE_PROUD_M + FACADE_SIGN_STANDOFF_M,
       wallPorts: wall && (s.evseConnectors?.length ?? 1) >= 2 ? 2 : 1,
+      curbPorts: s.curbPair === true ? 2 : 1,
     });
     if (signMount != null) {
       // One R7-113 per stall: a pedestal's two stalls put their posts at the
@@ -255,10 +256,30 @@ export function installStationModel(scn: StationModelCtx): void {
     }
     if (largeSpot && s.free != null) {
       const rects = freeSpotRects(s.spots ?? 1, freeSpotTypeOf(s.free));
-      const rect = rects[Math.min(rects.length - 1, s.propSpot ?? 0)] ?? rects[0];
-      if (rect != null) {
-        const anchor = scn.placeLargeSpotProp(g, s, t, rect, s.charger ?? 'standard', palette);
-        if (anchor != null) avatarAnchor = anchor;
+      if (s.stallCars != null) {
+        // A dual-outlet bus charger: a bus in the bay of each outlet with a plug in, each
+        // on its own outlet's cable; the avatar over the station session's bus.
+        s.stallCars.forEach((car, i) => {
+          const rect = rects[i];
+          if (car == null || rect == null) return;
+          const own = {
+            ...s,
+            prop: 'car' as const,
+            car,
+            propSpot: i,
+            cableFlow: s.stallFlows?.[i] ?? true,
+          };
+          const anchor = scn.placeLargeSpotProp(g, own, t, rect, s.charger ?? 'standard', palette);
+          if (anchor != null && (avatarAnchor == null || i === s.pluggedSlot?.evse)) {
+            avatarAnchor = anchor;
+          }
+        });
+      } else {
+        const rect = rects[Math.min(rects.length - 1, s.propSpot ?? 0)] ?? rects[0];
+        if (rect != null) {
+          const anchor = scn.placeLargeSpotProp(g, s, t, rect, s.charger ?? 'standard', palette);
+          if (anchor != null) avatarAnchor = anchor;
+        }
       }
     } else if (s.stallCars != null && s.stalls != null && !curbside) {
       // A dual-port pedestal, a dual-outlet DC dispenser or a two-port wall box on the
@@ -291,7 +312,8 @@ export function installStationModel(scn: StationModelCtx): void {
               wallPorts: 2,
             }),
           );
-          if (avatarAnchor == null) avatarAnchor = roofAnchor(car);
+          // The driver avatar floats over the station session's car (`pluggedSlot`).
+          if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = roofAnchor(car);
           return;
         }
         const connector = s.stallPlugged?.[i] ?? 0;
@@ -328,7 +350,30 @@ export function installStationModel(scn: StationModelCtx): void {
             ...(mouth != null ? { mouth } : {}),
           }),
         );
-        if (avatarAnchor == null) avatarAnchor = roofAnchor(car);
+        if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = roofAnchor(car);
+      });
+    } else if (s.stallCars != null && curbside && s.curbPair === true) {
+      // A two-port curb post on the line between its two parallel spots (owner decision
+      // 2026-11-12): EVSE 1's car in the left spot, EVSE 2's in the right, each on its
+      // own port's cable over the sidewalk and the curb top, its port at the post end
+      // of its spot (`curbPairPortOf`).
+      s.stallCars.forEach((stallLook, i) => {
+        if (stallLook == null) return;
+        const spot: CurbSpot = i === 0 ? 'left' : 'right';
+        const connector = s.stallPlugged?.[i] ?? 0;
+        const kind = slotKind(s, i, connector);
+        const own = withVehicleInlet(stallLook, kind, s.connectorKinds?.flat() ?? []);
+        const look = { ...own, port: curbPairPortOf(carLookPort(own), spot) };
+        const car = t.carParallel(look, spot);
+        g.add(
+          car,
+          t.cable(`curb-${s.kind}`, look, 0, undefined, s.stallFlows?.[i] ?? true, {
+            connector: kind,
+            glandX: acGlandX(2, i === 0 ? -1 : 1),
+            curbSpot: spot,
+          }),
+        );
+        if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = roofAnchor(car);
       });
     } else if (s.prop === 'car') {
       // The car's own port decides: a car with a rear port backs in (at a wall
@@ -396,7 +441,8 @@ export function installStationModel(scn: StationModelCtx): void {
         virtualSign.position.set(2.2, VIRTUAL_SIGN_Y_M, CURB_POST_BACK_M + 1.2);
       } else {
         virtualSign.position.set(
-          s.stallCars != null ? 0 : (s.carOffsetX ?? 0),
+          // A custom site keeps it in the spot of its reserved or in-use EVSE (`carOffsetX`).
+          s.stallCars != null && s.free == null ? 0 : (s.carOffsetX ?? 0),
           VIRTUAL_SIGN_Y_M,
           2.6,
         );

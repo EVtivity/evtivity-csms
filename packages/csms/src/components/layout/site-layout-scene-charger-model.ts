@@ -7,6 +7,11 @@
 // signs, props and readers around it; the 2D card pictures build it alone
 // (`buildIdleChargerModel`).
 
+import {
+  acPedestalUnitPlate,
+  dcDispenserUnitPlate,
+  wallBoxUnitPlate,
+} from './site-layout-model-unit-plate';
 import { SPLIT_SYSTEM } from '@evtivity/lib/site-layout';
 import * as THREE from 'three';
 import { SURFACE_M } from './site-layout-cable-surface';
@@ -95,6 +100,7 @@ type ChargerModelCtx = SceneSlice<
   | 'addRfidPad'
   | 'addRingReader'
   | 'addEvsePlate'
+  | 'addUnitPlate'
   | 'addEvsePortLight'
   | 'buildLargeCharger'
   | 'cable'
@@ -256,6 +262,8 @@ export function installChargerModel(scn: ChargerModelCtx): void {
         ],
         { size: 0.45, position: [ringAt[0], ringAt[1], ringAt[2] + 0.014] },
       );
+      // A unit charger's box number on the facade above the box.
+      if (s.unitPlate != null) scn.addUnitPlate(g, s, wallBoxUnitPlate(WALL_BOX_BOTTOM_M, w));
       // The status marker floats just above the wall box, in front of the facade.
       top = markerY(chargerModelTopM('wall'));
       labelZ = w + 0.2;
@@ -372,6 +380,8 @@ export function installChargerModel(scn: ChargerModelCtx): void {
       const front = DC_DISPENSER.frontZ;
       scn.addScreenMessage(g, s, 'dc7in', [0, sc.y, front + 0.0225]);
       scn.addRfidPad(g, DC_RFID_PAD);
+      // A unit charger's box number on the front above the screen.
+      if (s.unitPlate != null) scn.addUnitPlate(g, s, dcDispenserUnitPlate());
       // Two EVSEs: each one's number plate and light over its holsters, EVSE 1 on the left.
       if ((s.evseConnectors?.length ?? 1) >= 2) {
         for (const evse of [0, 1]) {
@@ -478,6 +488,9 @@ export function installChargerModel(scn: ChargerModelCtx): void {
       g.add(scn.marker('coil', [coilAt[0], coilAt[1] - 0.14, coilAt[2]]));
       const ap = AC_PEDESTAL;
       scn.addScreenMessage(g, s, 'ac57in', [0, ap.screen.y, ap.frontZ + 0.0145]);
+      // A unit charger's box number on the head front above the screen (a curb post has none).
+      // A curb post is the one-port pedestal: the same place on its head.
+      if (s.unitPlate != null) scn.addUnitPlate(g, s, acPedestalUnitPlate());
       // One RFID pad per port, under its status lens.
       for (const at of acRfidPads(ports)) scn.addRfidPad(g, at);
       // Two ports: each one's number plate and light over its holster, port 1 on the
@@ -555,6 +568,7 @@ export type IdleChargerModel =
   | 'wall-box-dual'
   | 'split-satellite'
   | 'bus-dispenser'
+  | 'bus-dispenser-dual'
   | 'mcs-dispenser'
   | 'pantograph';
 
@@ -632,6 +646,16 @@ function idleStation(model: IdleChargerModel, lightColor: string): SceneStation 
         charger: 'bus_dispenser',
         free: { x: 0, z: 0, rotationDeg: 0, spotType: 'bus_bay' },
         connectorKinds: [['ccs1']],
+      };
+    case 'bus-dispenser-dual':
+      // A dual-outlet plug-in bus charger: two bays, an outlet (EVSE) each.
+      return {
+        ...base,
+        kind: 'dc',
+        charger: 'bus_dispenser',
+        free: { x: 0, z: 0, rotationDeg: 0, spotType: 'bus_bay' },
+        spots: 2,
+        connectorKinds: [['ccs1'], ['ccs1']],
       };
     case 'pantograph':
       return {

@@ -237,6 +237,12 @@ export interface LayoutDemoStation {
   connectorType?: string;
   /** The maximum power of every connector, in kW (default 150 DC, 22 AC). */
   maxPowerKw?: number;
+  /**
+   * Connector powers an earlier plan seeded for this station: a rerun moves a
+   * connector (and its simulator EVSE) still at one of them to `maxPowerKw`,
+   * an operator's change stays.
+   */
+  maxPowerKwBefore?: readonly number[];
   /** The EVSEs of the station (default 2 for DC, 1 for AC). */
   evses?: number;
   /**
@@ -245,6 +251,23 @@ export interface LayoutDemoStation {
    * a time). At most `CHARGER_PORT_LIMITS` connectors per EVSE.
    */
   extraConnectorTypes?: readonly string[];
+  /**
+   * The key of the station's EVSE, connector and simulator row ids
+   * (`evs_demolayout<key><e>`); default the last two characters of `id`.
+   */
+  rowKey?: string;
+  /** The model name (default Terra 184 for DC, Pulsar Plus for AC). */
+  model?: string;
+  /** The OCPP protocol (default ocpp2.1). */
+  ocppProtocol?: 'ocpp1.6' | 'ocpp2.1';
+  /** The AC supply of every EVSE in the simulator (default one phase at 208 V, North America). */
+  acSupply?: { phases: number; voltage: number };
+  /**
+   * The station's units (physical charger boxes, `station_units`), in their
+   * order, each with its OCPP EVSE numbers: created through the unit writer
+   * only while the station has none (`seedDemoStationUnitsOf`).
+   */
+  units?: ReadonlyArray<{ name: string; evseIds: readonly number[] }>;
 }
 
 export interface LayoutDemoPanel {
@@ -284,6 +307,11 @@ export interface LayoutDemoSite {
   name: string;
   address: string;
   city: string;
+  /** Default NY, 12207, US, America/New_York (the Albany demo sites). */
+  state?: string | null;
+  postalCode?: string;
+  country?: string;
+  timezone?: string;
   latitude: string;
   longitude: string;
   settings: DemoLayoutSettings;
@@ -300,6 +328,7 @@ type StationExtra = Pick<
   | 'movedFrom'
   | 'free'
   | 'before'
+  | 'maxPowerKwBefore'
   | 'message'
   | 'connectorType'
   | 'maxPowerKw'
@@ -341,6 +370,50 @@ const ac = (
   ...dc(n, col, row, circuitId, extra),
   kind: 'ac' as const,
 });
+
+/** 400Y/230 V three-phase service (Germany), stored phase to neutral. */
+const V230 = 230;
+
+const LINDENHOF = 'sit_demogarage01';
+
+/**
+ * Parkhaus Lindenhof, a fictional parking garage in Freiburg (GitHub
+ * discussion 59 setup): one OCPP 1.6 AC master with seven extenders behind
+ * one Charge Point ID, 8 boxes "Box 1" to "Box 8" of 2 Type 2 EVSEs each
+ * (22 kW for one point, 11 kW each for two), drawn as 8 dual-port AC
+ * chargers in one run of 16 spots (`stationSpanCount`). One row of 18 spots:
+ * the run and a free spot beside it for the accessible charging space.
+ */
+const LINDENHOF_SETTINGS: DemoLayoutSettings = {
+  siteType: 'parking_lot',
+  spotsPerRow: 18,
+  rows: 2,
+  facingDeg: 0,
+  chargerPlacement: 'islands',
+  // 225 kVA: 8 boxes at 400 V x 32 A three-phase = 22.2 kVA each, 177.4 kVA
+  // connected (`serviceTransformerKva`, 79 percent). It feeds the main board.
+  transformers: [
+    {
+      id: 'tx-1',
+      name: 'Utility Transformer',
+      ratedKva: 225,
+      x: -2.5,
+      z: 2.5,
+      feeds: 'pnl_demogarage01',
+    },
+  ],
+  energyAssets: [],
+};
+
+/** The 8 boxes of the Lindenhof master and extenders: Box n holds EVSEs 2n-1 and 2n. */
+export const LINDENHOF_UNITS: ReadonlyArray<{ name: string; evseIds: readonly number[] }> =
+  Array.from({ length: 8 }, (_, i) => ({
+    name: `Box ${String(i + 1)}`,
+    evseIds: [2 * i + 1, 2 * i + 2],
+  }));
+
+/** The box current, three-phase (each box on its own 32 A three-phase fuses, discussion 59). */
+export const LINDENHOF_BOX_AMPS = 32;
 
 export interface LayoutDemoTerminal {
   providerDeviceId: string;
@@ -462,7 +535,7 @@ export function evseBreakerAmps(loadAmps: number): number {
  * gives 230 A and a 300 A breaker (`TERRA_184_INPUT_AMPS`), which this matches.
  * Only for models without a datasheet input value: a model with one uses it
  * (`TERRA_184_INPUT_AMPS`, `KEMPOWER_C502P200_INPUT_AMPS`,
- * `HVC_450PD_INPUT_AMPS`, `HVC_C_150_INPUT_AMPS`).
+ * `HVC_450PD_INPUT_AMPS`, `HVC_C_150_INPUT_AMPS`, `HVC360_INPUT_AMPS`).
  */
 export function dcInputAmps(kw: number): number {
   return (kw * 1000) / (0.96 * 0.96 * Math.sqrt(3) * 480);
@@ -497,6 +570,26 @@ export const HVC_450PD_INPUT_AMPS = (HVC_450PD_INPUT_KVA * 1000) / (Math.sqrt(3)
  */
 export const HVC_C_150_INPUT_KVA = 170;
 export const HVC_C_150_INPUT_AMPS = (HVC_C_150_INPUT_KVA * 1000) / (Math.sqrt(3) * 480);
+/**
+ * ABB HVC360 multi-outlet charging cabinet, North American version (the
+ * cabinet of the depot's dual-outlet plug-in bus charger, CS-3046): "AC input
+ * power HVC360: (NA): 391 kVA", "AC input current HVC360: (NA): 470 A" at the
+ * 480 Vac nominal input, output "Configurable as 200 kW, 300 kW, or 360 kW"
+ * shared between 1 to 4 outlets, power factor >= 0.98. ABB HVC360 Data Sheet
+ * V2-3,
+ * https://library.e.abb.com/public/ec2bc0ec97114f62806cda649cc72b44/HVC360_Datasheet_Public_V2-3_Global_EN.pdf
+ * (read 2026-11-12). Its breaker: 125 percent of 470 A is 587.5 A, so 600 A
+ * (NEC 2023 625.41, 240.6(A)).
+ */
+export const HVC360_INPUT_KVA = 391;
+export const HVC360_INPUT_AMPS = 470;
+/**
+ * The most one outlet of the dual-outlet charge box draws from an HVC360
+ * cabinet: "90 to 180 kW per vehicle" with the HVC360 (ABB "Depot charge box
+ * dual outlet for HVC360 multi-outlet cabinet", 9AKK108468A6766). The two
+ * outlets share the cabinet's 360 kW.
+ */
+export const HVC360_OUTLET_MAX_KW = 180;
 /** ABB Terra 184 (NA): the 300 A breaker of its product leaflet. */
 export const TERRA_184_BREAKER_AMPS = 300;
 /** A Level 2 charger's continuous current in the demo (32 A at 208 V). */
@@ -670,12 +763,16 @@ const DEPOT_SETTINGS_FAR_EQUIPMENT: DemoLayoutSettings = {
 // 2021, 1.1 and 2.1, citing IEEE C57.12.34) lists 45 to 3750 kVA for
 // secondaries of 700 V or less. Ratings `serviceTransformerKva` of each
 // group's connected kVA (SDG&E EV-3.10):
-//   - Bus: 3 ABB HVC 450PD pantograph cabinets of 510 kVA input and 2 HVC-C
-//     150 plug-in cabinets of 170 kVA (New Flyer Charger Catalog 2023, pp. 2
-//     and 9, https://www.newflyer.com/site-content/uploads/2023/01/Charger-Catalog-2023.pdf):
-//     3 x 510 + 2 x 170 = 1870 kVA, 2000 kVA (94 percent of nameplate). The
-//     circuits carry the same inputs (`HVC_450PD_INPUT_AMPS`,
-//     `HVC_C_150_INPUT_AMPS`).
+//   - Bus: 3 ABB HVC 450PD pantograph cabinets of 510 kVA input and one HVC-C
+//     150 plug-in cabinet of 170 kVA (New Flyer Charger Catalog 2023, pp. 2
+//     and 9, https://www.newflyer.com/site-content/uploads/2023/01/Charger-Catalog-2023.pdf),
+//     and the dual-outlet charger's HVC360 cabinet of 391 kVA (ABB HVC360
+//     Data Sheet V2-3, NA): 3 x 510 + 170 + 391 = 2091 kVA, so 2500 kVA (84
+//     percent of nameplate; 2000 kVA before, when CS-3046 was an HVC-C 150).
+//     The circuits carry the same inputs (`HVC_450PD_INPUT_AMPS`,
+//     `HVC_C_150_INPUT_AMPS`, `HVC360_INPUT_AMPS`); the bus switchboard
+//     carries 3 x 613.4 + 204.5 + 470 = 2514.7 A of its 4000 A, under the
+//     3200 A of 80 percent.
 //   - Truck: 2 x 1000 kW megawatt cabinets and a 240 kW one, no datasheet
 //     input, so output over 0.96 efficiency and 0.96 power factor (derived):
 //     2 x 1085.1 + 260.4 = 2431 kVA. 2500 kVA would run at 97 percent; 3000
@@ -691,17 +788,32 @@ const DEPOT_SETTINGS_FAR_EQUIPMENT: DemoLayoutSettings = {
 // transformer (NEC 2023 705.11): the 1250 kW inverter is 1504 A at 480 V, and
 // 125 percent of it (1879 A) is past the 800 A a 4000 A bus takes load-side
 // under the 120 percent rule of 705.12(B)(3)(2) (derived).
+/** Maple Street before its two-port curb post: four posts on each curb. */
+const MAPLE_SETTINGS_BEFORE_PAIR: DemoLayoutSettings = {
+  siteType: 'curbside',
+  spotsPerRow: 10,
+  rows: 2,
+  facingDeg: 0,
+  chargersLeft: 4,
+  chargersRight: 4,
+  transformers: [],
+};
+/** Maple Street: five charging spots on the left curb, the last two for its two-port post. */
+const MAPLE_SETTINGS: DemoLayoutSettings = { ...MAPLE_SETTINGS_BEFORE_PAIR, chargersLeft: 5 };
+
 const DEPOT_SETTINGS: DemoLayoutSettings = {
   ...DEPOT_SETTINGS_FAR_EQUIPMENT,
   transformers: [
     {
       id: 'tx-1',
       name: 'Bus Charging Transformer',
-      ratedKva: 2000,
+      ratedKva: 2500,
       x: 0,
       z: -6.1,
       feeds: 'pnl_demolayout08',
-      ratedKvaBefore: [2500],
+      // 2000 kVA while CS-3046 was an HVC-C 150 (the 2500 kVA of the plan
+      // before that is the rating again).
+      ratedKvaBefore: [2000],
     },
     {
       id: 'tx-2',
@@ -1434,15 +1546,7 @@ export const LAYOUT_DEMO: {
       city: 'Schenectady',
       latitude: '42.812500',
       longitude: '-73.939600',
-      settings: {
-        siteType: 'curbside',
-        spotsPerRow: 10,
-        rows: 2,
-        facingDeg: 0,
-        chargersLeft: 4,
-        chargersRight: 4,
-        transformers: [],
-      },
+      settings: MAPLE_SETTINGS,
       // A street service cabinet (208Y/120 V) with one 225 A panelboard for each
       // curb, each post on its own 2-pole 40 A circuit.
       panels: [
@@ -1478,7 +1582,10 @@ export const LAYOUT_DEMO: {
         ac(26, 0, 0, 'cir_demolayout06'),
         ac(27, 1, 0, 'cir_demolayout06'),
         ac(28, 2, 0, 'cir_demolayout06', { cellular: true }),
-        ac(29, 3, 0, 'cir_demolayout06'),
+        // A two-port curb post on the line between spots 3 and 4, a car per port
+        // (owner decision 2026-11-12, `TWO_PORT_CURB_POST`), on one 2-pole 40 A
+        // circuit with power sharing like the dual-port pedestals (CT4000).
+        ac(29, 3, 0, 'cir_demolayout06', { evses: 2 }),
         ac(30, 0, 1, 'cir_demolayout06'),
         ac(31, 1, 1, 'cir_demolayout06'),
         ac(32, 2, 1, 'cir_demolayout06', { cellular: true }),
@@ -1561,7 +1668,7 @@ export const LAYOUT_DEMO: {
       city: 'Latham',
       latitude: '42.747800',
       longitude: '-73.758900',
-      // Six bus bays (one free) and three truck lanes. One equipment pad per
+      // Six bus bays (the dual-outlet dispenser holds the last two) and three truck lanes. One equipment pad per
       // charger group, as large depots build them: the bus transformer and the
       // battery on the grass behind the bus bays, the truck transformer beside
       // the truck lanes. Each transformer feeds its group's switchboard.
@@ -1569,7 +1676,8 @@ export const LAYOUT_DEMO: {
       // DC only. Each charger group's transformer feeds its own 480Y/277 V
       // switchboard (bus and truck), each power cabinet on its own
       // breaker, sized from the cabinet input of its datasheet (HVC 450PD
-      // 613 A on 800 A, HVC-C 150 204.5 A on 300 A; 250 A before),
+      // 613 A on 800 A, HVC-C 150 204.5 A on 300 A, 250 A before; the
+      // dual-outlet charger's HVC360 470 A on 600 A, 300 A before),
       // 1 MW megawatt cabinets on 2000 A, the 240 kW box truck cabinet on 400 A.
       panels: [
         panelOf(
@@ -1589,8 +1697,11 @@ export const LAYOUT_DEMO: {
               { name: 'Bus Plug-In Circuit', panelId: 'pnl_demolayout08', amps: 800 },
               { name: 'Charger CS-3045', panelId: 'pnl_demolayout08', amps: 250 },
             ]),
-            dcCircuit(46, HVC_C_150_INPUT_AMPS, [
+            // The dual-outlet charger's HVC360 cabinet (360 kW shared by its two
+            // outlets): seeded on 250 A, then on the 300 A of an HVC-C 150.
+            dcCircuit(46, HVC360_INPUT_AMPS, [
               { name: 'Charger CS-3046', panelId: 'pnl_demolayout08', amps: 250 },
+              { name: 'Charger CS-3046', panelId: 'pnl_demolayout08', amps: 300 },
             ]),
           ],
           [{ name: 'Depot Main Switchboard', amps: 4000 }],
@@ -1613,9 +1724,13 @@ export const LAYOUT_DEMO: {
           [{ name: 'Truck Charging Switchboard', amps: 2500 }],
         ),
       ],
-      // The bus bays (row 0): three depot pantograph poles and two plug-in
-      // dispensers, one bay each. The truck lanes (row 1): two megawatt
-      // dispensers and a box truck dispenser, one lane each.
+      // The bus bays (row 0): three depot pantograph poles, one bay each, a
+      // one-outlet plug-in dispenser in bay 3 and a dual-outlet plug-in
+      // dispenser between bays 4 and 5, a bus per outlet (owner decision
+      // 2026-11-12, `DUAL_OUTLET_BUS_CHARGER`). The truck lanes (row 1): two
+      // megawatt dispensers and a box truck dispenser, one lane each. A depot
+      // seeded before keeps CS-3045's second EVSE (the seed only adds rows);
+      // its next bay is CS-3046's, so it serves its own bay.
       stations: [
         dc(42, 0, 0, 'cir_demolayout09', {
           connectorType: 'OppCharge',
@@ -1633,10 +1748,13 @@ export const LAYOUT_DEMO: {
         dc(45, 3, 0, 'cir_demolayout10', {
           connectorType: 'CCS1',
           maxPowerKw: 150,
+          evses: 1,
         }),
+        // Up to 180 kW per outlet, the two sharing the cabinet's 360 kW.
         dc(46, 4, 0, 'cir_demolayout10', {
           connectorType: 'CCS1',
-          maxPowerKw: 150,
+          maxPowerKw: HVC360_OUTLET_MAX_KW,
+          maxPowerKwBefore: [150],
         }),
         dc(47, 0, 1, 'cir_demolayout11', {
           connectorType: 'cMCS',
@@ -1724,6 +1842,60 @@ export const LAYOUT_DEMO: {
             before: { col: earlier.col, row: earlier.row },
           });
         }),
+      ],
+    },
+    {
+      id: LINDENHOF,
+      name: 'Parkhaus Lindenhof',
+      address: 'Lindenhofstraße 12',
+      city: 'Freiburg im Breisgau',
+      state: null,
+      postalCode: '79098',
+      country: 'DE',
+      timezone: 'Europe/Berlin',
+      latitude: '47.995900',
+      longitude: '7.852200',
+      settings: LINDENHOF_SETTINGS,
+      // 400Y/230 V service. Load management stays per station (owner decision
+      // O1 A), and a station hangs on one circuit, so the station is on one
+      // feeder circuit sized for its 8 boxes: 8 x 32 A = 256 A continuous, at
+      // 125 percent 320 A, the next standard breaker 350 A (NFPA 70 2023,
+      // 625.41, 240.6(A); `evseBreakerAmps`). Each box's own 32 A three-phase
+      // fuses sit in the master and extender wiring the station meters and
+      // shares; they are not load management circuits (a circuit holds
+      // stations, and a unit holds no circuit before per-unit circuits,
+      // Phase G). Main board 400 A: 256 A continuous is 64 percent, under the
+      // 80 percent limit (NEC 215.2(A)(1), 215.3).
+      panels: [
+        panelOf('pnl_demogarage01', null, 'Main Distribution Board', 400, V230, [
+          {
+            id: 'cir_demogarage01',
+            name: 'EM4-MASTER-01 Boxes 1 to 8',
+            breakerRatingAmps: evseBreakerAmps(8 * LINDENHOF_BOX_AMPS),
+            maxContinuousKw: round2(
+              computeMaxContinuousKw(evseBreakerAmps(8 * LINDENHOF_BOX_AMPS), V230, 3),
+            ),
+            phaseConnections: null,
+          },
+        ]),
+      ],
+      stations: [
+        {
+          id: 'sta_demounits001',
+          stationId: 'EM4-MASTER-01',
+          kind: 'ac',
+          col: 0,
+          row: 0,
+          circuitId: 'cir_demogarage01',
+          rowKey: 'u1',
+          model: 'AC Master with Extenders',
+          ocppProtocol: 'ocpp1.6',
+          evses: 16,
+          connectorType: 'Type2',
+          maxPowerKw: 22,
+          acSupply: { phases: 3, voltage: 230 },
+          units: LINDENHOF_UNITS,
+        },
       ],
     },
   ],
@@ -2015,6 +2187,7 @@ export const LAYOUT_DEMO_PREVIOUS_SETTINGS: Readonly<Record<string, DemoLayoutSe
   ],
   // The transformer 5 m out, before it moved to the lot edge.
   [PATROON]: [PATROON_SETTINGS_FAR_TRANSFORMER],
+  [MAPLE]: [MAPLE_SETTINGS_BEFORE_PAIR],
   // The solar carport with its column line inside the head of the pedestals' spots.
   [WILLOW]: [
     willowSettings(-22),

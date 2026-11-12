@@ -13,6 +13,7 @@ import { SegmentedControl } from '@/components/ui/segmented-control';
 import { api } from '@/lib/api';
 import { formatConnectorCurrentAmps, formatConnectorPowerKw } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/content-state';
+import { chargerRowKey } from '@/lib/station-units';
 
 interface ConnectorSummary {
   connectorType: string | null;
@@ -31,6 +32,9 @@ interface SearchResult {
   evseCount: number;
   availableCount: number;
   connectors: ConnectorSummary[];
+  /** On a station with units, the unit (charger box) this row shows; null otherwise. */
+  unitId?: string | null;
+  unitName?: string | null;
 }
 
 interface NearbyStation {
@@ -44,6 +48,9 @@ interface NearbyStation {
   evseCount: number;
   availableCount: number;
   connectors: ConnectorSummary[];
+  /** On a station with units, the unit (charger box) this row shows; null otherwise. */
+  unitId?: string | null;
+  unitName?: string | null;
 }
 
 interface RoamingLocation {
@@ -173,8 +180,11 @@ function ConnectorsRow({
 type SearchTab = 'local' | 'roaming';
 
 interface StationSearchListProps {
-  /** Called with the selected station's OCPP station ID when a station is picked. */
-  onSelect: (stationId: string) => void;
+  /**
+   * Called with the selected station's OCPP station ID when a charger is
+   * picked, and the unit (charger box) the row shows on a station with units.
+   */
+  onSelect: (stationId: string, unitId: string | null) => void;
   /**
    * When true, the partner-network ("roaming") tab is hidden even if the
    * platform has roaming enabled. Reservation flows aren't supported on
@@ -357,15 +367,22 @@ export function StationSearchList({
             </p>
             {nearbyStations.map((station) => (
               <Card
-                key={station.stationId}
+                key={chargerRowKey(station.stationId, station.unitId)}
                 className="cursor-pointer transition-colors hover:bg-accent/50"
                 onClick={() => {
-                  onSelect(station.stationId);
+                  onSelect(station.stationId, station.unitId ?? null);
                 }}
               >
                 <CardContent className="p-3 space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{station.stationId}</p>
+                    <div>
+                      <p className="text-sm font-medium">{station.stationId}</p>
+                      {station.unitName != null && (
+                        <p className="text-xs text-muted-foreground" data-testid="search-unit-name">
+                          {station.unitName}
+                        </p>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">
                         {String(station.distanceKm)} {t('chargerSearch.km')}
@@ -398,16 +415,21 @@ export function StationSearchList({
           results.length > 0 &&
           results.map((station) => (
             <Card
-              key={station.stationId}
+              key={chargerRowKey(station.stationId, station.unitId)}
               className="cursor-pointer transition-colors hover:bg-accent/50"
               onClick={() => {
-                onSelect(station.stationId);
+                onSelect(station.stationId, station.unitId ?? null);
               }}
             >
               <CardContent className="p-3 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">{station.stationId}</p>
+                    {station.unitName != null && (
+                      <p className="text-xs text-muted-foreground" data-testid="search-unit-name">
+                        {station.unitName}
+                      </p>
+                    )}
                     {station.siteName != null && (
                       <p className="text-xs text-muted-foreground">{station.siteName}</p>
                     )}

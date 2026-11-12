@@ -15,6 +15,7 @@ import {
 } from '../site-layout-model-evse-plate';
 import { DC_HOLSTER, DC_SIDE_OUTLET, DC_SIDE_X } from '../site-layout-model-dc-dispenser';
 import { AC_PEDESTAL } from '../site-layout-model-ac-pedestal';
+import { BUS_DISPENSER_HOLSTERS } from '../site-layout-model-bus-dispenser';
 import { evsePlateHoverKey, parseEvsePlateHoverKey } from '../site-layout-scene-evse-plates';
 import { evseLampState, evsePlateLabel } from '../site-layout-evse-lamp';
 import en from '@/i18n/locales/en.json';
@@ -42,6 +43,28 @@ describe('EVSE number plates', () => {
     expect(xs[1]).toBeGreaterThan(0);
     dual.dispose();
     for (const model of ['ac-pedestal', 'curb-post', 'wall-box', 'dc-dispenser'] as const) {
+      const one = buildIdleChargerModel(model, { plateColor: '#336699', dark: false });
+      expect(plates(one.group), model).toHaveLength(0);
+      one.dispose();
+    }
+  });
+
+  it('puts a plate per outlet on a dual-outlet bus dispenser, outlet 1 on the left, none on one outlet', () => {
+    const dual = buildIdleChargerModel('bus-dispenser-dual', {
+      plateColor: '#336699',
+      dark: false,
+    });
+    dual.group.updateMatrixWorld(true);
+    const at = plates(dual.group).map((p) => p.getWorldPosition(new THREE.Vector3()));
+    expect(at.map((v) => Math.sign(v.x))).toEqual([-1, 1]);
+    // Over each outlet's holster, inside the 40 to 70 in band of 2010 ADA 703.5.5.
+    for (const v of at) {
+      expect(v.y).toBeCloseTo(BUS_DISPENSER_HOLSTERS[0]![1] + 0.26, 5);
+      expect(v.y).toBeGreaterThan(40 * 0.0254);
+      expect(v.y).toBeLessThan(70 * 0.0254);
+    }
+    dual.dispose();
+    for (const model of ['bus-dispenser', 'mcs-dispenser', 'pantograph'] as const) {
       const one = buildIdleChargerModel(model, { plateColor: '#336699', dark: false });
       expect(plates(one.group), model).toHaveLength(0);
       one.dispose();

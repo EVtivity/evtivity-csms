@@ -16,7 +16,7 @@ import {
   stationSignMount,
   signSupport,
 } from '../site-layout-signs';
-import { WALL_SIGN } from '../site-layout-signs';
+import { CURB_PAIR_SIGN, WALL_SIGN } from '../site-layout-signs';
 import en from '@/i18n/locales/en.json';
 import de from '@/i18n/locales/de.json';
 import es from '@/i18n/locales/es.json';
@@ -48,6 +48,19 @@ describe('EV charging sign placement', () => {
     // California tow-away: 17 by 22 in (Vehicle Code 22511(d)(1)).
     expect(EV_SIGNS.towAway.widthM).toBeCloseTo(0.4318, 4);
     expect(EV_SIGNS.towAway.heightM).toBeCloseTo(0.5588, 4);
+  });
+
+  it('gives a two-port curb post one sign with a double-headed arrow, central behind it', () => {
+    const pair = stationSignMount({ ...base, siteType: 'curbside', curbPorts: 2 });
+    // MUTCD 11th Edition 2B.52 and 2B.53; NKL OL3 (two arrows) and OL5 (central).
+    expect(pair).toMatchObject({ x: 0, z: CURB_PAIR_SIGN.z, arrows: 'both', towAwayBottomM: null });
+    expect(pair?.chargingOnlyBottomM).toBeCloseTo(EV_SIGNS.mountBottomM);
+    // A one-port post keeps its sign 1 m along the curb, without an arrow.
+    const one = stationSignMount({ ...base, siteType: 'curbside', curbPorts: 1 });
+    expect(one).toMatchObject({ x: -1, z: 0 });
+    expect(one?.arrows).toBeUndefined();
+    // The sign post leaves the NKL AR22 90 cm of the sidewalk free behind it.
+    expect(2.4 - (0.45 - CURB_PAIR_SIGN.z) - EV_SIGNS.postWidthM / 2).toBeGreaterThan(0.9);
   });
 
   it('stands a post at the head of each parking lot and office stall, beside the charger', () => {

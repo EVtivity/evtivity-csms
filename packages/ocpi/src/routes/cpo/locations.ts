@@ -30,7 +30,12 @@ import { isLocationVisibleToPartner } from '../../lib/location-visibility.js';
 import { findPublishedSiteId } from '../../lib/published-location.js';
 import { findEvseByUid } from '../../lib/evse-lookup.js';
 import { connectorTariffIds } from '../../services/connector-tariffs.js';
-import { removedEvseRow, retiredConnectorsUpdatedAt } from '../../services/location-render.js';
+import {
+  removedEvseRow,
+  retiredConnectorsUpdatedAt,
+  unitFields,
+  unitsOf,
+} from '../../services/location-render.js';
 import { locationLastUpdatedSql } from '../../lib/location-last-updated.js';
 import type { OcpiVersion } from '../../types/ocpi.js';
 import type { EvseRow as TransformEvseRow } from '../../transformers/location.transformer.js';
@@ -151,6 +156,7 @@ async function getEvsesWithConnectors(
       evseId: evses.evseId,
       updatedAt: evses.updatedAt,
       retiredAt: evses.retiredAt,
+      unitId: evses.unitId,
       disabledReason: chargingStations.disabledReason,
       firmwareState: chargingStations.firmwareState,
       reportedStatus: chargingStations.reportedStatus,
@@ -195,6 +201,7 @@ async function getEvsesWithConnectors(
     connectorsByEvse.set(c.evseId, list);
   }
 
+  const unitById = await unitsOf(evseRows.map((e) => e.unitId));
   const result = new Map<string, Array<EvseRow & { connectors: ConnectorRow[] }>>();
   for (const e of evseRows) {
     const stId = e.stationId;
@@ -208,6 +215,7 @@ async function getEvsesWithConnectors(
       stationLevelUnavailable: isStationLevelUnavailable(e),
       stationOnline: e.isOnline,
       stationUpdatedAt: e.stationUpdatedAt,
+      ...unitFields(e.unitId, unitById),
       ...retiredConnectorsUpdatedAt(retiredByEvse.get(e.id) ?? []),
       // A deleted station is kept with onboarding status `blocked`; a retired
       // EVSE is out of service. Both are REMOVED (OCPI 8.1).
@@ -518,6 +526,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         stationOnline: found.stationOnline,
         stationUpdatedAt: found.stationUpdatedAt,
         removed: found.stationRemoved || found.evseRetired,
+        ...unitFields(found.unitId, await unitsOf([found.unitId])),
       };
       const evseTariffIds = await stationTariffIds(partner.partnerId, found.stationDbId, siteId);
 

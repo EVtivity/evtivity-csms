@@ -27,6 +27,7 @@ import {
   positionToBay,
   sharesSpotPair,
   spotPairPartner,
+  stationSpanCount,
 } from '@evtivity/lib/site-layout';
 import { freePlacementSchema, siteLayoutSettingsSchema } from '@evtivity/lib/site-layout-schema';
 import {
@@ -40,8 +41,14 @@ import {
   TERRA_184_INPUT_AMPS,
   HVC_450PD_INPUT_AMPS,
   HVC_C_150_INPUT_AMPS,
+  HVC360_INPUT_AMPS,
+  HVC360_INPUT_KVA,
+  HVC_450PD_INPUT_KVA,
+  HVC_C_150_INPUT_KVA,
   dcInputAmps,
   evseBreakerAmps,
+  LINDENHOF_BOX_AMPS,
+  serviceTransformerKva,
 } from '../seed-demo-layout-plan.js';
 import type { LayoutDemoPanel, LayoutDemoSite } from '../seed-demo-layout-plan.js';
 import { DEMO_MODEL_BODY_TYPES } from '../seed-demo-vehicles.js';
@@ -116,7 +123,9 @@ describe('site layout demo plan', () => {
 
   it('makes Maple Street a curbside site with AC posts on both curbs', () => {
     expect(siteTypeOf(maple!.settings)).toBe('curbside');
-    expect(layoutRowLengths(maple!.settings)).toEqual([4, 4]);
+    // Five spots on the left curb: the last two hold the two-port post (owner decision 2026-11-12).
+    expect(layoutRowLengths(maple!.settings)).toEqual([5, 4]);
+    expect(maple!.stations.find((s) => s.col === 3 && s.row === 0)?.evses).toBe(2);
     expect(new Set(maple!.stations.map((s) => s.kind))).toEqual(new Set(['ac']));
     expect(new Set(maple!.stations.map((s) => s.row))).toEqual(new Set([0, 1]));
   });
@@ -236,8 +245,12 @@ describe('site layout demo plan', () => {
       'depot',
       'depot',
     ]);
-    // Two standard pad-mount units (2000 and 3000 kVA, 2500 and 3750 kVA before), each feeding its group's switchboard.
-    expect(depot!.settings.transformers.map((t) => t.ratedKva)).toEqual([2000, 3000]);
+    // Two standard pad-mount units (2500 and 3000 kVA), each feeding its group's switchboard.
+    expect(depot!.settings.transformers.map((t) => t.ratedKva)).toEqual([2500, 3000]);
+    // The bus unit carries its cabinets' input: 3 HVC 450PD, an HVC-C 150 and the HVC360.
+    const busKva = 3 * HVC_450PD_INPUT_KVA + HVC_C_150_INPUT_KVA + HVC360_INPUT_KVA;
+    expect(busKva).toBe(2091);
+    expect(depot!.settings.transformers[0]?.ratedKva).toBe(serviceTransformerKva(busKva));
     expect(depot!.settings.transformers.map((t) => t.feeds)).toEqual([
       'pnl_demolayout08',
       'pnl_demolayout09',
@@ -598,6 +611,8 @@ describe('site layout demo plan', () => {
     /** The continuous current a station draws from its panel, per phase it uses, in A. */
     const loadAmps = (site: LayoutDemoSite, stationId: string): number => {
       const st = site.stations.find((s) => s.id === stationId)!;
+      // A master with extenders: every box at 32 A three-phase on the station's one circuit.
+      if (st.units != null) return st.units.length * LINDENHOF_BOX_AMPS;
       if (st.kind === 'ac') return LEVEL_2_AMPS;
       // The depot bus cabinets use their datasheet input (ABB HVC 450PD and HVC-C 150).
       const datasheet: Record<string, number> = {
@@ -605,7 +620,7 @@ describe('site layout demo plan', () => {
         sta_demolayout43: HVC_450PD_INPUT_AMPS,
         sta_demolayout44: HVC_450PD_INPUT_AMPS,
         sta_demolayout45: HVC_C_150_INPUT_AMPS,
-        sta_demolayout46: HVC_C_150_INPUT_AMPS,
+        sta_demolayout46: HVC360_INPUT_AMPS,
       };
       const own = datasheet[stationId];
       if (own != null) return own;
@@ -623,6 +638,8 @@ describe('site layout demo plan', () => {
       expect(HVC_C_150_INPUT_AMPS).toBeCloseTo(204.5, 1);
       expect(evseBreakerAmps(HVC_450PD_INPUT_AMPS)).toBe(800);
       expect(evseBreakerAmps(HVC_C_150_INPUT_AMPS)).toBe(300);
+      // The HVC360 cabinet of the dual-outlet bus charger: 470 A takes 600 A.
+      expect(evseBreakerAmps(HVC360_INPUT_AMPS)).toBe(600);
       expect(evseBreakerAmps(32)).toBe(40);
       expect(evseBreakerAmps(48)).toBe(60);
       expect(evseBreakerAmps(230)).toBe(300);
@@ -646,7 +663,12 @@ describe('site layout demo plan', () => {
       for (const site of LAYOUT_DEMO.sites) {
         for (const st of site.stations) {
           const { panel, circuit } = circuitOf(site, st.circuitId);
-          if (st.kind === 'dc') {
+          if (st.units != null) {
+            // A 400Y/230 V distribution board (Germany), the station on one three-phase feeder.
+            expect(panel.name, st.stationId).toMatch(/Distribution Board/);
+            expect(panel.voltageV).toBe(230);
+            expect(circuit.phaseConnections).toBeNull();
+          } else if (st.kind === 'dc') {
             expect(panel.name, st.stationId).toMatch(/Switchboard/);
             expect(panel.voltageV).toBe(277);
             expect(circuit.phaseConnections).toBeNull();
@@ -663,6 +685,44 @@ describe('site layout demo plan', () => {
           expect(site.stations.every((st) => st.kind === 'dc')).toBe(true);
         }
       }
+    });
+
+    it('seeds Parkhaus Lindenhof: one 1.6 master with 8 boxes of 2 Type 2 EVSEs in one row', () => {
+      const site = LAYOUT_DEMO.sites.find((s) => s.id === 'sit_demogarage01');
+      expect(site).toMatchObject({
+        name: 'Parkhaus Lindenhof',
+        address: 'Lindenhofstraße 12',
+        city: 'Freiburg im Breisgau',
+        postalCode: '79098',
+        country: 'DE',
+        timezone: 'Europe/Berlin',
+      });
+      const station = site?.stations[0];
+      expect(station).toMatchObject({
+        id: 'sta_demounits001',
+        stationId: 'EM4-MASTER-01',
+        model: 'AC Master with Extenders',
+        ocppProtocol: 'ocpp1.6',
+        evses: 16,
+        connectorType: 'Type2',
+        maxPowerKw: 22,
+      });
+      expect(station?.units?.map((u) => [u.name, u.evseIds])).toEqual(
+        Array.from({ length: 8 }, (_, i) => [`Box ${String(i + 1)}`, [2 * i + 1, 2 * i + 2]]),
+      );
+      // 8 dual-port boxes: a run of 16 spots in a row of 18, a free spot beside it.
+      const kind = {
+        charging: 'ac' as const,
+        depot: null,
+        ports: 16,
+        units: (station?.units ?? []).map(() => ({ charging: 'ac' as const, ports: 2 })),
+      };
+      const settings = site?.settings;
+      expect(settings != null ? stationSpanCount(kind, settings) : 0).toBe(16);
+      expect((station?.col ?? 0) + 16).toBeLessThan(settings?.spotsPerRow ?? 0);
+      // 8 boxes at 400 V x 32 A three-phase (22.2 kVA each): 177.4 kVA on 225 kVA.
+      const connectedKva = (8 * Math.sqrt(3) * 400 * LINDENHOF_BOX_AMPS) / 1000;
+      expect(settings?.transformers[0]?.ratedKva).toBe(serviceTransformerKva(connectedKva));
     });
 
     it('loads no panel past its continuous rating, per phase, or past its 42 spaces', () => {

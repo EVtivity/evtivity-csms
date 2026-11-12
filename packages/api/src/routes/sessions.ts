@@ -214,6 +214,10 @@ const sessionDetail = z
       .describe(
         'OCPP EVSE number of the session (the stop-active-session path), null when unknown',
       ),
+    unitName: z
+      .string()
+      .nullable()
+      .describe('Unit (physical box) of the EVSE of the session, null when it has none'),
     stationOnline: z
       .boolean()
       .describe(
@@ -752,6 +756,9 @@ export function sessionRoutes(app: FastifyInstance): void {
           evseId: sql<
             number | null
           >`(SELECT e.evse_id FROM evses e WHERE e.id = ${chargingSessions.evseId})`,
+          unitName: sql<
+            string | null
+          >`(SELECT u.name FROM evses e JOIN station_units u ON u.id = e.unit_id WHERE e.id = ${chargingSessions.evseId})`,
           stationOnline: chargingStations.isOnline,
           // The site the session happened at (charging_sessions.site_id).
           siteName: sites.name,

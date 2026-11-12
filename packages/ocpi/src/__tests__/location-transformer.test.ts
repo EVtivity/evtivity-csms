@@ -3,6 +3,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  OCPI_PHYSICAL_REFERENCE_MAX,
+  physicalReferenceOf,
   transformLocation,
   transformEvseStandalone,
 } from '../transformers/location.transformer.js';
@@ -471,5 +473,43 @@ describe('coordinates (OCPI 8.4.16 GeoLocation)', () => {
     expect(result.coordinates).toEqual({ latitude: expectedLat, longitude: expectedLng });
     expect(result.coordinates.latitude).toMatch(LATITUDE);
     expect(result.coordinates.longitude).toMatch(LONGITUDE);
+  });
+});
+
+// Station units (GitHub discussion 59): each EVSE of a master with extenders
+// tells partners which box it is in. OCPI 2.1.1 and 2.3.0 EVSE
+// physical_reference is string(16).
+describe('physical_reference from the unit name', () => {
+  it('sends the unit name of an EVSE in a unit', () => {
+    const result = transformEvseStandalone(
+      { ...evse('evs_u', 'sta_u', 'available', false), unitName: 'Box 3' },
+      '2.2.1',
+    );
+    expect(result.physical_reference).toBe('Box 3');
+  });
+
+  it('cuts a long name to 16 characters without splitting a character', () => {
+    expect(physicalReferenceOf('Garage West Unit 3')).toBe('Garage West Unit');
+    expect(
+      physicalReferenceOf(
+        'Bay \u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}\u{1F50C}',
+      ),
+    ).toHaveLength(4 + 12 * 2);
+    expect(OCPI_PHYSICAL_REFERENCE_MAX).toBe(16);
+  });
+
+  it('sends no physical_reference for an EVSE without a unit, as before', () => {
+    const result = transformEvseStandalone(evse('evs_n', 'sta_n', 'available', false), '2.3.0');
+    expect('physical_reference' in result).toBe(false);
+    expect(physicalReferenceOf(null)).toBeUndefined();
+  });
+
+  it('moves the EVSE last_updated when its unit changes', () => {
+    const renamed = new Date('2026-10-01T00:00:00Z');
+    const result = transformEvseStandalone(
+      { ...evse('evs_r', 'sta_r', 'available', false), unitName: 'Box 9', unitUpdatedAt: renamed },
+      '2.2.1',
+    );
+    expect(result.last_updated).toBe(renamed.toISOString());
   });
 });

@@ -18,6 +18,7 @@ import {
   CURB_POST_CABLE_M,
   TRAVEL_LANE_Z,
   curbChargingRoute,
+  curbPairPortOf,
   curbPortOf,
   parallelPlace,
   parallelPort,
@@ -95,6 +96,45 @@ describe('curbside car and cable', () => {
               p[2] > place.centerZ + 0.01,
           );
         expect(streetSide, label).toEqual([]);
+      }
+    }
+  });
+
+  it('parks each car of a two-port post in its own spot and reaches every curbside port within the cable', () => {
+    const L = STANDARD_DIMENSIONS.parallelSpotLengthM;
+    for (const body of Object.keys(CAR_PROFILES) as CarBodyType[]) {
+      const profile = CAR_PROFILES[body];
+      for (const own of CAR_PORTS) {
+        for (const [spot, side] of [
+          ['left', -1],
+          ['right', 1],
+        ] as const) {
+          // The curb side port at the post end of its spot (`curbPairPortOf`).
+          const port = curbPairPortOf(own, spot);
+          const label = `${body} ${own} ${spot}`;
+          const place = parallelPlace(profile, port, spot);
+          const rect = bodyRect(profile, place.toStation);
+          // EVSE 1's car left of the post (x < 0), EVSE 2's right of it, each inside its spot.
+          if (spot === 'left') {
+            expect(rect.minX, label).toBeGreaterThanOrEqual(-L);
+            expect(rect.maxX, label).toBeLessThanOrEqual(0);
+          } else {
+            expect(rect.minX, label).toBeGreaterThanOrEqual(0);
+            expect(rect.maxX, label).toBeLessThanOrEqual(L);
+          }
+          const pp = parallelPort(profile, port, place);
+          const entry = handleCableEntry(pp.at, pp.yaw, 'type1');
+          const pts = curbChargingRoute({
+            from: acGlandOut(side * 0.1, D),
+            plug: { lead: entry.lead, end: entry.end },
+            port,
+            place,
+            surface,
+            cableDiameterM: D,
+          });
+          expect(routeLength(pts), label).toBeLessThanOrEqual(CURB_POST_CABLE_M);
+          for (const p of pts.slice(0, -3)) expect(p[2] + R, label).toBeLessThan(TRAVEL_LANE_Z);
+        }
       }
     }
   });

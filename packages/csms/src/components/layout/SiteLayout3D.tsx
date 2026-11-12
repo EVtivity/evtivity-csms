@@ -15,10 +15,9 @@ import { Keyboard, List, Maximize2, Minimize2, Scan, Sparkles, User, X } from 'l
 import {
   assignBays,
   bayToPosition,
-  CHARGER_PORT_LIMITS,
-  drawnConnectorCounts,
   freeFootprintsOverlap,
   freeSolarPlacement,
+  freeSpotRects,
   freeSpotTypeOf,
   freeStationsBox,
   layoutRowLengths,
@@ -28,6 +27,7 @@ import {
   showsLoadPanels,
   showsSolar,
   showsTransformers,
+  siteTypeOf,
   freeToSite,
   snapFreePlacement,
   snapTransformerToGrass,
@@ -100,6 +100,7 @@ import {
   facadeLinks,
   placeFacadePanels,
   placePanels,
+  withUnitChargers,
   type AssetConnection,
   type FlowLoad,
   type HierarchyLinkNode,
@@ -118,6 +119,7 @@ import {
   type SummaryState,
 } from './LayoutStationList';
 import { sceneCar } from './site-layout-car';
+import { drawnEvseConnectors, sessionEvseIndex, stationPlugs } from './site-layout-station-plugs';
 import { terminalSide, type LayoutTerminal } from './layout-terminals';
 import { StationLayoutPopup } from './StationLayoutPopup';
 import { ChargerScreenHover } from './ChargerScreenHover';
@@ -126,22 +128,34 @@ import { parseScreenHoverKey } from './site-layout-screen-text';
 import { placeLayoutPopup } from './layout-popup-position';
 import { STAGE_HEIGHT_CLASS } from './site-layout-stage';
 import {
+  freeCarStalls,
   freePropOffset,
   freePropSpot,
   freeChargerModel,
   stationConnectorTypes,
   freeStationPlaces,
   customSplitDispenserXs,
+  layoutViewStations,
   stationLayoutKindOf,
   type FreeStationPlace,
 } from './site-layout-free';
-import { accessibleSpaceBoxes, stationStalls } from './site-layout-stalls';
+import { unitPlateEvseList } from './site-layout-model-unit-plate';
+import {
+  chargerEvseNumber,
+  layoutChargerName,
+  layoutStationIdOf,
+  stationPlacementOfUnit,
+  unitPartnerCol,
+  viewStationTerminals,
+} from './site-layout-units';
+import { accessibleSpaceBoxes, curbPairStalls, stationStalls } from './site-layout-stalls';
 import {
   accessibleChargingSpace,
   heldSpots,
   settlePairs,
   sharesSpotPair,
   splitDispenserCount,
+  stationSpanCount,
   spanSpots,
   spotPairPartner,
   type LayoutBay as StallBay,
@@ -492,9 +506,9 @@ function scaleBadge(
 }
 
 export default function SiteLayout3D({
-  stations,
+  stations: layoutStations,
   settings,
-  terminals,
+  terminals: stationTerminals,
   hierarchy,
   equipment,
   loadManaged,
@@ -521,6 +535,58 @@ export default function SiteLayout3D({
   liveOcppSiteId,
 }: SiteLayout3DProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  // A station with units draws one charger per unit (`layoutViewStations`,
+  // site-layout-units.ts): every view below works on these view stations, a
+  // station without units is the same object as given (owner decision D3).
+  const stations = useMemo(
+    () => layoutViewStations(layoutStations, settings),
+    [layoutStations, settings],
+  );
+  // The payment terminals of each view station: a unit charger shows the
+  // terminals paired to its own EVSEs (`viewStationTerminals`).
+  const terminals = useMemo(
+    () => viewStationTerminals(stations, stationTerminals),
+    [stations, stationTerminals],
+  );
+  // The unit charger of each view id and the run spans of the stations with
+  // units (`stationSpanCount`): placement, drags and the accessible space
+  // read the station as one run of spots.
+  const unitOf = useMemo(
+    () =>
+      new Map(
+        stations.flatMap((s) => (s.unitCharger != null ? [[s.id, s.unitCharger] as const] : [])),
+      ),
+    [stations],
+  );
+  const unitRunSpans = useMemo(
+    () =>
+      new Map(
+        layoutStations.flatMap((s) => {
+          const kind = stationLayoutKindOf(s);
+          return (kind.units?.length ?? 0) > 0
+            ? [[s.id, stationSpanCount(kind, settings)] as const]
+            : [];
+        }),
+      ),
+    [layoutStations, settings],
+  );
+  // The partner column of each two-spot unit charger (`unitPartnerCol`).
+  const unitPartners = useMemo(
+    () =>
+      new Map(
+        stations.flatMap((s) => {
+          const col = unitPartnerCol(s);
+          return col == null ? [] : [[s.id, col] as const];
+        }),
+      ),
+    [stations],
+  );
+  // The live draw and limit are the station's: a unit charger shows none of its own
+  // (the station's figures never stand as one unit's).
+  const unitLiveDrawKw = useCallback(
+    (id: string) => (unitOf.has(id) ? undefined : currentDrawKw(id)),
+    [unitOf, currentDrawKw],
+  );
   const stageRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SiteScene | null>(null);
   const labelRefs = useRef(new Map<string, HTMLDivElement>());
@@ -531,6 +597,8 @@ export default function SiteLayout3D({
   const virtualSignRefs = useRef(new Map<string, HTMLDivElement>());
   // The label of each EVSE plate (hover or tap), keyed `<stationId>:<index>`.
   const evsePlateRefs = useRef(new Map<string, HTMLDivElement>());
+  // The label of each unit charger's box number plate (hover or tap), keyed by view id.
+  const unitPlateRefs = useRef(new Map<string, HTMLDivElement>());
   const avatarRefs = useRef(new Map<string, HTMLDivElement>());
   // The state marker of every station (custom site in Edit Layout: it takes the keyboard focus).
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -573,7 +641,9 @@ export default function SiteLayout3D({
   const sharesPair = useMemo(
     () =>
       new Set(
-        stations.filter((s) => sharesSpotPair(stationLayoutKindOf(s), settings)).map((s) => s.id),
+        stations
+          .filter((s) => s.unitCharger == null && sharesSpotPair(stationLayoutKindOf(s), settings))
+          .map((s) => s.id),
       ),
     [stations, settings],
   );
@@ -582,12 +652,34 @@ export default function SiteLayout3D({
     () =>
       new Map(
         stations.flatMap((s) => {
+          // A unit charger is never a split system.
+          if (s.unitCharger != null) return [];
           const n = splitDispenserCount(stationLayoutKindOf(s), settings);
           return n > 1 ? [[s.id, n] as const] : [];
         }),
       ),
     [stations, settings],
   );
+  // A depot's dual-outlet bus chargers (`dualOutletBusCharger`) and a street's two-port
+  // curb posts (`twoPortCurbPost`): two adjacent bays or parallel spots, held only while
+  // the next one is on the layout and no other station's (a stored position from before
+  // the rule stays valid and serves its own spot).
+  const depotSpans = useMemo(() => {
+    const out = new Map<string, number>();
+    if (!usesDepotSpots(settings) && siteTypeOf(settings) !== 'curbside') return out;
+    const own = new Set([...bays.values()].map((b) => `${String(b.col)}:${String(b.row)}`));
+    for (const s of stations) {
+      if (s.unitCharger != null) continue;
+      const span = stationSpanCount(stationLayoutKindOf(s), settings);
+      const bay = bays.get(s.id);
+      if (span < 2 || bay == null) continue;
+      const run = spanSpots(bay, span, settings);
+      if (run?.slice(1).every((b) => !own.has(`${String(b.col)}:${String(b.row)}`)) === true) {
+        out.set(s.id, span);
+      }
+    }
+    return out;
+  }, [stations, bays, settings]);
   // AC or DC by station, for where its charger stands in its spot.
   const kinds = useMemo(() => new Map(stations.map((s) => [s.id, s.chargingKind])), [stations]);
   // A pair holds only while its partner spot is free (`settlePairs`): a stored
@@ -597,21 +689,26 @@ export default function SiteLayout3D({
       settlePairs(
         stations.flatMap((s) => {
           const bay = bays.get(s.id);
-          return bay == null
-            ? []
-            : [
-                {
-                  id: s.id,
-                  ...bayToPosition(bay),
-                  charging: s.chargingKind,
-                  pair: sharesPair.has(s.id),
-                  span: splitSpans.get(s.id) ?? 1,
-                },
-              ];
+          // A station with units holds one run from its first charger's slot.
+          const unit = s.unitCharger;
+          if (bay == null || (unit != null && unit.index > 0)) return [];
+          return [
+            {
+              id: s.id,
+              ...bayToPosition(bay),
+              charging: unit?.stationKind ?? s.chargingKind,
+              pair: unit == null && sharesPair.has(s.id),
+              span:
+                unit != null
+                  ? (unitRunSpans.get(unit.stationUuid) ?? 1)
+                  : (splitSpans.get(s.id) ?? depotSpans.get(s.id) ?? 1),
+              unitRun: unit != null,
+            },
+          ];
         }),
         settings,
       ),
-    [stations, bays, sharesPair, splitSpans, settings],
+    [stations, bays, sharesPair, splitSpans, depotSpans, unitRunSpans, settings],
   );
   const pairIds = useMemo(
     () => new Set(placedSlots.filter((p) => p.pair).map((p) => p.id)),
@@ -622,7 +719,13 @@ export default function SiteLayout3D({
     [placedSlots, settings],
   );
   const stallsOf = (id: string, bay: StallBay) =>
-    stationStalls(bay, lot, { pair: pairIds.has(id), access, span: splitSpans.get(id) });
+    stationStalls(bay, lot, {
+      // A two-spot unit charger stands on the line between its own two spots.
+      pair: pairIds.has(id) || unitPartners.has(id),
+      access,
+      span: splitSpans.get(id),
+      partnerCol: unitPartners.get(id),
+    });
   const custom = usesFreePositions(settings);
   const depot = usesDepotSpots(settings);
   const freePlaces = useMemo(
@@ -638,15 +741,23 @@ export default function SiteLayout3D({
     },
     [stationById],
   );
-  // A depot: each station in its slot's bus bay or truck lane, one spot each.
+  // A depot: each station in its slot's bus bay or truck lane, one spot each; a
+  // dual-outlet bus charger on the line between its two bays (`depotSpans`).
   const depotPlaces = useMemo(() => {
     const places = new Map<string, FreeStationPlace>();
     if (!depot) return places;
     for (const [id, bay] of bays) {
-      places.set(id, { placement: depotStationPlacement(bay, lot), spots: 1 });
+      const placement = depotStationPlacement(bay, lot);
+      const spots = depotSpans.get(id) ?? 1;
+      if (spots > 1) {
+        const last = depotStationPlacement({ col: bay.col + spots - 1, row: bay.row }, lot);
+        places.set(id, { placement: { ...placement, x: (placement.x + last.x) / 2 }, spots });
+      } else {
+        places.set(id, { placement, spots });
+      }
     }
     return places;
-  }, [depot, bays, lot]);
+  }, [depot, bays, lot, depotSpans]);
   // The ground the equipment stands beside: a custom site's stations' spots, a depot's bays and lanes.
   const freeGround = useMemo(
     () =>
@@ -710,8 +821,17 @@ export default function SiteLayout3D({
       return points;
     }
     for (const [id, bay] of bays) {
-      // A pedestal stands on the line between its two spots, behind the stall head.
-      const shift = stationStalls(bay, lot, { pair: pairIds.has(id), access: null })?.shiftX ?? 0;
+      // A pedestal stands on the line between its two spots, behind the stall head;
+      // a two-port curb post on the line between its two parallel spots.
+      const shift =
+        (lot.siteType === 'curbside' && depotSpans.get(id) === 2
+          ? curbPairStalls(bay, lot)
+          : stationStalls(bay, lot, {
+              pair: pairIds.has(id) || unitPartners.has(id),
+              access: null,
+              partnerCol: unitPartners.get(id),
+            })
+        )?.shiftX ?? 0;
       const kind = kinds.get(id) ?? 'dc';
       const wall = wallMounted(bay, lot, kind);
       if (wall) {
@@ -747,6 +867,7 @@ export default function SiteLayout3D({
     bays,
     lot,
     pairIds,
+    unitPartners,
     kinds,
     splitSpans,
     customDispenserXs,
@@ -769,16 +890,28 @@ export default function SiteLayout3D({
     const kva = new Map((equipment?.transformers ?? []).map((tr) => [tr.id, tr.ratedKva]));
     return linkHierarchy(hierarchy, { stepDowns: !office, kvaOf: (id) => kva.get(id) ?? null });
   }, [hierarchy, office, equipment]);
+  // The view ids of each station with units, in order: its circuit runs on to every unit charger.
+  const unitChargerIds = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const s of stations) {
+      const unit = s.unitCharger;
+      if (unit == null) continue;
+      const list = out.get(unit.stationUuid) ?? [];
+      list.push(s.id);
+      out.set(unit.stationUuid, list);
+    }
+    return out;
+  }, [stations]);
   const routed = useMemo(() => {
     if (linked == null) return null;
-    if (office) return linked;
+    if (office) return withUnitChargers(linked, unitChargerIds);
     const spans = new Map(splitSpans);
     for (const [id, place] of freePlaces) {
       const xs = customDispenserXs(id, place);
       if (xs != null) spans.set(id, xs.length);
     }
-    return withSplitCabinets(linked, spans);
-  }, [linked, office, splitSpans, freePlaces, customDispenserXs]);
+    return withUnitChargers(withSplitCabinets(linked, spans), unitChargerIds);
+  }, [linked, office, splitSpans, freePlaces, customDispenserXs, unitChargerIds]);
   // The load of each transformer and the supply of each battery and solar
   // asset, as the load management reply has them.
   const transformerLoadsById = useMemo(
@@ -899,12 +1032,21 @@ export default function SiteLayout3D({
     [routed, loadManaged, currentDrawKw],
   );
 
-  const stateRef = useRef({ bays, settings, freePlaces, placedSlots });
+  // A custom site's stations as one footprint each (a station with units across all its unit
+  // charger spots): a move of one unit charger moves and checks the whole station.
+  const stationFreePlaces = useMemo(
+    () =>
+      custom && unitRunSpans.size > 0
+        ? freeStationPlaces(layoutStations)
+        : new Map<string, FreeStationPlace>(),
+    [custom, unitRunSpans, layoutStations],
+  );
+  const stateRef = useRef({ bays, settings, freePlaces, placedSlots, unitOf, stationFreePlaces });
   const onMoveRef = useRef(onMove);
   const onFreeMoveRef = useRef(onFreeMove);
   const onSolarMoveRef = useRef(onSolarMove);
   const tRef = useRef(t);
-  const stationIdsRef = useRef(new Map(stations.map((s) => [s.id, s.stationId])));
+  const stationIdsRef = useRef(new Map(stations.map((s) => [s.id, layoutChargerName(s, t)])));
   const onTransformerMoveRef = useRef(onTransformerMove);
   const onEnergyAssetMoveRef = useRef(onEnergyAssetMove);
   const onUnavailableRef = useRef(onUnavailable);
@@ -924,7 +1066,10 @@ export default function SiteLayout3D({
       const spotType = freeSpotTypeOf(place?.placement);
       // What the charger screen shows: the layout reply's screen text, else the display message.
       const message = s.screenMessage?.text ?? s.displayMessage ?? '';
-      const stalls = place == null ? stallsOf(s.id, bay) : null;
+      // A two-port curb post: on the line between its two parallel spots, a car in each.
+      const curbPair = lot.siteType === 'curbside' && depotSpans.get(s.id) === 2;
+      const stalls =
+        place == null ? (curbPair ? curbPairStalls(bay, lot) : stallsOf(s.id, bay)) : null;
       // The charge port of the session's car (stable per session, else per station).
       const look = {
         ...sceneCar(
@@ -933,24 +1078,54 @@ export default function SiteLayout3D({
         ),
         port: carPortOf(s.session?.id ?? s.id),
       };
-      // A pedestal: a vehicle in the stall of each EVSE with a plug in (the
-      // session's vehicle in the first, a default sedan in another).
+      // A charger serving two or more stalls: a vehicle in the stall of each
+      // EVSE with a plug in (the session's vehicle in the first, a default
+      // sedan in another; a unit charger each EVSE's own session's vehicle).
+      // A custom site's charger with a car spot per EVSE serves them the same way.
       const evses = [...s.evses].sort((a, b) => a.evseId - b.evseId);
-      const pluggedIn = evses.map((e) => e.connectors.some((c) => c.isPluggedIn));
-      // The stall of the session's vehicle: the first EVSE with a plug in, else the first.
-      const firstPlugged = Math.max(0, pluggedIn.indexOf(true));
-      const stallCars =
-        stalls != null &&
-        stalls.stalls.length > 1 &&
-        stationProp(state, pluggedIn.includes(true)) === 'car'
-          ? stalls.stalls.map((_, i) =>
-              i === firstPlugged
-                ? look
-                : pluggedIn[i] === true
-                  ? { ...sceneCar(null), port: carPortOf(`${s.id}:${String(i)}`) }
-                  : null,
-            )
-          : undefined;
+      const freeStalls = place != null ? freeCarStalls(place) : null;
+      // A dual-outlet bus charger: a bus in the bay of each outlet (EVSE) with a plug in.
+      const busStalls =
+        place != null &&
+        spotType === 'bus_bay' &&
+        place.spots > 1 &&
+        freeChargerModel(spotType, s.chargingKind, stationConnectorTypes(s)) === 'bus_dispenser'
+          ? freeSpotRects(place.spots, 'bus_bay').map((r) => ({ x: (r.minX + r.maxX) / 2 }))
+          : null;
+      const dispensers =
+        stalls?.dispensers === true
+          ? stalls.stalls.map((st) => st.x)
+          : place != null
+            ? customDispenserXs(s.id, place)
+            : null;
+      const split = dispensers != null && dispensers.length > 1;
+      // The connectors drawn per EVSE: a split system per satellite, else up to CHARGER_PORT_LIMITS.
+      const drawn = drawnEvseConnectors(s.chargingKind, evses, split);
+      const stallList = stalls?.stalls ?? freeStalls ?? busStalls;
+      const anyPlugged = evses.some((e) => e.connectors.some((c) => c.isPluggedIn));
+      // Each stall's car is the car of that EVSE's own session.
+      const evseCar = (i: number) => {
+        const own = evses[i]?.session;
+        // A bus bay or truck lane takes its own vehicle type, a car spot the default sedan.
+        const body = spotType === 'car' ? undefined : spotVehicleBodyType(spotType, null);
+        return own != null
+          ? {
+              ...sceneCar(own.vehicle != null ? { ...own.vehicle, bodyType: null } : null, body),
+              port: carPortOf(own.id),
+            }
+          : { ...sceneCar(null, body), port: carPortOf(`${s.id}:${String(i)}`) };
+      };
+      const plugs = stationPlugs({
+        evses,
+        drawn,
+        stallCount: stallList?.length ?? 1,
+        carShown: stationProp(state, anyPlugged) === 'car',
+        homeEvse: sessionEvseIndex(s.session, evses),
+        // The station's session car on its own EVSE's stall (else the first plugged one);
+        // every other stall the car of its EVSE's own session.
+        carOf: (i, first) => (i === first ? look : evseCar(i)),
+      });
+      const { pluggedIn, firstPlugged, plugged, stallCars } = plugs;
       // The charge flow: on the cable of each EVSE that delivers energy now.
       const flows = evses.map(evseFlows);
       // The connector type of each drawn connector (holsters and the plug in
@@ -958,12 +1133,6 @@ export default function SiteLayout3D({
       const dc = s.chargingKind === 'dc';
       const connectorKinds = evses.map((e) =>
         e.connectors.map((c) => connectorKindOf(c.connectorType, dc)),
-      );
-      const plugged = evses.map((e) =>
-        Math.max(
-          0,
-          e.connectors.findIndex((c) => c.isPluggedIn),
-        ),
       );
       return {
         cableFlow: flows.some(Boolean),
@@ -975,7 +1144,6 @@ export default function SiteLayout3D({
               stalls: stalls.stalls,
               shiftX: stalls.shiftX,
               carOffsetX: stalls.stalls[firstPlugged]?.x ?? stalls.stalls[0]?.x ?? 0,
-              ...(stallCars != null ? { stallCars, stallFlows: flows } : {}),
             }
           : {}),
         ...(place != null
@@ -985,37 +1153,18 @@ export default function SiteLayout3D({
               carOffsetX: freePropOffset(s, place.spots),
               propSpot: freePropSpot(s, place.spots),
               charger: freeChargerModel(spotType, s.chargingKind, stationConnectorTypes(s)),
+              ...(freeStalls != null ? { stalls: freeStalls } : {}),
             }
           : {}),
+        ...(stallCars != null ? { stallCars, stallFlows: flows } : {}),
+        ...(curbPair ? { curbPair: true } : {}),
         // A DC split system's dispensers, and the holstered cables of each
         // dispenser: one per connector (a split system per EVSE, else all of
         // the station's connectors on its one dispenser).
-        ...(() => {
-          const dispensers =
-            stalls?.dispensers === true
-              ? stalls.stalls.map((st) => st.x)
-              : place != null
-                ? customDispenserXs(s.id, place)
-                : null;
-          const perEvse = evses.map((e) => Math.max(1, e.connectors.length));
-          if (dispensers != null && dispensers.length > 1) {
-            return {
-              dispensers,
-              cables: perEvse
-                .slice(0, dispensers.length)
-                // A satellite carries one or two cables (`satelliteConnectors`).
-                .map((n) =>
-                  Math.min(
-                    CHARGER_PORT_LIMITS.dc.satelliteConnectors,
-                    drawnConnectorCounts('dc', [n])[0] ?? 1,
-                  ),
-                ),
-            };
-          }
-          // One unit: its EVSEs and connectors up to CHARGER_PORT_LIMITS.
-          const drawn = drawnConnectorCounts(s.chargingKind, perEvse);
-          return { cables: [drawn.reduce((n, c) => n + c, 0)], evseConnectors: drawn };
-        })(),
+        ...(split
+          ? { dispensers, cables: drawn.slice(0, dispensers.length) }
+          : // One unit: its EVSEs and connectors up to CHARGER_PORT_LIMITS.
+            { cables: [drawn.reduce((n, c) => n + c, 0)], evseConnectors: drawn }),
         message: message === '' ? null : message,
         id: s.id,
         kind: s.chargingKind,
@@ -1035,6 +1184,8 @@ export default function SiteLayout3D({
             blinking: lamp.blinking,
           };
         }),
+        // A unit charger's box number plate (site-layout-model-unit-plate.ts).
+        ...(s.unitCharger?.number != null ? { unitPlate: { number: s.unitCharger.number } } : {}),
         lit: state !== 'offline',
         pulsing: state === 'charging',
         glow: state === 'charging',
@@ -1048,7 +1199,8 @@ export default function SiteLayout3D({
         blinking: state === 'faulted',
         terminals: (terminals.get(s.id) ?? []).map((term) => ({
           id: term.id,
-          side: terminalSide(term.evseNumber),
+          // A unit charger's reader stands at the port of its EVSE within the unit.
+          side: terminalSide(chargerEvseNumber(s, term.evseNumber)),
           hasDisplay: term.hasDisplay,
           online: term.online,
         })),
@@ -1095,6 +1247,7 @@ export default function SiteLayout3D({
   }, [
     access,
     pairIds,
+    unitPartners,
     california,
     stations,
     bays,
@@ -1135,16 +1288,30 @@ export default function SiteLayout3D({
             setHoveredId(id);
           },
           isBayTaken: (bay, exceptId) => {
-            // Another station's spot, a pedestal's partner spot or the access aisle.
-            const { placedSlots: placed, settings: s } = stateRef.current;
+            // Another station's spot, a pedestal's partner spot or the access aisle
+            // (a unit charger: its whole station's run is its own).
+            const { placedSlots: placed, settings: s, unitOf: units } = stateRef.current;
+            const own = units.get(exceptId)?.stationUuid ?? exceptId;
             const held = heldSpots(
-              placed.filter((p) => p.id !== exceptId),
+              placed.filter((p) => p.id !== own),
               s,
             );
             return held.has(`${String(bay.col)}:${String(bay.row)}`);
           },
-          onDrop: (id, bay) => {
-            const { bays: current, settings: s, placedSlots: placed } = stateRef.current;
+          onDrop: (viewId, droppedBay) => {
+            const {
+              bays: current,
+              settings: s,
+              placedSlots: placed,
+              unitOf: units,
+            } = stateRef.current;
+            // A unit charger dropped moves its station: the run starts its offset before it.
+            const unit = units.get(viewId);
+            const id = unit?.stationUuid ?? viewId;
+            const bay =
+              unit == null
+                ? droppedBay
+                : { col: droppedBay.col - unit.offset, row: droppedBay.row };
             const held = heldSpots(
               placed.filter((p) => p.id !== id),
               s,
@@ -1204,8 +1371,12 @@ export default function SiteLayout3D({
             onEnergyAssetMoveRef.current?.(id, p.x, p.z);
           },
           snapFree: (p, freeRotation) => snapFreePlacement(p, { freeRotation }),
-          freeDropState: (id, p) => {
-            const places = stateRef.current.freePlaces;
+          freeDropState: (viewId, dropped) => {
+            // A unit charger: its whole station's spots, checked at the station's point.
+            const unit = stateRef.current.unitOf.get(viewId);
+            const id = unit?.stationUuid ?? viewId;
+            const p = unit == null ? dropped : stationPlacementOfUnit(unit, dropped);
+            const places = unit == null ? stateRef.current.freePlaces : stationPlaceMap();
             const own = places.get(id);
             const others = [...places].filter(([other]) => other !== id).map(([, o]) => o);
             return {
@@ -1324,6 +1495,9 @@ export default function SiteLayout3D({
             for (const [id, el] of virtualSignRefs.current) {
               placeEquipment(`virtual:${id}`, el, () => current.virtualSignPoint(id));
             }
+            for (const [id, el] of unitPlateRefs.current) {
+              placeEquipment(`unit:${id}`, el, () => current.unitPlatePoint(id));
+            }
             for (const [key, el] of evsePlateRefs.current) {
               const at = key.lastIndexOf(':');
               const stationId = key.slice(0, at);
@@ -1379,14 +1553,14 @@ export default function SiteLayout3D({
   }, []);
 
   useEffect(() => {
-    stateRef.current = { bays, settings, freePlaces, placedSlots };
+    stateRef.current = { bays, settings, freePlaces, placedSlots, unitOf, stationFreePlaces };
     sceneLayoutRef.current = sceneLayout;
     sceneRef.current?.setLayout(sceneLayout);
-  }, [sceneLayout, bays, settings, freePlaces]);
+  }, [sceneLayout, bays, settings, freePlaces, unitOf, stationFreePlaces]);
 
   useEffect(() => {
     tRef.current = t;
-    stationIdsRef.current = new Map(stations.map((s) => [s.id, s.stationId]));
+    stationIdsRef.current = new Map(stations.map((s) => [s.id, layoutChargerName(s, t)]));
   });
 
   // A refused move shows its notice for a few seconds.
@@ -1479,7 +1653,7 @@ export default function SiteLayout3D({
     () =>
       selectedId == null || selectedOcppId == null
         ? null
-        : { id: selectedId, stationId: selectedOcppId },
+        : { id: layoutStationIdOf(selectedId), stationId: selectedOcppId },
     [selectedId, selectedOcppId],
   );
   // The driver avatar over a charging car shows live and on a replayed moment
@@ -1520,12 +1694,29 @@ export default function SiteLayout3D({
 
   // Custom site: a station moved or turned (drag, handle or keys). A position
   // on another station's spots is refused: the station stays and a notice says why.
-  function moveFreeStation(id: string, p: FreePlacement): void {
-    const places = stateRef.current.freePlaces;
+  // The free places a unit charger move is checked against: the stations, each
+  // with units as one footprint, the others as the view has them.
+  function stationPlaceMap(): Map<string, FreeStationPlace> {
+    const { freePlaces: view, unitOf: units, stationFreePlaces: own } = stateRef.current;
+    const out = new Map<string, FreeStationPlace>();
+    for (const [id, place] of view) {
+      if (units.has(id)) continue;
+      out.set(id, place);
+    }
+    for (const [id, place] of own) if (units.has(id)) out.set(id, place);
+    return out;
+  }
+
+  function moveFreeStation(viewId: string, moved: FreePlacement): void {
+    const unit = stateRef.current.unitOf.get(viewId);
+    const id = unit?.stationUuid ?? viewId;
+    // A unit charger moves its whole station: the station's point is its offset back.
+    const p = unit == null ? moved : stationPlacementOfUnit(unit, moved);
+    const places = unit == null ? stateRef.current.freePlaces : stationPlaceMap();
     const own = places.get(id);
     if (own == null) return;
     const snapped = snapFreePlacement(p, { freeRotation: true });
-    const name = stationIdsRef.current.get(id) ?? id;
+    const name = stationIdsRef.current.get(viewId) ?? viewId;
     const blocked = [...places].some(
       ([other, o]) =>
         other !== id && freeFootprintsOverlap({ placement: snapped, spots: own.spots }, o),
@@ -1746,6 +1937,31 @@ export default function SiteLayout3D({
                   );
                 }),
         )}
+        {stations.flatMap((s) => {
+          const unit = s.unitCharger;
+          if (unit?.number == null || unit.name == null) return [];
+          return [
+            <div
+              key={`unit-plate-${s.id}`}
+              ref={(el) => {
+                if (el == null) unitPlateRefs.current.delete(s.id);
+                else unitPlateRefs.current.set(s.id, el);
+              }}
+              role="tooltip"
+              data-testid={`site-layout-3d-unit-plate-${s.id}`}
+              className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-semibold shadow-xs"
+              style={{ left: 0, top: 0, visibility: 'hidden' }}
+            >
+              {t('layout.units.plateLabel', {
+                unit: unit.name,
+                evses: unitPlateEvseList(
+                  s.evses.map((e) => e.evseId),
+                  t('layout.units.and'),
+                ),
+              })}
+            </div>,
+          ];
+        })}
         {stations.map((s) => {
           const sign = virtualSignOf(stationDisplayState(s));
           if (sign == null) return null;
@@ -1764,7 +1980,7 @@ export default function SiteLayout3D({
               {virtualSignTooltip(
                 t,
                 sign,
-                s.stationId,
+                layoutChargerName(s, t),
                 sign === 'reserved' ? s.reservation : s.maintenanceWindow,
                 i18n.language,
               )}
@@ -1845,7 +2061,7 @@ export default function SiteLayout3D({
                 tabIndex={selectable ? 0 : -1}
                 aria-pressed={editing && custom ? s.id === selectedId : undefined}
                 aria-label={t('sites.layoutView.stateDetailsLabel', {
-                  id: s.stationId,
+                  id: layoutChargerName(s, t),
                   state: stateLabel,
                 })}
                 onFocus={() => {
@@ -1877,7 +2093,7 @@ export default function SiteLayout3D({
                     data-testid={`site-layout-3d-insight-${s.id}`}
                     title={insight.headline}
                     aria-label={t('sites.layoutView.insightMarker', {
-                      id: s.stationId,
+                      id: layoutChargerName(s, t),
                       headline: insight.headline,
                     })}
                     tabIndex={editing ? -1 : 0}
@@ -1905,7 +2121,7 @@ export default function SiteLayout3D({
               className="absolute z-10 flex -translate-x-1/2 -translate-y-full items-center gap-1 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs font-semibold text-popover-foreground shadow-md"
               style={{ left: 0, top: 0, visibility: 'hidden' }}
             >
-              <span>{hovered.stationId}</span>
+              <span>{layoutChargerName(hovered, t)}</span>
               <span aria-hidden="true" className="text-muted-foreground">
                 ·
               </span>
@@ -1979,10 +2195,10 @@ export default function SiteLayout3D({
                   aria-label={
                     driver?.name != null
                       ? t('sites.layoutView.sessionOfDriver', {
-                          id: s.stationId,
+                          id: layoutChargerName(s, t),
                           name: driver.name,
                         })
-                      : t('sites.layoutView.sessionDetailsLabel', { id: s.stationId })
+                      : t('sites.layoutView.sessionDetailsLabel', { id: layoutChargerName(s, t) })
                   }
                   onClick={() => {
                     if (editing) return;
@@ -2108,7 +2324,7 @@ export default function SiteLayout3D({
         >
           <LayoutStationList
             stations={stations}
-            currentDrawKw={currentDrawKw}
+            currentDrawKw={unitLiveDrawKw}
             selectedId={selectedId}
             onSelect={(id) => {
               if (editing) return;
@@ -2170,8 +2386,8 @@ export default function SiteLayout3D({
         <SessionLayoutPopup
           ref={sessionPopupRef}
           session={sessionStation.session}
-          stationLabel={sessionStation.stationId}
-          stationId={sessionStation.id}
+          stationLabel={layoutChargerName(sessionStation, t)}
+          stationId={layoutStationIdOf(sessionStation.id)}
           onClose={() => {
             setSessionStationId(null);
           }}
@@ -2187,8 +2403,8 @@ export default function SiteLayout3D({
         <StationLayoutPopup
           ref={popupRef}
           station={selected}
-          currentDrawKw={currentDrawKw(selected.id)}
-          allocatedLimitKw={allocatedLimitKw(selected.id)}
+          currentDrawKw={unitLiveDrawKw(selected.id)}
+          allocatedLimitKw={unitOf.has(selected.id) ? undefined : allocatedLimitKw(selected.id)}
           terminals={terminals.get(selected.id)}
           onClose={() => {
             setSelectedId(null);
