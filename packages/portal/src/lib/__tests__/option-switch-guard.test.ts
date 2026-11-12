@@ -151,7 +151,9 @@ describe('portal option switches', () => {
     expect(Object.keys(SOURCES).length).toBeGreaterThan(50);
   });
 
-  it('builds every option switch with the shared SegmentedControl', () => {
+  // Parses every portal source file: under coverage on a CI runner it can take
+  // longer than the 5 s default.
+  it('builds every option switch with the shared SegmentedControl', { timeout: 30_000 }, () => {
     const offenders: string[] = [];
     for (const [file, source] of Object.entries(SOURCES)) {
       const switches = findOptionSwitches(file, source);

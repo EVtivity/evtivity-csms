@@ -100,7 +100,9 @@ describe('no dialog inside the body of an empty-capable TabPanel', () => {
     expect(tabPanelOverlayOffenders('x.tsx', bad)).toEqual(['x.tsx:5 AssetForm', 'x.tsx:6 Dialog']);
   });
 
-  it('keeps every dialog out of an empty-capable TabPanel body', () => {
+  // Parses every CSMS and portal source file: under coverage on a CI runner it
+  // can take longer than the 5 s default.
+  it('keeps every dialog out of an empty-capable TabPanel body', { timeout: 30_000 }, () => {
     const offenders = Object.entries({ ...CSMS_SOURCES, ...PORTAL_SOURCES }).flatMap(
       ([file, src]) => (src.includes('TabPanel') ? tabPanelOverlayOffenders(file, src) : []),
     );

@@ -153,7 +153,9 @@ describe('tab strips use the shared TabsList without a clipping wrapper', () => 
     ]);
   });
 
-  it('finds no strip that breaks the standard', () => {
+  // Parses every CSMS and portal source file: it took 7 s under coverage in CI,
+  // past the 5 s default.
+  it('finds no strip that breaks the standard', { timeout: 30_000 }, () => {
     const offenders = [
       ...Object.entries(CSMS_SOURCES).map(([f, s]) => tabStripOffenders(f, s)),
       ...Object.entries(PORTAL_SOURCES).map(([f, s]) => tabStripOffenders(`portal:${f}`, s)),
