@@ -40,6 +40,7 @@ const ALLOWED: Record<string, { max: number; reason: string }> = {
   'portal/src/components/AuthBranding.tsx': { max: 1, reason: BRAND },
   'csms/src/components/settings/CompanySettings.tsx': { max: 2, reason: BRAND },
   'csms/src/components/FilterBar.tsx': { max: 1, reason: SCRIM },
+  'csms/src/components/ui/dialog.tsx': { max: 1, reason: `${SCRIM}: the dialog backdrop` },
   'portal/src/components/NotificationDrawer.tsx': { max: 1, reason: SCRIM },
   'portal/src/components/ImageCarousel.tsx': {
     max: 12,
