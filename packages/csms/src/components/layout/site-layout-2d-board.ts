@@ -29,12 +29,16 @@ export interface BoardView {
 }
 
 /** Whether two cards at these corners come closer than `CARD_GAP` (so they would overlap or touch). */
-export function cardsTooClose(a: BoardPoint, b: BoardPoint): boolean {
+export function cardsTooClose(
+  a: BoardPoint,
+  b: BoardPoint,
+  cardHeight: number = STATION_CARD_SIZE.height,
+): boolean {
   return (
     a.x < b.x + STATION_CARD_SIZE.width + CARD_GAP &&
     b.x < a.x + STATION_CARD_SIZE.width + CARD_GAP &&
-    a.y < b.y + STATION_CARD_SIZE.height + CARD_GAP &&
-    b.y < a.y + STATION_CARD_SIZE.height + CARD_GAP
+    a.y < b.y + cardHeight + CARD_GAP &&
+    b.y < a.y + cardHeight + CARD_GAP
   );
 }
 
@@ -47,10 +51,14 @@ export function cardsTooClose(a: BoardPoint, b: BoardPoint): boolean {
  * the end of the run that holds it. The search stops once a line's x alone is
  * farther than the best place found.
  */
-export function slideToFree(target: BoardPoint, others: readonly BoardPoint[]): BoardPoint {
-  if (!others.some((o) => cardsTooClose(target, o))) return target;
+export function slideToFree(
+  target: BoardPoint,
+  others: readonly BoardPoint[],
+  cardHeight: number = STATION_CARD_SIZE.height,
+): BoardPoint {
+  if (!others.some((o) => cardsTooClose(target, o, cardHeight))) return target;
   const reachX = STATION_CARD_SIZE.width + CARD_GAP;
-  const reachY = STATION_CARD_SIZE.height + CARD_GAP;
+  const reachY = cardHeight + CARD_GAP;
   const xs = [target.x, ...others.flatMap((o) => [o.x - reachX, o.x + reachX])].sort(
     (a, b) => Math.abs(a - target.x) - Math.abs(b - target.x),
   );
@@ -96,6 +104,7 @@ export function slideToFree(target: BoardPoint, others: readonly BoardPoint[]): 
  */
 export function boardPositions(
   stations: ReadonlyArray<{ id: string; fixed: BoardPoint | null; slot: BoardPoint }>,
+  cardHeight: number = STATION_CARD_SIZE.height,
 ): Map<string, BoardPoint> {
   const out = new Map<string, BoardPoint>();
   for (const s of stations) if (s.fixed != null) out.set(s.id, s.fixed);
@@ -104,7 +113,9 @@ export function boardPositions(
     const others = [...out.values()];
     out.set(
       s.id,
-      others.some((o) => cardsTooClose(s.slot, o)) ? slideToFree(s.slot, others) : s.slot,
+      others.some((o) => cardsTooClose(s.slot, o, cardHeight))
+        ? slideToFree(s.slot, others, cardHeight)
+        : s.slot,
     );
   }
   return out;
@@ -113,11 +124,12 @@ export function boardPositions(
 /** The box around every card, in board px; null without cards. */
 export function cardsBounds(
   points: Iterable<BoardPoint>,
+  cardHeight: number = STATION_CARD_SIZE.height,
 ): { minX: number; minY: number; maxX: number; maxY: number } | null {
   let box: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
   for (const p of points) {
     const maxX = p.x + STATION_CARD_SIZE.width;
-    const maxY = p.y + STATION_CARD_SIZE.height;
+    const maxY = p.y + cardHeight;
     box =
       box == null
         ? { minX: p.x, minY: p.y, maxX, maxY }
@@ -150,8 +162,9 @@ export function fitBoardView(
   height: number,
   padding = 24,
   minZoom: number = BOARD_ZOOM.min,
+  cardHeight: number = STATION_CARD_SIZE.height,
 ): BoardView {
-  const box = cardsBounds(points);
+  const box = cardsBounds(points, cardHeight);
   if (box == null || width <= 0 || height <= 0) return { panX: padding, panY: padding, zoom: 1 };
   const w = box.maxX - box.minX;
   const h = box.maxY - box.minY;

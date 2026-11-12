@@ -236,6 +236,7 @@ export function PlacedStationCard({
   station,
   left,
   top,
+  height = STATION_CARD_SIZE.height,
   draggable,
   zoom,
   currentDrawKw,
@@ -248,6 +249,8 @@ export function PlacedStationCard({
   /** The card's top left corner, in board px. */
   left: number;
   top: number;
+  /** The card height of its board (`CardLayout.cardHeight`). */
+  height?: number;
   draggable: boolean;
   /** The board zoom, read when a drag starts (pointer px to board px). */
   zoom?: (() => number) | undefined;
@@ -358,7 +361,7 @@ export function PlacedStationCard({
         left,
         top,
         width: STATION_CARD_SIZE.width,
-        height: STATION_CARD_SIZE.height,
+        height,
         zIndex: dragging ? 1_000_000 : zIndex,
       }}
       onClick={() => {

@@ -81,6 +81,20 @@ describe('Dialog', () => {
     expect(screen.getByRole('dialog', { name: 'Second' })).toBeDefined();
   });
 
+  it('dims the page with a dark backdrop in every theme, not a foreground tint', () => {
+    render(
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent>
+          <DialogTitle>Backdrop</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    const backdrop = screen.getByTestId('dialog-backdrop');
+    expect(backdrop.className).toContain('bg-black/80');
+    // `foreground` is near white in dark mode (Default, Soft and High Contrast).
+    expect(backdrop.className).not.toMatch(/bg-(foreground|background|white)/);
+  });
+
   it('renders nothing while closed', () => {
     render(
       <Dialog open={false} onOpenChange={() => {}}>

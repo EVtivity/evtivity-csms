@@ -7749,11 +7749,9 @@
     "deleteUnit": "Delete Unit",
     "deleteConfirm": "Delete {{name}}? Its EVSEs stay on the station without a unit, and drivers' favorites and watches of it are removed.",
     "unitName": "Unit Name",
-    "evses": "EVSEs",
     "noEvses": "No EVSEs",
     "noUnit": "No Unit",
     "evsesWithoutUnit": "EVSEs Without a Unit",
-    "assignTitle": "EVSE Units",
     "empty": "This station has no units. Add a unit to group its EVSEs by physical charger box.",
     "evseCount_one": "{{count}} EVSE",
     "evseCount_other": "{{count}} EVSEs",
@@ -7761,6 +7759,13 @@
     "unitCount_other": "{{count}} Units",
     "unassignedNotice_one": "{{count}} EVSE has no unit. Drivers see it as one more charger named after the station.",
     "unassignedNotice_other": "{{count}} EVSEs have no unit. Drivers see them as one more charger named after the station.",
-    "manageUnits": "Manage Units"
+    "manageUnits": "Manage Units",
+    "unit": "Unit",
+    "unitOfEvse": "Unit of {{evse}}",
+    "assignEvse": "Assign EVSE",
+    "assignEvseDescription": "Pick an EVSE to move into {{name}}. An EVSE of another unit leaves that unit, since an EVSE belongs to one unit only.",
+    "evse": "EVSE",
+    "chooseEvse": "Choose an EVSE",
+    "evseInUnit": "{{evse}} ({{unit}})"
   }
 }

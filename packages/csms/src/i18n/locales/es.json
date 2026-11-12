@@ -7749,11 +7749,9 @@
     "deleteUnit": "Eliminar Unidad",
     "deleteConfirm": "¿Eliminar {{name}}? Sus EVSE siguen en la estación sin unidad, y se quitan los favoritos y avisos de los conductores para ella.",
     "unitName": "Nombre de la Unidad",
-    "evses": "EVSE",
     "noEvses": "Sin EVSE",
     "noUnit": "Sin Unidad",
     "evsesWithoutUnit": "EVSE sin Unidad",
-    "assignTitle": "Unidades de los EVSE",
     "empty": "Esta estación no tiene unidades. Agregue una unidad para agrupar sus EVSE por caja de carga física.",
     "evseCount_one": "{{count}} EVSE",
     "evseCount_other": "{{count}} EVSE",
@@ -7761,6 +7759,13 @@
     "unitCount_other": "{{count}} Unidades",
     "unassignedNotice_one": "{{count}} EVSE no tiene unidad. Los conductores lo ven como un cargador más con el nombre de la estación.",
     "unassignedNotice_other": "{{count}} EVSE no tienen unidad. Los conductores los ven como un cargador más con el nombre de la estación.",
-    "manageUnits": "Administrar Unidades"
+    "manageUnits": "Administrar Unidades",
+    "unit": "Unidad",
+    "unitOfEvse": "Unidad de {{evse}}",
+    "assignEvse": "Asignar EVSE",
+    "assignEvseDescription": "Elija un EVSE para moverlo a {{name}}. Un EVSE de otra unidad sale de esa unidad, porque un EVSE pertenece a una sola unidad.",
+    "evse": "EVSE",
+    "chooseEvse": "Elija un EVSE",
+    "evseInUnit": "{{evse}} ({{unit}})"
   }
 }

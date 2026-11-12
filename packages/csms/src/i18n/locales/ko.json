@@ -7749,11 +7749,9 @@
     "deleteUnit": "유닛 삭제",
     "deleteConfirm": "{{name}}을(를) 삭제할까요? EVSE는 유닛 없이 충전소에 남고, 이 유닛에 대한 운전자의 즐겨찾기와 알림은 삭제됩니다.",
     "unitName": "유닛 이름",
-    "evses": "EVSE",
     "noEvses": "EVSE 없음",
     "noUnit": "유닛 없음",
     "evsesWithoutUnit": "유닛이 없는 EVSE",
-    "assignTitle": "EVSE 유닛",
     "empty": "이 충전소에는 유닛이 없습니다. 유닛을 추가하여 EVSE를 물리적 충전기 박스별로 묶으세요.",
     "evseCount_one": "EVSE {{count}}개",
     "evseCount_other": "EVSE {{count}}개",
@@ -7761,6 +7759,13 @@
     "unitCount_other": "유닛 {{count}}개",
     "unassignedNotice_one": "EVSE {{count}}개에 유닛이 없습니다. 운전자에게는 충전소 이름의 충전기가 하나 더 보입니다.",
     "unassignedNotice_other": "EVSE {{count}}개에 유닛이 없습니다. 운전자에게는 충전소 이름의 충전기가 하나 더 보입니다.",
-    "manageUnits": "유닛 관리"
+    "manageUnits": "유닛 관리",
+    "unit": "유닛",
+    "unitOfEvse": "{{evse}}의 유닛",
+    "assignEvse": "EVSE 할당",
+    "assignEvseDescription": "{{name}}(으)로 옮길 EVSE를 선택하세요. EVSE는 하나의 유닛에만 속하므로 다른 유닛의 EVSE는 그 유닛에서 빠집니다.",
+    "evse": "EVSE",
+    "chooseEvse": "EVSE 선택",
+    "evseInUnit": "{{evse}} ({{unit}})"
   }
 }

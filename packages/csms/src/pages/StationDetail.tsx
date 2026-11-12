@@ -473,7 +473,7 @@ export function StationDetail(): React.JSX.Element {
             stationStatus={station.status}
             statusReason={station.statusReason}
           />
-          <StationUnitsCard stationId={station.id} units={units} evses={connectorsData} />
+          <StationUnitsCard stationId={station.id} units={units} />
           <StationPaymentTerminalsCard stationId={station.id} />
         </TabsContent>
 

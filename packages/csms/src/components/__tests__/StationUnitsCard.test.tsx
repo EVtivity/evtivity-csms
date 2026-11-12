@@ -48,18 +48,11 @@ const UNITS: StationUnit[] = [
     evseNumbers: [3, 4],
   },
 ];
-const EVSES = [
-  { evseId: 1, unitId: 'unt_box1' },
-  { evseId: 2, unitId: 'unt_box1' },
-  { evseId: 3, unitId: 'unt_box2' },
-  { evseId: 4, unitId: null },
-];
-
 function renderCard(units: StationUnit[] = UNITS) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StationUnitsCard stationId="sta_1" units={units} evses={EVSES} />
+      <StationUnitsCard stationId="sta_1" units={units} />
     </QueryClientProvider>,
   );
   return queryClient;
@@ -96,44 +89,21 @@ describe('StationUnitsCard', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['stations', 'sta_1', 'connectors'] });
   });
 
-  it('moves an EVSE into a unit and out of every unit', async () => {
-    putMock.mockResolvedValue({ changed: true });
+  it('keeps only Add Unit once the station has units', () => {
     renderCard();
-    fireEvent.change(screen.getByLabelText('charts.evse:{"id":4}'), {
-      target: { value: 'unt_box2' },
-    });
-    await waitFor(() => {
-      expect(putMock).toHaveBeenCalledWith('/v1/stations/sta_1/evses/4/unit', {
-        unitId: 'unt_box2',
-      });
-    });
-    fireEvent.change(screen.getByLabelText('charts.evse:{"id":1}'), { target: { value: '' } });
-    await waitFor(() => {
-      expect(putMock).toHaveBeenCalledWith('/v1/stations/sta_1/evses/1/unit', { unitId: null });
-    });
-  });
-
-  it('deletes a unit after the confirmation', async () => {
-    deleteMock.mockResolvedValue({ success: true });
-    renderCard();
-    const [first] = screen.getAllByRole('button', { name: 'stationUnits.deleteUnit' });
-    if (first == null) throw new Error('no delete button');
-    fireEvent.click(first);
-    const confirm = await screen.findAllByRole('button', { name: 'stationUnits.deleteUnit' });
-    const last = confirm.at(-1);
-    if (last == null) throw new Error('no confirm button');
-    fireEvent.click(last);
-    await waitFor(() => {
-      expect(deleteMock).toHaveBeenCalledWith('/v1/stations/sta_1/units/unt_box1');
-    });
-  });
-
-  it('is read-only without stations:write', () => {
-    canWrite.value = false;
-    renderCard();
-    expect(screen.queryByRole('button', { name: 'stationUnits.addUnit' })).toBeNull();
+    expect(screen.queryByText('stationUnits.empty')).toBeNull();
+    expect(screen.getByRole('button', { name: 'stationUnits.addUnit' })).toBeDefined();
+    // Units are renamed, deleted and given EVSEs in their cards on the tab.
+    expect(screen.queryByText('Box 1')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'stationUnits.renameUnit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'stationUnits.deleteUnit' })).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
-    expect(screen.getAllByText('Box 1').length).toBeGreaterThan(0);
-    expect(screen.getByText('stationUnits.noUnit')).toBeDefined();
+  });
+
+  it('hides Add Unit without stations:write', () => {
+    canWrite.value = false;
+    renderCard([]);
+    expect(screen.queryByRole('button', { name: 'stationUnits.addUnit' })).toBeNull();
+    expect(screen.getByText('stationUnits.empty')).toBeDefined();
   });
 });

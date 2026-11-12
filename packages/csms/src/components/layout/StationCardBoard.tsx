@@ -107,6 +107,8 @@ export function StationCardBoard({
   }, [boardRef]);
 
   const defaults = useMemo(() => layoutFor(size.width), [layoutFor, size.width]);
+  // One card height per board: taller when it shows unit cards (`UNIT_BOARD_CARD_HEIGHT`).
+  const cardHeight = defaults.cardHeight;
   const placed = useMemo(
     () =>
       boardPositions(
@@ -116,13 +118,15 @@ export function StationCardBoard({
             ? []
             : [{ id: s.id, fixed: positions.get(s.id) ?? null, slot: slot ?? { x: 0, y: 0 } }];
         }),
+        cardHeight,
       ),
-    [stations, defaults, positions],
+    [stations, defaults, positions, cardHeight],
   );
 
   const [view, setViewState] = useState<BoardView | null>(null);
   const shown =
-    view ?? fitBoardView(placed.values(), size.width, size.height, 24, BOARD_OPEN_MIN_ZOOM);
+    view ??
+    fitBoardView(placed.values(), size.width, size.height, 24, BOARD_OPEN_MIN_ZOOM, cardHeight);
   // A pan or zoom gesture paints the live view onto the layer once a frame and
   // commits it to state when it ends, so the cards never re-render per event.
   const liveView = useRef<BoardView | null>(null);
@@ -168,11 +172,13 @@ export function StationCardBoard({
   useEffect(() => {
     if (fitted.current || placed.size === 0 || size.width <= 0) return;
     fitted.current = true;
-    setView(fitBoardView(placed.values(), size.width, size.height, 24, BOARD_OPEN_MIN_ZOOM));
-  }, [placed, size]);
+    setView(
+      fitBoardView(placed.values(), size.width, size.height, 24, BOARD_OPEN_MIN_ZOOM, cardHeight),
+    );
+  }, [placed, size, cardHeight]);
 
   function fit(): void {
-    setView(fitBoardView(placed.values(), size.width, size.height));
+    setView(fitBoardView(placed.values(), size.width, size.height, 24, undefined, cardHeight));
   }
   function zoomBy(factor: number, at?: BoardPoint): void {
     setView(zoomViewAt(current(), factor, at ?? { x: size.width / 2, y: size.height / 2 }));
@@ -222,7 +228,11 @@ export function StationCardBoard({
     const own = placed.get(id);
     return own == null
       ? null
-      : slideToFree({ x: Math.round(own.x + dx), y: Math.round(own.y + dy) }, others(id));
+      : slideToFree(
+          { x: Math.round(own.x + dx), y: Math.round(own.y + dy) },
+          others(id),
+          cardHeight,
+        );
   };
 
   function onBoardKeyDown(e: React.KeyboardEvent): void {
@@ -249,11 +259,16 @@ export function StationCardBoard({
     if (own == null) return;
     const step = BOARD_KEY_STEP * (e.shiftKey ? 4 : 1);
     // Move one step that way, then on past any card in the way.
-    let next = slideToFree({ x: own.x + arrow.x * step, y: own.y + arrow.y * step }, others(id));
+    let next = slideToFree(
+      { x: own.x + arrow.x * step, y: own.y + arrow.y * step },
+      others(id),
+      cardHeight,
+    );
     for (let n = 2; n < 400 && (next.x - own.x) * arrow.x + (next.y - own.y) * arrow.y <= 0; n++) {
       next = slideToFree(
         { x: own.x + arrow.x * step * n, y: own.y + arrow.y * step * n },
         others(id),
+        cardHeight,
       );
     }
     onMove(id, next);
@@ -280,6 +295,7 @@ export function StationCardBoard({
             station={station}
             left={at.x}
             top={at.y}
+            height={cardHeight}
             draggable={editable}
             zoom={() => handlers.current.current().zoom}
             currentDrawKw={power?.get(station.id)?.currentDrawKw}
@@ -299,7 +315,7 @@ export function StationCardBoard({
           />
         );
       }),
-    [stations, placed, editable, power, onOpenDetails],
+    [stations, placed, editable, power, onOpenDetails, cardHeight],
   );
 
   return (

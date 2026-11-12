@@ -375,11 +375,15 @@ async function seedSite(
         RETURNING id
       `;
       if (created.length === 0 && e >= 2) addedEvses += addedEvse.length;
+      // OCPP 1.6 connector N is EVSE N / connector N (as in seed.ts), so the status a 1.6
+      // station reports for connector N lands on this row instead of an auto-created one.
+      const connectorNo = station.ocppProtocol === 'ocpp1.6' ? e : 1;
       await sql`
         INSERT INTO connectors (id, evse_id, connector_id, status, connector_type, max_power_kw,
           max_current_amps)
-        VALUES (${`con_demolayout${n}${String(e)}`}, ${`evs_demolayout${n}${String(e)}`}, 1,
-          'unavailable', ${connector.type}, ${String(connector.kw)}, ${connector.amps})
+        VALUES (${`con_demolayout${n}${String(e)}`}, ${`evs_demolayout${n}${String(e)}`},
+          ${connectorNo}, 'unavailable', ${connector.type}, ${String(connector.kw)},
+          ${connector.amps})
         ON CONFLICT DO NOTHING
       `;
       // A second cable on the EVSE (a rerun adds it to a station seeded before).

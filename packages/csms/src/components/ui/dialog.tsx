@@ -97,8 +97,10 @@ function OpenDialog({
       }}
     >
       <div className="fixed inset-0 z-50">
+        {/* Black in every theme: a `foreground` tint is near white in dark mode. */}
         <div
-          className="fixed inset-0 bg-foreground/80"
+          data-testid="dialog-backdrop"
+          className="fixed inset-0 bg-black/80"
           onClick={() => {
             if (dismissible) onOpenChange(false);
           }}

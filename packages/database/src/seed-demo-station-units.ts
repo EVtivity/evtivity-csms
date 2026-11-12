@@ -20,7 +20,7 @@ export const DEMO_UNIT_STATION = {
   id: 'sta_demounits001',
   stationId: 'EM4-MASTER-01',
   siteId: 'sit_demogarage01',
-  model: 'AC Master with Extenders',
+  model: 'AC Master Extenders',
   ocppProtocol: 'ocpp1.6',
   units: 8,
   evsesPerUnit: 2,

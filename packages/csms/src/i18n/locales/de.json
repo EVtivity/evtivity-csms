@@ -7749,11 +7749,9 @@
     "deleteUnit": "Einheit Löschen",
     "deleteConfirm": "{{name}} löschen? Ihre EVSEs bleiben ohne Einheit an der Ladestation, und Favoriten und Beobachtungen der Fahrer für sie werden entfernt.",
     "unitName": "Name der Einheit",
-    "evses": "EVSEs",
     "noEvses": "Keine EVSEs",
     "noUnit": "Keine Einheit",
     "evsesWithoutUnit": "EVSEs ohne Einheit",
-    "assignTitle": "Einheiten der EVSEs",
     "empty": "Diese Ladestation hat keine Einheiten. Fügen Sie eine Einheit hinzu, um ihre EVSEs nach physischer Ladebox zu gruppieren.",
     "evseCount_one": "{{count}} EVSE",
     "evseCount_other": "{{count}} EVSEs",
@@ -7761,6 +7759,13 @@
     "unitCount_other": "{{count}} Einheiten",
     "unassignedNotice_one": "{{count}} EVSE hat keine Einheit. Fahrer sehen ihn als weiteren Ladepunkt mit dem Namen der Ladestation.",
     "unassignedNotice_other": "{{count}} EVSEs haben keine Einheit. Fahrer sehen sie als weiteren Ladepunkt mit dem Namen der Ladestation.",
-    "manageUnits": "Einheiten Verwalten"
+    "manageUnits": "Einheiten Verwalten",
+    "unit": "Einheit",
+    "unitOfEvse": "Einheit von {{evse}}",
+    "assignEvse": "EVSE Zuweisen",
+    "assignEvseDescription": "Wählen Sie ein EVSE, das in {{name}} wechselt. Ein EVSE einer anderen Einheit verlässt diese Einheit, denn ein EVSE gehört nur zu einer Einheit.",
+    "evse": "EVSE",
+    "chooseEvse": "EVSE auswählen",
+    "evseInUnit": "{{evse}} ({{unit}})"
   }
 }

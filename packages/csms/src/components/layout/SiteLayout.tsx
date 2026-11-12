@@ -17,6 +17,7 @@ import {
   snapTransformerToGrass,
   usesFreePositions,
   type FreePlacement,
+  type LayoutBay,
   type LayoutEnergyAssetPosition,
   type LayoutPowerEquipment,
   type SiteLayoutSettings,
@@ -73,12 +74,14 @@ import { viewStationTerminals } from './site-layout-units';
 import { isCaliforniaSite } from './site-layout-signs';
 import { layoutLegend } from './site-layout-legend';
 import { StationCardBoard } from './StationCardBoard';
-import { stationBays } from './site-layout-2d-bays';
+import { packUnitCardBays, packUnitCardGrid, stationBays } from './site-layout-2d-bays';
 import {
   bayKey,
   customCardLayout,
   depotCardLayout,
   gridCardLayout,
+  STATION_CARD_SIZE,
+  UNIT_BOARD_CARD_HEIGHT,
   type CardLayout,
 } from './site-layout-2d-placement';
 import type { BoardPoint } from './site-layout-2d-board';
@@ -449,22 +452,43 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   }, [placedSlots, layoutSettings]);
   const cardLayoutFor = useCallback(
     (boardWidth: number): CardLayout => {
+      // A board with unit cards gives every card the line their unit name takes.
+      const cardHeight = viewStations.some((s) => s.unitCharger?.name != null)
+        ? UNIT_BOARD_CARD_HEIGHT
+        : STATION_CARD_SIZE.height;
       if (custom && viewFreePlaces != null) {
         return customCardLayout(
           viewStations.flatMap((s) => {
             const place = viewFreePlaces.get(s.id);
             return place == null ? [] : [{ id: s.id, x: place.placement.x, z: place.placement.z }];
           }),
+          false,
+          cardHeight,
         );
       }
-      const bays = stationBays(viewStations, layoutSettings);
-      const list = viewStations.flatMap((s) => {
-        const bay = bays.get(s.id);
-        return bay == null ? [] : [{ id: s.id, bay }];
-      });
-      return depot
-        ? depotCardLayout(list, layoutRowLengths(layoutSettings), boardWidth)
-        : gridCardLayout(list, layoutRowLengths(layoutSettings), blockedSpots);
+      // A station's unit cards stand close together: side by side on a depot
+      // (`packUnitCardBays`), in lines of four on a grid site (`packUnitCardGrid`).
+      const lotBays = stationBays(viewStations, layoutSettings);
+      const listOf = (bays: ReadonlyMap<string, LayoutBay>) =>
+        viewStations.flatMap((s) => {
+          const bay = bays.get(s.id);
+          return bay == null ? [] : [{ id: s.id, bay }];
+        });
+      if (depot) {
+        return depotCardLayout(
+          listOf(packUnitCardBays(viewStations, lotBays)),
+          layoutRowLengths(layoutSettings),
+          boardWidth,
+          cardHeight,
+        );
+      }
+      const board = packUnitCardGrid(
+        viewStations,
+        lotBays,
+        layoutRowLengths(layoutSettings),
+        blockedSpots,
+      );
+      return gridCardLayout(listOf(board.bays), board.rowLengths, board.blocked, cardHeight);
     },
     [custom, depot, viewFreePlaces, viewStations, layoutSettings, blockedSpots],
   );

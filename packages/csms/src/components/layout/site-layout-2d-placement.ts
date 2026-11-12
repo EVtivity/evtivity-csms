@@ -13,13 +13,19 @@
 
 /** The one size of every 2D charger card, in px. */
 export const STATION_CARD_SIZE = { width: 216, height: 128 } as const;
+/**
+ * The card height of a board that shows unit cards (owner decision
+ * 2026-11-12): the title takes a second line for the unit name, so every card
+ * of that board is one line taller and the board keeps one card size.
+ */
+export const UNIT_BOARD_CARD_HEIGHT = STATION_CARD_SIZE.height + 16;
 /** The gap between two card slots, and the board's padding, in px. */
 export const CARD_GAP = 12;
 export const BOARD_PADDING = 12;
 /** The extra gap between a depot's bus bays and its truck lanes, in px. */
 export const DEPOT_SECTION_GAP = 24;
 const CELL_W = STATION_CARD_SIZE.width + CARD_GAP;
-const CELL_H = STATION_CARD_SIZE.height + CARD_GAP;
+const cellH = (cardHeight: number): number => cardHeight + CARD_GAP;
 
 /** A card slot: its cell in the board's own grid and its top left corner in px. */
 export interface CardSlot {
@@ -38,6 +44,8 @@ export interface CardLayout {
   cards: Map<string, CardSlot>;
   /** Every slot a card may take (a card's own included), for drops and arrow moves. */
   slots: CardSlot[];
+  /** The height of every card of this board, in px (`STATION_CARD_SIZE`, `UNIT_BOARD_CARD_HEIGHT`). */
+  cardHeight: number;
 }
 
 /** The width two card columns need on a board, in px. */
@@ -55,12 +63,12 @@ export function bayKey(col: number, row: number): string {
   return `${String(col)}:${String(row)}`;
 }
 
-function extent(slots: readonly CardSlot[]): { width: number; height: number } {
+function extent(slots: readonly CardSlot[], cardHeight: number): { width: number; height: number } {
   let w = 0;
   let h = 0;
   for (const s of slots) {
     w = Math.max(w, s.x + STATION_CARD_SIZE.width);
-    h = Math.max(h, s.y + STATION_CARD_SIZE.height);
+    h = Math.max(h, s.y + cardHeight);
   }
   return { width: w + BOARD_PADDING, height: h + BOARD_PADDING };
 }
@@ -76,13 +84,14 @@ export function gridCardLayout(
   stations: ReadonlyArray<{ id: string; bay: { col: number; row: number } }>,
   rowLengths: readonly number[],
   blocked: ReadonlySet<string> = new Set(),
+  cardHeight: number = STATION_CARD_SIZE.height,
 ): CardLayout {
   const at = (col: number, row: number): CardSlot => ({
     key: bayKey(col, row),
     col,
     row,
     x: BOARD_PADDING + col * CELL_W,
-    y: BOARD_PADDING + row * CELL_H,
+    y: BOARD_PADDING + row * cellH(cardHeight),
   });
   const slots = new Map<string, CardSlot>();
   rowLengths.forEach((n, row) => {
@@ -97,7 +106,12 @@ export function gridCardLayout(
     cards.set(s.id, slot);
   }
   const all = [...slots.values()];
-  return { ...extent(all.length > 0 ? all : [at(0, 0)]), cards, slots: all };
+  return {
+    ...extent(all.length > 0 ? all : [at(0, 0)], cardHeight),
+    cards,
+    slots: all,
+    cardHeight,
+  };
 }
 
 /** How many depot slots fit side by side on a board `boardWidth` px wide (at least two). */
@@ -114,6 +128,7 @@ export function depotCardLayout(
   stations: ReadonlyArray<{ id: string; bay: { col: number; row: number } }>,
   rowLengths: readonly number[],
   boardWidth: number,
+  cardHeight: number = STATION_CARD_SIZE.height,
 ): CardLayout {
   const perLine = depotColumns(boardWidth);
   const slots: CardSlot[] = [];
@@ -132,12 +147,12 @@ export function depotCardLayout(
         col,
         row,
         x: BOARD_PADDING + (col % perLine) * CELL_W,
-        y: top + Math.floor(col / perLine) * CELL_H,
+        y: top + Math.floor(col / perLine) * cellH(cardHeight),
       };
       slots.push(slot);
       byKey.set(slot.key, slot);
     }
-    top += Math.ceil(n / perLine) * CELL_H + DEPOT_SECTION_GAP;
+    top += Math.ceil(n / perLine) * cellH(cardHeight) + DEPOT_SECTION_GAP;
   }
   const cards = new Map<string, CardSlot>();
   for (const s of stations) {
@@ -145,9 +160,10 @@ export function depotCardLayout(
     if (slot != null) cards.set(s.id, slot);
   }
   return {
-    ...extent(slots.length > 0 ? slots : [{ key: '', col: 0, row: 0, x: 0, y: 0 }]),
+    ...extent(slots.length > 0 ? slots : [{ key: '', col: 0, row: 0, x: 0, y: 0 }], cardHeight),
     cards,
     slots,
+    cardHeight,
   };
 }
 
@@ -170,6 +186,7 @@ export interface CustomCardLayout extends CardLayout {
 export function customCardLayout(
   stations: ReadonlyArray<{ id: string; x: number; z: number }>,
   ring = false,
+  cardHeight: number = STATION_CARD_SIZE.height,
 ): CustomCardLayout {
   const sorted = [...stations].sort((a, b) => a.z - b.z || a.x - b.x || a.id.localeCompare(b.id));
   const minX = Math.min(0, ...sorted.map((s) => s.x));
@@ -218,7 +235,7 @@ export function customCardLayout(
     col,
     row,
     x: BOARD_PADDING + (col + shift) * CELL_W,
-    y: BOARD_PADDING + (row + shift) * CELL_H,
+    y: BOARD_PADDING + (row + shift) * cellH(cardHeight),
   });
   const cards = new Map<string, CardSlot>();
   for (const s of sorted) {
@@ -239,9 +256,10 @@ export function customCardLayout(
     return values[i] ?? 0;
   };
   return {
-    ...extent(slots),
+    ...extent(slots, cardHeight),
     cards,
     slots,
+    cardHeight,
     slotPoint: (slot) => ({
       x: pointOf(slot.col, colX, CUSTOM_CELL_M.x),
       z: pointOf(slot.row, rowZ, CUSTOM_CELL_M.z),
@@ -249,8 +267,8 @@ export function customCardLayout(
   };
 }
 
-function center(s: Pick<CardSlot, 'x' | 'y'>): { x: number; y: number } {
-  return { x: s.x + STATION_CARD_SIZE.width / 2, y: s.y + STATION_CARD_SIZE.height / 2 };
+function center(s: Pick<CardSlot, 'x' | 'y'>, cardHeight: number): { x: number; y: number } {
+  return { x: s.x + STATION_CARD_SIZE.width / 2, y: s.y + cardHeight / 2 };
 }
 
 function freeSlots(layout: CardLayout, stationId: string): CardSlot[] {
@@ -272,7 +290,7 @@ export function nearestFreeSlot(
   let best: CardSlot | null = null;
   let bestD = Infinity;
   for (const s of freeSlots(layout, stationId)) {
-    const c = center(s);
+    const c = center(s, layout.cardHeight);
     const d = (c.x - point.x) ** 2 + (c.y - point.y) ** 2;
     if (d < bestD) {
       bestD = d;
@@ -293,12 +311,12 @@ export function stepSlot(
 ): CardSlot | null {
   const own = layout.cards.get(stationId);
   if (own == null) return null;
-  const o = center(own);
+  const o = center(own, layout.cardHeight);
   let best: CardSlot | null = null;
   let bestD = Infinity;
   for (const s of freeSlots(layout, stationId)) {
     if (s.key === own.key) continue;
-    const c = center(s);
+    const c = center(s, layout.cardHeight);
     const along =
       dir === 'left'
         ? o.x - c.x
@@ -323,11 +341,12 @@ export function stepSlot(
 export function cardRectsOverlap(
   a: Pick<CardSlot, 'x' | 'y'>,
   b: Pick<CardSlot, 'x' | 'y'>,
+  cardHeight: number = STATION_CARD_SIZE.height,
 ): boolean {
   return (
     a.x < b.x + STATION_CARD_SIZE.width &&
     b.x < a.x + STATION_CARD_SIZE.width &&
-    a.y < b.y + STATION_CARD_SIZE.height &&
-    b.y < a.y + STATION_CARD_SIZE.height
+    a.y < b.y + cardHeight &&
+    b.y < a.y + cardHeight
   );
 }

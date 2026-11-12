@@ -54,6 +54,7 @@ import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 import type { StationUnit } from '@/lib/station-units';
 import { StationUnitTree } from '@/components/station/StationUnitTree';
 import { StationUnassignedEvsesNotice } from '@/components/station/StationUnassignedEvsesNotice';
+import { StationEvseUnitPicker } from '@/components/station/station-unit-actions';
 
 // Connector types grouped by region for the create/edit dropdowns. Tesla is
 // dropped because NACS is the same connector. Standard names and their
@@ -643,6 +644,9 @@ export function ConnectorStatus({
           />
         </div>
       </div>
+      {units.length > 0 && (
+        <StationEvseUnitPicker stationId={stationId} evse={evse} units={units} />
+      )}
       {evse.connectors.length > 0 ? (
         <div className="space-y-2">
           {evse.connectors.map((conn) => (
@@ -776,6 +780,7 @@ export function ConnectorStatus({
         <EmptyState>{t('charts.noEvsesConfigured')}</EmptyState>
       ) : (
         <StationUnitTree
+          stationId={stationId}
           evses={data}
           units={units}
           station={{ status: stationStatus, statusReason, isOnline }}

@@ -220,13 +220,37 @@ describe('standard 2D charger card', () => {
     );
     const id = screen.getByTestId('station-card-id');
     expect(id.getAttribute('title')).toBe('A-VERY-LONG-STATION-IDENTIFIER-0001');
-    expect(id.className).toContain('truncate');
+    expect(id.querySelector('span')?.className).toContain('truncate');
+    expect(screen.queryByTestId('station-card-unit')).toBeNull();
     const links = screen.getByTestId('station-card-links');
     expect(within(links).getByTestId('connection-badge')).toBeTruthy();
     const online = within(links).getByTestId('payment-terminal-badge');
     expect(online.getAttribute('aria-label')).toBe(
       'sites.layoutView.terminalIconLabel:Gate:status.online',
     );
+  });
+
+  it('puts the unit name of a unit card on its own second title line (owner decision 2026-11-12)', () => {
+    renderCard(
+      station({
+        stationId: 'EM4-MASTER-01',
+        unitCharger: {
+          stationUuid: 'sta_1',
+          unitId: 'unt_3',
+          name: 'Box 3',
+          index: 2,
+          offset: 4,
+          spots: 2,
+          freeOffsetX: 0,
+          stationKind: 'ac',
+          number: 3,
+        },
+      }),
+    );
+    const id = screen.getByTestId('station-card-id');
+    const lines = id.querySelectorAll(':scope > span');
+    expect([...lines].map((l) => l.textContent)).toEqual(['EM4-MASTER-01', 'Box 3']);
+    expect(id.getAttribute('title')).toBe('layout.units.chargerName');
   });
 
   it('colors the terminal by its online state and hides it without one', () => {

@@ -336,6 +336,17 @@ describe('site layout demo plan', () => {
     }
   });
 
+  it('gives every station a model the station can send in its BootNotification', () => {
+    // OCPP 1.6 chargePointModel and OCPP 2.1 ChargingStation model are at most 20 characters
+    // (schemas/ocpp-1.6/BootNotification.json, schemas/ocpp-2.1/BootNotificationRequest.json):
+    // a longer one fails validation and the simulator station never connects.
+    for (const site of LAYOUT_DEMO.sites) {
+      for (const s of site.stations) {
+        if (s.model != null) expect(s.model.length, `${s.stationId} model`).toBeLessThanOrEqual(20);
+      }
+    }
+  });
+
   it('has valid settings, every station on its own spot inside the lot, on a circuit of its site', () => {
     for (const site of LAYOUT_DEMO.sites) {
       expect(
@@ -701,7 +712,7 @@ describe('site layout demo plan', () => {
       expect(station).toMatchObject({
         id: 'sta_demounits001',
         stationId: 'EM4-MASTER-01',
-        model: 'AC Master with Extenders',
+        model: 'AC Master Extenders',
         ocppProtocol: 'ocpp1.6',
         evses: 16,
         connectorType: 'Type2',

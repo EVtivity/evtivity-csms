@@ -101,13 +101,24 @@ export function StationCardContent({
   const evses = [...station.evses].sort((a, b) => a.evseId - b.evseId);
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-1 flex min-w-0 items-center gap-1.5">
+      <div className="mb-1 flex min-w-0 items-start gap-1.5">
+        {/* A unit card: the station on line 1, the unit on its own line 2 (owner decision 2026-11-12). */}
         <span
-          className="min-w-0 flex-1 truncate text-sm leading-4 font-semibold tabular-nums"
+          className="flex min-w-0 flex-1 flex-col"
           title={layoutChargerName(station, t)}
           data-testid="station-card-id"
         >
-          {layoutChargerName(station, t)}
+          <span className="truncate text-sm leading-4 font-semibold tabular-nums">
+            {station.stationId}
+          </span>
+          {station.unitCharger?.name != null && (
+            <span
+              className="truncate text-sm leading-4 font-medium text-muted-foreground"
+              data-testid="station-card-unit"
+            >
+              {station.unitCharger.name}
+            </span>
+          )}
         </span>
         <span
           className="flex shrink-0 items-center gap-1 [&_svg]:h-3.5 [&_svg]:w-3.5"

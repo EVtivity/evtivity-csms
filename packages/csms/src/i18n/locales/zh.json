@@ -7749,11 +7749,9 @@
     "deleteUnit": "删除单元",
     "deleteConfirm": "删除 {{name}}？其 EVSE 将保留在充电桩上且不属于任何单元，驾驶员对它的收藏和提醒将被移除。",
     "unitName": "单元名称",
-    "evses": "EVSE",
     "noEvses": "无 EVSE",
     "noUnit": "无单元",
     "evsesWithoutUnit": "未分配单元的 EVSE",
-    "assignTitle": "EVSE 所属单元",
     "empty": "此充电桩没有单元。添加单元可按物理充电箱对其 EVSE 分组。",
     "evseCount_one": "{{count}} 个 EVSE",
     "evseCount_other": "{{count}} 个 EVSE",
@@ -7761,6 +7759,13 @@
     "unitCount_other": "{{count}} 个单元",
     "unassignedNotice_one": "{{count}} 个 EVSE 没有单元。驾驶员会把它们视为另一个以充电桩命名的充电器。",
     "unassignedNotice_other": "{{count}} 个 EVSE 没有单元。驾驶员会把它们视为另一个以充电桩命名的充电器。",
-    "manageUnits": "管理单元"
+    "manageUnits": "管理单元",
+    "unit": "单元",
+    "unitOfEvse": "{{evse}} 所属单元",
+    "assignEvse": "分配 EVSE",
+    "assignEvseDescription": "选择要移到 {{name}} 的 EVSE。一个 EVSE 只属于一个单元，因此其他单元的 EVSE 会离开原单元。",
+    "evse": "EVSE",
+    "chooseEvse": "选择 EVSE",
+    "evseInUnit": "{{evse}}（{{unit}}）"
   }
 }

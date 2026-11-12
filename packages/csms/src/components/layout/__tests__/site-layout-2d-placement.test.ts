@@ -12,6 +12,8 @@ import {
   gridCardLayout,
   nearestFreeSlot,
   stepSlot,
+  UNIT_BOARD_CARD_HEIGHT,
+  CARD_GAP,
   bayKey,
   type CardLayout,
 } from '../site-layout-2d-placement';
@@ -179,5 +181,36 @@ describe('2D card placement', () => {
     expect(layout.slotPoint({ col: 2, row: 0 }).x).toBeGreaterThan(30);
     expect(layout.slotPoint({ col: -1, row: 0 }).x).toBeLessThan(0);
     expect(layout.slotPoint({ col: 0, row: 1 }).z).toBeGreaterThan(0);
+  });
+});
+
+describe('the card height of a board with unit cards (owner decision 2026-11-12)', () => {
+  const stations = [0, 1, 2].map((row) => ({ id: `s${String(row)}`, bay: { col: 0, row } }));
+
+  it('keeps the station card height by default', () => {
+    const layout = gridCardLayout(stations, [2, 2, 2]);
+    expect(layout.cardHeight).toBe(STATION_CARD_SIZE.height);
+    expect(layout.cards.get('s1')?.y).toBe(12 + STATION_CARD_SIZE.height + CARD_GAP);
+  });
+
+  it('spaces every layout by the taller unit board card, with no card overlapping', () => {
+    const grid = gridCardLayout(stations, [2, 2, 2], new Set(), UNIT_BOARD_CARD_HEIGHT);
+    expect(grid.cardHeight).toBe(UNIT_BOARD_CARD_HEIGHT);
+    expect(grid.cards.get('s1')?.y).toBe(12 + UNIT_BOARD_CARD_HEIGHT + CARD_GAP);
+    const depot = depotCardLayout(stations, [1, 1, 1], 1440, UNIT_BOARD_CARD_HEIGHT);
+    const custom = customCardLayout(
+      stations.map((s, i) => ({ id: s.id, x: 0, z: i * 6 })),
+      false,
+      UNIT_BOARD_CARD_HEIGHT,
+    );
+    for (const layout of [grid, depot, custom]) {
+      const cards = [...layout.cards.values()];
+      for (const a of cards) {
+        expect(a.y + UNIT_BOARD_CARD_HEIGHT).toBeLessThanOrEqual(layout.height);
+        for (const b of cards) {
+          if (a !== b) expect(cardRectsOverlap(a, b, UNIT_BOARD_CARD_HEIGHT)).toBe(false);
+        }
+      }
+    }
   });
 });

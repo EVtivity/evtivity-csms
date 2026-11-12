@@ -1888,7 +1888,7 @@ export const LAYOUT_DEMO: {
           row: 0,
           circuitId: 'cir_demogarage01',
           rowKey: 'u1',
-          model: 'AC Master with Extenders',
+          model: 'AC Master Extenders',
           ocppProtocol: 'ocpp1.6',
           evses: 16,
           connectorType: 'Type2',

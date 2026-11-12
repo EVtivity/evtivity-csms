@@ -901,9 +901,11 @@ describe('SiteLayout 2D unit cards', () => {
     const second = within(board).getByTestId('site-layout-card-sta_em4#u2');
     // Box 2's saved card position.
     expect(parseFloat(second.style.left)).toBe(620);
-    expect(within(first).getByTestId('station-card-id').textContent).toBe(
-      'layout.units.chargerName',
-    );
+    // The station on line 1 of the title, the unit on line 2 (owner decision 2026-11-12).
+    expect(within(first).getByTestId('station-card-id').textContent).toBe('ABL-EM4Box 1');
+    expect(within(first).getByTestId('station-card-unit').textContent).toBe('Box 1');
+    // A board with unit cards gives every card one more line.
+    expect(first.style.height).toBe('144px');
     fireEvent.keyDown(first, { key: 'ArrowUp' });
     const moved = within(board).getByTestId('site-layout-card-sta_em4');
     const boardPosition = { x: parseFloat(moved.style.left), y: parseFloat(moved.style.top) };
