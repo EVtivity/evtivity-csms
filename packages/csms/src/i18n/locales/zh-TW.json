@@ -1077,6 +1077,7 @@
     "evseStatus": "EVSE 狀態",
     "evseStatusTooltip": "基於連接器狀態: 充電中(任一佔用), 已預約(任一預約), 故障(任一故障), 可用(全部可用)",
     "connectors": "連接器",
+    "evseConnectorsTab": "EVSE 與連接器",
     "connectorsTooltip": "直流連接器 (CCS, CHAdeMO, NACS) 顯示閃電圖示。交流連接器 (Type1, Type2) 顯示插頭圖示。",
     "filterByStatus": "狀態:",
     "filterByOnline": "線上:",
@@ -7742,7 +7743,6 @@
     }
   },
   "stationUnits": {
-    "title": "單元",
     "description": "此充電樁的實體充電箱，例如主箱及其擴充箱。駕駛員會將每個單元視為獨立的充電器；工作階段與命令仍屬於充電樁。",
     "addUnit": "新增單元",
     "renameUnit": "重新命名單元",
@@ -7760,10 +7760,10 @@
     "unassignedNotice_one": "{{count}} 個 EVSE 沒有單元。駕駛員會將它們視為另一個以充電樁命名的充電器。",
     "unassignedNotice_other": "{{count}} 個 EVSE 沒有單元。駕駛員會將它們視為另一個以充電樁命名的充電器。",
     "manageUnits": "管理單元",
-    "unit": "單元",
-    "unitOfEvse": "{{evse}} 所屬單元",
     "assignEvse": "分配 EVSE",
     "assignEvseDescription": "選擇要移到 {{name}} 的 EVSE。一個 EVSE 只屬於一個單元，因此其他單元的 EVSE 會離開原單元。",
+    "removeEvse": "移除 EVSE",
+    "removeEvseDescription": "選擇要從 {{name}} 中移出的 EVSE。它會移到未分配單元的 EVSE 中，並仍保留在充電樁上。",
     "evse": "EVSE",
     "chooseEvse": "選擇 EVSE",
     "evseInUnit": "{{evse}}（{{unit}}）"

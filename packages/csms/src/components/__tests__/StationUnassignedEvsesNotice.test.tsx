@@ -13,7 +13,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 import {
-  STATION_UNASSIGNED_CARD_ID,
+  STATION_UNIT_TREE_ID,
   StationUnassignedEvsesNotice,
 } from '../station/StationUnassignedEvsesNotice';
 
@@ -40,9 +40,9 @@ describe('StationUnassignedEvsesNotice', () => {
     expect(screen.queryByTestId('station-unassigned-evses')).toBeNull();
   });
 
-  it('counts the EVSEs without a unit and opens the EVSEs Without a Unit card', () => {
+  it('counts the EVSEs without a unit and scrolls to the unit cards', () => {
     const card = document.createElement('div');
-    card.id = STATION_UNASSIGNED_CARD_ID;
+    card.id = STATION_UNIT_TREE_ID;
     const scroll = vi.fn();
     card.scrollIntoView = scroll;
     document.body.appendChild(card);

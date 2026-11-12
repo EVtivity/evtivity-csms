@@ -1077,6 +1077,7 @@
     "evseStatus": "EVSE 상태",
     "evseStatusTooltip": "커넥터 상태에서 도출: 사용 중이면 충전 중, 예약된 것이 있으면 예약됨, 결함이 있으면 결함, 모두 사용 가능하면 사용 가능",
     "connectors": "커넥터",
+    "evseConnectorsTab": "EVSE 및 커넥터",
     "connectorsTooltip": "DC 커넥터(CCS, CHAdeMO, NACS)는 번개 아이콘으로, AC 커넥터(Type1, Type2)는 플러그 아이콘으로 표시됩니다.",
     "filterByStatus": "상태:",
     "filterByOnline": "온라인:",
@@ -7742,7 +7743,6 @@
     }
   },
   "stationUnits": {
-    "title": "유닛",
     "description": "이 충전소의 물리적 충전기 박스(마스터 박스와 확장 박스 등)입니다. 운전자에게는 각 유닛이 별도의 충전기로 보이며, 세션과 명령은 충전소 단위로 유지됩니다.",
     "addUnit": "유닛 추가",
     "renameUnit": "유닛 이름 변경",
@@ -7760,10 +7760,10 @@
     "unassignedNotice_one": "EVSE {{count}}개에 유닛이 없습니다. 운전자에게는 충전소 이름의 충전기가 하나 더 보입니다.",
     "unassignedNotice_other": "EVSE {{count}}개에 유닛이 없습니다. 운전자에게는 충전소 이름의 충전기가 하나 더 보입니다.",
     "manageUnits": "유닛 관리",
-    "unit": "유닛",
-    "unitOfEvse": "{{evse}}의 유닛",
     "assignEvse": "EVSE 할당",
     "assignEvseDescription": "{{name}}(으)로 옮길 EVSE를 선택하세요. EVSE는 하나의 유닛에만 속하므로 다른 유닛의 EVSE는 그 유닛에서 빠집니다.",
+    "removeEvse": "EVSE 제거",
+    "removeEvseDescription": "{{name}}에서 뺄 EVSE를 선택하세요. 해당 EVSE는 유닛이 없는 EVSE로 이동하며 충전소에 그대로 남습니다.",
     "evse": "EVSE",
     "chooseEvse": "EVSE 선택",
     "evseInUnit": "{{evse}} ({{unit}})"

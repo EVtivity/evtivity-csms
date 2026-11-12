@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { putMock, patchMock, deleteMock, canWrite } = vi.hoisted(() => ({
+const { postMock, putMock, patchMock, deleteMock, canWrite } = vi.hoisted(() => ({
+  postMock: vi.fn(),
   putMock: vi.fn(),
   patchMock: vi.fn(),
   deleteMock: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 vi.mock('@/lib/api', () => ({
-  api: { get: vi.fn(), post: vi.fn(), patch: patchMock, put: putMock, delete: deleteMock },
+  api: { get: vi.fn(), post: postMock, patch: patchMock, put: putMock, delete: deleteMock },
   ApiError: class extends Error {},
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -89,7 +90,7 @@ afterEach(() => {
   canWrite.value = true;
 });
 
-describe('Connectors tab with station units', () => {
+describe('EVSE & Connectors tab with station units', () => {
   it('renders a station without units exactly as before (one grid, no unit cards)', () => {
     const without = renderTab({ withUnits: false });
     const html = without.container.innerHTML;
@@ -128,29 +129,64 @@ describe('Connectors tab with station units', () => {
     expect(within(loose).getByText('charts.evse:{"id":15}')).toBeDefined();
   });
 
-  it('renders no unit picker on a station without units', () => {
+  it('puts Add Unit before Create EVSE with the units hint, and no Unit picker on the EVSE cards', () => {
     renderTab({ withUnits: false });
-    expect(screen.queryByLabelText(/stationUnits\.unitOfEvse/)).toBeNull();
+    const buttons = screen
+      .getAllByRole('button')
+      .map((b) => b.textContent)
+      .filter((label) => label === 'stationUnits.addUnit' || label === 'stations.addEvse');
+    expect(buttons).toEqual(['stationUnits.addUnit', 'stations.addEvse']);
+    expect(screen.getByText('stationUnits.empty')).toBeDefined();
+    expect(screen.getByText('stations.evseConnectorsTab')).toBeDefined();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    cleanup();
+    renderTab({ withUnits: true, units: UNITS });
+    expect(screen.getByText('stationUnits.description')).toBeDefined();
+    expect(screen.queryByText('stationUnits.empty')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
-  it('gives each EVSE card a Unit picker that moves the EVSE', async () => {
+  it('adds a unit from the tab header', async () => {
+    postMock.mockResolvedValue({ id: 'unt_new' });
+    renderTab({ withUnits: false });
+    fireEvent.click(screen.getByRole('button', { name: 'stationUnits.addUnit' }));
+    fireEvent.change(screen.getByLabelText('stationUnits.unitName'), {
+      target: { value: 'Box 1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }));
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith('/v1/stations/sta_1/units', { name: 'Box 1' });
+    });
+  });
+
+  it('removes an EVSE from a unit with Remove EVSE, listing only the unit EVSEs', async () => {
     putMock.mockResolvedValue({ changed: true });
     renderTab({ withUnits: true, units: UNITS });
     const box2 = screen.getByTestId('station-unit-unt_box2');
-    const picker = within(box2).getByLabelText(
-      'stationUnits.unitOfEvse:{"evse":"charts.evse:{\\"id\\":3}"}',
-    );
-    expect((picker as HTMLSelectElement).value).toBe('unt_box2');
-    fireEvent.change(picker, { target: { value: 'unt_box5' } });
+    fireEvent.click(within(box2).getByRole('button', { name: 'stationUnits.removeEvse' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('stationUnits.removeEvse')).toBeDefined();
+    const select = within(dialog).getByLabelText<HTMLSelectElement>('stationUnits.evse');
+    const values = Array.from(select.options)
+      .map((o) => o.value)
+      .filter((v) => v !== '');
+    expect(values).toEqual(['3', '4']);
+    fireEvent.change(select, { target: { value: '4' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /common\.save|save/i }));
     await waitFor(() => {
-      expect(putMock).toHaveBeenCalledWith('/v1/stations/sta_1/evses/3/unit', {
-        unitId: 'unt_box5',
-      });
+      expect(putMock).toHaveBeenCalledWith('/v1/stations/sta_1/evses/4/unit', { unitId: null });
     });
-    fireEvent.change(picker, { target: { value: '' } });
-    await waitFor(() => {
-      expect(putMock).toHaveBeenCalledWith('/v1/stations/sta_1/evses/3/unit', { unitId: null });
-    });
+  });
+
+  it('disables Remove EVSE while the unit has no EVSEs', () => {
+    const empty: StationUnit = { ...UNITS[0], id: 'unt_empty', name: 'Empty' } as StationUnit;
+    renderTab({ withUnits: true, units: [...UNITS, empty] });
+    const card = screen.getByTestId('station-unit-unt_empty');
+    const button = within(card).getByRole('button', { name: 'stationUnits.removeEvse' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    const box1 = screen.getByTestId('station-unit-unt_box1');
+    const enabled = within(box1).getByRole('button', { name: 'stationUnits.removeEvse' });
+    expect((enabled as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('renames and deletes a unit from its card, the delete after the confirmation', async () => {
@@ -230,15 +266,17 @@ describe('Connectors tab with station units', () => {
     expect((open as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('hides the unit actions and shows the unit as text without stations:write', () => {
+  it('hides the unit actions and Add Unit without stations:write', () => {
     canWrite.value = false;
     renderTab({ withUnits: true, units: UNITS });
     const box1 = screen.getByTestId('station-unit-unt_box1');
     expect(within(box1).queryByRole('button', { name: 'stationUnits.assignEvse' })).toBeNull();
     expect(within(box1).queryByRole('button', { name: 'stationUnits.renameUnit' })).toBeNull();
     expect(within(box1).queryByRole('button', { name: 'stationUnits.deleteUnit' })).toBeNull();
+    expect(within(box1).queryByRole('button', { name: 'stationUnits.removeEvse' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'stationUnits.addUnit' })).toBeNull();
     expect(within(box1).queryByRole('combobox')).toBeNull();
-    // The heading and each EVSE card's unit text.
-    expect(within(box1).getAllByText('Box 1')).toHaveLength(3);
+    // The heading only: the EVSE cards name no unit.
+    expect(within(box1).getAllByText('Box 1')).toHaveLength(1);
   });
 });

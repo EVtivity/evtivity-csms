@@ -1077,6 +1077,7 @@
     "evseStatus": "EVSE 状态",
     "evseStatusTooltip": "基于连接器状态: 充电中(任一占用), 已预约(任一预约), 故障(任一故障), 可用(全部可用)",
     "connectors": "连接器",
+    "evseConnectorsTab": "EVSE 与连接器",
     "connectorsTooltip": "直流连接器 (CCS, CHAdeMO, NACS) 显示闪电图标。交流连接器 (Type1, Type2) 显示插头图标。",
     "filterByStatus": "状态:",
     "filterByOnline": "在线:",
@@ -7742,7 +7743,6 @@
     }
   },
   "stationUnits": {
-    "title": "单元",
     "description": "此充电桩的物理充电箱，例如主箱及其扩展箱。驾驶员会把每个单元视为单独的充电器；会话和命令仍属于充电桩。",
     "addUnit": "添加单元",
     "renameUnit": "重命名单元",
@@ -7760,10 +7760,10 @@
     "unassignedNotice_one": "{{count}} 个 EVSE 没有单元。驾驶员会把它们视为另一个以充电桩命名的充电器。",
     "unassignedNotice_other": "{{count}} 个 EVSE 没有单元。驾驶员会把它们视为另一个以充电桩命名的充电器。",
     "manageUnits": "管理单元",
-    "unit": "单元",
-    "unitOfEvse": "{{evse}} 所属单元",
     "assignEvse": "分配 EVSE",
     "assignEvseDescription": "选择要移到 {{name}} 的 EVSE。一个 EVSE 只属于一个单元，因此其他单元的 EVSE 会离开原单元。",
+    "removeEvse": "移除 EVSE",
+    "removeEvseDescription": "选择要从 {{name}} 中移出的 EVSE。它会移到未分配单元的 EVSE 中，并仍保留在充电桩上。",
     "evse": "EVSE",
     "chooseEvse": "选择 EVSE",
     "evseInUnit": "{{evse}}（{{unit}}）"

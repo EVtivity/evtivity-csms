@@ -1077,6 +1077,7 @@
     "evseStatus": "EVSE-Status",
     "evseStatusTooltip": "Abgeleitet aus den Anschlussstatus: Lädt, wenn ein Anschluss belegt ist, Reserviert, wenn ein Anschluss reserviert ist, Fehlerhaft, wenn ein Anschluss fehlerhaft ist, Verfügbar, wenn alle verfügbar sind",
     "connectors": "Anschlüsse",
+    "evseConnectorsTab": "EVSE & Anschlüsse",
     "connectorsTooltip": "DC-Anschlüsse (CCS, CHAdeMO, NACS) werden mit Blitzsymbol angezeigt. AC-Anschlüsse (Type1, Type2) werden mit Stecker-Symbol angezeigt.",
     "filterByStatus": "Status:",
     "filterByOnline": "Online:",
@@ -7742,7 +7743,6 @@
     }
   },
   "stationUnits": {
-    "title": "Einheiten",
     "description": "Die physischen Ladeboxen dieser Ladestation, etwa eine Master-Box und ihre Erweiterungen. Fahrer sehen jede Einheit als eigenen Ladepunkt; Sitzungen und Befehle bleiben bei der Ladestation.",
     "addUnit": "Einheit Hinzufügen",
     "renameUnit": "Einheit Umbenennen",
@@ -7760,10 +7760,10 @@
     "unassignedNotice_one": "{{count}} EVSE hat keine Einheit. Fahrer sehen ihn als weiteren Ladepunkt mit dem Namen der Ladestation.",
     "unassignedNotice_other": "{{count}} EVSEs haben keine Einheit. Fahrer sehen sie als weiteren Ladepunkt mit dem Namen der Ladestation.",
     "manageUnits": "Einheiten Verwalten",
-    "unit": "Einheit",
-    "unitOfEvse": "Einheit von {{evse}}",
     "assignEvse": "EVSE Zuweisen",
     "assignEvseDescription": "Wählen Sie ein EVSE, das in {{name}} wechselt. Ein EVSE einer anderen Einheit verlässt diese Einheit, denn ein EVSE gehört nur zu einer Einheit.",
+    "removeEvse": "EVSE Entfernen",
+    "removeEvseDescription": "Wählen Sie ein EVSE, das aus {{name}} herausgenommen wird. Es wechselt zu EVSEs ohne Einheit und bleibt an der Ladestation.",
     "evse": "EVSE",
     "chooseEvse": "EVSE auswählen",
     "evseInUnit": "{{evse}} ({{unit}})"

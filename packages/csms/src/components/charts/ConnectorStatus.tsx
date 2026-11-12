@@ -54,7 +54,7 @@ import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 import type { StationUnit } from '@/lib/station-units';
 import { StationUnitTree } from '@/components/station/StationUnitTree';
 import { StationUnassignedEvsesNotice } from '@/components/station/StationUnassignedEvsesNotice';
-import { StationEvseUnitPicker } from '@/components/station/station-unit-actions';
+import { StationAddUnitButton } from '@/components/station/station-unit-actions';
 
 // Connector types grouped by region for the create/edit dropdowns. Tesla is
 // dropped because NACS is the same connector. Standard names and their
@@ -644,9 +644,6 @@ export function ConnectorStatus({
           />
         </div>
       </div>
-      {units.length > 0 && (
-        <StationEvseUnitPicker stationId={stationId} evse={evse} units={units} />
-      )}
       {evse.connectors.length > 0 ? (
         <div className="space-y-2">
           {evse.connectors.map((conn) => (
@@ -749,20 +746,24 @@ export function ConnectorStatus({
 
   return (
     <TabPanel
-      title={t('stations.connectors')}
+      title={t('stations.evseConnectorsTab')}
       isLoading={isLoading}
       isError={isError && evses == null}
       onRetry={onRetry}
+      description={units.length > 0 ? t('stationUnits.description') : t('stationUnits.empty')}
       actions={
-        <CreateButton
-          label={t('stations.addEvse')}
-          onClick={() => {
-            if (ocppProtocol === 'ocpp1.6') {
-              setNewEvseConnector((prev) => ({ ...prev, connectorId: newEvseId }));
-            }
-            setAddEvseOpen(true);
-          }}
-        />
+        <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+          <StationAddUnitButton stationId={stationId} />
+          <CreateButton
+            label={t('stations.addEvse')}
+            onClick={() => {
+              if (ocppProtocol === 'ocpp1.6') {
+                setNewEvseConnector((prev) => ({ ...prev, connectorId: newEvseId }));
+              }
+              setAddEvseOpen(true);
+            }}
+          />
+        </div>
       }
     >
       <StationUnassignedEvsesNotice unitCount={units.length} evses={evses} />

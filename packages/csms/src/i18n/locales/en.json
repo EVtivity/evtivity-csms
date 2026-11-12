@@ -1078,6 +1078,7 @@
     "evseStatus": "EVSE Status",
     "evseStatusTooltip": "Derived from connector statuses: Charging if any occupied, Reserved if any reserved, Faulted if any faulted, Available if all available",
     "connectors": "Connectors",
+    "evseConnectorsTab": "EVSE & Connectors",
     "connectorsTooltip": "DC connectors (CCS, CHAdeMO, NACS) shown with lightning icon. AC connectors (Type1, Type2) shown with plug icon.",
     "filterByStatus": "Status:",
     "filterByOnline": "Online:",
@@ -7742,7 +7743,6 @@
     }
   },
   "stationUnits": {
-    "title": "Units",
     "description": "The physical charger boxes of this station, such as a master box and its extenders. Drivers see each unit as its own charger; sessions and commands stay with the station.",
     "addUnit": "Add Unit",
     "renameUnit": "Rename Unit",
@@ -7760,10 +7760,10 @@
     "unassignedNotice_one": "{{count}} EVSE has no unit. Drivers see it as one more charger named after the station.",
     "unassignedNotice_other": "{{count}} EVSEs have no unit. Drivers see them as one more charger named after the station.",
     "manageUnits": "Manage Units",
-    "unit": "Unit",
-    "unitOfEvse": "Unit of {{evse}}",
     "assignEvse": "Assign EVSE",
     "assignEvseDescription": "Pick an EVSE to move into {{name}}. An EVSE of another unit leaves that unit, since an EVSE belongs to one unit only.",
+    "removeEvse": "Remove EVSE",
+    "removeEvseDescription": "Pick an EVSE to take out of {{name}}. It moves to EVSEs Without a Unit and stays on the station.",
     "evse": "EVSE",
     "chooseEvse": "Choose an EVSE",
     "evseInUnit": "{{evse}} ({{unit}})"

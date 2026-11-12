@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
+import { CreateButton } from '@/components/create-button';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
@@ -287,54 +288,108 @@ export function StationUnitAssignDialog({
 }
 
 /**
- * The Unit picker of an EVSE card: its unit, or none. Read-only text without
- * `stations:write`.
+ * The Remove EVSE dialog of a unit card: picks one of the unit's EVSEs and
+ * takes it out of the unit, so it moves to the EVSEs Without a Unit card.
+ * Open while `unit` is set.
  */
-export function StationEvseUnitPicker({
+export function StationUnitRemoveEvseDialog({
   stationId,
-  evse,
-  units,
+  unit,
+  evses,
+  onClose,
 }: {
   stationId: string;
-  evse: UnitEvse;
-  units: StationUnit[];
+  unit: StationUnit | null;
+  evses: UnitEvse[];
+  onClose: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const canWrite = useHasPermission('stations:write');
-  const assign = useAssignEvseUnit(stationId);
-  const id = `evse-unit-${String(evse.evseId)}`;
-  const label = t('stationUnits.unitOfEvse', { evse: t('charts.evse', { id: evse.evseId }) });
+  const [evseId, setEvseId] = useState('');
+  const close = (): void => {
+    setEvseId('');
+    onClose();
+  };
+  const assign = useAssignEvseUnit(stationId, close);
+  const options =
+    unit == null
+      ? []
+      : evses.filter((e) => e.unitId === unit.id).sort((a, b) => a.evseId - b.evseId);
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Label htmlFor={id} className="text-sm text-muted-foreground">
-        {t('stationUnits.unit')}
-      </Label>
-      {canWrite ? (
-        <Select
-          id={id}
-          aria-label={label}
-          className="w-auto min-w-40"
-          value={evse.unitId ?? ''}
-          disabled={assign.isPending}
-          onChange={(e) => {
-            assign.mutate({
-              evseId: evse.evseId,
-              unitId: e.target.value === '' ? null : e.target.value,
-            });
+    <Dialog
+      open={unit != null}
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('stationUnits.removeEvse')}</DialogTitle>
+          <DialogDescription>
+            {t('stationUnits.removeEvseDescription', { name: unit?.name ?? '' })}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (unit != null && evseId !== '') {
+              assign.mutate({ evseId: Number(evseId), unitId: null });
+            }
           }}
         >
-          <option value="">{t('stationUnits.noUnit')}</option>
-          {units.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </Select>
-      ) : (
-        <span id={id} className="text-sm">
-          {units.find((u) => u.id === evse.unitId)?.name ?? t('stationUnits.noUnit')}
-        </span>
-      )}
-    </div>
+          <div className="space-y-2">
+            <Label htmlFor="station-unit-remove-evse">{t('stationUnits.evse')}</Label>
+            <Select
+              id="station-unit-remove-evse"
+              required
+              value={evseId}
+              onChange={(e) => {
+                setEvseId(e.target.value);
+              }}
+            >
+              <option value="" disabled>
+                {t('stationUnits.chooseEvse')}
+              </option>
+              {options.map((evse) => (
+                <option key={evse.evseId} value={String(evse.evseId)}>
+                  {t('charts.evse', { id: evse.evseId })}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <DialogFooter>
+            <CancelButton onClick={close} />
+            <SaveButton isPending={assign.isPending} disabled={evseId === ''} />
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Add Unit on the EVSE & Connectors tab header, before Create EVSE, with its name
+ * dialog. Renders nothing without `stations:write`.
+ */
+export function StationAddUnitButton({
+  stationId,
+}: {
+  stationId: string;
+}): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const canWrite = useHasPermission('stations:write');
+  const [draft, setDraft] = useState<UnitNameDraft | null>(null);
+  if (!canWrite) return null;
+  return (
+    <>
+      <CreateButton
+        label={t('stationUnits.addUnit')}
+        variant="outline"
+        onClick={() => {
+          setDraft({ id: null, name: '' });
+        }}
+      />
+      <StationUnitNameDialog stationId={stationId} draft={draft} onDraftChange={setDraft} />
+    </>
   );
 }

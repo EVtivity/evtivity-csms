@@ -1077,6 +1077,7 @@
     "evseStatus": "Estado EVSE",
     "evseStatusTooltip": "Derivado de los estados de conectores: Cargando si alguno está ocupado, Reservado si alguno está reservado, Con falla si alguno tiene falla, Disponible si todos están disponibles",
     "connectors": "Conectores",
+    "evseConnectorsTab": "EVSE y Conectores",
     "connectorsTooltip": "Conectores DC (CCS, CHAdeMO, NACS) con icono de rayo. Conectores AC (Type1, Type2) con icono de enchufe.",
     "filterByStatus": "Estado:",
     "filterByOnline": "En línea:",
@@ -7742,7 +7743,6 @@
     }
   },
   "stationUnits": {
-    "title": "Unidades",
     "description": "Las cajas de carga físicas de esta estación, como una caja maestra y sus extensiones. Los conductores ven cada unidad como su propio cargador; las sesiones y los comandos siguen en la estación.",
     "addUnit": "Agregar Unidad",
     "renameUnit": "Renombrar Unidad",
@@ -7760,10 +7760,10 @@
     "unassignedNotice_one": "{{count}} EVSE no tiene unidad. Los conductores lo ven como un cargador más con el nombre de la estación.",
     "unassignedNotice_other": "{{count}} EVSE no tienen unidad. Los conductores los ven como un cargador más con el nombre de la estación.",
     "manageUnits": "Administrar Unidades",
-    "unit": "Unidad",
-    "unitOfEvse": "Unidad de {{evse}}",
     "assignEvse": "Asignar EVSE",
     "assignEvseDescription": "Elija un EVSE para moverlo a {{name}}. Un EVSE de otra unidad sale de esa unidad, porque un EVSE pertenece a una sola unidad.",
+    "removeEvse": "Quitar EVSE",
+    "removeEvseDescription": "Elija un EVSE para sacarlo de {{name}}. Pasa a EVSE sin Unidad y sigue en la estación.",
     "evse": "EVSE",
     "chooseEvse": "Elija un EVSE",
     "evseInUnit": "{{evse}} ({{unit}})"

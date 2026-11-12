@@ -41,7 +41,7 @@ import {
 const COLUMN_COUNT = 4;
 
 /**
- * The payment terminals paired to a station (station Connectors tab), with Pair
+ * The payment terminals paired to a station (station Payment Terminals tab), with Pair
  * for an unpaired terminal and New Payment Terminal with the station chosen.
  * Renders nothing without `paymentTerminals:read` or while the feature is off.
  */

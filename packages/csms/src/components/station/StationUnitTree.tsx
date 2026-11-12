@@ -8,15 +8,17 @@ import { StationOnlineBadge } from '@/components/StationOnlineBadge';
 import { AddIconButton } from '@/components/add-icon-button';
 import { EditIconButton } from '@/components/edit-icon-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
+import { MinusIconButton } from '@/components/minus-icon-button';
 import { useHasPermission } from '@/lib/auth';
 import { groupEvsesByUnit, unitStatus, type StationUnit } from '@/lib/station-units';
 import {
   StationUnitAssignDialog,
   StationUnitDeleteDialog,
   StationUnitNameDialog,
+  StationUnitRemoveEvseDialog,
   type UnitNameDraft,
 } from './station-unit-actions';
-import { STATION_UNASSIGNED_CARD_ID } from './StationUnassignedEvsesNotice';
+import { STATION_UNASSIGNED_CARD_ID, STATION_UNIT_TREE_ID } from './StationUnassignedEvsesNotice';
 
 interface TreeEvse {
   evseId: number;
@@ -39,12 +41,12 @@ const CARD = 'rounded-lg border p-4 space-y-3 scroll-mt-4';
 const HEADER = 'flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b';
 
 /**
- * The Connectors tab body: the station's EVSE cards in one grid, or, for a
+ * The EVSE & Connectors tab body: the station's EVSE cards in one grid, or, for a
  * station with units (a master box and its extenders), one card per unit
  * holding its EVSE cards, then a card of the EVSEs without a unit while there
  * are any. A unit shows the station state while the station is offline or
  * unavailable as a whole. With `stations:write` each unit card can assign an
- * EVSE, rename the unit and delete it.
+ * EVSE, remove one of its EVSEs, rename the unit and delete it.
  */
 export function StationUnitTree<E extends TreeEvse>({
   stationId,
@@ -58,6 +60,7 @@ export function StationUnitTree<E extends TreeEvse>({
   const [renaming, setRenaming] = useState<UnitNameDraft | null>(null);
   const [deleting, setDeleting] = useState<StationUnit | null>(null);
   const [assigning, setAssigning] = useState<StationUnit | null>(null);
+  const [removing, setRemoving] = useState<StationUnit | null>(null);
   if (units.length === 0) {
     return <div className={GRID}>{evses.map(renderEvse)}</div>;
   }
@@ -75,7 +78,11 @@ export function StationUnitTree<E extends TreeEvse>({
     </span>
   );
   return (
-    <div className="space-y-4" data-testid="station-unit-tree">
+    <div
+      id={STATION_UNIT_TREE_ID}
+      className="space-y-4 scroll-mt-4"
+      data-testid="station-unit-tree"
+    >
       {grouped.units.map(({ unit, evses: unitEvses }) => (
         <section
           key={unit.id}
@@ -96,6 +103,13 @@ export function StationUnitTree<E extends TreeEvse>({
                   disabled={unitEvses.length === evses.length}
                   onClick={() => {
                     setAssigning(unit);
+                  }}
+                />
+                <MinusIconButton
+                  title={t('stationUnits.removeEvse')}
+                  disabled={unitEvses.length === 0}
+                  onClick={() => {
+                    setRemoving(unit);
                   }}
                 />
                 <EditIconButton
@@ -157,6 +171,14 @@ export function StationUnitTree<E extends TreeEvse>({
             evses={evses}
             onClose={() => {
               setAssigning(null);
+            }}
+          />
+          <StationUnitRemoveEvseDialog
+            stationId={stationId}
+            unit={removing}
+            evses={evses}
+            onClose={() => {
+              setRemoving(null);
             }}
           />
         </>

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// The Payment Terminals card of the station Connectors tab: nothing without
+// The Payment Terminals card of the station Payment Terminals tab: nothing without
 // the permission or the feature, the paired terminals, Pair of an unpaired
 // terminal and New Payment Terminal with the station chosen.
 

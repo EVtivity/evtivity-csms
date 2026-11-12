@@ -6,17 +6,20 @@ import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
-/**
- * The element id of the EVSEs Without a Unit card, the target of the notice's
- * action: each EVSE card there has its Unit picker.
- */
+/** The element id of the EVSEs Without a Unit card. */
 export const STATION_UNASSIGNED_CARD_ID = 'station-unassigned-evses-card';
 
 /**
- * A warning on the Connectors tab of a station that has units but still has
+ * The element id of the unit cards, the target of the notice's action: each
+ * unit card has Assign EVSE, which puts an EVSE into that unit.
+ */
+export const STATION_UNIT_TREE_ID = 'station-unit-tree';
+
+/**
+ * A warning on the EVSE & Connectors tab of a station that has units but still has
  * EVSEs without one (setup not finished, or a box added later). Drivers see
  * those EVSEs as one more charger named by the station, so the operator is
- * told and taken to the EVSEs Without a Unit card. Renders nothing otherwise.
+ * told and taken to the unit cards, where Assign EVSE puts them in a unit. Renders nothing otherwise.
  */
 export function StationUnassignedEvsesNotice({
   unitCount,
@@ -40,7 +43,7 @@ export function StationUnassignedEvsesNotice({
           size="sm"
           onClick={() => {
             document
-              .getElementById(STATION_UNASSIGNED_CARD_ID)
+              .getElementById(STATION_UNIT_TREE_ID)
               ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }}
         >

@@ -31,6 +31,7 @@ import { StationEventsTab } from '@/components/StationEventsTab';
 import { StationConfigurationsTab } from '@/components/StationConfigurationsTab';
 import { StationDataPlanCard } from '@/components/station/StationDataPlanCard';
 import { StationPaymentTerminalsCard } from '@/components/payment-terminals/StationPaymentTerminalsCard';
+import { usePaymentTerminalFeature } from '@/components/payment-terminals/payment-terminal-types';
 import type { ChargingKind, DataPlan, DataPlanSource } from '@evtivity/lib/station-data-plan';
 import { StationFirmwareTab } from '@/components/StationFirmwareTab';
 import { StationChargingProfilesTab } from '@/components/StationChargingProfilesTab';
@@ -57,7 +58,6 @@ import { useHasPermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 import { isOcpp2x } from '@evtivity/lib/ocpp-version';
 import type { StationUnit } from '@/lib/station-units';
-import { StationUnitsCard } from '@/components/station/StationUnitsCard';
 
 interface Station {
   id: string;
@@ -140,6 +140,9 @@ export function StationDetail(): React.JSX.Element {
     },
   } = useFeatureFlags();
   const showInsightsTab = useHasPermission('aiInsights:read') && aiInsightsEnabled;
+  const canReadTerminals = useHasPermission('paymentTerminals:read');
+  const { available: terminalsAvailable } = usePaymentTerminalFeature();
+  const showTerminalsTab = canReadTerminals && terminalsAvailable;
 
   const { data: station, isLoading } = useQuery({
     queryKey: ['stations', id],
@@ -398,7 +401,10 @@ export function StationDetail(): React.JSX.Element {
           <TabsTrigger value="images">{t('stations.images')}</TabsTrigger>
           <TabsTrigger value="metrics">{t('stations.metrics')}</TabsTrigger>
           <TabsTrigger value="sessions">{t('sessions.title')}</TabsTrigger>
-          <TabsTrigger value="connectors">{t('stations.connectors')}</TabsTrigger>
+          <TabsTrigger value="connectors">{t('stations.evseConnectorsTab')}</TabsTrigger>
+          {showTerminalsTab && (
+            <TabsTrigger value="payment-terminals">{t('paymentTerminals.title')}</TabsTrigger>
+          )}
           <TabsTrigger value="commands">{t('stations.ocppCommands')}</TabsTrigger>
           {station.isSimulator && <TabsTrigger value="simulate">{t('simulate.tab')}</TabsTrigger>}
           <TabsTrigger value="security">{t('stations.security')}</TabsTrigger>
@@ -473,9 +479,13 @@ export function StationDetail(): React.JSX.Element {
             stationStatus={station.status}
             statusReason={station.statusReason}
           />
-          <StationUnitsCard stationId={station.id} units={units} />
-          <StationPaymentTerminalsCard stationId={station.id} />
         </TabsContent>
+
+        {showTerminalsTab && (
+          <TabsContent value="payment-terminals">
+            <StationPaymentTerminalsCard stationId={station.id} />
+          </TabsContent>
+        )}
 
         <TabsContent value="commands">
           <StationCommands stationId={station.stationId} ocppProtocol={station.ocppProtocol} />
