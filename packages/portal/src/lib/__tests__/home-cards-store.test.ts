@@ -38,6 +38,16 @@ describe('useHomeCards store', () => {
     expect(useHomeCards.getState().cards).toEqual(DEFAULT_HOME_CARDS);
   });
 
+  it('starts from the defaults when localStorage cannot be read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const { useHomeCards } = await freshStore();
+    expect(useHomeCards.getState().cards).toEqual(DEFAULT_HOME_CARDS);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it('setCards sanitizes, updates state, and persists', async () => {
     const { useHomeCards } = await freshStore();
     useHomeCards.getState().setCards(['vehicles', 'scanQr', 'vehicles', 'bogus'] as HomeCardId[]);

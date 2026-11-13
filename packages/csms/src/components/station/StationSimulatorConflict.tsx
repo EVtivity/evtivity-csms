@@ -5,7 +5,8 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
@@ -53,24 +54,25 @@ export function StationSimulatorConflict({
 
   return (
     <>
-      <Card className="border-warning">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm">
+      <Alert variant="warning" className="flex-col items-stretch sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <AlertDescription>
             {t('stations.simulatorConflict', { time: formatDateTime(conflictAt, timezone) })}
-          </p>
-          {canWriteStations && (
-            <Button
-              size="sm"
-              className="sm:shrink-0"
-              onClick={() => {
-                setConfirmOpen(true);
-              }}
-            >
-              {t('stations.confirmRealStation')}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+          </AlertDescription>
+        </div>
+        {canWriteStations && (
+          <Button
+            size="sm"
+            className="sm:shrink-0"
+            onClick={() => {
+              setConfirmOpen(true);
+            }}
+          >
+            {t('stations.confirmRealStation')}
+          </Button>
+        )}
+      </Alert>
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}

@@ -742,6 +742,30 @@ describe('departureAwarePlan', () => {
     expect(result.plannedKw.get('sta_a')).toBeGreaterThan(0);
   });
 
+  it('warns when the planner takes longer than its runtime budget', async () => {
+    dbMock.listPlanDepartures.mockResolvedValue([
+      departure({ id: 'vdp_plugged', targetEnergyKwh: 20, maxChargePowerKw: 11 }),
+    ]);
+    dbMock.listPlanSessions.mockResolvedValue([session({ id: 'ses_1' })]);
+    // The planner run reads the clock twice: a 300 ms run, over the 250 ms budget.
+    let clock = 0;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => {
+      clock += 300;
+      return clock;
+    });
+    const log = makeLogger();
+    try {
+      await departureAwarePlan({ ...ctx(), log });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 'sit_1', runtimeMs: 300, vehicles: 1 }),
+      'Depot charging plan took longer than its budget',
+    );
+    expect(dbMock.writeSitePlan).toHaveBeenCalledTimes(1);
+  });
+
   it('follows the stored plan and writes nothing while it is fresh', async () => {
     dbMock.listPlanDepartures.mockResolvedValue([
       departure({ id: 'vdp_plugged', sessionId: 'ses_1' }),

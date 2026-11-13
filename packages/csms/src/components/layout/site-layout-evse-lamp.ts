@@ -7,8 +7,7 @@
 import type { TFunction } from 'i18next';
 import { evseDisplayState, type StationDisplayState } from '@/lib/station-display-state';
 import { connectorFlows } from './site-layout-cable';
-import { CONNECTOR_KIND_NAMES } from '@/components/connector-icons/connector-kind-name';
-import { connectorKindOf } from './site-layout-connectors';
+import { connectorTypeLabel } from '@evtivity/lib/connector-type-label';
 
 /** Station states that hold every EVSE of the station (the whole station is in them). */
 const STATION_WIDE: ReadonlySet<StationDisplayState> = new Set([
@@ -51,12 +50,13 @@ export function evsePlateLabel(
   t: TFunction,
   locale: string,
   evse: { evseId: number; connectors: ReadonlyArray<{ connectorType: string | null }> },
-  dc: boolean,
 ): string {
+  const words = {
+    other: t('connectorTypeNames.other'),
+    pantograph: t('connectorTypeNames.pantograph'),
+  };
   const names = [
-    ...new Set(
-      evse.connectors.map((c) => CONNECTOR_KIND_NAMES[connectorKindOf(c.connectorType, dc)]),
-    ),
+    ...new Set(evse.connectors.map((c) => connectorTypeLabel(c.connectorType, words))),
   ];
   let types = names.join(', ');
   try {

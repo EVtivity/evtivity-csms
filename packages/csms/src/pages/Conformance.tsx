@@ -25,6 +25,7 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { formatNumber } from '@/lib/formatting';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface OcttRun {
@@ -169,7 +170,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
             >
               {triggerRun.isPending && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <Spinner className="h-4 w-4" />
+                  <ButtonSpinner />
                 </div>
               )}
               <span
@@ -257,7 +258,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
                       <TableCell>{statusBadge(run.status)}</TableCell>
                       <TableCell className="text-right text-success">{run.passed}</TableCell>
                       <TableCell className="text-right text-destructive">{run.failed}</TableCell>
-                      <TableCell className="text-right text-warning">
+                      <TableCell className="text-right text-warning-text">
                         {run.skipped + run.errors}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">

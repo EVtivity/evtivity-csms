@@ -7,7 +7,7 @@
   var mode = null;
   var theme = null;
   try {
-    mode = localStorage.getItem('portal_theme') || localStorage.getItem('theme');
+    mode = localStorage.getItem('portal_theme');
     theme = localStorage.getItem('portal_ui_theme');
   } catch (e) {
     // Storage can be blocked (private mode): fall back to the system mode and Default.
@@ -15,7 +15,10 @@
     theme = null;
   }
   var root = document.documentElement;
-  if (mode === 'dark' || (!mode && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+  if (
+    mode === 'dark' ||
+    (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  ) {
     root.classList.add('dark');
   }
   if (theme === 'soft' || theme === 'high-contrast') {

@@ -15,12 +15,19 @@ const h = vi.hoisted(() => ({
   markStale: vi.fn(),
   dispatch: vi.fn(),
   publish: vi.fn(),
+  /** Rejects the next client query when set. */
+  clientError: null as Error | null,
 }));
 
 vi.mock('@evtivity/database', () => ({
   client: (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     h.queries.push(text);
+    if (h.clientError != null) {
+      const err = h.clientError;
+      h.clientError = null;
+      return Promise.reject(err);
+    }
     if (text.includes('site_load_management')) return Promise.resolve(h.backlog);
     if (text.includes('FROM vehicle_departures')) return Promise.resolve(h.rows.shift() ?? []);
     return Promise.resolve(h.recipients);
@@ -37,6 +44,8 @@ vi.mock('../template-dirs.js', () => ({ ALL_TEMPLATES_DIRS: ['/t'] }));
 import {
   afterSitePlanWrite,
   closePassedDepartures,
+  depotSystemsUrl,
+  notifyDepotUsers,
   notifyDepartureAtRisk,
   notifyDepartureMissed,
   publishDepartureChanged,
@@ -81,6 +90,7 @@ const operator = {
 
 beforeEach(() => {
   h.queries.length = 0;
+  h.clientError = null;
   h.rows.length = 0;
   h.backlog = [];
   h.recipients = [operator];
@@ -313,5 +323,174 @@ describe('afterSitePlanWrite', () => {
       log,
     );
     expect(h.queries).toEqual([]);
+  });
+});
+
+describe('notifyDepotUsers', () => {
+  it('sends to the all-site fleet users for no site, with the user fields', async () => {
+    h.recipients = [
+      operator,
+      { ...operator, id: 'usr_2', phone: '+4915112345678', first_name: null },
+    ];
+    h.dispatch.mockRejectedValueOnce(new Error('smtp'));
+    await notifyDepotUsers('fleet.DepotRequestsRefused', null, { systemName: 'ITCS' }, deps);
+    expect(h.queries[0]).toContain('u.has_all_site_access');
+    expect(h.queries[0]).not.toContain('user_site_assignments');
+    expect(h.dispatch).toHaveBeenCalledTimes(2);
+    expect(h.dispatch.mock.calls[1]?.[2]).toMatchObject({
+      userId: 'usr_2',
+      phone: '+4915112345678',
+      firstName: undefined,
+      language: 'de',
+    });
+    expect(h.dispatch.mock.calls[1]?.[4]).toEqual(['/t']);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'usr_1', siteId: null }),
+      'Depot notice not sent to a recipient',
+    );
+  });
+
+  it('reads the site users for a depot and warns when the recipient read fails', async () => {
+    await notifyDepotUsers(
+      'fleet.DepotRequestsRefused',
+      'sit_1',
+      {},
+      { ...deps, templatesDirs: ['/x'] },
+    );
+    expect(h.queries[0]).toContain('user_site_assignments');
+    expect(h.dispatch.mock.calls[0]?.[4]).toEqual(['/x']);
+    h.clientError = new Error('db down');
+    await expect(notifyDepotUsers('e', 'sit_1', {}, deps)).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'e', siteId: 'sit_1' }),
+      'Depot notice not sent',
+    );
+  });
+});
+
+describe('depotSystemsUrl', () => {
+  it('builds the link from the given base, else CSMS_URL, else localhost', () => {
+    expect(depotSystemsUrl(deps)).toBe(
+      'https://csms.example.com/settings?tab=integrations&sub=depot-systems',
+    );
+    const before = process.env['CSMS_URL'];
+    onTestFinished(() => {
+      if (before === undefined) delete process.env['CSMS_URL'];
+      else process.env['CSMS_URL'] = before;
+    });
+    process.env['CSMS_URL'] = 'https://ops.example.org/';
+    expect(depotSystemsUrl({ log })).toBe(
+      'https://ops.example.org/settings?tab=integrations&sub=depot-systems',
+    );
+    delete process.env['CSMS_URL'];
+    expect(depotSystemsUrl({ log })).toBe(
+      'http://localhost:7100/settings?tab=integrations&sub=depot-systems',
+    );
+  });
+});
+
+describe('notice edges', () => {
+  it('reads nothing for no ids', async () => {
+    expect(await notifyDepartureAtRisk([], deps)).toBe(0);
+    expect(await notifyDepartureMissed([], deps)).toBe(0);
+    expect(h.queries).toEqual([]);
+  });
+
+  it('names the vehicle by its plate, takes a text time and blanks an odd shortfall', async () => {
+    h.rows.push([
+      row({
+        make: null,
+        model: '',
+        departure_at: '2026-11-01T05:30:00.000Z',
+        shortfall_kwh: 'n/a',
+        readiness_reason: 'not_a_reason',
+      }),
+    ]);
+    expect(await notifyDepartureAtRisk(['vdp_1'], deps)).toBe(1);
+    const vars = h.dispatch.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(vars).toMatchObject({
+      vehicleName: 'BUS-12',
+      departureAt: '2026-11-01T05:30:00.000Z',
+      shortfallKwh: '',
+    });
+    expect(Object.keys(vars).some((k) => k.startsWith('reason'))).toBe(false);
+  });
+
+  it('names no vehicle without a plate and skips an ad hoc or unrated departure', async () => {
+    h.rows.push([
+      row({ id: 'vdp_adhoc', departure_at: null }),
+      row({ id: 'vdp_unrated', readiness: null }),
+      row({ id: 'vdp_noname', make: null, model: null, license_plate: null, shortfall_kwh: null }),
+    ]);
+    expect(await notifyDepartureAtRisk(['vdp_adhoc', 'vdp_unrated', 'vdp_noname'], deps)).toBe(1);
+    expect(h.dispatch.mock.calls[0]?.[3]).toMatchObject({
+      vehicleName: '',
+      licensePlate: '',
+      shortfallKwh: '',
+    });
+  });
+
+  it('warns and sends nothing when the departure read fails', async () => {
+    h.clientError = new Error('db down');
+    expect(await notifyDepartureAtRisk(['vdp_1'], deps)).toBe(0);
+    h.clientError = new Error('db down');
+    expect(await notifyDepartureMissed(['vdp_1'], deps)).toBe(0);
+    expect(log.warn).toHaveBeenCalledWith(expect.anything(), 'Departure at-risk notices not sent');
+    expect(log.warn).toHaveBeenCalledWith(expect.anything(), 'Departure missed notices not sent');
+  });
+
+  it('keeps going after a failed claim', async () => {
+    h.rows.push([row({ id: 'vdp_a' }), row({ id: 'vdp_b' })]);
+    h.claim.mockRejectedValueOnce(new Error('claim failed'));
+    expect(await notifyDepartureAtRisk(['vdp_a', 'vdp_b'], deps)).toBe(1);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ departureId: 'vdp_a' }),
+      'Departure at-risk notice not sent',
+    );
+    h.rows.push([
+      row({ id: 'vdp_c', status: 'completed', outcome: 'short' }),
+      row({ id: 'vdp_d', status: 'completed', outcome: 'short' }),
+    ]);
+    h.claim.mockRejectedValueOnce(new Error('claim failed'));
+    expect(await notifyDepartureMissed(['vdp_c', 'vdp_d'], deps)).toBe(1);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ departureId: 'vdp_c' }),
+      'Departure missed notice not sent',
+    );
+  });
+
+  it('sends a SoC target on a missed notice and skips an ad hoc or open one', async () => {
+    h.rows.push([
+      row({
+        id: 'vdp_soc',
+        status: 'completed',
+        outcome: 'short',
+        target_kind: 'soc',
+        target_soc_percent: 80,
+        delivered_kwh: null,
+      }),
+      row({ id: 'vdp_soc_null', status: 'completed', outcome: 'short', target_kind: 'soc' }),
+      row({ id: 'vdp_adhoc', status: 'completed', outcome: 'short', departure_at: null }),
+      row({ id: 'vdp_open', status: 'completed', outcome: null }),
+    ]);
+    expect(
+      await notifyDepartureMissed(['vdp_soc', 'vdp_soc_null', 'vdp_adhoc', 'vdp_open'], deps),
+    ).toBe(2);
+    const vars = h.dispatch.mock.calls.map((c) => c[3] as Record<string, unknown>);
+    expect(vars[0]).toMatchObject({ targetKwh: '', targetSocPercent: '80', deliveredKwh: '' });
+    expect(vars[1]).toMatchObject({ targetSocPercent: '' });
+  });
+
+  it('closes passed departures in batches until a short one, and sends no notice for an empty backlog', async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => ({
+      id: `vdp_${String(i)}`,
+      siteId: 'sit_1',
+      outcome: 'met',
+    }));
+    h.complete.mockResolvedValueOnce(full).mockResolvedValueOnce([]);
+    const result = await closePassedDepartures(deps);
+    expect(h.complete).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ completed: 1000, met: 1000, notified: 0 });
+    expect(h.dispatch).not.toHaveBeenCalled();
   });
 });

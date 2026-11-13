@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { ShieldCheck } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 /**
@@ -16,7 +16,7 @@ export function AiDataNotice(): React.JSX.Element {
   return (
     // A static note, not an announcement: role="note" replaces the Alert's role="alert".
     <Alert variant="info" role="note" className="items-start" data-testid="ai-data-notice">
-      <ShieldCheck className="mt-0.5" aria-hidden="true" />
+      <Info className="mt-0.5 h-4 w-4" aria-hidden="true" />
       <div className="min-w-0 space-y-1">
         <AlertTitle>{t('ai.dataNotice.title')}</AlertTitle>
         <AlertDescription>{t('ai.dataNotice.body')}</AlertDescription>

@@ -36,6 +36,7 @@ export const UI_COLOR_TOKENS = [
   'success-foreground',
   'warning',
   'warning-foreground',
+  'warning-text',
   'info',
   'info-foreground',
   'border',
@@ -101,15 +102,21 @@ const DEFAULT_LIGHT: UiTokenSet = {
   'destructive-foreground': '210 40% 98%',
   success: '160 84% 27.5%',
   'success-foreground': '210 40% 98%',
-  warning: '37.7 92.1% 32%',
-  'warning-foreground': '210 40% 98%',
+  // Warning splits into a fill and a text color (owner decision 2026-11-12):
+  // the fill stays a bright amber under dark text (9.3:1), and warning text and
+  // icons on card and background use the deep amber `warning-text` (5.5:1 on
+  // card, 5.3:1 on background, 4.9:1 on the 10 percent warning tint of Alert).
+  warning: '37.7 92.1% 50%',
+  'warning-foreground': '222.2 84% 4.9%',
+  'warning-text': '26 90% 35%',
   info: '189 94.5% 29%',
   'info-foreground': '210 40% 98%',
   border: '214.3 31.8% 91.4%',
   // Form control and button boundaries: 3.3:1 on card, 3.2:1 on background (WCAG 1.4.11).
   input: '215 16% 57%',
   control: '215 16% 57%',
-  // Icon ink on solid tone fills (IconBadge): at least 4:1 on info, warning, destructive, success.
+  // Icon ink on solid tone fills (IconBadge): at least 4:1 on info, destructive and
+  // success. A warning badge uses `warning-foreground`, the ink of its fill.
   'on-tone': '222.2 84% 4.9%',
   ring: '221.2 83.2% 53.3%',
   ...DEFAULT_SHAPE,
@@ -136,12 +143,14 @@ const DEFAULT_DARK: UiTokenSet = {
   // red-500: error text stays readable on the dark background (5.3:1).
   destructive: '0 84.2% 60.2%',
   // Dark text on the tone fills (WCAG AA, owner decision 2026-11-11): 5.3:1 on
-  // destructive and info, 10.3:1 on success, 6:1 on warning.
+  // destructive and info, 10.3:1 on success, 9.3:1 on warning.
   'destructive-foreground': '222.2 84% 4.9%',
   success: '160 84% 45%',
   'success-foreground': '222.2 84% 4.9%',
-  warning: '37.7 92.1% 40%',
+  // The bright amber fill, and the same amber as text: 8.1:1 on card, 9.3:1 on background.
+  warning: '37.7 92.1% 50%',
   'warning-foreground': '222.2 84% 4.9%',
+  'warning-text': '37.7 92.1% 50%',
   // Info text on card 4.6:1.
   info: '189 94.5% 34%',
   'info-foreground': '222.2 84% 4.9%',
@@ -165,7 +174,8 @@ const SOFT_SHAPE: Partial<UiTokenSet> = {
   'ui-shadow-lg': '0 16px 32px -8px rgb(15 23 42 / 0.1), 0 6px 12px -6px rgb(15 23 42 / 0.06)',
 };
 
-// Soft keeps its own tone fills, deeper and under white text.
+// Soft keeps its own tone fills, deeper and under white text, except warning,
+// whose fill is the bright amber under dark text with a deep amber text color.
 const SOFT_LIGHT: UiTokenSet = {
   ...DEFAULT_LIGHT,
   ...SOFT_SHAPE,
@@ -174,8 +184,9 @@ const SOFT_LIGHT: UiTokenSet = {
   'destructive-foreground': '0 0% 100%',
   success: '160 84% 26%',
   'success-foreground': '0 0% 100%',
-  warning: '30 92% 32%',
-  'warning-foreground': '0 0% 100%',
+  warning: '37.7 92.1% 50%',
+  'warning-foreground': '222.2 84% 4.9%',
+  'warning-text': '26 90% 35%',
   info: '192 90% 30%',
   'info-foreground': '0 0% 100%',
   'on-tone': '0 0% 100%',
@@ -189,13 +200,15 @@ const SOFT_DARK: UiTokenSet = {
   'success-foreground': '222.2 84% 4.9%',
   warning: '37.7 92.1% 50%',
   'warning-foreground': '222.2 84% 4.9%',
+  'warning-text': '37.7 92.1% 50%',
   info: '189 94.5% 43%',
   'info-foreground': '222.2 84% 4.9%',
 };
 
 // High Contrast: neutral surfaces with no hue tint, black or white text at
 // AAA (7:1), strong borders and control boundaries, tone fills dark enough (light
-// mode) or light enough (dark mode) for their text at AAA, heavier text weights.
+// mode) or light enough (dark mode) for their text at AAA (the light warning fill
+// is the bright amber under black text), heavier text weights.
 const HIGH_CONTRAST_SHAPE: Partial<UiTokenSet> = {
   'ui-font-weight-medium': '600',
   'ui-font-weight-semibold': '700',
@@ -224,8 +237,10 @@ const HIGH_CONTRAST_LIGHT: UiTokenSet = {
   'destructive-foreground': '0 0% 100%',
   success: '160 90% 18%',
   'success-foreground': '0 0% 100%',
-  warning: '30 95% 22%',
-  'warning-foreground': '0 0% 100%',
+  // Bright amber fill under black text (9.8:1), deep amber warning text (9.4:1).
+  warning: '37.7 92.1% 50%',
+  'warning-foreground': '0 0% 0%',
+  'warning-text': '30 95% 22%',
   info: '200 95% 22%',
   'info-foreground': '0 0% 100%',
   border: '0 0% 35%',
@@ -259,6 +274,7 @@ const HIGH_CONTRAST_DARK: UiTokenSet = {
   'success-foreground': '0 0% 0%',
   warning: '40 95% 60%',
   'warning-foreground': '0 0% 0%',
+  'warning-text': '40 95% 60%',
   info: '190 90% 62%',
   'info-foreground': '0 0% 0%',
   border: '0 0% 70%',
@@ -332,18 +348,32 @@ function hslToRgb(triplet: string): [number, number, number] {
   return [channel(h + 1 / 3), channel(h), channel(h - 1 / 3)];
 }
 
+function luminanceOfRgb(rgb: readonly number[]): number {
+  const linear = rgb.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * (linear[0] ?? 0) + 0.7152 * (linear[1] ?? 0) + 0.0722 * (linear[2] ?? 0);
+}
+
 function relativeLuminance(triplet: string): number {
-  const linear = hslToRgb(triplet).map((c) =>
-    c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4,
-  ) as [number, number, number];
-  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  return luminanceOfRgb(hslToRgb(triplet));
+}
+
+function ratioOfLuminances(la: number, lb: number): number {
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
 /** WCAG 2.2 contrast ratio of two HSL triplets (1 to 21). */
 export function contrastRatio(a: string, b: string): number {
-  const la = relativeLuminance(a);
-  const lb = relativeLuminance(b);
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  return ratioOfLuminances(relativeLuminance(a), relativeLuminance(b));
+}
+
+/**
+ * Contrast of `fg` on a tint: `tone` at `alpha` (0 to 1) over `surface`, as the
+ * Alert variants draw it (`bg-warning/10` on the card or the page).
+ */
+export function contrastOnTint(fg: string, tone: string, surface: string, alpha: number): number {
+  const toneRgb = hslToRgb(tone);
+  const tint = hslToRgb(surface).map((c, i) => c * (1 - alpha) + (toneRgb[i] ?? 0) * alpha);
+  return ratioOfLuminances(relativeLuminance(fg), luminanceOfRgb(tint));
 }
 
 export type ContrastKind = 'body' | 'text' | 'boundary';
@@ -374,7 +404,8 @@ export const UI_CONTRAST_PAIRS: readonly {
   { fg: 'destructive', bg: 'background', kind: 'text' },
   { fg: 'success', bg: 'card', kind: 'text' },
   { fg: 'success', bg: 'background', kind: 'text' },
-  { fg: 'warning', bg: 'card', kind: 'text' },
+  { fg: 'warning-text', bg: 'card', kind: 'text' },
+  { fg: 'warning-text', bg: 'background', kind: 'text' },
   { fg: 'info', bg: 'card', kind: 'text' },
   { fg: 'destructive-foreground', bg: 'destructive', kind: 'text' },
   { fg: 'success-foreground', bg: 'success', kind: 'text' },
@@ -382,7 +413,6 @@ export const UI_CONTRAST_PAIRS: readonly {
   { fg: 'info-foreground', bg: 'info', kind: 'text' },
   { fg: 'on-tone', bg: 'destructive', kind: 'boundary' },
   { fg: 'on-tone', bg: 'success', kind: 'boundary' },
-  { fg: 'on-tone', bg: 'warning', kind: 'boundary' },
   { fg: 'on-tone', bg: 'info', kind: 'boundary' },
   { fg: 'input', bg: 'card', kind: 'boundary' },
   { fg: 'input', bg: 'background', kind: 'boundary' },

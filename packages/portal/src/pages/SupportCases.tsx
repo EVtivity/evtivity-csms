@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useNavigate } from 'react-router';
+import { fromParent } from '@/hooks/use-back-to-parent';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
@@ -63,12 +64,12 @@ export function SupportCases(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('supportCases.title')}>
+      <PageHeader title={t('supportCases.title')} fallbackTo="/">
         <CreateButton
           label={t('supportCases.newCase')}
           size="sm"
           onClick={() => {
-            void navigate('/support/new');
+            void navigate('/support/new', fromParent('/support'));
           }}
         />
       </PageHeader>
@@ -92,7 +93,7 @@ export function SupportCases(): React.JSX.Element {
           key={c.id}
           className="cursor-pointer"
           onClick={() => {
-            void navigate(`/support/${c.id}`);
+            void navigate(`/support/${c.id}`, fromParent('/support'));
           }}
         >
           <CardContent className="p-4 space-y-2">

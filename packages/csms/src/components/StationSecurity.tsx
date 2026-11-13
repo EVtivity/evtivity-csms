@@ -4,7 +4,7 @@
 import { Fragment, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RotateCcw } from 'lucide-react';
+import { Info, RotateCcw } from 'lucide-react';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
@@ -382,7 +382,8 @@ export function StationSecurity({
 
         {pendingSecurityProfile != null && (
           <Alert variant="info">
-            <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+            <Info className="h-4 w-4" />
+            <AlertDescription className="flex flex-1 flex-wrap items-center justify-between gap-2">
               <span>
                 {t('stations.profileUpgradePending', { profile: pendingSecurityProfile })}
               </span>

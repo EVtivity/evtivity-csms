@@ -87,6 +87,7 @@ import {
 import type { BoardPoint } from './site-layout-2d-board';
 import { StationCardContext, type StationCardExtras } from './station-card-context';
 import { stationThumbnailModel } from './site-layout-station-thumbnail';
+import { useSavedToast } from '@/components/saved-message';
 import { useChargerPlateColors } from './use-station-thumbnail';
 
 // three.js loads only when the 3D view shows.
@@ -118,6 +119,7 @@ interface SiteLayoutProps {
 
 export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('sites:write');
   const [pendingPositions, setPendingPositions] = useState<Map<string, { x: number; y: number }>>(
@@ -216,6 +218,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     // A saved layout leaves Edit Layout; a failed save keeps the mode and the
     // pending positions and settings, and shows the error.
     onSuccess: () => {
+      savedToast();
       setEditing(false);
       setPendingPositions(new Map());
       setPendingBoard(new Map());

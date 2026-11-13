@@ -1023,6 +1023,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'support_case',
     service: 'services/src/support-case.service.ts',
   },
+  'POST /portal/support-cases/:id/close': {
+    audited: 'support_case',
+    service: 'services/src/support-case.service.ts',
+  },
   'POST /portal/support-cases/:id/ai-feedback': {
     audited: 'support_case',
     service: 'services/src/support-case.service.ts',

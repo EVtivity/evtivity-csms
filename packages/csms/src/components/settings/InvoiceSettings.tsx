@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 const PAYMENT_TERMS_KEY = 'invoice.paymentTermsDays';
@@ -166,9 +167,7 @@ export function InvoiceSettings({ settings, readOnly = false }: Props): React.JS
             <SaveButton isPending={mutation.isPending} />
           )}
 
-          {mutation.isSuccess && (
-            <p className="text-sm text-success">{t('settings.invoiceSettingsSaved')}</p>
-          )}
+          {mutation.isSuccess && <SavedMessage>{t('settings.invoiceSettingsSaved')}</SavedMessage>}
           {mutation.isError && (
             <p className="text-sm text-destructive">
               {getErrorMessage(mutation.error, t, 'settings.invoiceSettingsSaveFailed')}

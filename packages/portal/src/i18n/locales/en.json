@@ -7,6 +7,7 @@
     "backToHome": "Back to Home",
     "save": "Save",
     "saving": "Saving...",
+    "saved": "Saved successfully",
     "cancel": "Cancel",
     "keep": "Keep",
     "back": "Back",
@@ -332,6 +333,8 @@
     "payWithCard": "Pay with card",
     "startWithAccount": "Start with account",
     "signIn": "Sign In",
+    "signInToCharge": "Use an account to charge here.",
+    "register": "Register",
     "stationNotAvailable": "This station is not available right now.",
     "pricing": "Pricing",
     "pricingFree": "Free",
@@ -366,6 +369,7 @@
     "siteContact": "Site Contact",
     "evNotDetectedTitle": "EV Not Detected",
     "evNotDetectedDescription": "The charging station does not detect an EV connected to this port. Please plug in your vehicle and try again.",
+    "plugInAnimationLabel": "Plug the charging cable into your vehicle",
     "startAnyway": "Start Anyway",
     "proceedAnyway": "Proceed Anyway",
     "simulatorPlugInHint": "Simulator: open the CSMS dashboard, go to this station's Simulate tab, and click Plug In before starting the charge.",
@@ -419,7 +423,6 @@
     "incorrectCvc": "The CVC number is incorrect.",
     "insufficientFunds": "Insufficient funds. Try a different card.",
     "processingError": "A processing error occurred. Try again.",
-    "paymentNotConfigured": "Payment is not configured for this charger.",
     "loadingPayment": "Loading payment form..."
   },
   "guestSession": {
@@ -566,6 +569,11 @@
     "sendFailed": "Failed to send message. Please try again.",
     "createFailed": "Failed to create support case. Please try again.",
     "downloadFailed": "Failed to download attachment. Please try again.",
+    "closeCase": "Close Case",
+    "closeConfirmTitle": "Close This Case?",
+    "closeConfirmDescription": "The support team sees that you closed it. Send a message any time to open it again.",
+    "closeFailed": "Failed to close the case. Please try again.",
+    "reopenNote": "Sending a message reopens this case.",
     "station": "Station",
     "categories": {
       "billing_dispute": "Billing Dispute",
@@ -1108,7 +1116,7 @@
     "paymentMethods": "Payment Methods",
     "rfidCards": "RFID Cards",
     "vehicles": "Vehicles",
-    "supportCases": "Support Cases",
+    "supportCases": "Support",
     "managePayments": "Manage payment methods",
     "totalCases": "total cases",
     "viewAllCases": "View all cases",
@@ -1652,5 +1660,9 @@
         "AccountBillingChanged": "Fleet billing changed"
       }
     }
+  },
+  "connectorTypeNames": {
+    "other": "Other",
+    "pantograph": "Pantograph"
   }
 }

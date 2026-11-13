@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { getValidActions, type SimulateAction } from '@/lib/simulate-actions';
 import { TOKEN_ACTIONS, useSimulateAction } from '@/hooks/use-simulate-action';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import type { LayoutStation } from './StationCard';
 
 /** The actions the popup offers, in this order; each shows only when it applies. */
@@ -151,7 +152,7 @@ export function LayoutSimulatePanel({
               >
                 {loading && (
                   <span className="absolute inset-0 flex items-center justify-center">
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <ButtonSpinner />
                   </span>
                 )}
                 <span className={loading ? 'invisible' : ''}>{t(`simulate.${action}`)}</span>

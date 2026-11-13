@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { AlertCircle } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -38,8 +38,8 @@ export function Certificates(): React.JSX.Element {
     return (
       <div>
         {header}
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
+        <Alert variant="info">
+          <Info className="h-4 w-4" />
           <AlertDescription>{t('errors.PNC_DISABLED')}</AlertDescription>
         </Alert>
       </div>

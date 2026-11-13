@@ -10,7 +10,6 @@ import {
 import { Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { CardContent, CardHeader } from '@/components/ui/card';
 import { useToast } from '@/components/ui/toast';
@@ -35,6 +34,7 @@ import {
 import { passkeyErrorText, webauthnUnavailableReason } from '@/lib/webauthn';
 import { passkeyUnavailableKey, signInPasskeyContext } from '@/lib/passkey-unavailable';
 import type { Theme } from '@/lib/theme';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import type { PriceDisplay } from '@evtivity/lib/price-display';
 
 interface PortalMfaVerifyResponse {
@@ -330,7 +330,7 @@ export function MfaChallenge(): React.JSX.Element {
             <Button type="submit" size="lg" className="relative w-full" disabled={loading}>
               {loading && (
                 <span className="absolute inset-0 flex items-center justify-center">
-                  <Spinner className="h-4 w-4" />
+                  <ButtonSpinner />
                 </span>
               )}
               <span className={loading ? 'invisible' : ''}>

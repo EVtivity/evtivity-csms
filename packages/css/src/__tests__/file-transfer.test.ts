@@ -320,6 +320,27 @@ describe('HTTP download', () => {
     const { base } = await httpServer(() => ({ status: 404 }));
     expect((await failure(downloadFile(`${base}/fw.bin`, 32))).reason).toBe('TransferFailed');
   });
+
+  it('reports a refused download as PermissionDenied and a location that is no URL as InvalidUrl', async () => {
+    const { base } = await httpServer(() => ({ status: 403 }));
+    expect((await failure(downloadFile(`${base}/fw.bin`, 32))).reason).toBe('PermissionDenied');
+    expect((await failure(downloadFile('not a url', 32))).reason).toBe('InvalidUrl');
+  });
+
+  it('reports a server that is not listening as TransferFailed', async () => {
+    const { base } = await httpServer(() => ({ status: 200 }));
+    for (const close of cleanups.splice(0)) await close();
+    expect((await failure(downloadFile(`${base}/fw.bin`, 32))).reason).toBe('TransferFailed');
+  });
+
+  it('reports a body the server cuts off as TransferFailed', async () => {
+    const { base } = await httpServer(() => ({
+      status: 200,
+      headers: { 'content-length': '64' },
+      body: Buffer.alloc(8, 1),
+    }));
+    expect((await failure(downloadFile(`${base}/fw.bin`, 128))).reason).toBe('TransferFailed');
+  });
 });
 
 describe('private addresses', () => {

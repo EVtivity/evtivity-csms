@@ -4,7 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
+import { AlertCircle, AlertTriangle } from 'lucide-react';
 import type { AiAlertsDto } from '@evtivity/lib/ai-usage';
 import { AI_PROVIDER_LABELS, isAiProviderId } from '@evtivity/lib/ai-config';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -72,7 +72,7 @@ export function AiAlertsBanner({
     <div className={cn('space-y-2', className)} data-testid="ai-alerts-banner">
       {data.providers.map((alert) => (
         <Alert key={alert.provider} variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
+          <AlertCircle className="h-4 w-4" />
           <div>
             <AlertTitle>
               {t('aiAlerts.providerTitle', { provider: providerLabel(alert.provider) })}
@@ -93,7 +93,11 @@ export function AiAlertsBanner({
       ))}
       {budget != null && (
         <Alert variant={budget.level === 'exceeded' ? 'destructive' : 'warning'}>
-          <AlertTriangle className="h-4 w-4" />
+          {budget.level === 'exceeded' ? (
+            <AlertCircle className="h-4 w-4" />
+          ) : (
+            <AlertTriangle className="h-4 w-4" />
+          )}
           <div>
             <AlertTitle>
               {budget.level === 'exceeded'

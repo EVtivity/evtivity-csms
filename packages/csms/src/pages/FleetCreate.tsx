@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { useCreatedToast } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface Fleet {
@@ -22,6 +23,7 @@ interface Fleet {
 
 export function FleetCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -34,6 +36,7 @@ export function FleetCreate(): React.JSX.Element {
       api.post<Fleet>('/v1/fleets', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['fleets'] });
+      createdToast();
       void navigate(`/fleets/${created.id}`);
     },
   });

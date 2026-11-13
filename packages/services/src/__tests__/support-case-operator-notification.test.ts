@@ -125,6 +125,20 @@ describe('dispatchOperatorNotification', () => {
     );
   });
 
+  it('sends the driver close notice to the assignee', async () => {
+    dbResults.push([OPERATOR]);
+
+    await dispatchOperatorNotification('driver_closed', 'case_1', 'SC-1', 'Help', 'usr_1');
+
+    expect(dispatchSystemNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      'supportCase.DriverClosed',
+      expect.objectContaining({ email: 'op@example.com', userId: 'usr_1' }),
+      expect.objectContaining({ caseId: 'case_1', caseNumber: 'SC-1', type: 'driver_closed' }),
+      ALL_TEMPLATES_DIRS,
+    );
+  });
+
   it('falls back to the earliest active admin when the assignee is inactive', async () => {
     dbResults.push([], [ADMIN]);
 

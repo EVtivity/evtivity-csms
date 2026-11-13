@@ -873,7 +873,7 @@ describe('StationConnectivityTab', () => {
     expect(notFetched.className).toContain('border-dashed');
     expect(notFetched.className).not.toContain('destructive');
     expect(notFetched.className).toContain('text-foreground');
-    expect(notFetched.querySelector('svg')?.getAttribute('class')).toContain('text-warning');
+    expect(notFetched.querySelector('svg')?.getAttribute('class')).toContain('text-warning-text');
     const hasData = within(screen.getByTestId(`sim-coverage-day-${dayOffset(6)}`)).getByTestId(
       'sim-coverage-cell',
     );

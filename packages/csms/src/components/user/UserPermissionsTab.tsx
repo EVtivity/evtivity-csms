@@ -18,6 +18,7 @@ import {
   type FactorProof,
   type ProofRejection,
 } from '@/components/FactorProofField';
+import { useSavedToast } from '@/components/saved-message';
 import { useMfaStatus } from '@/components/profile/mfa-status';
 
 export interface UserPermissionsTabProps {
@@ -31,6 +32,7 @@ export function UserPermissionsTab({
   canEdit,
 }: UserPermissionsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
 
   const [editingPermissions, setEditingPermissions] = useState(false);
@@ -63,6 +65,7 @@ export function UserPermissionsTab({
       setProofFailure(proofRejection(err));
     },
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['users', userId, 'permissions'] });
       setEditingPermissions(false);
     },

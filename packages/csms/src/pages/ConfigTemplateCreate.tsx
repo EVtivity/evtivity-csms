@@ -22,6 +22,7 @@ import {
   isBootOwnedRefusal,
   templateVariablesForSave,
 } from '@/components/config-template/TemplateVariableRows';
+import { useCreatedToast } from '@/components/saved-message';
 import type { TemplateVariable } from '@/components/config-template/TemplateVariableRows';
 
 interface ConfigTemplate {
@@ -38,6 +39,7 @@ type OcppVersion = '2.1' | '1.6';
 
 export function ConfigTemplateCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const hasAllSiteAccess = useHasAllSiteAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -59,6 +61,7 @@ export function ConfigTemplateCreate(): React.JSX.Element {
     }) => api.post<ConfigTemplate>('/v1/config-templates', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['config-templates'] });
+      createdToast();
       void navigate(`/station-configurations/${created.id}`);
     },
   });

@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   markSitePlanStale: vi.fn(),
   vehicleDayDepartureCounts: vi.fn(),
   writeAudit: vi.fn(),
+  getDepotSystem: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', () => ({
@@ -39,6 +40,7 @@ const {
   expandScheduleOccurrences,
   updateDeparture,
   updateDepartureSchedule,
+  writeDepartureAudit,
 } = await import('../departure.service.js');
 
 const NOW = new Date('2026-11-02T10:00:00Z'); // Monday
@@ -671,5 +673,141 @@ describe('checkExpectedArrival', () => {
         checkExpectedArrival(undefined, soc, departure, now);
       }).toThrow(expect.objectContaining({ details: { field: 'expectedArrivalSocPercent' } }));
     }
+  });
+});
+
+describe('edit checks', () => {
+  beforeEach(() => {
+    mocks.updateScheduledDeparture.mockImplementation(
+      (id: string, changes: Record<string, unknown>) =>
+        Promise.resolve(departure({ id, ...changes })),
+    );
+    mocks.updateDepartureSchedule.mockImplementation(
+      (_id: string, changes: Record<string, unknown>) => Promise.resolve(schedule(changes)),
+    );
+    mocks.getDepotSystem.mockReset();
+  });
+
+  it('refuses a maximum SoC below the target or above 100, and keeps an equal one as none', async () => {
+    mocks.getDeparture.mockResolvedValue(departure());
+    for (const maxSoc of [70, 101, 85.5]) {
+      await expect(
+        updateDeparture('vdp_1', { target: { kind: 'soc', targetSoc: 80, maxSoc } }, ctx()),
+        String(maxSoc),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'targetSocMax' } });
+    }
+    await updateDeparture('vdp_1', { target: { kind: 'soc', targetSoc: 80, maxSoc: 80 } }, ctx());
+    expect(mocks.updateScheduledDeparture).toHaveBeenCalledWith(
+      'vdp_1',
+      expect.objectContaining({ targetKind: 'soc', targetSocPercent: 80 }),
+      { tx: true },
+    );
+    // A maximum equal to the target stores no maximum.
+    const written = mocks.updateScheduledDeparture.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(written['targetSocMaxPercent'] ?? null).toBeNull();
+  });
+
+  it('refuses a malformed schedule date and a range the stored end makes backwards', async () => {
+    mocks.getDepartureSchedule.mockResolvedValue(schedule({ validTo: '2026-11-10' }));
+    await expect(
+      updateDepartureSchedule('vds_1', { validFrom: '2026-13-45' }, ctx()),
+    ).rejects.toMatchObject({ details: { field: 'validFrom' } });
+    await expect(
+      updateDepartureSchedule('vds_1', { validFrom: '2026-12-01' }, ctx()),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'validTo' } });
+    expect(mocks.updateDepartureSchedule).not.toHaveBeenCalled();
+  });
+
+  it('checks the battery capacity when a SoC schedule is edited', async () => {
+    mocks.getDepartureSchedule.mockResolvedValue(
+      schedule({ targetKind: 'soc', targetEnergyKwh: null, targetSocPercent: 80 }),
+    );
+    mocks.getVehicleBatteryCapacity.mockResolvedValue(null);
+    await expect(updateDepartureSchedule('vds_1', { priority: 7 }, ctx())).rejects.toMatchObject({
+      details: { field: 'targetSoc' },
+    });
+    expect(mocks.updateDepartureSchedule).not.toHaveBeenCalled();
+  });
+
+  it('refuses an edit of a departure an enabled depot system manages, and allows it once disabled', async () => {
+    mocks.getDeparture.mockResolvedValue(departure({ depotSystemId: 'dps_1' }));
+    mocks.getDepotSystem.mockResolvedValueOnce({ id: 'dps_1', isEnabled: true });
+    await expect(updateDeparture('vdp_1', { priority: 9 }, ctx())).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DEPARTURE_MANAGED_BY_DEPOT_SYSTEM',
+      name: 'DepartureManagedByDepotSystemError',
+    });
+    expect(mocks.updateScheduledDeparture).not.toHaveBeenCalled();
+    mocks.getDepotSystem.mockResolvedValueOnce({ id: 'dps_1', isEnabled: false });
+    await updateDeparture('vdp_1', { priority: 9 }, ctx());
+    expect(mocks.getDepotSystem).toHaveBeenLastCalledWith('dps_1', { tx: true });
+    expect(mocks.updateScheduledDeparture).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a departure time on an ad hoc departure and a SoC target without capacity', async () => {
+    mocks.getDeparture.mockResolvedValue(departure({ adHoc: true, departureAt: null }));
+    await expect(
+      updateDeparture('vdp_1', { departureAt: new Date('2026-11-03T06:00:00Z') }, ctx()),
+    ).rejects.toMatchObject({ details: { field: 'departureAt' } });
+    mocks.getDeparture.mockResolvedValue(departure());
+    mocks.getVehicleBatteryCapacity.mockResolvedValue(0);
+    await expect(
+      updateDeparture('vdp_1', { target: { kind: 'soc', targetSoc: 90 } }, ctx()),
+    ).rejects.toMatchObject({ details: { field: 'targetSoc' } });
+    expect(mocks.updateScheduledDeparture).not.toHaveBeenCalled();
+  });
+
+  it('writes the expected arrival fields of an edit', async () => {
+    mocks.getDeparture.mockResolvedValue(departure());
+    await updateDeparture(
+      'vdp_1',
+      { expectedArrivalAt: new Date('2026-11-03T01:00:00Z'), expectedArrivalSocPercent: 30 },
+      ctx(),
+    );
+    expect(mocks.updateScheduledDeparture).toHaveBeenCalledWith(
+      'vdp_1',
+      expect.objectContaining({
+        expectedArrivalAt: new Date('2026-11-03T01:00:00Z'),
+        expectedArrivalSocPercent: 30,
+      }),
+      { tx: true },
+    );
+  });
+
+  it('marks the plan stale without a change hook', async () => {
+    mocks.getDeparture.mockResolvedValue(departure());
+    const c = ctx({ onChange: undefined });
+    await updateDeparture('vdp_1', { priority: 2 }, c);
+    expect(mocks.markSitePlanStale).toHaveBeenCalledWith('sit_a', expect.any(String), c.log);
+  });
+});
+
+describe('writeDepartureAudit', () => {
+  it('stamps both views with the write-time site and every site they name, and drops a gone entity id', async () => {
+    mocks.writeAudit.mockClear();
+    await writeDepartureAudit(
+      'vds_1',
+      'schedule_deleted',
+      'sit_b',
+      { siteId: 'sit_a', priority: 5 },
+      null,
+      ctx(),
+      { notes: 'Seeded', entityGone: true },
+    );
+    expect(auditCalls()[0]).toEqual({
+      entityId: null,
+      entityIdSnapshot: 'vds_1',
+      action: 'schedule_deleted',
+      actor: 'operator',
+      actorUserId: 'usr_1',
+      before: {
+        siteId: 'sit_a',
+        priority: 5,
+        auditSiteId: 'sit_b',
+        auditSiteIds: ['sit_b', 'sit_a'],
+      },
+      after: null,
+      notes: 'Seeded',
+    });
   });
 });

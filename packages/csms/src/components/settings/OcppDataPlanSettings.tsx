@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useTab } from '@/hooks/use-tab';
+import { SavedMessage } from '@/components/saved-message';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 type PlanField = keyof DataPlanSettingKeys;
@@ -240,7 +241,7 @@ function DataPlanTab({ plan, settings }: PlanTabProps): React.JSX.Element {
             saveMutation.mutate(values);
           }}
         />
-        {saveMutation.isSuccess && <p className="text-sm text-success">{t('common.saved')}</p>}
+        {saveMutation.isSuccess && <SavedMessage />}
         {saveMutation.isError && (
           <p className="text-sm text-destructive">{getErrorMessage(saveMutation.error, t)}</p>
         )}

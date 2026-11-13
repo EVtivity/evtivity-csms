@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { LoadingLogo } from '@/components/loading-logo';
 import { api } from '@/lib/api';
 import { SimCoverageStrip } from './SimCoverageStrip';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import {
   customRange,
   DAY_MS,
@@ -194,7 +195,7 @@ function SimRangeForm({
           <Button type="submit" className="relative w-full gap-1.5 md:w-auto" disabled={isPending}>
             {isPending && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                <ButtonSpinner />
               </div>
             )}
             <span className={`inline-flex items-center gap-1.5 ${isPending ? 'invisible' : ''}`}>

@@ -6,11 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
-import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { rateLimitedMessage } from '@/lib/error-message';
 
 export const MFA_METHOD_LABELS: Record<string, string> = {
@@ -152,7 +152,7 @@ export function MfaSetupForm<T>({
         <Button type="submit" disabled={setupMutation.isPending} className="relative">
           {setupMutation.isPending && (
             <span className="absolute inset-0 flex items-center justify-center">
-              <Spinner className="h-4 w-4" />
+              <ButtonSpinner />
             </span>
           )}
           <span className={setupMutation.isPending ? 'invisible' : ''}>
@@ -232,7 +232,7 @@ export function MfaSetupForm<T>({
         <Button type="submit" disabled={confirmMutation.isPending} className="relative">
           {confirmMutation.isPending && (
             <span className="absolute inset-0 flex items-center justify-center">
-              <Spinner className="h-4 w-4" />
+              <ButtonSpinner />
             </span>
           )}
           <span className={confirmMutation.isPending ? 'invisible' : ''}>

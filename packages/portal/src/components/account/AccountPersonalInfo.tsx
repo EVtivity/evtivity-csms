@@ -5,7 +5,6 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { LANGUAGES } from '@/components/ui/language-select';
@@ -20,6 +19,8 @@ import { proofRejection, type ProofRejection } from '@/components/FactorProofFie
 import { MFA_STATUS_KEY, type PortalMfaStatus } from '@/lib/mfa-status';
 import { useDriverAvatar } from '@/lib/avatar';
 import { AvatarField } from './AvatarEditor';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
+import { SavedMessage } from '@/components/saved-message';
 import {
   PhoneChangeProof,
   phoneChangeNeedsProof,
@@ -68,6 +69,7 @@ export function AccountPersonalInfo(): React.JSX.Element {
   );
   const companyPriceDisplay = useCompanyPriceDisplay();
   const [profileMsg, setProfileMsg] = useState('');
+  const [profileSaved, setProfileSaved] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [phoneExtras, setPhoneExtras] = useState<PhoneChangeExtras | null>(null);
   const [phoneRejection, setPhoneRejection] = useState<ProofRejection | null>(null);
@@ -88,6 +90,7 @@ export function AccountPersonalInfo(): React.JSX.Element {
   async function handleProfileUpdate(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setProfileMsg('');
+    setProfileSaved(false);
     setHasSubmitted(true);
     if (phoneNeedsProof && phoneExtras == null) return;
     const extras = phoneNeedsProof && phoneExtras != null ? phoneExtras : {};
@@ -126,7 +129,7 @@ export function AccountPersonalInfo(): React.JSX.Element {
       hydrate();
       setHasSubmitted(false);
       setPhoneExtras(null);
-      setProfileMsg(t('profile.profileUpdated'));
+      setProfileSaved(true);
     } catch (err) {
       // Each proof works once: the confirmation asks for what the failure used up.
       if ('proof' in extras || 'phoneVerification' in extras) {
@@ -140,7 +143,6 @@ export function AccountPersonalInfo(): React.JSX.Element {
 
   return (
     <form onSubmit={(e) => void handleProfileUpdate(e)} className="space-y-4">
-      {profileMsg !== '' && <p className="text-sm text-muted-foreground">{profileMsg}</p>}
       <AvatarField
         avatar={avatar}
         firstName={driver?.firstName}
@@ -327,11 +329,13 @@ export function AccountPersonalInfo(): React.JSX.Element {
       <Button type="submit" className="relative w-full" disabled={profileLoading}>
         {profileLoading && (
           <span className="absolute inset-0 flex items-center justify-center">
-            <Spinner className="h-4 w-4" />
+            <ButtonSpinner />
           </span>
         )}
         <span className={profileLoading ? 'invisible' : ''}>{t('common.save')}</span>
       </Button>
+      {profileSaved && <SavedMessage>{t('profile.profileUpdated')}</SavedMessage>}
+      {profileMsg !== '' && <p className="text-sm text-destructive">{profileMsg}</p>}
     </form>
   );
 }

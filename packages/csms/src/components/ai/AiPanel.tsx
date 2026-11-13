@@ -37,6 +37,7 @@ import { ExplainContextCard } from './ExplainContextCard';
 import { AiUsageFooter } from './usage/AiUsageFooter';
 import { AiUsageNotices } from './usage/AiUsageNotices';
 import { AI_MY_USAGE_KEY } from './usage/usage-api';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { Textarea } from '@/components/ui/textarea';
 
 const conversationPath = (id: string): string =>
@@ -555,7 +556,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
                       void send(input);
                     }}
                   >
-                    {uploading ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                    {uploading ? <ButtonSpinner /> : <Send className="h-4 w-4" />}
                   </Button>
                 )}
               </div>

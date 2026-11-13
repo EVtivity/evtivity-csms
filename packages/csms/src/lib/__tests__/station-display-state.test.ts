@@ -5,6 +5,9 @@ import { describe, it, expect } from 'vitest';
 import {
   STATION_DISPLAY_STATES,
   connectorIconName,
+  connectorStatusColor,
+  evseDisplayState,
+  resolveCssColor,
   stationDisplayState,
   stationStateColor,
   stationStateLabelKey,
@@ -107,5 +110,46 @@ describe('connectorIconName', () => {
     expect(connectorIconName('faulted')).toBe('alert');
     expect(connectorIconName('unavailable')).toBe('x');
     expect(connectorIconName('finishing')).toBe('none');
+  });
+});
+
+describe('evseDisplayState', () => {
+  const evse = (...statuses: string[]) => ({ connectors: statuses.map((status) => ({ status })) });
+
+  it('shows a fault first, then all unavailable, reserved, in use and available', () => {
+    expect(evseDisplayState(evse('Available', 'Faulted'))).toBe('faulted');
+    expect(evseDisplayState(evse('Unavailable', 'Unavailable'))).toBe('unavailable');
+    expect(evseDisplayState(evse('Unavailable', 'Available'))).toBe('available');
+    expect(evseDisplayState(evse('Reserved', 'Charging'))).toBe('reserved');
+    expect(evseDisplayState(evse('Charging'))).toBe('charging');
+    expect(evseDisplayState(evse('Available'))).toBe('available');
+  });
+
+  it('counts a plugged-in cable as in use, and shows online without a known status', () => {
+    expect(evseDisplayState({ connectors: [{ status: 'Available', isPluggedIn: true }] })).toBe(
+      'charging',
+    );
+    expect(evseDisplayState(evse())).toBe('online');
+    expect(evseDisplayState(evse('Unknown'))).toBe('online');
+  });
+});
+
+describe('colors', () => {
+  it('draws an online station in the success token and an offline one muted', () => {
+    expect(stationStateColor('online')).toBe('hsl(var(--success))');
+    expect(stationStateColor('offline')).toBe('hsl(var(--muted-foreground))');
+  });
+
+  it('mutes an unknown connector status', () => {
+    expect(connectorStatusColor('charging')).toBe(STATUS_COLORS['charging']);
+    expect(connectorStatusColor('something_new')).toBe('hsl(var(--muted-foreground))');
+  });
+
+  it('resolves a theme token to a parseable color, a gray when unset, and other colors as is', () => {
+    document.documentElement.style.setProperty('--warning', '37.7 92.1% 50.2%');
+    expect(resolveCssColor('hsl(var(--warning))')).toBe('hsl(37.7, 92.1%, 50.2%)');
+    document.documentElement.style.removeProperty('--warning');
+    expect(resolveCssColor('hsl(var(--warning))')).toBe('#6b7280');
+    expect(resolveCssColor('#22c55e')).toBe('#22c55e');
   });
 });

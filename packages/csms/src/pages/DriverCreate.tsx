@@ -18,6 +18,7 @@ import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { PendingAvatarField } from '@/components/avatar/PendingAvatarField';
 import { useToast } from '@/components/ui/toast';
+import { useCreatedToast } from '@/components/saved-message';
 import { applyAvatarChoice, driverAvatarPath, type AvatarChoice } from '@/lib/avatar';
 
 interface Driver {
@@ -48,6 +49,7 @@ interface DriverDefaults {
 
 export function DriverCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -98,6 +100,7 @@ export function DriverCreate(): React.JSX.Element {
         });
       }
       void queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      createdToast();
       void navigate(`/drivers/${created.id}`);
     },
   });

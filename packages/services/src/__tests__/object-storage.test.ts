@@ -828,5 +828,45 @@ describe('object storage', () => {
       mockS3Send.mockRejectedValueOnce(new Error('AccessDenied'));
       await expect(storage.readObject('b', 'k', 10)).rejects.toThrow('AccessDenied');
     });
+
+    it('reports an object without a body as missing', async () => {
+      const storage = makeStorage();
+      mockS3Send.mockResolvedValueOnce({ ContentLength: 3 }).mockResolvedValueOnce({});
+      await expect(storage.readObject('b', 'k', 10)).resolves.toEqual({ status: 'missing' });
+    });
+
+    it('refuses a body longer than the limit when the head gave no size', async () => {
+      const storage = makeStorage();
+      mockS3Send.mockResolvedValueOnce({}).mockResolvedValueOnce({
+        Body: { transformToByteArray: () => Promise.resolve(new Uint8Array(12)) },
+      });
+      await expect(storage.readObject('b', 'k', 10)).resolves.toEqual({
+        status: 'too_large',
+        size: 12,
+      });
+    });
+  });
+
+  describe('S3ObjectStorage download and delete edges', () => {
+    it('adds the cache control to a download URL only when given', async () => {
+      const storage = makeStorage();
+      await storage.getDownloadUrl('b', 'k', {
+        fileName: 'a.png',
+        contentType: 'image/png',
+        disposition: 'inline',
+        cacheControl: 'private, no-store',
+      });
+      const [, command] = mockGetSignedUrl.mock.calls[0] as [
+        unknown,
+        { input: Record<string, unknown> },
+      ];
+      expect(command.input).toMatchObject({ ResponseCacheControl: 'private, no-store' });
+    });
+
+    it('refuses an empty prefix', async () => {
+      await expect(makeStorage().deleteObjectsUnderPrefix('b', '')).rejects.toThrow(
+        'deleteObjectsUnderPrefix needs a folder prefix ending in /',
+      );
+    });
   });
 });

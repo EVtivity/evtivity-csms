@@ -34,6 +34,8 @@ import { formatDateTime } from '@/lib/timezone';
 import { useHasPermission } from '@/lib/auth';
 import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
 import { Checkbox } from '@/components/ui/checkbox';
+import { AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Radio } from '@/components/ui/radio';
 import { DateTimeInput } from '@/components/ui/date-time-input';
 
@@ -393,83 +395,88 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
             const stationCount = cur.affectedStationIds?.length ?? 0;
             const isAllStations = cur.affectedStationIds == null || stationCount === 0;
             return (
-              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1">
-                    <p className="font-semibold text-sm">{t('maintenance.activeNow')}</p>
-                    {cur.rollout?.offline == null && (
-                      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Spinner />
-                        {t('maintenance.rollingOut')}
+              <Alert variant="warning" className="items-start">
+                <AlertTriangle className="mt-0.5" aria-hidden="true" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <AlertTitle>{t('maintenance.activeNow')}</AlertTitle>
+                      {cur.rollout?.offline == null && (
+                        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Spinner />
+                          {t('maintenance.rollingOut')}
+                        </p>
+                      )}
+                      <p className="text-sm">
+                        {t('maintenance.endsAt', {
+                          time: formatDateTime(cur.plannedEndAt, timezone),
+                        })}
                       </p>
+                    </div>
+                    {canWrite && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingEventId(cur.id);
+                          }}
+                        >
+                          {t('common.edit')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setConfirmCancelId(cur.id);
+                          }}
+                        >
+                          {t('maintenance.endNow')}
+                        </Button>
+                      </div>
                     )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="font-medium">{t('maintenance.scopeLabel')}:</span>{' '}
+                      {isAllStations
+                        ? t('maintenance.allStations')
+                        : t('maintenance.nStations', { count: stationCount })}
+                    </div>
+                    <div>
+                      <span className="font-medium">{t('maintenance.sessionPolicy')}:</span>{' '}
+                      {cur.activeSessionPolicy === 'stop_graceful'
+                        ? t('maintenance.policyStop')
+                        : t('maintenance.policyIgnore')}
+                    </div>
+                    {cur.sessionsStoppedCount > 0 && (
+                      <div>
+                        <span className="font-medium">{t('maintenance.colSessionsStopped')}:</span>{' '}
+                        {cur.sessionsStoppedCount}
+                      </div>
+                    )}
+                    {cur.reservationsCancelledCount > 0 && (
+                      <div>
+                        <span className="font-medium">
+                          {t('maintenance.colReservationsCancelled')}:
+                        </span>{' '}
+                        {cur.reservationsCancelledCount}
+                      </div>
+                    )}
+                  </div>
+                  {cur.reason != null && cur.reason.length > 0 && (
                     <p className="text-sm">
-                      {t('maintenance.endsAt', {
-                        time: formatDateTime(cur.plannedEndAt, timezone),
-                      })}
+                      <span className="font-medium">{t('maintenance.reason')}:</span> {cur.reason}
                     </p>
-                  </div>
-                  {canWrite && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingEventId(cur.id);
-                        }}
-                      >
-                        {t('common.edit')}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setConfirmCancelId(cur.id);
-                        }}
-                      >
-                        {t('maintenance.endNow')}
-                      </Button>
-                    </div>
                   )}
+                  {cur.customMessage != null && cur.customMessage.length > 0 && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {cur.customMessage}
+                    </p>
+                  )}
+                  <EventStationList event={cur} stations={resolveEventStations(cur)} />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="font-medium">{t('maintenance.scopeLabel')}:</span>{' '}
-                    {isAllStations
-                      ? t('maintenance.allStations')
-                      : t('maintenance.nStations', { count: stationCount })}
-                  </div>
-                  <div>
-                    <span className="font-medium">{t('maintenance.sessionPolicy')}:</span>{' '}
-                    {cur.activeSessionPolicy === 'stop_graceful'
-                      ? t('maintenance.policyStop')
-                      : t('maintenance.policyIgnore')}
-                  </div>
-                  {cur.sessionsStoppedCount > 0 && (
-                    <div>
-                      <span className="font-medium">{t('maintenance.colSessionsStopped')}:</span>{' '}
-                      {cur.sessionsStoppedCount}
-                    </div>
-                  )}
-                  {cur.reservationsCancelledCount > 0 && (
-                    <div>
-                      <span className="font-medium">
-                        {t('maintenance.colReservationsCancelled')}:
-                      </span>{' '}
-                      {cur.reservationsCancelledCount}
-                    </div>
-                  )}
-                </div>
-                {cur.reason != null && cur.reason.length > 0 && (
-                  <p className="text-sm">
-                    <span className="font-medium">{t('maintenance.reason')}:</span> {cur.reason}
-                  </p>
-                )}
-                {cur.customMessage != null && cur.customMessage.length > 0 && (
-                  <p className="text-sm text-muted-foreground line-clamp-2">{cur.customMessage}</p>
-                )}
-                <EventStationList event={cur} stations={resolveEventStations(cur)} />
-              </div>
+              </Alert>
             );
           })()
         ) : (
@@ -1564,23 +1571,26 @@ function MaintenanceStationSelector({
       </div>
 
       {impactPreview != null && previewRangeValid && impactPreview.requiresAck && (
-        <div className="rounded-md border border-warning/40 bg-warning/10 p-2 text-sm space-y-1">
-          <p>
-            {t('maintenance.previewSummary', {
-              sessions: impactPreview.totalSessions,
-              reservations: impactPreview.totalReservations,
-            })}
-          </p>
-          <label className="flex items-center gap-2">
-            <Checkbox
-              checked={impactPreview.acknowledged}
-              onChange={(e) => {
-                impactPreview.onAcknowledgeChange(e.target.checked);
-              }}
-            />
-            {t('maintenance.acknowledge')}
-          </label>
-        </div>
+        <Alert variant="warning" className="items-start" data-testid="maintenance-impact-preview">
+          <AlertTriangle className="mt-0.5 h-4 w-4" />
+          <AlertDescription className="space-y-1">
+            <p>
+              {t('maintenance.previewSummary', {
+                sessions: impactPreview.totalSessions,
+                reservations: impactPreview.totalReservations,
+              })}
+            </p>
+            <label className="flex items-center gap-2 text-foreground">
+              <Checkbox
+                checked={impactPreview.acknowledged}
+                onChange={(e) => {
+                  impactPreview.onAcknowledgeChange(e.target.checked);
+                }}
+              />
+              {t('maintenance.acknowledge')}
+            </label>
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );

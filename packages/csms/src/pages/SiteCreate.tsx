@@ -20,6 +20,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { useCreatedToast } from '@/components/saved-message';
 import { TIMEZONE_OPTIONS } from '@/lib/timezone';
 
 interface Site {
@@ -35,6 +36,7 @@ interface Site {
 
 export function SiteCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -60,6 +62,7 @@ export function SiteCreate(): React.JSX.Element {
     mutationFn: (body: Record<string, string>) => api.post<Site>('/v1/sites', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['sites'] });
+      createdToast();
       void navigate(`/sites/${created.id}`);
     },
   });

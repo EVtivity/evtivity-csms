@@ -26,6 +26,22 @@ describe('guest start extras', () => {
     expect(readGuestQrToken('CS-1', '2')).toBeUndefined();
   });
 
+  it('keeps the scan token in memory when session storage is unavailable', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    storeGuestQrToken('CS-9', 2, 'v1.9.mem');
+    expect(readGuestQrToken('CS-9', 2)).toBe('v1.9.mem');
+    expect(warn).toHaveBeenCalledTimes(2);
+    set.mockRestore();
+    get.mockRestore();
+    warn.mockRestore();
+  });
+
   it('sends the language, the scan token and a reCAPTCHA token when reCAPTCHA is on', async () => {
     storeGuestQrToken('CS-1', 1, 'v1.123.abc');
     mockGet.mockResolvedValue({ recaptchaEnabled: true, recaptchaSiteKey: 'site-key' });

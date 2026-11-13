@@ -15,6 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DriverCombobox } from '@/components/driver-combobox';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { useCreatedToast } from '@/components/saved-message';
 import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 
 interface Token {
@@ -25,6 +26,7 @@ interface Token {
 
 export function TokenCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -39,6 +41,7 @@ export function TokenCreate(): React.JSX.Element {
       api.post<Token>('/v1/tokens', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['tokens'] });
+      createdToast();
       void navigate(`/tokens/${created.id}`);
     },
   });

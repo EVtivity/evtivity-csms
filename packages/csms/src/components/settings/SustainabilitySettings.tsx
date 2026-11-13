@@ -10,6 +10,7 @@ import { DecimalInput } from '@/components/ui/decimal-input';
 import { Label } from '@/components/ui/label';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
+import { SavedMessage } from '@/components/saved-message';
 
 interface SustainabilitySettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -130,6 +131,14 @@ export function SustainabilitySettings({
             });
           }}
         />
+        {sustainabilityMutation.isSuccess &&
+          JSON.stringify(sustainabilityMutation.variables) ===
+            JSON.stringify({
+              gridEmissionFactor,
+              evEfficiency,
+              gasolineEmissionFactor,
+              avgMpg,
+            }) && <SavedMessage />}
       </CardContent>
     </Card>
   );

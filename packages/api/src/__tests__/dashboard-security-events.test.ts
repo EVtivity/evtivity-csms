@@ -4,7 +4,7 @@
 // GET /v1/dashboard/security-events against a mocked database: permission,
 // site scope, the empty scope, the reply shape and the query parameters. The
 // SQL (sort order, severity filter, windows) runs in the integration test
-// 172-dashboard-security-events.
+// 173-dashboard-security-events.
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
@@ -59,7 +59,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import {
-  SECURITY_EVENTS_STATION_LIMIT,
+  SECURITY_EVENTS_DEFAULT_LIMIT,
   dashboardSecurityEventsRoutes,
 } from '../routes/dashboard-security-events.js';
 import { securityEventWindows } from '../lib/security-event-scope.js';
@@ -139,6 +139,7 @@ describe('GET /dashboard/security-events', () => {
         { severity: 'high', n: 3 },
         { severity: 'info', n: 2 },
       ],
+      [{ n: 2 }],
       [
         {
           id: 'sta_1',
@@ -153,7 +154,6 @@ describe('GET /dashboard/security-events', () => {
           worst_rank: 0,
           total: 2,
           last_event_at: new Date('2026-11-09T10:00:00Z'),
-          station_total: 2,
         },
         {
           id: 'sta_2',
@@ -168,7 +168,6 @@ describe('GET /dashboard/security-events', () => {
           worst_rank: 1,
           total: 4,
           last_event_at: '2026-11-08T10:00:00Z',
-          station_total: 2,
         },
       ],
     ];
@@ -193,30 +192,53 @@ describe('GET /dashboard/security-events', () => {
     expect(age).toBeGreaterThan(29.9 * 24 * 3600 * 1000);
     expect(age).toBeLessThan(30.1 * 24 * 3600 * 1000);
 
-    const stationSql = sqlText(state.queries[1]);
+    const stationSql = sqlText(state.queries[2]);
     expect(stationSql).toContain('ORDER BY worst_rank ASC, total DESC, last_event_at DESC');
     expect(stationSql).toContain('LIMIT');
-    expect(sqlParams(state.queries[1])).toContain(SECURITY_EVENTS_STATION_LIMIT);
+    expect(stationSql).toContain('OFFSET');
+    expect(sqlParams(state.queries[2])).toEqual(
+      expect.arrayContaining([SECURITY_EVENTS_DEFAULT_LIMIT, 0]),
+    );
+    expect(sqlText(state.queries[1])).not.toContain('LIMIT');
     expect(stationSql).toContain('is_conformance = false');
     expect(stationSql).toContain('e.created_at >=');
     expect(stationSql).not.toContain('HAVING');
   });
 
   it('narrows only the station list by severity', async () => {
-    state.results = [[{ severity: 'low', n: 5 }], []];
+    state.results = [[{ severity: 'low', n: 5 }], [{ n: 0 }], []];
     const res = await get('/dashboard/security-events?severity=high');
     expect(res.statusCode).toBe(200);
     expect(res.json<{ counts: Record<string, number> }>().counts.low).toBe(5);
     expect(sqlText(state.queries[0])).not.toContain('HAVING');
-    expect(sqlText(state.queries[1])).toContain('HAVING');
-    expect(sqlParams(state.queries[1])).toContain('high');
+    for (const q of [state.queries[1], state.queries[2]]) {
+      expect(sqlText(q)).toContain('HAVING');
+      expect(sqlParams(q)).toContain('high');
+    }
+  });
+
+  it('pages the station list and keeps the counts and the total over every page', async () => {
+    state.results = [[{ severity: 'high', n: 40 }], [{ n: 45 }], []];
+    const res = await get('/dashboard/security-events?page=3&limit=20');
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ total: number; stationTotal: number; stations: unknown[] }>();
+    // Past the last page the total still comes from its own count.
+    expect(body.stationTotal).toBe(45);
+    expect(body.total).toBe(40);
+    expect(body.stations).toEqual([]);
+    expect(sqlParams(state.queries[2])).toEqual(expect.arrayContaining([20, 40]));
+  });
+
+  it('refuses a page below 1 and a limit above 100', async () => {
+    expect((await get('/dashboard/security-events?page=0')).statusCode).toBe(400);
+    expect((await get('/dashboard/security-events?limit=101')).statusCode).toBe(400);
   });
 
   it('reads a site user events only inside the station windows', async () => {
     state.siteIds = ['sit_a'];
     const movedAt = new Date('2026-11-05T00:00:00Z');
     state.windows = [{ id: 'sta_moved', since: movedAt }];
-    state.results = [[], []];
+    state.results = [[], [], []];
     const res = await get('/dashboard/security-events?siteId=sit_a');
     expect(res.statusCode).toBe(200);
     expect(securityEventWindows).toHaveBeenCalledWith(['sit_a'], expect.any(Date), 'sit_a');

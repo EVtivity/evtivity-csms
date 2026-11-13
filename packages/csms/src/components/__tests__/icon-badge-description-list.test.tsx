@@ -15,7 +15,7 @@ afterEach(() => {
 describe('IconBadge', () => {
   it.each([
     ['info', 'bg-info', 'text-on-tone'],
-    ['warning', 'bg-warning', 'text-on-tone'],
+    ['warning', 'bg-warning', 'text-warning-foreground'],
     ['destructive', 'bg-destructive', 'text-on-tone'],
     ['success', 'bg-success', 'text-on-tone'],
     ['muted', 'bg-muted-foreground', 'text-card'],

@@ -242,23 +242,33 @@ export function AvatarEditor({
         </p>
       )}
 
+      {/*
+        The dialog footer (DialogFooter order): stacked full width on phones with
+        Save on top; from sm one row, Remove set apart on the left and Random,
+        Cancel, Save on the right. The shared buttons take no className, so a
+        flex wrapper stretches each one on phones and carries its order.
+      */}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         {avatar != null && (
-          <RemoveButton
-            label={t('avatar.remove')}
-            disabled={busy}
-            onClick={() => {
-              setRemoveOpen(true);
-            }}
-          />
+          <div className="flex flex-col sm:mr-auto">
+            <RemoveButton
+              label={t('avatar.remove')}
+              disabled={busy}
+              onClick={() => {
+                setRemoveOpen(true);
+              }}
+            />
+          </div>
         )}
-        <CancelButton onClick={onDone} />
+        <div className="flex flex-col sm:order-2">
+          <CancelButton onClick={onDone} />
+        </div>
         {mode === 'create' && lib != null && draft != null && (
           <>
             <Button
               type="button"
               variant="outline"
-              className="gap-1.5"
+              className="gap-1.5 sm:order-1"
               disabled={busy}
               onClick={() => {
                 setDraft(lib.randomGeneratedAvatar());
@@ -267,13 +277,15 @@ export function AvatarEditor({
               <Shuffle className="h-4 w-4" />
               {t('avatar.random')}
             </Button>
-            <SaveButton
-              type="button"
-              isPending={busy}
-              onClick={() => {
-                void run({ kind: 'generated', avatar: draft });
-              }}
-            />
+            <div className="flex flex-col sm:order-3">
+              <SaveButton
+                type="button"
+                isPending={busy}
+                onClick={() => {
+                  void run({ kind: 'generated', avatar: draft });
+                }}
+              />
+            </div>
           </>
         )}
       </div>

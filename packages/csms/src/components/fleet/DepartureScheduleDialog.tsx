@@ -26,6 +26,7 @@ import {
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { isoWeekdayNames } from '@/lib/depot-time';
+import { useSavedToast } from '@/components/saved-message';
 import {
   fleetDepartureKeys,
   vehicleLabel,
@@ -257,6 +258,7 @@ function ScheduleForm({
   onDone: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const editing = schedule != null;
   const [vehicleId, setVehicleId] = useState(schedule?.vehicleId ?? '');
@@ -277,6 +279,7 @@ function ScheduleForm({
         ? api.patch(`/v1/departure-schedules/${schedule.id}`, body)
         : api.post(`/v1/fleets/${fleetId}/departure-schedules`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: fleetDepartureKeys.all(fleetId) });
       onDone();
     },

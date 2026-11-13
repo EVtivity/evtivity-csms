@@ -3,7 +3,7 @@
 
 import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 
 interface ConfirmButtonProps {
   label: string;
@@ -32,7 +32,7 @@ export function ConfirmButton({
       disabled={disabled === true || pending}
       data-testid={testId}
     >
-      {pending ? <Spinner className="h-4 w-4" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+      {pending ? <ButtonSpinner /> : <Check className="h-4 w-4" aria-hidden="true" />}
       {label}
     </Button>
   );

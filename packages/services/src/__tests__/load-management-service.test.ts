@@ -3673,6 +3673,22 @@ describe('simulated battery and solar readings', () => {
     expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
   });
 
+  it('gives no simulated reading when the site position cannot be read', async () => {
+    tree();
+    setResult('sites', new Error('db down') as unknown as unknown[]);
+    const log = makeLogger();
+    const roots = await buildSiteHierarchy('site-1', [], {
+      nowMs: NOON,
+      allowSimulatedEnergyAssets: true,
+      log,
+    });
+    expect(roots[0]?.supplyCreditKw ?? 0).toBe(0);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 'site-1' }),
+      'Site position not read, simulated batteries and solar give no supply this cycle',
+    );
+  });
+
   it('gives no solar credit at night', async () => {
     tree();
     setResult('sites', [{ latitude: '51.4769', longitude: '0' }]);
@@ -4389,6 +4405,49 @@ describe('credit profiles that end with their readings (security case 334)', () 
     ]);
     expect(dbState.insertCalls.some((c) => c.table === 'loadAllocationLog')).toBe(false);
     expect(storedApplied().every((e) => e['creditUntil'] === validTo)).toBe(true);
+  });
+
+  it('resends only the station whose end is close and keeps the end of the other', async () => {
+    const closeEnd = new Date(Date.now() + LOAD_MANAGEMENT_CREDIT_RESEND_MS - 5_000).toISOString();
+    const farEnd = new Date(Date.now() + 10 * LOAD_MANAGEMENT_CREDIT_RESEND_MS).toISOString();
+    const [first, second] = held(40, closeEnd);
+    site([first, { ...second, creditUntil: farEnd }]);
+    const measuredAt = new Date();
+    reading(measuredAt);
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    const validTo = new Date(measuredAt.getTime() + TTL_S * 1000).toISOString();
+    expect(sentProfiles()).toEqual([
+      {
+        stationId: 'CS-001',
+        id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+        stackLevel: 2,
+        validTo,
+        limit: 40_000,
+      },
+    ]);
+    const stored = new Map(storedApplied().map((e) => [e['stationDbId'], e['creditUntil']]));
+    expect(stored.get('sta_1')).toBe(validTo);
+    expect(stored.get('sta_2')).toBe(farEnd);
+  });
+
+  it('clears the applied time when the credit resend cannot be published', async () => {
+    const heldUntil = new Date(Date.now() + LOAD_MANAGEMENT_CREDIT_RESEND_MS - 5_000).toISOString();
+    site(held(40, heldUntil));
+    reading(new Date());
+    pubsubState.publish.mockRejectedValue(new Error('redis down'));
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    expect(
+      dbState.updateCalls.some(
+        (c) =>
+          c.table === 'siteLoadManagement' &&
+          'appliedAt' in c.values &&
+          c.values['appliedAt'] === null,
+      ),
+    ).toBe(true);
   });
 
   it('sends nothing while the reading has not moved on, so the credit ends at the station', async () => {

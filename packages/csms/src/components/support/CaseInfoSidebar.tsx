@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import { api } from '@/lib/api';
 
 interface Attachment {
@@ -156,6 +157,7 @@ export function CaseInfoSidebar({
               id="case-status-select"
               value={editStatus}
               onChange={(e) => {
+                updateMutation.reset();
                 setEditStatus(e.target.value);
               }}
             >
@@ -178,6 +180,7 @@ export function CaseInfoSidebar({
               id="case-priority-edit"
               value={editPriority}
               onChange={(e) => {
+                updateMutation.reset();
                 setEditPriority(e.target.value);
               }}
             >
@@ -194,6 +197,7 @@ export function CaseInfoSidebar({
               id="case-category-edit"
               value={editCategory}
               onChange={(e) => {
+                updateMutation.reset();
                 setEditCategory(e.target.value);
               }}
             >
@@ -210,6 +214,7 @@ export function CaseInfoSidebar({
               id="case-assigned-to-edit"
               value={editAssignedTo}
               onChange={(e) => {
+                updateMutation.reset();
                 setEditAssignedTo(e.target.value);
               }}
             >
@@ -222,7 +227,8 @@ export function CaseInfoSidebar({
             </Select>
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {updateMutation.isSuccess && <SavedMessage />}
             <SaveButton
               isPending={updateMutation.isPending}
               type="button"

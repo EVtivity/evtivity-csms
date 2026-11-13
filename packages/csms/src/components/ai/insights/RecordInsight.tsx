@@ -58,7 +58,7 @@ export function RecordInsight({ filter, onOpen }: RecordInsightProps): React.JSX
         <span
           aria-hidden="true"
           data-testid="record-insight-count"
-          className="pointer-events-none absolute -right-1 -top-1 min-w-5 rounded-full bg-warning px-1 text-center text-xs font-semibold text-foreground"
+          className="pointer-events-none absolute -right-1 -top-1 min-w-5 rounded-full bg-warning px-1 text-center text-xs font-semibold text-warning-foreground"
         >
           {live.length}
         </span>

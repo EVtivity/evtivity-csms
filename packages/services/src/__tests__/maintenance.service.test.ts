@@ -35,6 +35,11 @@ const h = vi.hoisted(() => {
     // same table multiple times with different rows without a brittle
     // spy-on-Map hack.
     selectResults: new Map<string, unknown[][]>(),
+    // Per table: the read number (1-based) that rejects, and the reads so far.
+    failSelectAt: new Map<string, number>(),
+    selectCounts: new Map<string, number>(),
+    // Tables whose plain (no returning) inserts reject.
+    failInsert: new Set<string>(),
     executeHandler: { fn: (_sqlText: string) => [] as unknown[] },
     executeCalls: [] as string[],
     transactions: { count: 0 },
@@ -118,12 +123,18 @@ vi.mock('@evtivity/database', () => {
         return chain;
       },
       where: () => chain,
+      limit: () => chain,
       innerJoin: () => chain,
       // Make the chain awaitable (thenable). Resolves to the next queued
       // result set for whichever table was selected.
-      then: (resolve: (v: unknown[]) => unknown) => {
+      then: (resolve: (v: unknown[]) => unknown, reject: (e: unknown) => unknown) => {
         let result: unknown[] = [];
         if (selectedTable != null) {
+          const count = (h.selectCounts.get(selectedTable) ?? 0) + 1;
+          h.selectCounts.set(selectedTable, count);
+          if (h.failSelectAt.get(selectedTable) === count) {
+            return Promise.reject(new Error(`${selectedTable} read failed`)).then(resolve, reject);
+          }
           const queue = h.selectResults.get(selectedTable);
           if (queue != null && queue.length > 0) {
             result = queue.length > 1 ? (queue.shift() as unknown[]) : (queue[0] as unknown[]);
@@ -142,7 +153,10 @@ vi.mock('@evtivity/database', () => {
         return chain;
       },
       returning: () => Promise.resolve(h.insertReturning.rows),
-      then: (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
+      then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
+        h.failInsert.has(tbl?.__table ?? '')
+          ? Promise.reject(new Error('insert failed')).then(resolve, reject)
+          : Promise.resolve(undefined).then(resolve),
     };
     return chain;
   };
@@ -253,6 +267,7 @@ import {
   enterMaintenance,
   exitMaintenance,
   runMaintenanceFanout,
+  applyStationSiteMove,
   enqueueMaintenanceFanout,
   maintenanceFanoutJobId,
   getActiveMaintenanceForStation,
@@ -305,6 +320,9 @@ const SYSTEM_ACTOR = { type: 'system' as const };
 beforeEach(() => {
   vi.clearAllMocks();
   h.selectResults.clear();
+  h.failSelectAt.clear();
+  h.selectCounts.clear();
+  h.failInsert.clear();
   h.executeHandler.fn = () => [];
   h.executeCalls.length = 0;
   h.transactions.count = 0;
@@ -1468,6 +1486,230 @@ describe('runMaintenanceFanout', () => {
     });
 
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+  });
+
+  it('reassert phase keeps going when the slot message push fails', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+    h.pushStationMessageSlot.mockRejectedValueOnce(new Error('pubsub down'));
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+
+    await runMaintenanceFanout(
+      { eventId: 'mne_1', phase: 'reassert', stationDbIds: ['sta_1'] },
+      logger,
+    );
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationId: 'CS-001' }),
+      'maintenance message push failed during re-assert',
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      { eventId: 'mne_1', stations: 1 },
+      'maintenance re-assert complete',
+    );
+  });
+
+  it('reassert phase does nothing for an empty station list', async () => {
+    setSelect('maintenanceEvents', [makeEventRow({ status: 'active' })]);
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'reassert', stationDbIds: [] });
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.renderMaintenanceMessage).not.toHaveBeenCalled();
+  });
+
+  it('moved-out phase releases only stations now at another site with no window there', async () => {
+    // The event read, then the active window of the new site (none).
+    queueSelect('maintenanceEvents', [
+      [makeEventRow({ status: 'active', affectedStationIds: ['sta_m', 'sta_s'] })],
+      [],
+    ]);
+    setSelect('chargingStations', [
+      {
+        id: 'sta_m',
+        stationId: 'CS-M',
+        ocppProtocol: 'ocpp1.6',
+        disabledReason: null,
+        siteId: 'sit_2',
+      },
+      {
+        id: 'sta_s',
+        stationId: 'CS-S',
+        ocppProtocol: 'ocpp2.1',
+        disabledReason: null,
+        siteId: 'sit_1',
+      },
+    ]);
+
+    await runMaintenanceFanout({
+      eventId: 'mne_1',
+      phase: 'moved-out',
+      stationDbIds: ['sta_m', 'sta_s'],
+    });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledTimes(1);
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-M', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
+    expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-M', 'ocpp1.6', 9005);
+    expect(h.clearStationMessageSlot).not.toHaveBeenCalledWith('CS-S', 'ocpp2.1', 9005);
+  });
+
+  it('moved-out phase leaves a station an active window at its new site covers', async () => {
+    setSelect('maintenanceEvents', [makeEventRow({ status: 'active', affectedStationIds: null })]);
+    setSelect('chargingStations', [
+      {
+        id: 'sta_m',
+        stationId: 'CS-M',
+        ocppProtocol: 'ocpp2.1',
+        disabledReason: null,
+        siteId: 'sit_2',
+      },
+    ]);
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'moved-out', stationDbIds: ['sta_m'] });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.clearStationMessageSlot).not.toHaveBeenCalled();
+  });
+
+  it('moved-out phase does nothing for an empty station list', async () => {
+    setSelect('maintenanceEvents', [makeEventRow({ status: 'active' })]);
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'moved-out', stationDbIds: [] });
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+  });
+});
+
+describe('fan-out failure handling', () => {
+  const addJob = { eventId: 'mne_1', phase: 'add' as const, stationDbIds: ['sta_2'] };
+
+  it('add phase stops before commanding when the event ended meanwhile', async () => {
+    queueSelect('maintenanceEvents', [
+      [makeEventRow({ status: 'active', affectedStationIds: ['sta_1', 'sta_2'] })],
+      [makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_1', 'sta_2'] })],
+    ]);
+    setSelect('chargingStations', [{ id: 'sta_2', stationId: 'CS-002', ocppProtocol: 'ocpp2.1' }]);
+    setSelect('sites', [{ name: 'Site One' }]);
+
+    await runMaintenanceFanout({ ...addJob, actor: SYSTEM_ACTOR });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.applyReservationCancellation).not.toHaveBeenCalled();
+    expect(h.insertCalls.filter((c) => c.table === 'maintenanceEventStations')).toHaveLength(0);
+    expect(h.invalidateMaintenanceCheckCache).toHaveBeenCalled();
+    expect(h.publish).toHaveBeenCalledWith(
+      'csms_events',
+      JSON.stringify({ eventType: 'maintenance.changed', siteId: 'sit_1', eventId: 'mne_1' }),
+    );
+  });
+
+  it('add phase goes on when the active recheck cannot read the event', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1', 'sta_2'] }),
+    ]);
+    h.failSelectAt.set('maintenanceEvents', 2);
+    setSelect('chargingStations', [{ id: 'sta_2', stationId: 'CS-002', ocppProtocol: 'ocpp2.1' }]);
+    setSelect('sites', [{ name: 'Site One' }]);
+
+    await runMaintenanceFanout({ ...addJob, actor: SYSTEM_ACTOR });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-002', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
+  });
+
+  it('release phase records no status when the status read fails, and still releases', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('chargingStations', [
+      { id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1', disabledReason: null },
+    ]);
+    // The station list read succeeds, the status-before read fails.
+    h.failSelectAt.set('chargingStations', 2);
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'release' });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
+    const tracked = h.insertCalls.find((c) => c.table === 'maintenanceEventStations');
+    expect(tracked?.values).toEqual([expect.objectContaining({ statusBefore: null })]);
+  });
+
+  it('release phase still clears the message when the result tracking insert fails', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+    h.failInsert.add('maintenanceEventStations');
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'release' }, logger);
+
+    expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-001', 'ocpp2.1', 9005);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'mne_1' }),
+      'maintenance fan-out result tracking insert failed',
+    );
+  });
+
+  it('exitMaintenance detached queues the release, also when the change event fails', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] }),
+    ]);
+    h.executeHandler.fn = (text) =>
+      text.includes("status = 'completed'") ? [{ id: 'mne_1' }] : [];
+    h.publish.mockRejectedValueOnce(new Error('redis down'));
+
+    await exitMaintenance('mne_1', OPERATOR_ACTOR, undefined, { detachSideEffects: true });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.addJob).toHaveBeenCalledWith(
+      'maintenance-fanout',
+      'maintenance-fanout',
+      expect.objectContaining({ eventId: 'mne_1', siteId: 'sit_1', phase: 'release' }),
+      { jobId: 'mf.mne_1.release' },
+    );
+  });
+});
+
+describe('applyStationSiteMove', () => {
+  it('queues the release at the old site and the add at the new site with one nonce', async () => {
+    queueSelect('maintenanceEvents', [
+      [makeEventRow({ id: 'mne_old', siteId: 'sit_1', status: 'active' })],
+      [makeEventRow({ id: 'mne_new', siteId: 'sit_2', status: 'active' })],
+    ]);
+
+    await applyStationSiteMove('sta_1', 'sit_1', 'sit_2', SYSTEM_ACTOR);
+
+    expect(h.invalidateMaintenanceCheckCache).toHaveBeenCalled();
+    const jobs = h.addJob.mock.calls.map((c) => c[2] as Record<string, unknown>);
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        eventId: 'mne_old',
+        siteId: 'sit_1',
+        phase: 'moved-out',
+        stationDbIds: ['sta_1'],
+      }),
+      expect.objectContaining({
+        eventId: 'mne_new',
+        siteId: 'sit_2',
+        phase: 'add',
+        stationDbIds: ['sta_1'],
+      }),
+    ]);
+    expect(jobs[0]!['nonce']).toBe(jobs[1]!['nonce']);
+  });
+
+  it('queues nothing without a covering window or without sites', async () => {
+    setSelect('maintenanceEvents', []);
+    await applyStationSiteMove('sta_1', 'sit_1', 'sit_2', SYSTEM_ACTOR);
+    await applyStationSiteMove('sta_1', null, null, SYSTEM_ACTOR);
+    expect(h.addJob).not.toHaveBeenCalled();
   });
 });
 

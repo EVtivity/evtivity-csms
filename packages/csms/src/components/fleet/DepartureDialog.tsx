@@ -32,6 +32,7 @@ import {
   targetValues,
   type TargetFormValues,
 } from './DepartureScheduleDialog';
+import { useSavedToast } from '@/components/saved-message';
 import {
   fleetDepartureKeys,
   vehicleLabel,
@@ -110,6 +111,7 @@ function DepartureForm({
   onDone: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const [vehicleId, setVehicleId] = useState(departure?.vehicleId ?? '');
   const [siteId, setSiteId] = useState(departure?.siteId ?? '');
@@ -141,6 +143,7 @@ function DepartureForm({
         ? api.patch(`/v1/departures/${departure.id}`, body)
         : api.post(`/v1/fleets/${fleetId}/departures`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: fleetDepartureKeys.all(fleetId) });
       void queryClient.invalidateQueries({ queryKey: ['site-charging-plan'] });
       onDone();

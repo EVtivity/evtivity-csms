@@ -30,6 +30,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 import { AiAdvancedOptions, AiPromptSummary } from '../AiAdvancedOptions';
 import { useSaveKeys } from '../ai-settings-save';
+import { SavedMessage } from '@/components/saved-message';
 import type { Values } from '../ai-settings-save';
 
 const K = DRIVER_AI_SETTING_KEYS;
@@ -132,7 +133,7 @@ export function DriverAiSettings({ settings }: DriverAiSettingsProps): React.JSX
         </p>
       );
     }
-    if (m.isSuccess) return <p className="text-sm text-success">{t('settings.aiSaved')}</p>;
+    if (m.isSuccess) return <SavedMessage>{t('settings.aiSaved')}</SavedMessage>;
     return null;
   }
 
@@ -185,7 +186,7 @@ export function DriverAiSettings({ settings }: DriverAiSettingsProps): React.JSX
                 }}
               />
               {!providerHasKey && (
-                <p className="text-xs text-warning">{t('settings.aiProviderNoKey')}</p>
+                <p className="text-xs text-warning-text">{t('settings.aiProviderNoKey')}</p>
               )}
             </div>
             <div className="space-y-2">

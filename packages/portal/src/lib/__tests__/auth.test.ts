@@ -23,6 +23,7 @@ vi.mock('../theme', () => ({
   applyUiTheme: mockApplyUiTheme,
   adoptUiTheme: (value: unknown) => value ?? 'default',
   storedUiTheme: () => 'default',
+  resolveInitialTheme: () => 'light',
 }));
 
 import { ApiError } from '../api';
@@ -203,6 +204,20 @@ describe('portal useAuth', () => {
     expect(mockPost).toHaveBeenCalledWith('/v1/portal/access-logs', { action: 'login' });
   });
 
+  it('setMfaEnrollment replaces a pending challenge, and clearMfaEnrollment removes it', () => {
+    useAuth.setState({ mfaPending: { mfaRequired: true, mfaMethod: 'sms', mfaToken: 'm' } });
+    const enrollment = {
+      enrollmentToken: 'e',
+      availableMethods: ['totp'],
+      webauthnAvailable: false,
+    };
+    useAuth.getState().setMfaEnrollment(enrollment);
+    expect(useAuth.getState().mfaEnrollment).toEqual(enrollment);
+    expect(useAuth.getState().mfaPending).toBeNull();
+    useAuth.getState().clearMfaEnrollment();
+    expect(useAuth.getState().mfaEnrollment).toBeNull();
+  });
+
   it('clearMfaPending removes the challenge', () => {
     useAuth.setState({ mfaPending: { mfaRequired: true, mfaMethod: 'sms', mfaToken: 'm' } });
     useAuth.getState().clearMfaPending();
@@ -346,6 +361,20 @@ describe('portal useAuth', () => {
       expect(mockPatch).toHaveBeenCalledWith('/v1/portal/driver/profile', {
         distanceUnit: 'miles',
       });
+    });
+
+    it('setUiTheme applies and persists to the profile, and the local applier skips the API', async () => {
+      await useAuth.getState().setUiTheme('soft');
+      expect(localStorage.getItem('portal_ui_theme')).toBe('soft');
+      expect(mockApplyUiTheme).toHaveBeenCalledWith('soft');
+      expect(useAuth.getState().uiTheme).toBe('soft');
+      expect(useAuth.getState().driver?.uiTheme).toBe('soft');
+      expect(mockPatch).toHaveBeenCalledWith('/v1/portal/driver/profile', { uiTheme: 'soft' });
+      mockPatch.mockClear();
+      useAuth.getState().applyUiThemeLocal('high-contrast');
+      expect(useAuth.getState().driver?.uiTheme).toBe('high-contrast');
+      expect(localStorage.getItem('portal_ui_theme')).toBe('high-contrast');
+      expect(mockPatch).not.toHaveBeenCalled();
     });
 
     it('local appliers update the driver without an API call', async () => {

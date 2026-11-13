@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
+import { useSavedToast } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface Props {
@@ -22,9 +23,10 @@ interface Props {
   dataPlan: DataPlan | null;
 }
 
-/** Site detail > Details: the data plan of the site's stations without their own plan or a SIM. */
+/** Site detail > Data Plan: the data plan of the site's stations without their own plan or a SIM. */
 export function SiteDataPlanCard({ siteId, dataPlan }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('sites:write');
   const current = dataPlan ?? '';
@@ -45,6 +47,7 @@ export function SiteDataPlanCard({ siteId, dataPlan }: Props): React.JSX.Element
   const saveMutation = useMutation({
     mutationFn: (plan: DataPlan | null) => api.patch(`/v1/sites/${siteId}`, { dataPlan: plan }),
     onSuccess: () => {
+      savedToast();
       setConfirmOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['sites'] });
       void queryClient.invalidateQueries({ queryKey: ['stations'] });

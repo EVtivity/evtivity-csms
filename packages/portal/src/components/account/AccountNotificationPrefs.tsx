@@ -9,6 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { InfoNote } from '@/components/ui/info-note';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
+import { SavedMessage } from '@/components/saved-message';
 
 // Notification preferences per event and channel (discussion 56). The operator
 // decides first: an event it turned off is not listed, a mandatory one is shown
@@ -45,7 +47,9 @@ export function AccountNotificationPrefs(): React.JSX.Element {
   const [events, setEvents] = useState<PreferenceEvent[]>([]);
   const [switchTouched, setSwitchTouched] = useState<Partial<Record<Channel, boolean>>>({});
   const [msg, setMsg] = useState('');
-  const [msgType, setMsgType] = useState<'success' | 'error'>('error');
+  const [saveResult, setSaveResult] = useState<
+    { kind: 'success' } | { kind: 'error'; text: string } | null
+  >(null);
   const [loading, setLoading] = useState(false);
 
   function take(prefs: NotificationPreferences): void {
@@ -59,7 +63,6 @@ export function AccountNotificationPrefs(): React.JSX.Element {
       .get<NotificationPreferences>(PATH)
       .then(take)
       .catch((err: unknown) => {
-        setMsgType('error');
         setMsg(getErrorMessage(err, t, 'profile.preferencesFailed'));
       });
   }, [t]);
@@ -108,6 +111,7 @@ export function AccountNotificationPrefs(): React.JSX.Element {
     e.preventDefault();
     if (loaded == null) return;
     setMsg('');
+    setSaveResult(null);
     setLoading(true);
     try {
       const before = new Map(loaded.events.map((ev) => [ev.eventType, ev]));
@@ -126,11 +130,9 @@ export function AccountNotificationPrefs(): React.JSX.Element {
       if (changes.length > 0) body['events'] = changes;
       const saved = await api.put<NotificationPreferences>(PATH, body);
       take(saved);
-      setMsgType('success');
-      setMsg(t('profile.preferencesSaved'));
+      setSaveResult({ kind: 'success' });
     } catch (err) {
-      setMsgType('error');
-      setMsg(getErrorMessage(err, t, 'profile.preferencesFailed'));
+      setSaveResult({ kind: 'error', text: getErrorMessage(err, t, 'profile.preferencesFailed') });
     } finally {
       setLoading(false);
     }
@@ -141,11 +143,7 @@ export function AccountNotificationPrefs(): React.JSX.Element {
 
   return (
     <form onSubmit={(e) => void handleSave(e)} className="space-y-4">
-      {msg !== '' && (
-        <p className={`text-sm ${msgType === 'success' ? 'text-success' : 'text-destructive'}`}>
-          {msg}
-        </p>
-      )}
+      {msg !== '' && <p className="text-sm text-destructive">{msg}</p>}
       {loaded != null && channels.length === 0 && (
         <InfoNote>{t('notificationPrefs.noChannels')}</InfoNote>
       )}
@@ -251,9 +249,15 @@ export function AccountNotificationPrefs(): React.JSX.Element {
               {t('notificationPrefs.requiredNote')}
             </p>
           )}
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? t('common.saving') : t('common.save')}
+          <Button type="submit" className="relative w-full" disabled={loading}>
+            <ButtonPendingLabel pending={loading}>{t('common.save')}</ButtonPendingLabel>
           </Button>
+          {saveResult?.kind === 'success' && (
+            <SavedMessage>{t('profile.preferencesSaved')}</SavedMessage>
+          )}
+          {saveResult?.kind === 'error' && (
+            <p className="text-sm text-destructive">{saveResult.text}</p>
+          )}
         </>
       )}
       <p className="text-xs text-muted-foreground">{t('notificationPrefs.alwaysSentNote')}</p>

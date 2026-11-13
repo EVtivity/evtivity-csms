@@ -10,6 +10,8 @@ import { InfoNote } from '@/components/ui/info-note';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
+import { SavedMessage } from '@/components/saved-message';
 
 /** The driver billing address (GET /v1/portal/auth/me `billingAddress`). */
 export interface DriverBillingAddress {
@@ -67,6 +69,7 @@ export function AccountBillingAddress(): React.JSX.Element {
   const address = data?.billingAddress;
   const [form, setForm] = useState<FormState>(() => toForm(address));
   const [message, setMessage] = useState('');
+  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -77,6 +80,7 @@ export function AccountBillingAddress(): React.JSX.Element {
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setMessage('');
+    setSaved(false);
     setSaving(true);
     const body = {} as Record<FieldKey, string | null>;
     for (const { key } of FIELDS) {
@@ -86,7 +90,7 @@ export function AccountBillingAddress(): React.JSX.Element {
     try {
       await api.patch('/v1/portal/driver/billing-address', body);
       await queryClient.invalidateQueries({ queryKey: ['portal-driver-billing'] });
-      setMessage(t('billingAddress.updated'));
+      setSaved(true);
     } catch (err) {
       setMessage(getErrorMessage(err, t, 'billingAddress.updateFailed'));
     } finally {
@@ -109,7 +113,6 @@ export function AccountBillingAddress(): React.JSX.Element {
         <p className="text-xs text-muted-foreground">{t('billingAddress.description')}</p>
       </div>
       {showNudge && <InfoNote>{t('billingAddress.nudge')}</InfoNote>}
-      {message !== '' && <p className="text-sm text-muted-foreground">{message}</p>}
       {FIELDS.map(({ key, label, maxLength, autoComplete }) => (
         <div key={key} className="space-y-2">
           <label htmlFor={`bill-${key}`} className="block text-sm font-medium leading-6">
@@ -131,9 +134,11 @@ export function AccountBillingAddress(): React.JSX.Element {
           )}
         </div>
       ))}
-      <Button type="submit" className="w-full" disabled={saving || address == null}>
-        {saving ? t('common.saving') : t('common.save')}
+      <Button type="submit" className="relative w-full" disabled={saving || address == null}>
+        <ButtonPendingLabel pending={saving}>{t('common.save')}</ButtonPendingLabel>
       </Button>
+      {saved && <SavedMessage>{t('billingAddress.updated')}</SavedMessage>}
+      {message !== '' && <p className="text-sm text-destructive">{message}</p>}
     </form>
   );
 }

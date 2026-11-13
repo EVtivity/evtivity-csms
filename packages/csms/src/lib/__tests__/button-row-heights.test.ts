@@ -56,7 +56,7 @@ const CSMS_SCALE: Scale = {
 };
 
 const PORTAL_SCALE: Scale = {
-  button: { default: 10, sm: 9, lg: 11, icon: 10 },
+  button: { default: 10, sm: 9, lg: 11, icon: 10, field: 12 },
   control: 12,
   fieldButtonPair: { control: 12, button: 10 },
 };

@@ -126,20 +126,22 @@ export function SessionDetailsTab({
   return (
     <div className="space-y-6">
       {reservationMismatch != null && (
-        <Alert variant="warning">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{t('sessions.reservationTokenMismatchTitle')}</AlertTitle>
-          <AlertDescription>
-            {t('sessions.reservationTokenMismatchDescription')}
-            <div className="mt-2 text-xs">
-              <div>
-                {t('sessions.expectedToken')}: {reservationMismatch.expected ?? t('common.na')}
+        <Alert variant="warning" className="items-start">
+          <AlertTriangle className="mt-0.5 h-4 w-4" />
+          <div>
+            <AlertTitle>{t('sessions.reservationTokenMismatchTitle')}</AlertTitle>
+            <AlertDescription>
+              {t('sessions.reservationTokenMismatchDescription')}
+              <div className="mt-2 text-xs">
+                <div>
+                  {t('sessions.expectedToken')}: {reservationMismatch.expected ?? t('common.na')}
+                </div>
+                <div>
+                  {t('sessions.actualToken')}: {reservationMismatch.actual ?? t('common.na')}
+                </div>
               </div>
-              <div>
-                {t('sessions.actualToken')}: {reservationMismatch.actual ?? t('common.na')}
-              </div>
-            </div>
-          </AlertDescription>
+            </AlertDescription>
+          </div>
         </Alert>
       )}
       {/* Overview */}

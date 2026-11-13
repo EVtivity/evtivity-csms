@@ -14,6 +14,7 @@ import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { formatNumber } from '@/lib/formatting';
 import { aiRequestErrorText } from '../ai-error-text';
 import { UsageBar } from './UsageBar';
+import { SavedMessage } from '@/components/saved-message';
 import { AI_USAGE_KEY, useAiCostFormatter, useSiteAiUsage } from './usage-api';
 
 /** The site PATCH bound (`routes/sites.ts`). */
@@ -148,9 +149,7 @@ export function SiteAiCard({
       )}
       {canEdit && (
         <div className="flex items-center justify-end gap-4">
-          {patch.isSuccess && !dirty && (
-            <p className="text-sm text-success">{t('settings.aiSaved')}</p>
-          )}
+          {patch.isSuccess && !dirty && <SavedMessage>{t('settings.aiSaved')}</SavedMessage>}
           {dirty && <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>}
           <SaveButton
             isPending={patch.isPending}

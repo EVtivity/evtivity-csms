@@ -47,12 +47,29 @@ export function adoptUiTheme(uiTheme: unknown): UiTheme {
  * light mode the first time they load the app (frontend/ui.md).
  */
 export function resolveInitialTheme(): Theme {
-  const stored = localStorage.getItem('theme');
+  const stored = readStored('theme');
   if (stored === 'dark' || stored === 'light') return stored;
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 /** The theme stored in this browser, Default when none or unknown. */
 export function resolveInitialUiTheme(): UiTheme {
-  return toUiTheme(localStorage.getItem('ui_theme'));
+  return toUiTheme(readStored('ui_theme'));
+}
+
+/** Applies the stored (or system) mode and theme at startup, before any server reply. */
+export function applyStartupAppearance(): void {
+  applyTheme(resolveInitialTheme());
+  applyUiTheme(resolveInitialUiTheme());
+}
+
+// Storage can be blocked (private mode): the system mode and Default then, as
+// public/theme-init.js does, so the app still renders (Unable to Connect included).
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch (err) {
+    console.warn('Could not read the saved appearance, using the defaults', err);
+    return null;
+  }
 }

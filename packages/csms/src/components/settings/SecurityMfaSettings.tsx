@@ -14,6 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useLoadedValues, useSavedBaseline } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import type { MfaRequiredMode } from '@evtivity/lib/mfa-config';
 
 /** The MFA settings in effect: the `mfa` field of GET /v1/security/settings. */
@@ -399,9 +400,7 @@ export function SecurityMfaSettings({
           )}
           {canWrite && (
             <div className="flex items-center justify-end gap-4">
-              {mutation.isSuccess && !hasUnsavedChanges && (
-                <p className="text-sm text-success">{t('common.saved')}</p>
-              )}
+              {mutation.isSuccess && !hasUnsavedChanges && <SavedMessage />}
               {hasUnsavedChanges && (
                 <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
               )}

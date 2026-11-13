@@ -124,7 +124,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
       api.patch(`/v1/ocpi/partners/${id ?? ''}`, { allowPrivateNetwork }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ocpi-partners'] });
-      toast({ title: t('roaming.partners.privateNetworkSaved') });
+      toast({ variant: 'success', title: t('roaming.partners.privateNetworkSaved') });
     },
     onError: (err) => {
       toast({ variant: 'destructive', title: getErrorMessage(err, t) });
@@ -136,7 +136,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
       api.patch(`/v1/ocpi/partners/${id ?? ''}`, { allowRawToken }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ocpi-partners'] });
-      toast({ title: t('roaming.partners.rawTokenSaved') });
+      toast({ variant: 'success', title: t('roaming.partners.rawTokenSaved') });
     },
     onError: (err) => {
       toast({ variant: 'destructive', title: getErrorMessage(err, t) });

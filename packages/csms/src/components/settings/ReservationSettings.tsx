@@ -13,6 +13,7 @@ import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
+import { SavedMessage } from '@/components/saved-message';
 import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
 
 interface Props {
@@ -218,9 +219,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
 
           <SaveButton isPending={isPending} />
 
-          {isSuccess && (
-            <p className="text-sm text-success">{t('settings.reservationSettingsSaved')}</p>
-          )}
+          {isSuccess && <SavedMessage>{t('settings.reservationSettingsSaved')}</SavedMessage>}
           {isError && (
             <p className="text-sm text-destructive">
               {t('settings.reservationSettingsSaveFailed')}

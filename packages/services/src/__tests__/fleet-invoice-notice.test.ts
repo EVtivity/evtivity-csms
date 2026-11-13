@@ -140,6 +140,26 @@ describe('fleetInvoiceVariables', () => {
       wasPaid: true,
     });
   });
+
+  it('fills empty values for a missing fleet, credited invoice, reason and dates', () => {
+    const note = fleetInvoiceVariables({
+      ...detail({ kind: 'credit_note', issuedAt: null, creditReason: null, totalCents: -100 }),
+      fleet: null,
+    } as never);
+    expect(note).toMatchObject({
+      fleetName: '',
+      issuedAt: '',
+      invoiceNumber: '',
+      creditReason: '',
+      wasPaid: false,
+      totalCents: 100,
+    });
+    const invoice = fleetInvoiceVariables({
+      ...detail({ dueAt: null }),
+      lineItems: [{ sessionId: null }, { sessionId: 'ses_1' }],
+    } as never);
+    expect(invoice).toMatchObject({ dueAt: '', sessionCount: 1 });
+  });
 });
 
 describe('sendAccountInvoiceEmail', () => {

@@ -6,8 +6,9 @@
 // first, critical rows red), each row linking to the station's Security tab.
 // GET /v1/dashboard/security-events (securityEvents:read); the severity
 // filter narrows only the station list, the donut always shows every severity.
+// The station list pages 20 rows at a time with the shared Pagination.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import ReactApexChart from 'react-apexcharts';
@@ -18,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import {
   Table,
@@ -43,8 +45,8 @@ const SECURITY_DONUT_HEIGHT = 280;
 export const SECURITY_EVENT_RANGES = ['24h', '7d', '30d'] as const;
 export type SecurityEventRange = (typeof SECURITY_EVENT_RANGES)[number];
 
-/** The most station rows the API returns (SECURITY_EVENTS_STATION_LIMIT). */
-export const SECURITY_EVENTS_STATION_LIMIT = 50;
+/** Station rows per page, the dashboard list page size. */
+export const SECURITY_EVENTS_PAGE_SIZE = 20;
 
 export interface SecurityEventsReply {
   range: SecurityEventRange;
@@ -69,15 +71,18 @@ interface SiteOption {
   name: string;
 }
 
-/** The request path of the card for its filters. */
+/** The request path of the card for its filters and page. */
 export function securityEventsPath(
   range: SecurityEventRange,
   siteId: string,
   severity: SecuritySeverity | '',
+  page = 1,
 ): string {
   const params = new URLSearchParams({ range });
   if (siteId !== '') params.set('siteId', siteId);
   if (severity !== '') params.set('severity', severity);
+  params.set('page', String(page));
+  params.set('limit', String(SECURITY_EVENTS_PAGE_SIZE));
   return `/v1/dashboard/security-events?${params.toString()}`;
 }
 
@@ -89,11 +94,14 @@ export function SecurityEventsCard(): React.JSX.Element {
   const [range, setRange] = useState<SecurityEventRange>('7d');
   const [siteId, setSiteId] = useState('');
   const [severity, setSeverity] = useState<SecuritySeverity | ''>('');
+  const [page, setPage] = useState(1);
 
   const events = useQuery({
-    queryKey: ['dashboard', 'security-events', range, siteId, severity],
-    queryFn: () => api.get<SecurityEventsReply>(securityEventsPath(range, siteId, severity)),
+    queryKey: ['dashboard', 'security-events', range, siteId, severity, page],
+    queryFn: () => api.get<SecurityEventsReply>(securityEventsPath(range, siteId, severity, page)),
     staleTime: 30_000,
+    // Keeps the current rows on screen while the next page loads.
+    placeholderData: (previous) => previous,
   });
   // The API scopes the list: a site-restricted user gets only their sites.
   const sites = useQuery({
@@ -121,6 +129,11 @@ export function SecurityEventsCard(): React.JSX.Element {
   const stations = events.data?.stations ?? [];
   const stationTotal = events.data?.stationTotal ?? 0;
   const total = events.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(stationTotal / SECURITY_EVENTS_PAGE_SIZE));
+  // Rows age out of the range while the card is open: step back past the end.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   return (
     <Card data-testid="security-events-card">
@@ -142,7 +155,10 @@ export function SecurityEventsCard(): React.JSX.Element {
               value={range}
               onChange={(e) => {
                 const next = SECURITY_EVENT_RANGES.find((r) => r === e.target.value);
-                if (next != null) setRange(next);
+                if (next != null) {
+                  setRange(next);
+                  setPage(1);
+                }
               }}
             >
               <option value="24h">{t('dashboard.securityEvents.range24h')}</option>
@@ -161,6 +177,7 @@ export function SecurityEventsCard(): React.JSX.Element {
                 value={siteId}
                 onChange={(e) => {
                   setSiteId(e.target.value);
+                  setPage(1);
                 }}
               >
                 <option value="">{t('dashboard.securityEvents.allSites')}</option>
@@ -183,6 +200,7 @@ export function SecurityEventsCard(): React.JSX.Element {
               onChange={(e) => {
                 const next = SECURITY_SEVERITIES.find((s) => s === e.target.value);
                 setSeverity(next ?? '');
+                setPage(1);
               }}
             >
               <option value="">{t('dashboard.securityEvents.allSeverities')}</option>
@@ -212,7 +230,7 @@ export function SecurityEventsCard(): React.JSX.Element {
                 height={SECURITY_DONUT_HEIGHT}
               />
             </div>
-            <div className="min-w-0 space-y-2">
+            <div className="min-w-0 space-y-4">
               {stations.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {t('dashboard.securityEvents.noStations')}
@@ -276,14 +294,7 @@ export function SecurityEventsCard(): React.JSX.Element {
                   </Table>
                 </div>
               )}
-              {stationTotal > stations.length && (
-                <p className="text-xs text-muted-foreground">
-                  {t('dashboard.securityEvents.truncated', {
-                    shown: stations.length,
-                    total: stationTotal,
-                  })}
-                </p>
-              )}
+              <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
             </div>
           </div>
         </ChartBody>

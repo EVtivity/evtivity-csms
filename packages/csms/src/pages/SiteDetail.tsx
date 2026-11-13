@@ -48,6 +48,10 @@ import { SiteMetricsTab } from '@/components/site/SiteMetricsTab';
 import { SiteQrCodesTab } from '@/components/site/SiteQrCodesTab';
 import { SitePricingTab } from '@/components/site/SitePricingTab';
 import { SiteFreeVendTab } from '@/components/site/SiteFreeVendTab';
+import { SiteAutochargeTab } from '@/components/site/SiteAutochargeTab';
+import { SiteDataPlanTab } from '@/components/site/SiteDataPlanTab';
+import type { DataPlan } from '@evtivity/lib/station-data-plan';
+import { SiteCarbonRegionTab } from '@/components/site/SiteCarbonRegionTab';
 import { SiteMaintenanceTab } from '@/components/SiteMaintenanceTab';
 import { SiteElectricityRatesTab } from '@/components/SiteElectricityRatesTab';
 import { SiteElectricityRatesNotice } from '@/components/ElectricityCostNotices';
@@ -79,6 +83,7 @@ interface Site {
   carbonRegionCode: string | null;
   stationMessageLanguage: string | null;
   autochargeEnabled?: boolean | null;
+  dataPlan?: DataPlan | null;
   aiInsightsEnabled?: boolean;
   aiMonthlyTokenBudget?: number | null;
   aiInsightsSuppressed?: boolean;
@@ -314,6 +319,9 @@ export function SiteDetail(): React.JSX.Element {
             <TabsTrigger value="ai-insights">{t('aiInsights.list.title')}</TabsTrigger>
           )}
           <TabsTrigger value="free-vend">{t('sites.freeVend')}</TabsTrigger>
+          <TabsTrigger value="autocharge">{t('sites.autocharge')}</TabsTrigger>
+          <TabsTrigger value="data-plan">{t('dataPlan.title')}</TabsTrigger>
+          <TabsTrigger value="carbon-region">{t('sites.carbonRegion')}</TabsTrigger>
           {canReadMaintenance && (
             <TabsTrigger value="maintenance">{t('nav.maintenance')}</TabsTrigger>
           )}
@@ -538,6 +546,12 @@ export function SiteDetail(): React.JSX.Element {
         )}
 
         <SiteFreeVendTab site={site} siteId={id ?? ''} />
+
+        <SiteAutochargeTab site={site} siteId={id ?? ''} />
+
+        <SiteDataPlanTab siteId={id ?? ''} dataPlan={site.dataPlan ?? null} />
+
+        <SiteCarbonRegionTab site={site} siteId={id ?? ''} />
 
         <TabsContent value="electricity-rates">
           <SiteElectricityRatesTab siteId={id ?? ''} siteName={site.name} />

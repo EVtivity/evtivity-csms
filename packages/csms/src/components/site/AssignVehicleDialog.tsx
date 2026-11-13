@@ -25,6 +25,7 @@ import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { EmptyState } from '@/components/ui/content-state';
+import { useSavedToast } from '@/components/saved-message';
 import {
   siteChargingPlanKey,
   vehicleLabel,
@@ -99,6 +100,7 @@ function AssignForm({
   onClose: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const canReadDrivers = useHasPermission('drivers:read');
   const driverId = session.driverId ?? null;
@@ -120,6 +122,7 @@ function AssignForm({
     mutationFn: (id: string) =>
       api.put(`/v1/sessions/${session.sessionId}/vehicle`, { vehicleId: id }),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: siteChargingPlanKey(siteId) });
       void queryClient.invalidateQueries({ queryKey: ['sites', siteId, 'layout'] });
       onClose();

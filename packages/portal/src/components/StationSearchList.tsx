@@ -14,6 +14,8 @@ import { api } from '@/lib/api';
 import { formatConnectorCurrentAmps, formatConnectorPowerKw } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/content-state';
 import { chargerRowKey } from '@/lib/station-units';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
 interface ConnectorSummary {
   connectorType: string | null;
@@ -67,10 +69,6 @@ interface RoamingLocation {
   evseCount: number;
 }
 
-interface PublicConfig {
-  roamingEnabled: boolean;
-}
-
 interface StoredLocation {
   lat: number;
   lng: number;
@@ -106,10 +104,13 @@ function storeLocation(lat: number, lng: number): void {
   );
 }
 
-function summarizeConnectors(conns: ConnectorSummary[]): string {
+function summarizeConnectors(
+  conns: ConnectorSummary[],
+  typeLabel: (type: string | null) => string,
+): string {
   const typeCounts = new Map<string, number>();
   for (const c of conns) {
-    const label = c.connectorType ?? 'Unknown';
+    const label = typeLabel(c.connectorType);
     typeCounts.set(label, (typeCounts.get(label) ?? 0) + 1);
   }
   return Array.from(typeCounts.entries())
@@ -153,6 +154,7 @@ function ConnectorsRow({
   showCurrent: boolean;
   availableLabel: string;
 }): React.JSX.Element | null {
+  const typeLabel = useConnectorTypeLabel();
   if (connectors.length === 0) return null;
   const power = maxPowerLabel(connectors);
   const current = maxCurrentLabel(connectors);
@@ -160,7 +162,7 @@ function ConnectorsRow({
     <div className="flex items-center gap-2 flex-wrap">
       <span className="text-xs flex items-center gap-1">
         <Plug className="h-3 w-3 text-muted-foreground" />
-        {summarizeConnectors(connectors)}
+        {summarizeConnectors(connectors, typeLabel)}
       </span>
       {power != null && (
         <Badge variant="secondary" className="text-xs px-1.5 py-0">
@@ -205,7 +207,7 @@ export function StationSearchList({
   searchPlaceholder,
 }: StationSearchListProps): React.JSX.Element {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<SearchTab>('local');
+  const [pickedTab, setTab] = useState<SearchTab>('local');
   const [query, setQuery] = useState('');
   // Debounced copy of `query` so the input feels responsive locally but we
   // only hit /chargers/search after the user stops typing for 250ms.
@@ -250,12 +252,12 @@ export function StationSearchList({
     };
   }, [location]);
 
-  const { data: publicConfig } = useQuery({
-    queryKey: ['security-public'],
-    queryFn: () => api.get<PublicConfig>('/v1/security/public?app=portal'),
-  });
-
-  const roamingEnabled = !hideRoamingTab && publicConfig?.roamingEnabled === true;
+  // The partner network choice shows while roaming is on (roaming.enabled);
+  // a failed read hides it.
+  const { data: features } = usePortalFeatures();
+  const roamingEnabled = !hideRoamingTab && features?.roamingEnabled === true;
+  // A partner tab picked before the choice went away falls back to our network.
+  const tab: SearchTab = roamingEnabled ? pickedTab : 'local';
 
   const { data: nearbyStations, isError: nearbyError } = useQuery({
     queryKey: ['charger-nearby', location?.lat, location?.lng],
@@ -376,10 +378,15 @@ export function StationSearchList({
                 <CardContent className="p-3 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium">{station.stationId}</p>
+                      <p className="text-sm font-medium" data-testid="search-row-title">
+                        {station.unitName ?? station.stationId}
+                      </p>
                       {station.unitName != null && (
-                        <p className="text-xs text-muted-foreground" data-testid="search-unit-name">
-                          {station.unitName}
+                        <p
+                          className="text-xs text-muted-foreground"
+                          data-testid="search-station-id"
+                        >
+                          {station.stationId}
                         </p>
                       )}
                     </div>
@@ -424,10 +431,12 @@ export function StationSearchList({
               <CardContent className="p-3 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium">{station.stationId}</p>
+                    <p className="text-sm font-medium" data-testid="search-row-title">
+                      {station.unitName ?? station.stationId}
+                    </p>
                     {station.unitName != null && (
-                      <p className="text-xs text-muted-foreground" data-testid="search-unit-name">
-                        {station.unitName}
+                      <p className="text-xs text-muted-foreground" data-testid="search-station-id">
+                        {station.stationId}
                       </p>
                     )}
                     {station.siteName != null && (

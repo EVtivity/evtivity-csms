@@ -251,7 +251,7 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
     const grid = (el: HTMLElement): HTMLElement =>
       el.parentElement?.parentElement?.parentElement as HTMLElement;
     expect(grid(billed)).toBe(grid(unpaid));
-    expect(grid(billed).className).toBe('grid gap-4 grid-cols-1 md:grid-cols-2');
+    expect(grid(billed).className).toBe('grid gap-4 grid-cols-2');
     expect(grid(revenue).className).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');
     expect(statGridClass(4)).toBe(grid(revenue).className);
     // The sliding row keeps the stat gap between its pages, so the account page
@@ -261,7 +261,9 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
     expect(row.className).toContain('gap-4');
     expect(grid(billed).parentElement?.parentElement).toBe(row);
     expect(statGridClass(8)).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');
-    expect(statGridClass(3)).toBe('grid gap-4 grid-cols-1 md:grid-cols-3');
+    expect(statGridClass(3)).toBe(
+      'grid gap-4 grid-cols-2 md:grid-cols-3 [&>*:last-child]:col-span-2 md:[&>*:last-child]:col-span-1',
+    );
     expect(statGridClass(1)).toBe('grid gap-4 grid-cols-1');
     for (const title of [billed, unpaid]) {
       const card = title.parentElement?.parentElement as HTMLElement;
@@ -333,6 +335,32 @@ describe('Dashboard states and permissions', () => {
     await waitFor(() => {
       expect(calls).toBeGreaterThan(before);
     });
+  });
+
+  it('shows the Charging Units count from the stats', async () => {
+    answers.set('/v1/dashboard/stats', () =>
+      Promise.resolve({
+        totalStations: 1,
+        onlineStations: 1,
+        onlinePercent: 100,
+        activeSessions: 0,
+        totalSessions: 0,
+        totalEnergyWh: 0,
+        faultedStations: 0,
+        chargingUnits: 8,
+        hasStationUnits: true,
+        statusCounts: {},
+        onboardingStatusCounts: { accepted: 1 },
+      }),
+    );
+    await renderDashboard('admin');
+    const card = (await screen.findByText('dashboard.chargingUnits')).closest('div.rounded-lg');
+    await waitFor(
+      () => {
+        expect(within(card as HTMLElement).getByText('8')).toBeTruthy();
+      },
+      { timeout: 5000 },
+    ); // the value animates in; a loaded run takes longer
   });
 
   it('shows the stations count with the pending and blocked note', async () => {
@@ -678,37 +706,102 @@ describe('dashboard stat row column count', () => {
 describe('live health row for a site-restricted user', () => {
   const rowOf = (title: string): HTMLElement =>
     screen.getByText(title).parentElement?.parentElement?.parentElement as HTMLElement;
+  const withUnits = (): void => {
+    answers.set('/v1/dashboard/stats', () =>
+      Promise.resolve({
+        totalStations: 1,
+        onlineStations: 1,
+        onlinePercent: 100,
+        activeSessions: 0,
+        totalSessions: 0,
+        totalEnergyWh: 0,
+        faultedStations: 0,
+        chargingUnits: 8,
+        hasStationUnits: true,
+        statusCounts: {},
+        onboardingStatusCounts: { accepted: 1 },
+      }),
+    );
+  };
 
-  it('keeps six cards across for an all-site user', async () => {
+  it('keeps six cards across and no Charging Units card for an all-site user without units', async () => {
     await renderDashboard('admin', ['dashboard:read'], true);
     expect(screen.getByText('dashboard.pingLatency')).toBeTruthy();
+    expect(screen.queryByText('dashboard.chargingUnits')).toBeNull();
+    expect(rowOf('dashboard.totalStations').children).toHaveLength(6);
     expect(rowOf('dashboard.totalPorts').className).toBe(
       'grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6',
     );
   });
 
-  it('lays the four cards left without the ping cards four across, with no gaps', async () => {
+  it('lays the four cards left without the ping cards four across, with no gaps, without units', async () => {
     await renderDashboard('operator', ['dashboard:read'], false);
     expect(screen.queryByText('dashboard.pingLatency')).toBeNull();
+    expect(screen.queryByText('dashboard.chargingUnits')).toBeNull();
     const row = rowOf('dashboard.totalPorts');
     expect(row.children).toHaveLength(4);
     expect(row.className).toBe(statGridClass(4));
+  });
+
+  it('puts the station, charging unit and port counts first, every row full, for an all-site user with units', async () => {
+    withUnits();
+    await renderDashboard('admin', ['dashboard:read'], true);
+    await screen.findByText('dashboard.chargingUnits');
+    expect(screen.getByText('dashboard.pingLatency')).toBeTruthy();
+    const counts = rowOf('dashboard.chargingUnits');
+    expect(counts).toBe(rowOf('dashboard.totalPorts'));
+    expect(counts.children).toHaveLength(6);
+    expect(counts.className).toBe('grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6');
+    const order = Array.from(counts.children).map((c) => c.textContent);
+    expect(order[0]).toContain('dashboard.totalStations');
+    expect(order[1]).toContain('dashboard.chargingUnits');
+    expect(order[2]).toContain('dashboard.totalPorts');
+    expect(rowOf('dashboard.faults').children).toHaveLength(4);
+    const ping = rowOf('dashboard.pingLatency');
+    expect(ping.children).toHaveLength(3);
+    expect(ping).toBe(rowOf('dashboard.ocppConnections'));
+  });
+
+  it('lays the eleven cards without the ping cards in rows of six, three and two, with units', async () => {
+    withUnits();
+    await renderDashboard('operator', ['dashboard:read'], false);
+    await screen.findByText('dashboard.chargingUnits');
+    expect(screen.queryByText('dashboard.pingLatency')).toBeNull();
+    expect(rowOf('dashboard.chargingUnits').children).toHaveLength(6);
+    const middle = rowOf('dashboard.faults');
+    expect(middle.children).toHaveLength(3);
+    expect(middle.className).toBe(statGridClass(3));
+    const last = rowOf('dashboard.ocppConnections');
+    expect(last.children).toHaveLength(2);
+    expect(last).toBe(rowOf('dashboard.totalSessions'));
+    expect(last.className).toBe(statGridClass(2));
   });
 });
 
 describe('stat rows fill every viewport', () => {
   // Every card count a dashboard row can hold: Live 6, 4 (no all-site access)
   // and the money grids 4 and 2; Historical 4, 2 and 1; Trend 8 and 6.
-  it.each([1, 2, 3, 4, 6, 8])('puts %i cards in whole rows on phones, md, lg and xl', (count) => {
-    for (const cols of statGridColumns(count)) {
+  it.each([1, 2, 3, 4, 6, 8])('puts %i cards in whole rows on md, lg and xl', (count) => {
+    for (const cols of statGridColumns(count).slice(1)) {
       expect(count % cols).toBe(0);
     }
   });
 
-  it('keeps the layouts that already filled their rows', () => {
+  it.each([2, 3, 4, 6, 8])(
+    'puts %i cards two across on phones, an odd last card full width',
+    (count) => {
+      expect(statGridColumns(count)[0]).toBe(2);
+      const spans = statGridClass(count).includes('[&>*:last-child]:col-span-2');
+      expect(spans).toBe(count % 2 === 1);
+    },
+  );
+
+  it('keeps the layouts that already filled their rows from md up', () => {
     expect(statGridClass(1)).toBe('grid gap-4 grid-cols-1');
-    expect(statGridClass(2)).toBe('grid gap-4 grid-cols-1 md:grid-cols-2');
-    expect(statGridClass(3)).toBe('grid gap-4 grid-cols-1 md:grid-cols-3');
+    expect(statGridClass(2)).toBe('grid gap-4 grid-cols-2');
+    expect(statGridClass(3)).toBe(
+      'grid gap-4 grid-cols-2 md:grid-cols-3 [&>*:last-child]:col-span-2 md:[&>*:last-child]:col-span-1',
+    );
     expect(statGridClass(4)).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');
     expect(statGridClass(6)).toBe('grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6');
     expect(statGridClass(8)).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');

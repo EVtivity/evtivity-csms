@@ -4,7 +4,7 @@
 import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './button';
-import { Spinner } from '@/components/ui/spinner';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -87,10 +87,10 @@ export function ConfirmDialog({
           type={asForm ? 'submit' : 'button'}
           variant={variant}
           disabled={isPending}
+          className="relative"
           {...(asForm ? {} : { onClick: confirm })}
         >
-          {isPending && <Spinner className="mr-2 h-4 w-4" />}
-          {confirmLabel}
+          <ButtonPendingLabel pending={isPending}>{confirmLabel}</ButtonPendingLabel>
         </Button>
       </div>
     </>

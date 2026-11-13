@@ -70,7 +70,8 @@ function CardSetupForm({
         <CreateButton
           type="submit"
           disabled={stripe == null || loading}
-          label={loading ? t('common.saving') : t('payments.addCard')}
+          label={t('payments.addCard')}
+          pending={loading}
         />
         <CancelButton onClick={onCancel} />
       </div>

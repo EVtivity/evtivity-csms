@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { useSavedToast } from '@/components/saved-message';
 import { useHasAllSiteAccess } from '@/lib/auth';
 
 interface Fleet {
@@ -51,6 +52,7 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   // Deleting a fleet removes its links at every site: all-site users only.
   const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
@@ -83,6 +85,7 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
     mutationFn: (body: { name?: string; description?: string }) =>
       api.patch<Fleet>(`/v1/fleets/${fleetId}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['fleets'] });
       void queryClient.invalidateQueries({ queryKey: ['fleets'] });
       setEditing(false);

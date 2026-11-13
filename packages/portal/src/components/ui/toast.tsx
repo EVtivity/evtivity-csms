@@ -30,7 +30,7 @@ type ToastVariant = NonNullable<VariantProps<typeof toastVariants>['variant']>;
 
 const VARIANT_ICONS: Record<string, React.ReactNode> = {
   success: <Check className="h-5 w-5 text-success shrink-0 mt-0.5" />,
-  warning: <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />,
+  warning: <AlertTriangle className="h-5 w-5 text-warning-text shrink-0 mt-0.5" />,
   destructive: <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />,
   info: <Info className="h-5 w-5 text-info shrink-0 mt-0.5" />,
 };

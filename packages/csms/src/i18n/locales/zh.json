@@ -10,7 +10,8 @@
     "allSiteAccessRequiredDescription": "此页面涵盖所有充电站。只有可以访问所有充电站的用户才能打开。",
     "backToHome": "返回仪表盘",
     "save": "保存",
-    "saved": "已保存",
+    "saved": "保存成功",
+    "createdSuccessfully": "创建成功",
     "reset": "重置",
     "columns": "列",
     "success": "成功",
@@ -424,6 +425,7 @@
   "dashboard": {
     "title": "仪表盘",
     "totalStations": "充电桩总数",
+    "chargingUnits": "充电单元",
     "online": "在线",
     "uptime": "运行时间",
     "activeSessions": "活动会话",
@@ -473,6 +475,7 @@
     },
     "info": {
       "totalStations": "已接受的充电桩。待审核和已阻止的充电桩单独计数。",
+      "chargingUnits": "已接受充电桩的物理充电机。没有单元的充电桩计为一个。有单元的充电桩按每个含在用 EVSE 的单元计数，另有未分配单元的 EVSE 时再加一个。",
       "online": "当前通过 OCPP 连接并通信的已接受充电桩百分比。",
       "onlineCount": "当前通过 OCPP 连接并通信的充电桩数量。",
       "uptime": "过去 30 天所有充电桩连接器的平均运行时间。",
@@ -614,7 +617,6 @@
       "lastEvent": "最近事件",
       "empty": "此时间范围内没有安全事件。",
       "noStations": "没有此严重程度事件的充电桩。",
-      "truncated": "显示 {{total}} 个充电桩中的 {{shown}} 个。",
       "criticalRow": "严重"
     }
   },
@@ -1397,7 +1399,6 @@
     "connectorRegionNorthAmerican": "北美",
     "connectorRegionEuropean": "欧洲",
     "connectorRegionUniversal": "通用 / 其他",
-    "connectorUnknown": "未知",
     "uploadFailed": "上传图片失败，请重试。",
     "profileUpgradePending": "正在等待升级到安全配置文件 {{profile}}。充电桩使用该配置文件重新连接后生效；在此之前保持当前配置文件。",
     "cancelProfileUpgrade": "取消升级",
@@ -5251,7 +5252,8 @@
       },
       "resolutionSource": {
         "operator": "支持团队",
-        "ai": "AI"
+        "ai": "AI",
+        "driver": "驾驶员"
       },
       "driverAction": {
         "try_other_connector": "尝试其他充电枪",
@@ -7743,16 +7745,22 @@
     }
   },
   "stationUnits": {
-    "description": "此充电桩的物理充电箱，例如主箱及其扩展箱。驾驶员会把每个单元视为单独的充电器；会话和命令仍属于充电桩。",
-    "addUnit": "添加单元",
-    "renameUnit": "重命名单元",
+    "createUnit": "创建单元",
+    "createUnitDescription": "按物理充电箱对此充电桩的 EVSE 分组。",
+    "editUnit": "编辑单元",
     "deleteUnit": "删除单元",
     "deleteConfirm": "删除 {{name}}？其 EVSE 将保留在充电桩上且不属于任何单元，驾驶员对它的收藏和提醒将被移除。",
     "unitName": "单元名称",
+    "serialNumber": "序列号",
+    "ipAddress": "IP 地址",
+    "ipAddressHint": "一个 IPv4 或 IPv6 地址，不含端口。",
+    "serialNumberValue": "序列号 {{value}}",
+    "ipAddressValue": "IP {{value}}",
     "noEvses": "无 EVSE",
     "noUnit": "无单元",
+    "unit": "单元",
+    "evseCreatedWithoutUnit": "EVSE 已创建，但未分配单元。它显示在未分配单元的 EVSE 中。",
     "evsesWithoutUnit": "未分配单元的 EVSE",
-    "empty": "此充电桩没有单元。添加单元可按物理充电箱对其 EVSE 分组。",
     "evseCount_one": "{{count}} 个 EVSE",
     "evseCount_other": "{{count}} 个 EVSE",
     "unitCount_one": "{{count}} 个单元",
@@ -7767,5 +7775,9 @@
     "evse": "EVSE",
     "chooseEvse": "选择 EVSE",
     "evseInUnit": "{{evse}}（{{unit}}）"
+  },
+  "connectorTypeNames": {
+    "other": "其他",
+    "pantograph": "受电弓"
   }
 }

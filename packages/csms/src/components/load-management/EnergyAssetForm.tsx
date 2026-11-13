@@ -33,6 +33,7 @@ import {
   type TransformerItem,
   type TreeNode,
 } from './load-management-types';
+import { useSavedToast } from '@/components/saved-message';
 import { useSolarCarportRow } from './use-solar-carport-row';
 
 type AssetType = EnergyAssetItem['type'];
@@ -92,6 +93,7 @@ export function EnergyAssetForm({
   onSaved,
 }: EnergyAssetFormProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const isEdit = asset != null;
 
   const [type, setType] = useState<AssetType>('battery');
@@ -228,6 +230,7 @@ export function EnergyAssetForm({
       if (showsCarportRow) await carport.save(assetId, solarRow);
     },
     onSuccess: () => {
+      savedToast();
       onSaved();
       onClose();
     },

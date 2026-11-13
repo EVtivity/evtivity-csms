@@ -71,6 +71,10 @@ interface DashboardStats {
   totalSessions: number;
   totalEnergyWh: number;
   faultedStations: number;
+  /** Physical chargers: units of stations with units, 1 per station without. */
+  chargingUnits?: number;
+  /** A station of the user's sites has units: only then the Charging Units card shows. */
+  hasStationUnits?: boolean;
   statusCounts: Record<string, number>;
   onboardingStatusCounts: Record<string, number>;
 }
@@ -112,29 +116,36 @@ const GRID_COLS: Record<string, Record<number, string>> = {
 };
 
 /**
- * The columns of a stat row at each breakpoint: the most that divide the card
- * count, so every row is full at every width. Rows of two or three cards stack
- * on phones, where two narrow cards would cut off their values.
+ * The columns of a stat row at each breakpoint. From md up: the most that
+ * divide the card count, so every row is full. On phones: two columns side by
+ * side, 50/50 (one for a single card); an odd last card spans the row
+ * (`STAT_GRID_PHONE_LAST_SPAN`), so no card sits at half width next to an
+ * empty cell (owner decision 2026-11-13).
  */
 export function statGridColumns(count: number): number[] {
   const n = Math.max(1, count);
   return STAT_GRID_MAX_COLUMNS.map(([prefix, max]) => {
-    const limit = prefix === '' && n <= 3 ? 1 : max;
-    let cols = Math.min(limit, n);
+    if (prefix === '') return Math.min(max, n);
+    let cols = Math.min(max, n);
     while (n % cols !== 0) cols -= 1;
     return cols;
   });
 }
 
+/** On phones an odd last card takes the whole row; from md the row divides evenly again. */
+const STAT_GRID_PHONE_LAST_SPAN = '[&>*:last-child]:col-span-2 md:[&>*:last-child]:col-span-1';
+
 /** Grid classes of a stat row by its card count (`statGridColumns`). */
 export function statGridClass(count: number): string {
   const classes = ['grid', 'gap-4'];
   let previous = 0;
-  statGridColumns(count).forEach((cols, i) => {
+  const columns = statGridColumns(count);
+  columns.forEach((cols, i) => {
     const prefix = STAT_GRID_MAX_COLUMNS[i]?.[0] ?? '';
     if (cols !== previous) classes.push(GRID_COLS[prefix]?.[cols] ?? '');
     previous = cols;
   });
+  if (columns[0] === 2 && count % 2 === 1) classes.push(STAT_GRID_PHONE_LAST_SPAN);
   return classes.join(' ');
 }
 
@@ -952,130 +963,231 @@ function DashboardBody({
       </StatGrid>
     );
 
-    return (
-      <>
-        <StatGrid>
-          <StatCard
-            title={t('dashboard.totalStations')}
-            value={stats?.totalStations ?? 0}
-            info={t('dashboard.info.totalStations')}
-            dayDelta={dayDelta(yd?.totalStations, db?.totalStations)}
-            deltaLabel={deltaLabel}
-            state={statsState}
-            extra={stationsNote}
-          />
-          <StatCard
-            title={t('dashboard.online')}
-            value={`${formatNumberUpTo(stats?.onlinePercent ?? 0, 1)}%`}
-            info={t('dashboard.info.online')}
-            dayDelta={dayDelta(yd?.onlinePercent, db?.onlinePercent)}
-            deltaLabel={deltaLabel}
-            state={statsState}
-          />
-          <StatCard
-            title={t('dashboard.uptime')}
-            value={
-              uptime == null || uptime.totalPorts === 0
-                ? t('common.na')
-                : `${formatNumberUpTo(uptime.uptimePercent, 2)}%`
-            }
-            info={t('dashboard.info.uptime')}
-            dayDelta={dayDelta(yd?.uptimePercent, db?.uptimePercent)}
-            deltaLabel={deltaLabel}
-            state={uptimeState}
-          />
-          <StatCard
-            title={t('dashboard.activeSessions')}
-            value={stats?.activeSessions ?? 0}
-            info={t('dashboard.info.activeSessions')}
-            dayDelta={dayDelta(yd?.activeSessions, db?.activeSessions)}
-            deltaLabel={deltaLabel}
-            state={statsState}
-          />
-          <StatCard
-            title={t('dashboard.faults')}
-            value={stats?.faultedStations ?? 0}
-            info={t('dashboard.info.faults')}
-            positiveIsGood={false}
-            state={statsState}
-          />
-          <StatCard
-            title={t('dashboard.co2Avoided')}
-            value={formatCo2(carbonStats.data?.totalCo2AvoidedKg ?? 0)}
-            info={t('dashboard.co2AvoidedTooltip')}
-            state={carbonState}
-            valueClassName="text-success"
-          />
-        </StatGrid>
+    const totalStationsCard = (
+      <StatCard
+        title={t('dashboard.totalStations')}
+        value={stats?.totalStations ?? 0}
+        info={t('dashboard.info.totalStations')}
+        dayDelta={dayDelta(yd?.totalStations, db?.totalStations)}
+        deltaLabel={deltaLabel}
+        state={statsState}
+        extra={stationsNote}
+      />
+    );
+    // Physical chargers (a station's units, or the station itself without
+    // units): computed live, so it has no day-over-day arrow.
+    const chargingUnitsCard = (
+      <StatCard
+        title={t('dashboard.chargingUnits')}
+        value={stats?.chargingUnits ?? 0}
+        info={t('dashboard.info.chargingUnits')}
+        state={statsState}
+      />
+    );
+    const totalPortsCard = (
+      <StatCard
+        title={t('dashboard.totalPorts')}
+        value={uptime?.totalPorts ?? 0}
+        info={t('dashboard.info.totalPorts')}
+        dayDelta={dayDelta(yd?.totalPorts, db?.totalPorts)}
+        deltaLabel={deltaLabel}
+        state={uptimeState}
+      />
+    );
+    const onlineCard = (
+      <StatCard
+        title={t('dashboard.online')}
+        value={`${formatNumberUpTo(stats?.onlinePercent ?? 0, 1)}%`}
+        info={t('dashboard.info.online')}
+        dayDelta={dayDelta(yd?.onlinePercent, db?.onlinePercent)}
+        deltaLabel={deltaLabel}
+        state={statsState}
+      />
+    );
+    const uptimeCard = (
+      <StatCard
+        title={t('dashboard.uptime')}
+        value={
+          uptime == null || uptime.totalPorts === 0
+            ? t('common.na')
+            : `${formatNumberUpTo(uptime.uptimePercent, 2)}%`
+        }
+        info={t('dashboard.info.uptime')}
+        dayDelta={dayDelta(yd?.uptimePercent, db?.uptimePercent)}
+        deltaLabel={deltaLabel}
+        state={uptimeState}
+      />
+    );
+    const activeSessionsCard = (
+      <StatCard
+        title={t('dashboard.activeSessions')}
+        value={stats?.activeSessions ?? 0}
+        info={t('dashboard.info.activeSessions')}
+        dayDelta={dayDelta(yd?.activeSessions, db?.activeSessions)}
+        deltaLabel={deltaLabel}
+        state={statsState}
+      />
+    );
+    const faultsCard = (
+      <StatCard
+        title={t('dashboard.faults')}
+        value={stats?.faultedStations ?? 0}
+        info={t('dashboard.info.faults')}
+        positiveIsGood={false}
+        state={statsState}
+      />
+    );
+    const co2Card = (
+      <StatCard
+        title={t('dashboard.co2Avoided')}
+        value={formatCo2(carbonStats.data?.totalCo2AvoidedKg ?? 0)}
+        info={t('dashboard.co2AvoidedTooltip')}
+        state={carbonState}
+        valueClassName="text-success"
+      />
+    );
+    const energyCard = (
+      <StatCard
+        title={t('dashboard.energyDelivered')}
+        value={formatEnergy(stats?.totalEnergyWh ?? 0)}
+        info={t('dashboard.info.energyDelivered')}
+        dayDelta={dayDelta(yd?.totalEnergyWh, db?.totalEnergyWh)}
+        deltaLabel={deltaLabel}
+        state={statsState}
+      />
+    );
+    const totalSessionsCard = (
+      <StatCard
+        title={t('dashboard.totalSessions')}
+        value={stats?.totalSessions ?? 0}
+        info={t('dashboard.info.totalSessions')}
+        dayDelta={dayDelta(yd?.totalSessions, db?.totalSessions)}
+        deltaLabel={deltaLabel}
+        state={statsState}
+      />
+    );
+    const ocppCard = (
+      <StatCard
+        title={t('dashboard.ocppConnections')}
+        value={ocppHealth.data?.connectedStations ?? 0}
+        info={t('dashboard.info.ocppConnections')}
+        dayDelta={dayDelta(yd?.connectedStations, db?.connectedStations)}
+        deltaLabel={deltaLabel}
+        state={ocppState}
+        extra={
+          (ocppHealth.data?.instanceCount ?? 0) > 1 ? (
+            <p
+              className="text-xs text-muted-foreground"
+              title={ocppHealth.data?.instances
+                ?.map((i) => `${i.instanceId}: ${String(i.connectedStations)}`)
+                .join('\n')}
+            >
+              {t('dashboard.ocppServers', { count: ocppHealth.data?.instanceCount ?? 0 })}
+            </p>
+          ) : undefined
+        }
+      />
+    );
 
-        {/* The ping cards cover every site: a site-restricted user's row holds four. */}
-        <StatGrid>
-          <StatCard
-            title={t('dashboard.energyDelivered')}
-            value={formatEnergy(stats?.totalEnergyWh ?? 0)}
-            info={t('dashboard.info.energyDelivered')}
-            dayDelta={dayDelta(yd?.totalEnergyWh, db?.totalEnergyWh)}
-            deltaLabel={deltaLabel}
-            state={statsState}
-          />
-          <StatCard
-            title={t('dashboard.totalSessions')}
-            value={stats?.totalSessions ?? 0}
-            info={t('dashboard.info.totalSessions')}
-            dayDelta={dayDelta(yd?.totalSessions, db?.totalSessions)}
-            deltaLabel={deltaLabel}
-            state={statsState}
-          />
-          <StatCard
-            title={t('dashboard.ocppConnections')}
-            value={ocppHealth.data?.connectedStations ?? 0}
-            info={t('dashboard.info.ocppConnections')}
-            dayDelta={dayDelta(yd?.connectedStations, db?.connectedStations)}
-            deltaLabel={deltaLabel}
-            state={ocppState}
-            extra={
-              (ocppHealth.data?.instanceCount ?? 0) > 1 ? (
-                <p
-                  className="text-xs text-muted-foreground"
-                  title={ocppHealth.data?.instances
-                    ?.map((i) => `${i.instanceId}: ${String(i.connectedStations)}`)
-                    .join('\n')}
-                >
-                  {t('dashboard.ocppServers', { count: ocppHealth.data?.instanceCount ?? 0 })}
-                </p>
-              ) : undefined
-            }
-          />
-          {hasAllSiteAccess && (
+    const pingLatencyCard = (
+      <StatCard
+        title={t('dashboard.pingLatency')}
+        value={`${formatNumberUpTo(ocppHealth.data?.avgPingLatencyMs ?? 0, 2)}\u00a0ms`}
+        info={t('dashboard.info.pingLatency')}
+        positiveIsGood={false}
+        dayDelta={dayDelta(yd?.avgPingLatencyMs, db?.avgPingLatencyMs)}
+        deltaLabel={deltaLabel}
+        state={ocppState}
+      />
+    );
+    const pingSuccessCard = (
+      <StatCard
+        title={t('dashboard.pingSuccessRate')}
+        value={`${formatNumberUpTo(ocppHealth.data?.pingSuccessRate ?? 0, 1)}%`}
+        info={t('dashboard.info.pingSuccessRate')}
+        dayDelta={dayDelta(yd?.pingSuccessRate, db?.pingSuccessRate)}
+        deltaLabel={deltaLabel}
+        state={ocppState}
+      />
+    );
+
+    // Without station units the two rows of six stay as they were; Charging
+    // Units shows only while a station of the user's sites has units.
+    const healthRows =
+      stats?.hasStationUnits !== true ? (
+        <>
+          <StatGrid>
+            {totalStationsCard}
+            {onlineCard}
+            {uptimeCard}
+            {activeSessionsCard}
+            {faultsCard}
+            {co2Card}
+          </StatGrid>
+
+          {/* The ping cards cover every site: a site-restricted user's row holds four. */}
+          <StatGrid>
+            {energyCard}
+            {totalSessionsCard}
+            {ocppCard}
+            {hasAllSiteAccess && (
+              <>
+                {pingLatencyCard}
+                {pingSuccessCard}
+              </>
+            )}
+            {totalPortsCard}
+          </StatGrid>
+        </>
+      ) : (
+        <>
+          {/* The counts first: stations, their physical chargers, their ports. */}
+          <StatGrid>
+            {totalStationsCard}
+            {chargingUnitsCard}
+            {totalPortsCard}
+            {onlineCard}
+            {uptimeCard}
+            {activeSessionsCard}
+          </StatGrid>
+
+          {/*
+            The ping cards cover every site, so a site-restricted user gets 11
+            cards in all: rows of 6, 3 and 2 instead of 6, 4 and 3, every row full.
+          */}
+          {hasAllSiteAccess ? (
             <>
-              <StatCard
-                title={t('dashboard.pingLatency')}
-                value={`${formatNumberUpTo(ocppHealth.data?.avgPingLatencyMs ?? 0, 2)}\u00a0ms`}
-                info={t('dashboard.info.pingLatency')}
-                positiveIsGood={false}
-                dayDelta={dayDelta(yd?.avgPingLatencyMs, db?.avgPingLatencyMs)}
-                deltaLabel={deltaLabel}
-                state={ocppState}
-              />
-              <StatCard
-                title={t('dashboard.pingSuccessRate')}
-                value={`${formatNumberUpTo(ocppHealth.data?.pingSuccessRate ?? 0, 1)}%`}
-                info={t('dashboard.info.pingSuccessRate')}
-                dayDelta={dayDelta(yd?.pingSuccessRate, db?.pingSuccessRate)}
-                deltaLabel={deltaLabel}
-                state={ocppState}
-              />
+              <StatGrid>
+                {faultsCard}
+                {co2Card}
+                {energyCard}
+                {totalSessionsCard}
+              </StatGrid>
+              <StatGrid>
+                {ocppCard}
+                {pingLatencyCard}
+                {pingSuccessCard}
+              </StatGrid>
+            </>
+          ) : (
+            <>
+              <StatGrid>
+                {faultsCard}
+                {co2Card}
+                {energyCard}
+              </StatGrid>
+              <StatGrid>
+                {totalSessionsCard}
+                {ocppCard}
+              </StatGrid>
             </>
           )}
-          <StatCard
-            title={t('dashboard.totalPorts')}
-            value={uptime?.totalPorts ?? 0}
-            info={t('dashboard.info.totalPorts')}
-            dayDelta={dayDelta(yd?.totalPorts, db?.totalPorts)}
-            deltaLabel={deltaLabel}
-            state={uptimeState}
-          />
-        </StatGrid>
+        </>
+      );
+
+    return (
+      <>
+        {healthRows}
 
         {canSeeMoney && (
           <ScrollSnapRow

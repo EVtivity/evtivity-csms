@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 type SellerValues = Record<InvoiceSellerSettingKey, string>;
@@ -184,9 +185,7 @@ export function InvoiceSellerSettings({ settings }: Props): React.JSX.Element {
           </div>
 
           {canWrite && <SaveButton isPending={mutation.isPending} />}
-          {mutation.isSuccess && (
-            <p className="text-sm text-success">{t('settings.invoiceSellerSaved')}</p>
-          )}
+          {mutation.isSuccess && <SavedMessage>{t('settings.invoiceSellerSaved')}</SavedMessage>}
           {mutation.isError && (
             <p className="text-sm text-destructive">
               {getErrorMessage(mutation.error, t, 'settings.invoiceSellerSaveFailed')}

@@ -7,6 +7,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { Button } from '@/components/ui/button';
 import { getErrorMessage } from '@/lib/error-message';
 import type { CardSetupProps } from '../types';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { cardElementOptions, getStripe, stringField } from './load';
 
 function CardSetupForm({
@@ -66,8 +67,8 @@ function CardSetupForm({
         <CardElement options={cardElementOptions()} />
       </div>
       <div className="flex gap-2">
-        <Button type="submit" className="flex-1" disabled={stripe == null || loading}>
-          {loading ? t('common.saving') : t('payments.saveCard')}
+        <Button type="submit" className="relative flex-1" disabled={stripe == null || loading}>
+          <ButtonPendingLabel pending={loading}>{t('payments.saveCard')}</ButtonPendingLabel>
         </Button>
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           {t('common.cancel')}

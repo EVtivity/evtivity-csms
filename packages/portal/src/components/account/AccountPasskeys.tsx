@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Info } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   startRegistration,
@@ -29,6 +29,7 @@ import { useDriverTimezone } from '@/lib/timezone';
 import { MFA_STATUS_KEY, PASSKEYS_KEY, type PortalMfaStatus } from '@/lib/mfa-status';
 import { passkeyDefaultNameKey, passkeyErrorText, webauthnUnavailableReason } from '@/lib/webauthn';
 import { RecoveryCodesDisplay } from './RecoveryCodesDisplay';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 /** GET /v1/portal/driver/webauthn. */
@@ -255,7 +256,7 @@ function NamePasskeyForm({
         <Button type="submit" disabled={mutation.isPending} className="relative">
           {mutation.isPending && (
             <span className="absolute inset-0 flex items-center justify-center">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <ButtonSpinner />
             </span>
           )}
           <span className={mutation.isPending ? 'invisible' : ''}>{t('common.save')}</span>
@@ -544,7 +545,7 @@ export function AccountPasskeys({ status }: { status: PortalMfaStatus }): React.
         <div className="space-y-3">
           {lastFactor && (
             <Alert variant="warning">
-              <Info className="h-4 w-4" />
+              <AlertTriangle className="h-4 w-4" />
               <AlertDescription>{t('passkeys.removeLastFactor')}</AlertDescription>
             </Alert>
           )}

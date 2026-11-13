@@ -11,7 +11,7 @@
 import { statusIconColor } from '@/lib/chart-theme';
 import { useDarkTheme } from '@/hooks/use-dark-theme';
 import { CONNECTOR_ICONS } from './connector-icons/connector-icon-of';
-import type { ConnectorIconSize } from './connector-icons/connector-face';
+import type { ConnectorIconSize } from '@evtivity/lib/connector-faces';
 import { connectorKindOf } from './layout/site-layout-connectors';
 
 export function ConnectorTypeIcon({

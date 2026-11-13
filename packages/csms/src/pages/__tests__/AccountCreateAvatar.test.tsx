@@ -105,7 +105,12 @@ describe('New Driver avatar', () => {
       seed: 'New1',
       options: {},
     });
-    expect(toastMock).not.toHaveBeenCalled();
+    // Only the created toast: the avatar was set without an error.
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(toastMock).toHaveBeenCalledWith({
+      variant: 'success',
+      title: 'common.createdSuccessfully',
+    });
   });
 
   it('keeps the new driver and says so when the avatar fails', async () => {

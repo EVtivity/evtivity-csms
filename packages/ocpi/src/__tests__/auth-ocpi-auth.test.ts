@@ -39,6 +39,7 @@ const {
   ocpiAuthenticateRegistration,
   resetOcpiAuthFailures,
   OCPI_AUTH_FAILURE_LIMIT,
+  OCPI_AUTH_FAILURE_WINDOW_MS,
 } = await import('../middleware/ocpi-auth.js');
 
 // A module route the approved EMSP role of PARTNER_ROW may call.
@@ -296,6 +297,51 @@ describe('failed authentication limit', () => {
     const blocked = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
     expect(blocked.statusCode).toBe(429);
     expect(selectCount).toBe(0);
+  });
+
+  it('lets the IP in again once its window ended', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      for (let i = 0; i < OCPI_AUTH_FAILURE_LIMIT; i++) {
+        await app.inject({ method: 'GET', url: FULL });
+      }
+      expect((await app.inject({ method: 'GET', url: FULL })).statusCode).toBe(429);
+      vi.setSystemTime(Date.now() + OCPI_AUTH_FAILURE_WINDOW_MS);
+      expect((await app.inject({ method: 'GET', url: FULL })).statusCode).toBe(401);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('looks up only the raw form of a token that decodes to nothing', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: FULL,
+      headers: { authorization: 'Token ====' },
+    });
+    expect(res.statusCode).toBe(401);
+    // The empty decoded token reads nothing; the raw value is looked up once.
+    expect(selectCount).toBe(1);
+  });
+
+  it('keeps tracking a bounded number of addresses, dropping the oldest', async () => {
+    for (let i = 0; i < OCPI_AUTH_FAILURE_LIMIT; i++) {
+      await app.inject({ method: 'GET', url: FULL, remoteAddress: '10.9.9.9' });
+    }
+    expect(
+      (await app.inject({ method: 'GET', url: FULL, remoteAddress: '10.9.9.9' })).statusCode,
+    ).toBe(429);
+    for (let i = 0; i < 10_000; i++) {
+      await app.inject({
+        method: 'GET',
+        url: FULL,
+        remoteAddress: `10.${String(i >> 8)}.${String(i & 255)}.1`,
+      });
+    }
+    // The first address was dropped to make room, so its count starts again.
+    expect(
+      (await app.inject({ method: 'GET', url: FULL, remoteAddress: '10.9.9.9' })).statusCode,
+    ).toBe(401);
   });
 });
 

@@ -30,6 +30,7 @@ import { useHasCompanyWidePermission } from '@/lib/auth';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatDecimal, formatTaxPercent } from '@/lib/formatting';
+import { useSavedToast } from '@/components/saved-message';
 import {
   buildRestrictions,
   deriveRestrictionType,
@@ -63,6 +64,7 @@ export function TariffDetail(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   // Pricing writes are company-wide: the API answers 404 to a site-restricted user.
   const canWrite = useHasCompanyWidePermission('pricing:write');
   // Price labels say whether prices are entered excluding or including tax.
@@ -121,6 +123,7 @@ export function TariffDetail(): React.JSX.Element {
       restrictions?: TariffRestrictions | null;
     }) => api.patch<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs/${tariffId ?? ''}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['tariffs'] });
       void queryClient.invalidateQueries({ queryKey: ['tariffs'] });
       setEditing(false);

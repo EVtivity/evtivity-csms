@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useListSort } from '@/hooks/use-list-sort';
 import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { AlertTriangle, OctagonX } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AbortButton } from '@/components/abort-button';
 import { BackButton } from '@/components/back-button';
 import { Badge } from '@/components/ui/badge';
@@ -140,10 +141,10 @@ export function FirmwareCampaignProgressDetail(): React.JSX.Element {
         </CardHeader>
         <CardContent>
           {campaign.status === 'active' && (
-            <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-warning/50 bg-warning/10 p-4">
-              <div className="flex items-center gap-3 text-warning">
+            <Alert variant="warning" className="mb-4 justify-between gap-4">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
-                <p className="text-sm">{t('firmwareCampaigns.cancelWarning')}</p>
+                <AlertDescription>{t('firmwareCampaigns.cancelWarning')}</AlertDescription>
               </div>
               <div className="shrink-0">
                 <AbortButton
@@ -152,7 +153,7 @@ export function FirmwareCampaignProgressDetail(): React.JSX.Element {
                   }}
                 />
               </div>
-            </div>
+            </Alert>
           )}
 
           <div className="flex gap-6 mb-4 text-sm">

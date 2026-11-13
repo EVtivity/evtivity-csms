@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  connectorStatusClassName,
   reservationStatusVariant,
   insightStatusVariant,
   fleetReservationStatusVariant,
@@ -281,5 +282,31 @@ describe('AI status variants', () => {
   it('gives every shown insight status its own color', () => {
     const shown = ['open', 'pending', 'done', 'resolved', 'rejected', 'dismissed', 'expired'];
     expect(new Set(shown.map(insightStatusVariant)).size).toBe(shown.length);
+  });
+});
+
+describe('connector status badges', () => {
+  it('warns of an idle occupied connector and leaves its color to the warning variant', () => {
+    expect(connectorStatusVariant('occupied', true)).toBe('warning');
+    expect(connectorStatusVariant('occupied', false)).toBe('secondary');
+    expect(connectorStatusVariant('charging', true)).toBe('secondary');
+    expect(connectorStatusClassName('occupied', true)).toBeUndefined();
+  });
+
+  it('colors each status family once and an unknown status like a fault', () => {
+    const color = (s: string) => connectorStatusClassName(s)?.split(' ')[0];
+    expect(color('available')).toBe('bg-blue-500');
+    expect(color('occupied')).toBe('bg-blue-500');
+    expect(color('charging')).toBe('bg-green-500');
+    expect(color('discharging')).toBe('bg-green-500');
+    expect(color('finishing')).toBe('bg-violet-500');
+    expect(color('preparing')).toBe('bg-cyan-500');
+    expect(color('ev_connected')).toBe('bg-cyan-500');
+    expect(color('reserved')).toBe('bg-orange-500');
+    for (const s of ['suspended_ev', 'suspended_evse', 'idle'])
+      expect(color(s)).toBe('bg-yellow-500');
+    expect(color('faulted')).toBe('bg-red-500');
+    expect(color('unavailable')).toBe('bg-red-500');
+    expect(color('something_new')).toBe('bg-red-500');
   });
 });

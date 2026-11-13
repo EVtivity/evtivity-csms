@@ -424,7 +424,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         // saved before the check, or a name that resolves to an internal
         // address, is refused (validateHubjectUrl, then safeFetch).
         if (validateHubjectUrl(baseUrl) == null) {
-          await reply.status(400).send(PRIVATE_HUBJECT_URL_ERROR);
+          await reply.status(400).send({ success: false, ...PRIVATE_HUBJECT_URL_ERROR });
           return;
         }
         const testUrl = `${baseUrl}/.well-known/est/cacerts`;
@@ -437,6 +437,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
 
         if (!response.ok && response.status !== 401 && response.status !== 403) {
           await reply.status(502).send({
+            success: false,
             error: `Provider returned ${String(response.status)}`,
             code: 'PROVIDER_TEST_FAILED',
           });
@@ -447,7 +448,9 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         return { success: true, provider: providerType };
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        await reply.status(502).send({ error: message, code: 'PROVIDER_TEST_FAILED' });
+        await reply
+          .status(502)
+          .send({ success: false, error: message, code: 'PROVIDER_TEST_FAILED' });
         return;
       }
     },

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useQueries } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
+import { AlertCircle, AlertTriangle } from 'lucide-react';
 import type { AiUsageBudget, AiUsageDto, AiUsageTotals } from '@evtivity/lib/ai-usage';
 import { LoadingLogo } from '@/components/loading-logo';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -117,7 +117,7 @@ function UsageWarnings({
     <div className="space-y-2" data-testid="ai-usage-warnings">
       {lines.map((l) => (
         <Alert key={l.key} variant={l.exceeded ? 'destructive' : 'warning'}>
-          <AlertTriangle className="h-4 w-4" />
+          {l.exceeded ? <AlertCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
           <AlertDescription>{l.text}</AlertDescription>
         </Alert>
       ))}

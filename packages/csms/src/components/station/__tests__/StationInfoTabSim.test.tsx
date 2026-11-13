@@ -236,7 +236,7 @@ describe('StationInfoTab ICCID and IMSI', () => {
     }
   });
 
-  it('raises no notice when the ICCID was attached, unchanged or left out', async () => {
+  it('raises only the saved toast when the ICCID was attached, unchanged or left out', async () => {
     for (const value of ['attached', 'unchanged', 'none', undefined]) {
       renderTab(true);
       apiMock.patch.mockResolvedValue(
@@ -250,7 +250,8 @@ describe('StationInfoTab ICCID and IMSI', () => {
       await waitFor(() => {
         expect(screen.queryByLabelText('stations.iccid')).toBeNull();
       });
-      expect(toastMock).not.toHaveBeenCalled();
+      expect(toastMock).toHaveBeenCalledTimes(1);
+      expect(toastMock).toHaveBeenCalledWith({ variant: 'success', title: 'common.saved' });
       cleanup();
       vi.clearAllMocks();
     }

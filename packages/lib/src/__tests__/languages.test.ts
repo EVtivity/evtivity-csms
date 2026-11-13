@@ -2,7 +2,30 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { UI_LANGUAGES, isUiLanguage, toUiLanguage } from '../languages.js';
+import { UI_LANGUAGES, initialUiLanguage, isUiLanguage, toUiLanguage } from '../languages.js';
+
+describe('initialUiLanguage', () => {
+  it('keeps a stored UI language over the browser languages', () => {
+    expect(initialUiLanguage('ko', ['de-DE'])).toBe('ko');
+    expect(initialUiLanguage('zh-TW', ['en-US'])).toBe('zh-TW');
+  });
+
+  it('falls back to the first browser language the UI has', () => {
+    expect(initialUiLanguage(null, ['fr-FR', 'de-DE', 'es-ES'])).toBe('de');
+    expect(initialUiLanguage(undefined, ['zh-Hant-TW'])).toBe('zh-TW');
+    expect(initialUiLanguage(null, ['zh-CN'])).toBe('zh');
+  });
+
+  it('ignores a stored value that is no UI language', () => {
+    expect(initialUiLanguage('fr', ['es-MX'])).toBe('es');
+    expect(initialUiLanguage('de-DE', [])).toBe('en');
+  });
+
+  it('falls back to English', () => {
+    expect(initialUiLanguage(null, ['fr-FR', ''])).toBe('en');
+    expect(initialUiLanguage(null)).toBe('en');
+  });
+});
 
 describe('UI languages', () => {
   it('lists the six UI languages', () => {

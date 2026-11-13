@@ -25,6 +25,7 @@ import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 type BankValues = Record<InvoicePaymentSettingKey, string>;
@@ -207,9 +208,7 @@ export function InvoicePaymentSettings({ settings }: Props): React.JSX.Element {
           </div>
 
           {canWrite && <SaveButton isPending={mutation.isPending} />}
-          {mutation.isSuccess && (
-            <p className="text-sm text-success">{t('settings.invoicePaymentSaved')}</p>
-          )}
+          {mutation.isSuccess && <SavedMessage>{t('settings.invoicePaymentSaved')}</SavedMessage>}
           {mutation.isError && (
             <p className="text-sm text-destructive">
               {getErrorMessage(mutation.error, t, 'settings.invoicePaymentSaveFailed')}

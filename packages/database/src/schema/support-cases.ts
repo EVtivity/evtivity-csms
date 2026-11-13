@@ -125,7 +125,7 @@ export const supportCases = pgTable(
     ),
     check(
       'support_cases_resolution_source_check',
-      sql`${table.resolutionSource} IN ('operator', 'ai')`,
+      sql`${table.resolutionSource} IN ('operator', 'ai', 'driver')`,
     ),
   ],
 );

@@ -229,6 +229,14 @@ export function StationLocalAuthList({
           </div>
         }
       >
+        {/* Unpushed changes banner */}
+        {hasUnpushedChanges && (
+          <Alert variant="warning" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{t('stations.unpushedChanges')}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Version info bar */}
         <div className="flex flex-wrap items-center gap-4 mb-4 text-sm">
           <div>
@@ -242,14 +250,6 @@ export function StationLocalAuthList({
             </span>
           </div>
         </div>
-
-        {/* Unpushed changes banner */}
-        {hasUnpushedChanges && (
-          <Alert variant="warning" className="mb-4">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{t('stations.unpushedChanges')}</AlertDescription>
-          </Alert>
-        )}
 
         {/* Entries table */}
         {isLoading ? (

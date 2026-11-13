@@ -54,6 +54,7 @@ import {
   expandToDriverChargers,
   extraUnitChargerCount,
   loadStationDriverUnits,
+  locationChargers,
   SEARCH_ROW_LIMIT,
 } from '../../lib/portal-units.js';
 import { evseDisplayStatus } from '@evtivity/lib/evse-status';
@@ -804,7 +805,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           status: connectors.status,
         })
         .from(connectors)
-        .where(and(eq(connectors.evseId, evse.id), isNull(connectors.retiredAt)));
+        .where(and(eq(connectors.evseId, evse.id), isNull(connectors.retiredAt)))
+        .orderBy(asc(connectors.connectorId));
 
       // Look up active reservation regardless of connector status. Status
       // flips from `reserved` to `preparing`/`occupied` the moment the
@@ -1306,7 +1308,35 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             })
             .loose(),
         )
-        .describe('One row per EVSE connector at the site, ordered by station and EVSE'),
+        .describe(
+          'One row per EVSE connector at the site, ordered by station, unit and EVSE. Clients show them grouped by `driverChargers`',
+        ),
+      driverChargers: z
+        .array(
+          z
+            .object({
+              stationId: z.string().describe('OCPP station identity'),
+              unitId: z
+                .string()
+                .nullable()
+                .describe(
+                  'Unit (physical charger box); null for a station without units (the whole station) and for the EVSEs without a unit of a station with units, both named by the station',
+                ),
+              unitName: z.string().nullable().describe('Name of that unit, null when none'),
+              evseIds: z
+                .array(z.number().int())
+                .describe('OCPP EVSE IDs of the charger; its rows in `chargers` carry these'),
+              evseCount: z.number().int().describe('Number of EVSEs of the charger'),
+              availableCount: z
+                .number()
+                .int()
+                .describe('EVSEs of the charger with a row a driver can start on now'),
+            })
+            .loose(),
+        )
+        .describe(
+          'One per charger drivers see, in the order of the rows: a station without units is one charger, a station with units one per unit with an EVSE in service plus one for its EVSEs without a unit',
+        ),
     })
     .loose();
 
@@ -1408,6 +1438,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // EVSE, and the portal renders one button per EVSE).
       const chargers = await db
         .select({
+          stationUuid: chargingStations.id,
           stationId: chargingStations.stationId,
           stationName: chargingStations.stationId,
           evseId: evses.evseId,
@@ -1428,8 +1459,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           sql`${stationUnits.sortOrder} NULLS LAST`,
           stationUnits.name,
           evses.evseId,
+          connectors.connectorId,
         );
 
+      const driverChargerList = await locationChargers(chargers);
       const isContactPublic = site.contactIsPublic;
 
       return {
@@ -1448,7 +1481,19 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         stationCount: (counts?.stationCount ?? 0) + (await extraUnitChargerCount(siteId)),
         evseCount: counts?.evseCount ?? 0,
         availableCount: counts?.availableCount ?? 0,
-        chargers,
+        // The station row id stays internal.
+        chargers: chargers.map((row) => ({
+          stationId: row.stationId,
+          stationName: row.stationName,
+          evseId: row.evseId,
+          unitId: row.unitId,
+          unitName: row.unitName,
+          connectorType: row.connectorType,
+          maxPowerKw: row.maxPowerKw,
+          status: row.status,
+          available: row.available,
+        })),
+        driverChargers: driverChargerList,
       };
     },
   );
@@ -1706,7 +1751,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(evses)
         .leftJoin(connectors, and(eq(connectors.evseId, evses.id), isNull(connectors.retiredAt)))
         .where(and(eq(evses.stationId, station.id), isNull(evses.retiredAt)))
-        .orderBy(asc(evses.evseId));
+        .orderBy(asc(evses.evseId), asc(connectors.connectorId));
 
       const evseMap = new Map<
         number,

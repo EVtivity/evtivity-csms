@@ -3,8 +3,8 @@
 
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import type { PricingGroup } from '@/lib/types';
 
 export interface PricingGroupPickListProps {
@@ -62,7 +62,7 @@ export function PricingGroupPickList({
             aria-current={isCurrent ? 'true' : undefined}
             title={isCurrent ? currentReason : undefined}
           >
-            {pendingGroupId === group.id && isPending && <Spinner className="h-4 w-4 shrink-0" />}
+            {pendingGroupId === group.id && isPending && <ButtonSpinner />}
             <span className="font-medium">{group.name}</span>
             {group.description != null && (
               <span className="text-muted-foreground">{group.description}</span>

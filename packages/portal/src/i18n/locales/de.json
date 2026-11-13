@@ -7,6 +7,7 @@
     "backToHome": "Zurück zur Startseite",
     "save": "Speichern",
     "saving": "Wird gespeichert...",
+    "saved": "Erfolgreich gespeichert",
     "cancel": "Abbrechen",
     "keep": "Behalten",
     "back": "Zurück",
@@ -332,6 +333,8 @@
     "payWithCard": "Mit Karte bezahlen",
     "startWithAccount": "Mit Konto starten",
     "signIn": "Anmelden",
+    "signInToCharge": "Laden Sie hier mit einem Konto.",
+    "register": "Registrieren",
     "stationNotAvailable": "Diese Station ist derzeit nicht verfügbar.",
     "pricing": "Preise",
     "pricingFree": "Kostenlos",
@@ -366,6 +369,7 @@
     "siteContact": "Standortkontakt",
     "evNotDetectedTitle": "EV nicht erkannt",
     "evNotDetectedDescription": "Die Station erkennt kein EV an diesem Anschluss. Bitte schließe dein Fahrzeug an und versuche es erneut.",
+    "plugInAnimationLabel": "Stecken Sie das Ladekabel in Ihr Fahrzeug",
     "startAnyway": "Trotzdem starten",
     "proceedAnyway": "Trotzdem fortfahren",
     "simulatorPlugInHint": "Simulator: Öffne das CSMS-Dashboard, gehe zur Simulate-Registerkarte dieser Station und klicke auf Plug In, bevor du den Ladevorgang startest.",
@@ -419,7 +423,6 @@
     "incorrectCvc": "Die CVC-Nummer ist falsch.",
     "insufficientFunds": "Unzureichende Deckung. Versuche es mit einer anderen Karte.",
     "processingError": "Ein Verarbeitungsfehler ist aufgetreten. Versuche es erneut.",
-    "paymentNotConfigured": "Für diese Ladestation ist keine Zahlung konfiguriert.",
     "loadingPayment": "Zahlungsformular wird geladen..."
   },
   "guestSession": {
@@ -566,6 +569,11 @@
     "sendFailed": "Nachricht konnte nicht gesendet werden. Bitte erneut versuchen.",
     "createFailed": "Supportfall konnte nicht erstellt werden. Bitte erneut versuchen.",
     "downloadFailed": "Anhang konnte nicht heruntergeladen werden. Bitte erneut versuchen.",
+    "closeCase": "Fall Schließen",
+    "closeConfirmTitle": "Diesen Fall Schließen?",
+    "closeConfirmDescription": "Das Support-Team sieht, dass Sie ihn geschlossen haben. Mit einer neuen Nachricht öffnen Sie ihn jederzeit wieder.",
+    "closeFailed": "Der Fall konnte nicht geschlossen werden. Bitte versuchen Sie es erneut.",
+    "reopenNote": "Eine neue Nachricht öffnet diesen Fall wieder.",
     "station": "Station",
     "categories": {
       "billing_dispute": "Abrechnungsstreit",
@@ -1108,7 +1116,7 @@
     "paymentMethods": "Zahlungsmethoden",
     "rfidCards": "RFID-Karten",
     "vehicles": "Fahrzeuge",
-    "supportCases": "Supportfälle",
+    "supportCases": "Support",
     "managePayments": "Zahlungsmethoden verwalten",
     "totalCases": "Fälle insgesamt",
     "viewAllCases": "Alle Fälle anzeigen",
@@ -1652,5 +1660,9 @@
         "AccountBillingChanged": "Flottenabrechnung geändert"
       }
     }
+  },
+  "connectorTypeNames": {
+    "other": "Sonstige",
+    "pantograph": "Stromabnehmer"
   }
 }

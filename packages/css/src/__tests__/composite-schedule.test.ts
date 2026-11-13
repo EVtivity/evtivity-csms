@@ -135,3 +135,73 @@ describe('load management credit profile (security case 334)', () => {
     ]);
   });
 });
+
+describe('computeCompositeSchedule edges', () => {
+  it('repeats a daily recurring profile from its start and ends each occurrence at its duration', () => {
+    const start = new Date(now.getTime() - 86_400_000 + 100_000).toISOString();
+    const recurring = profile(
+      {
+        chargingProfileKind: 'Recurring',
+        recurrencyKind: 'Daily',
+        schedule: { startSchedule: start, duration: 200 },
+      },
+      10,
+    );
+    // Today's occurrence starts 100 s after now and lasts 200 s.
+    expect(computeCompositeSchedule(input([recurring]))).toEqual([
+      { startPeriod: 0, limit: 32, numberPhases: 3 },
+      { startPeriod: 100, limit: 10, numberPhases: 3 },
+      { startPeriod: 300, limit: 32, numberPhases: 3 },
+    ]);
+  });
+
+  it('takes a day for a recurring profile of an unknown recurrency kind', () => {
+    const start = new Date(now.getTime() - 86_400_000).toISOString();
+    const recurring = profile(
+      {
+        chargingProfileKind: 'Recurring',
+        recurrencyKind: 'Monthly',
+        schedule: { startSchedule: start },
+      },
+      12,
+    );
+    expect(computeCompositeSchedule(input([recurring]))[0]).toEqual({
+      startPeriod: 0,
+      limit: 12,
+      numberPhases: 3,
+    });
+  });
+
+  it('ignores a profile not started yet, one without a schedule and other transaction profiles', () => {
+    const later = profile({ schedule: { startSchedule: at(1000) } }, 5);
+    const noSchedule = { ...profile({}, 5), chargingSchedule: undefined };
+    const otherTx = profile({ chargingProfilePurpose: 'TxProfile', transactionId: 'tx-2' }, 4);
+    const noTx = profile({ chargingProfilePurpose: 'TxProfile' }, 3);
+    expect(
+      computeCompositeSchedule(input([later, noSchedule, otherTx], { transactionId: 'tx-1' })),
+    ).toEqual([{ startPeriod: 0, limit: 32, numberPhases: 3 }]);
+    expect(computeCompositeSchedule(input([noTx]))).toEqual([
+      { startPeriod: 0, limit: 32, numberPhases: 3 },
+    ]);
+  });
+
+  it('answers the local limit before the first period of a schedule', () => {
+    const late = {
+      ...profile({}, 5),
+      chargingSchedule: [
+        { id: 1, chargingRateUnit: 'A', chargingSchedulePeriod: [{ startPeriod: 60, limit: 5 }] },
+      ],
+    };
+    expect(computeCompositeSchedule(input([late]))).toEqual([
+      { startPeriod: 0, limit: 32, numberPhases: 3 },
+      { startPeriod: 60, limit: 5, numberPhases: 3 },
+    ]);
+  });
+
+  it('prefers the EVSE profile over a station-wide one of the same stack level', () => {
+    const wide = profile({ _evseId: 0 }, 20);
+    const own = profile({}, 8);
+    expect(computeCompositeSchedule(input([wide, own]))[0]?.limit).toBe(8);
+    expect(computeCompositeSchedule(input([own, wide]))[0]?.limit).toBe(8);
+  });
+});

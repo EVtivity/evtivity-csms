@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { FlaskConical } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select } from '@/components/ui/select';
 import { testCardLabel, type TestCard } from './cards';
@@ -12,7 +12,7 @@ export function TestModeNotice(): React.JSX.Element {
   const { t } = useTranslation();
   return (
     <Alert variant="warning">
-      <FlaskConical className="h-4 w-4" />
+      <AlertTriangle className="h-4 w-4" />
       <AlertDescription>{t('paymentProviders.simulated.testMode')}</AlertDescription>
     </Alert>
   );

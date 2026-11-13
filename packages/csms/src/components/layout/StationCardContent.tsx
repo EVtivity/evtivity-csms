@@ -16,13 +16,12 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { formatEnergy, formatNumber } from '@/lib/formatting';
 import { ConnectorTypeIcon } from '@/components/ConnectorTypeIcon';
-import { CONNECTOR_KIND_NAMES } from '@/components/connector-icons/connector-kind-name';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 import { StationStatusBadge } from '@/components/StationStatusBadge';
 import { StationOnlineBadge } from '@/components/StationOnlineBadge';
 import { ConnectionBadge } from './StationStateIcon';
 import { PaymentTerminalBadge } from './PaymentTerminalBadge';
 import { StationThumbnail } from './StationThumbnail';
-import { connectorKindOf } from './site-layout-connectors';
 import { useStationCardExtras } from './station-card-context';
 import type { LayoutStation } from './StationCard';
 import { layoutChargerName } from './site-layout-units';
@@ -96,6 +95,7 @@ export function StationCardContent({
   currentDrawKw?: number | undefined;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const typeLabel = useConnectorTypeLabel();
   const extras = useStationCardExtras();
   const dc = station.chargingKind === 'dc';
   const evses = [...station.evses].sort((a, b) => a.evseId - b.evseId);
@@ -170,7 +170,7 @@ export function StationCardContent({
                 size={20}
                 label={t('sites.layoutView.portIconLabel', {
                   n: evse.evseId,
-                  type: CONNECTOR_KIND_NAMES[connectorKindOf(c.connectorType, dc)],
+                  type: typeLabel(c.connectorType),
                   state: t(`status.${c.status}`, { defaultValue: c.status }),
                 })}
               />

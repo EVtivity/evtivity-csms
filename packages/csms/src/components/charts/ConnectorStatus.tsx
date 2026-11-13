@@ -51,73 +51,31 @@ import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
 import { isOcpp2x } from '@evtivity/lib/ocpp-version';
 import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
-import type { StationUnit } from '@/lib/station-units';
+import { useHasPermission } from '@/lib/auth';
+import { orderedUnits, type StationUnit } from '@/lib/station-units';
 import { StationUnitTree } from '@/components/station/StationUnitTree';
 import { StationUnassignedEvsesNotice } from '@/components/station/StationUnassignedEvsesNotice';
-import { StationAddUnitButton } from '@/components/station/station-unit-actions';
+import { StationCreateUnitButton } from '@/components/station/station-unit-actions';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
 // Connector types grouped by region for the create/edit dropdowns. Tesla is
-// dropped because NACS is the same connector. Standard names and their
-// expansions are industry terms kept verbatim (like the connectors tooltip);
-// only the region headers and the Unknown fallback are translated.
+// dropped because NACS is the same connector. The options show the shared
+// display names (`useConnectorTypeLabel`: "J1772", "Type 2", "Other") and
+// submit the stored values ("Type1", "Type2", "Unknown"); only the region
+// headers are translated here.
 type ConnectorRegion = 'northAmerican' | 'european' | 'universal';
 const CONNECTOR_TYPE_GROUPS: ReadonlyArray<{
   region: ConnectorRegion;
-  types: ReadonlyArray<{ value: string; label: string }>;
+  types: readonly string[];
 }> = [
-  {
-    region: 'northAmerican',
-    types: [
-      { value: 'Type1', label: 'Type 1 (J1772)' },
-      { value: 'CCS1', label: 'CCS1 (Combined Charging System 1)' },
-      { value: 'NACS', label: 'NACS (North American Charging Standard)' },
-    ],
-  },
-  {
-    region: 'european',
-    types: [
-      { value: 'Type2', label: 'Type 2 (Mennekes)' },
-      { value: 'CCS2', label: 'CCS2 (Combined Charging System 2)' },
-    ],
-  },
-  {
-    region: 'universal',
-    types: [
-      { value: 'CHAdeMO', label: 'CHAdeMO' },
-      { value: 'GBT', label: 'GB/T (China)' },
-      { value: 'Unknown', label: 'Unknown' },
-    ],
-  },
+  { region: 'northAmerican', types: ['Type1', 'CCS1', 'NACS'] },
+  { region: 'european', types: ['Type2', 'CCS2'] },
+  { region: 'universal', types: ['CHAdeMO', 'GBT', 'Unknown'] },
 ];
-
-/**
- * The display label of a connector type, matched without case (the dashboard
- * groups types in lower case). Unknown and unlisted types return null.
- */
-export function connectorTypeLabel(value: string): string | null {
-  const key = value.toLowerCase();
-  for (const group of CONNECTOR_TYPE_GROUPS) {
-    for (const ct of group.types) {
-      if (ct.value.toLowerCase() === key) return ct.value === 'Unknown' ? null : ct.label;
-    }
-  }
-  return null;
-}
-
-/**
- * The standard name of a connector type without its expansion ("CCS1" for
- * "CCS1 (Combined Charging System 1)"), for chart axes. Unknown and unlisted
- * types return null.
- */
-export function connectorTypeShortLabel(value: string): string | null {
-  const label = connectorTypeLabel(value);
-  if (label == null) return null;
-  const paren = label.indexOf(' (');
-  return paren > 0 ? label.slice(0, paren) : label;
-}
 
 function ConnectorTypeOptions(): React.JSX.Element {
   const { t } = useTranslation();
+  const typeLabel = useConnectorTypeLabel();
   const regionLabel: Record<ConnectorRegion, string> = {
     northAmerican: t('stations.connectorRegionNorthAmerican'),
     european: t('stations.connectorRegionEuropean'),
@@ -127,9 +85,9 @@ function ConnectorTypeOptions(): React.JSX.Element {
     <>
       {CONNECTOR_TYPE_GROUPS.map((group) => (
         <optgroup key={group.region} label={regionLabel[group.region]}>
-          {group.types.map((ct) => (
-            <option key={ct.value} value={ct.value}>
-              {ct.value === 'Unknown' ? t('stations.connectorUnknown') : ct.label}
+          {group.types.map((value) => (
+            <option key={value} value={value}>
+              {typeLabel(value)}
             </option>
           ))}
         </optgroup>
@@ -199,6 +157,7 @@ export function ConnectorStatus({
   statusReason = null,
 }: ConnectorStatusProps): React.JSX.Element {
   const { t } = useTranslation();
+  const typeLabel = useConnectorTypeLabel();
   const data = evses ?? [];
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -284,6 +243,12 @@ export function ConnectorStatus({
   // Add EVSE dialog
   const [addEvseOpen, setAddEvseOpen] = useState(false);
   const [newEvseId, setNewEvseId] = useState('');
+  // The unit the new EVSE goes into ('' is No Unit). Offered only while the
+  // station has units; set after the create through the unit route, the only
+  // writer of an EVSE's unit.
+  const [newEvseUnitId, setNewEvseUnitId] = useState('');
+  const canWriteStations = useHasPermission('stations:write');
+  const showUnitField = canWriteStations && units.length > 0;
   const [newEvseConnector, setNewEvseConnector] = useState<ConnectorFormRow>({
     connectorId: '1',
     connectorType: 'CCS2',
@@ -340,6 +305,24 @@ export function ConnectorStatus({
       }[];
     }) => api.post(`/v1/stations/${stationId}/evses`, body),
     ...invalidateConnectors,
+  });
+
+  // A refused unit assignment keeps the new EVSE: it shows under EVSEs Without a Unit.
+  const assignNewEvseUnitMutation = useMutation({
+    mutationFn: ({ evseId, unitId }: { evseId: number; unitId: string }) =>
+      api.put(`/v1/stations/${stationId}/evses/${String(evseId)}/unit`, { unitId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'units'] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'connectors'] });
+      void queryClient.invalidateQueries({ queryKey: ['stations'] });
+    },
+    onError: (err: unknown) => {
+      toast({
+        variant: 'destructive',
+        title: t('stationUnits.evseCreatedWithoutUnit'),
+        description: getErrorMessage(err, t),
+      });
+    },
   });
 
   const updateEvseMutation = useMutation({
@@ -406,9 +389,12 @@ export function ConnectorStatus({
 
   function handleAddEvse(e: React.SyntheticEvent): void {
     e.preventDefault();
+    const evseId = Number(newEvseId);
+    const unitId =
+      showUnitField && units.some((u) => u.id === newEvseUnitId) ? newEvseUnitId : null;
     createEvseMutation.mutate(
       {
-        evseId: Number(newEvseId),
+        evseId,
         connectors: [
           {
             connectorId: Number(newEvseConnector.connectorId),
@@ -422,8 +408,10 @@ export function ConnectorStatus({
       },
       {
         onSuccess: () => {
+          if (unitId != null) assignNewEvseUnitMutation.mutate({ evseId, unitId });
           setAddEvseOpen(false);
           setNewEvseId('');
+          setNewEvseUnitId('');
           setNewEvseConnector({
             connectorId: '1',
             connectorType: 'CCS2',
@@ -656,7 +644,7 @@ export function ConnectorStatus({
                   {t('charts.connector', { id: conn.connectorId })}
                 </span>
                 {conn.connectorType != null && (
-                  <span className="text-muted-foreground">({conn.connectorType})</span>
+                  <span className="text-muted-foreground">({typeLabel(conn.connectorType)})</span>
                 )}
                 {conn.autoCreated === true && (
                   <Badge variant="outline" className="text-xs font-normal">
@@ -750,10 +738,9 @@ export function ConnectorStatus({
       isLoading={isLoading}
       isError={isError && evses == null}
       onRetry={onRetry}
-      description={units.length > 0 ? t('stationUnits.description') : t('stationUnits.empty')}
       actions={
         <div className="flex flex-wrap gap-2 sm:flex-nowrap">
-          <StationAddUnitButton stationId={stationId} />
+          <StationCreateUnitButton stationId={stationId} />
           <CreateButton
             label={t('stations.addEvse')}
             onClick={() => {
@@ -874,6 +861,27 @@ export function ConnectorStatus({
                 }}
               />
             </div>
+            {showUnitField && (
+              <div className="space-y-2">
+                <Label htmlFor="new-evse-unit" className="leading-6">
+                  {t('stationUnits.unit')}
+                </Label>
+                <Select
+                  id="new-evse-unit"
+                  value={newEvseUnitId}
+                  onChange={(e) => {
+                    setNewEvseUnitId(e.target.value);
+                  }}
+                >
+                  <option value="">{t('stationUnits.noUnit')}</option>
+                  {orderedUnits(units).map((unit) => (
+                    <option key={unit.id} value={unit.id}>
+                      {unit.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             <DialogFooter>
               <CancelButton
                 onClick={() => {

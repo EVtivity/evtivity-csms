@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import { simErrorMessage } from '@/components/sim/sim-connectivity';
 import { api } from '@/lib/api';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import type { SimAttachmentItem } from './sim-detail';
 
 interface AttachSimDialogProps {
@@ -107,7 +108,7 @@ function AttachSimForm({ onOpenChange, simId }: AttachSimDialogProps): React.JSX
           <Button type="submit" className="relative" disabled={attach.isPending}>
             {attach.isPending && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                <ButtonSpinner />
               </div>
             )}
             <span className={attach.isPending ? 'invisible' : ''}>

@@ -162,7 +162,7 @@ async function resolveOperatorRecipient(
 
 /** The operator email and SMS of a new driver case (`new_case`) or a driver reply. */
 export async function dispatchOperatorNotification(
-  type: 'new_case' | 'driver_reply',
+  type: 'new_case' | 'driver_reply' | 'driver_closed',
   caseId: string,
   caseNumber: string,
   subject: string,
@@ -176,7 +176,11 @@ export async function dispatchOperatorNotification(
     if (recipient == null) return;
 
     const eventType =
-      type === 'new_case' ? 'supportCase.NewCaseFromDriver' : 'supportCase.DriverReply';
+      type === 'new_case'
+        ? 'supportCase.NewCaseFromDriver'
+        : type === 'driver_closed'
+          ? 'supportCase.DriverClosed'
+          : 'supportCase.DriverReply';
 
     await dispatchSystemNotification(
       client,

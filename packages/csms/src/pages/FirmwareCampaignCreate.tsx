@@ -26,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { useCreatedToast } from '@/components/saved-message';
 import { useHasAllSiteAccess } from '@/lib/auth';
 
 interface Campaign {
@@ -51,6 +52,7 @@ interface CreateCampaignBody {
 
 export function FirmwareCampaignCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -70,6 +72,7 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
     mutationFn: (body: CreateCampaignBody) => api.post<Campaign>('/v1/firmware-campaigns', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['firmware-campaigns'] });
+      createdToast();
       void navigate(`/firmware-campaigns/${created.id}`);
     },
   });

@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { useLoadedValues, useSavedBaseline } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
+import { SavedMessage } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface CardProps {
@@ -199,9 +200,7 @@ function PasswordPolicyCard({ settings, canWrite }: CardProps): React.JSX.Elemen
           )}
           {canWrite && (
             <div className="flex items-center justify-end gap-4">
-              {mutation.isSuccess && !hasUnsavedChanges && (
-                <p className="text-sm text-success">{t('common.saved')}</p>
-              )}
+              {mutation.isSuccess && !hasUnsavedChanges && <SavedMessage />}
               {hasUnsavedChanges && (
                 <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
               )}
@@ -309,9 +308,7 @@ function SessionLifetimesCard({ settings, canWrite }: CardProps): React.JSX.Elem
           )}
           {canWrite && (
             <div className="flex items-center justify-end gap-4">
-              {mutation.isSuccess && !hasUnsavedChanges && (
-                <p className="text-sm text-success">{t('common.saved')}</p>
-              )}
+              {mutation.isSuccess && !hasUnsavedChanges && <SavedMessage />}
               {hasUnsavedChanges && (
                 <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
               )}

@@ -19,6 +19,7 @@ import { DriverCombobox } from '@/components/driver-combobox';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { sessionLabel } from '@/lib/session-label';
+import { useCreatedToast } from '@/components/saved-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface SupportCase {
@@ -54,6 +55,7 @@ const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'] as const;
 export function SupportCaseCreate(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -85,6 +87,7 @@ export function SupportCaseCreate(): React.JSX.Element {
     mutationFn: (data: Record<string, unknown>) => api.post<SupportCase>('/v1/support-cases', data),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
+      createdToast();
       void navigate(`/support-cases/${created.id}`);
     },
   });

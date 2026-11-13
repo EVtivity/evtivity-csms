@@ -21,8 +21,10 @@ import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { DASHBOARD_RATE_LIMIT } from '../lib/dashboard-rate-limit.js';
 
-/** The most station rows the card lists. */
-export const SECURITY_EVENTS_STATION_LIMIT = 50;
+/** Station rows per page when the request names no limit (the dashboard page size). */
+export const SECURITY_EVENTS_DEFAULT_LIMIT = 20;
+/** The most station rows one page holds. */
+export const SECURITY_EVENTS_MAX_LIMIT = 100;
 
 export const SECURITY_EVENT_RANGES = ['24h', '7d', '30d'] as const;
 export type SecurityEventRange = (typeof SECURITY_EVENT_RANGES)[number];
@@ -49,6 +51,16 @@ const query = z.object({
     .optional()
     .describe(
       'Only stations with events of this severity in the station list; counts always cover every severity',
+    ),
+  page: z.coerce.number().int().min(1).default(1).describe('Page of the station list (1-based)'),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(SECURITY_EVENTS_MAX_LIMIT)
+    .default(SECURITY_EVENTS_DEFAULT_LIMIT)
+    .describe(
+      `Station rows per page (default ${String(SECURITY_EVENTS_DEFAULT_LIMIT)}, max ${String(SECURITY_EVENTS_MAX_LIMIT)})`,
     ),
 });
 
@@ -89,9 +101,13 @@ const response = z
     stations: z
       .array(stationRow)
       .describe(
-        `Stations with events, worst severity first, then most events, newest event and station ID; at most ${String(SECURITY_EVENTS_STATION_LIMIT)}`,
+        'One page of the stations with events, worst severity first, then most events, newest event and station ID',
       ),
-    stationTotal: z.number().int().min(0).describe('Stations that match before the list limit'),
+    stationTotal: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Stations that match the filters, over every page'),
   })
   .loose();
 
@@ -134,7 +150,7 @@ export function dashboardSecurityEventsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
-      const { range, siteId, severity } = request.query as z.infer<typeof query>;
+      const { range, siteId, severity, page, limit } = request.query as z.infer<typeof query>;
       const since = new Date(Date.now() - RANGE_MS[range]);
       const empty = {
         range,
@@ -200,21 +216,34 @@ export function dashboardSecurityEventsRoutes(app: FastifyInstance): void {
         severity != null
           ? sql`count(*) FILTER (WHERE ev.severity = ${severity})::int`
           : sql`count(*)::int`;
+      const severityHaving =
+        severity != null
+          ? sql`HAVING count(*) FILTER (WHERE ev.severity = ${severity}) > 0`
+          : sql``;
+      // The station total comes from its own count: a count(*) OVER () on the
+      // page query has no row to read it from past the last page.
+      const stationTotalRows = (await db.execute(sql`
+        WITH ev AS (${events})
+        SELECT count(*)::int AS n FROM (
+          SELECT ev.station_id FROM ev GROUP BY ev.station_id ${severityHaving}
+        ) matched
+      `)) as unknown as Array<{ n: number }>;
+      const stationTotal = stationTotalRows[0]?.n ?? 0;
+
       const stationRows = (await db.execute(sql`
         WITH ev AS (${events})
         SELECT ev.station_id AS id, s.station_id AS ocpp_id, s.site_id, si.name AS site_name,
           ${perSeverity},
           min(${rankSql('ev.severity')}) AS worst_rank,
           ${stationTotalSql} AS total,
-          max(ev.created_at) AS last_event_at,
-          count(*) OVER ()::int AS station_total
+          max(ev.created_at) AS last_event_at
         FROM ev
         JOIN charging_stations s ON s.id = ev.station_id
         LEFT JOIN sites si ON si.id = s.site_id
         GROUP BY ev.station_id, s.station_id, s.site_id, si.name
-        ${severity != null ? sql`HAVING count(*) FILTER (WHERE ev.severity = ${severity}) > 0` : sql``}
+        ${severityHaving}
         ORDER BY worst_rank ASC, total DESC, last_event_at DESC, s.station_id ASC
-        LIMIT ${SECURITY_EVENTS_STATION_LIMIT}
+        LIMIT ${limit} OFFSET ${(page - 1) * limit}
       `)) as unknown as Array<
         Record<SecuritySeverity, number> & {
           id: string;
@@ -224,7 +253,6 @@ export function dashboardSecurityEventsRoutes(app: FastifyInstance): void {
           worst_rank: number;
           total: number;
           last_event_at: unknown;
-          station_total: number;
         }
       >;
 
@@ -251,7 +279,7 @@ export function dashboardSecurityEventsRoutes(app: FastifyInstance): void {
           total: row.total,
           lastEventAt: toIso(row.last_event_at),
         })),
-        stationTotal: stationRows[0]?.station_total ?? 0,
+        stationTotal,
       };
     },
   );

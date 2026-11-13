@@ -7,6 +7,7 @@
     "backToHome": "Volver al inicio",
     "save": "Guardar",
     "saving": "Guardando...",
+    "saved": "Guardado correctamente",
     "cancel": "Cancelar",
     "keep": "Mantener",
     "back": "Volver",
@@ -332,6 +333,8 @@
     "payWithCard": "Pagar con tarjeta",
     "startWithAccount": "Iniciar con cuenta",
     "signIn": "Iniciar sesión",
+    "signInToCharge": "Cargue aquí con una cuenta.",
+    "register": "Registrarse",
     "stationNotAvailable": "Esta estación no está disponible en este momento.",
     "pricing": "Precios",
     "pricingFree": "Gratis",
@@ -366,6 +369,7 @@
     "siteContact": "Contacto del sitio",
     "evNotDetectedTitle": "EV No Detectado",
     "evNotDetectedDescription": "La estación de carga no detecta un vehículo conectado a este puerto. Conecte su vehículo e intente de nuevo.",
+    "plugInAnimationLabel": "Conecte el cable de carga a su vehículo",
     "startAnyway": "Iniciar de Todos Modos",
     "proceedAnyway": "Continuar de Todos Modos",
     "simulatorPlugInHint": "Simulador: abra el panel CSMS, vaya a la pestaña Simulate de esta estación y haga clic en Plug In antes de iniciar la carga.",
@@ -419,7 +423,6 @@
     "incorrectCvc": "El número CVC es incorrecto.",
     "insufficientFunds": "Fondos insuficientes. Pruebe con otra tarjeta.",
     "processingError": "Ocurrió un error de procesamiento. Intente de nuevo.",
-    "paymentNotConfigured": "El pago no está configurado para este cargador.",
     "loadingPayment": "Cargando formulario de pago..."
   },
   "guestSession": {
@@ -566,6 +569,11 @@
     "sendFailed": "No se pudo enviar el mensaje. Intente nuevamente.",
     "createFailed": "No se pudo crear el caso de soporte. Intente nuevamente.",
     "downloadFailed": "No se pudo descargar el archivo adjunto. Intente nuevamente.",
+    "closeCase": "Cerrar Caso",
+    "closeConfirmTitle": "¿Cerrar Este Caso?",
+    "closeConfirmDescription": "El equipo de soporte verá que lo cerró. Envíe un mensaje en cualquier momento para volver a abrirlo.",
+    "closeFailed": "No se pudo cerrar el caso. Inténtelo de nuevo.",
+    "reopenNote": "Si envía un mensaje, este caso se vuelve a abrir.",
     "station": "Estación",
     "categories": {
       "billing_dispute": "Disputa de Facturación",
@@ -1108,7 +1116,7 @@
     "paymentMethods": "Métodos de Pago",
     "rfidCards": "Tarjetas RFID",
     "vehicles": "Vehículos",
-    "supportCases": "Casos de Soporte",
+    "supportCases": "Soporte",
     "managePayments": "Administrar métodos de pago",
     "totalCases": "casos totales",
     "viewAllCases": "Ver todos los casos",
@@ -1652,5 +1660,9 @@
         "AccountBillingChanged": "Facturación de flota cambiada"
       }
     }
+  },
+  "connectorTypeNames": {
+    "other": "Otro",
+    "pantograph": "Pantógrafo"
   }
 }

@@ -51,6 +51,7 @@ import { isDataRetentionSettingKey } from '@evtivity/lib/data-retention';
 import { DataRetentionLink } from './DataRetentionSettings';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import { formatNumber } from '@/lib/formatting';
 
 // The conversation retention is edited in Settings > Data Retention.
@@ -245,7 +246,7 @@ function SaveStatus({
       </p>
     );
   }
-  if (m.isSuccess) return <p className="text-sm text-success">{t('settings.aiSaved')}</p>;
+  if (m.isSuccess) return <SavedMessage>{t('settings.aiSaved')}</SavedMessage>;
   return null;
 }
 
@@ -436,7 +437,7 @@ function AiSurfaceCard({
               }}
             />
             {!providerHasKey && (
-              <p className="text-xs text-warning">{t('settings.aiProviderNoKey')}</p>
+              <p className="text-xs text-warning-text">{t('settings.aiProviderNoKey')}</p>
             )}
           </div>
           <div className="space-y-2">

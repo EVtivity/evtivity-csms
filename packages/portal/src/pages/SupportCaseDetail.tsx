@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams } from 'react-router';
+import { useBackToParent } from '@/hooks/use-back-to-parent';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Bot, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { InfoNote } from '@/components/ui/info-note';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -67,11 +70,12 @@ const ANALYZING_POLL_MS = 4000;
 export function SupportCaseDetail(): React.JSX.Element {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const backToList = useBackToParent('/support');
   const timezone = useDriverTimezone();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [messageBody, setMessageBody] = useState('');
+  const [closeOpen, setCloseOpen] = useState(false);
 
   const { data: caseDetail, isLoading } = useQuery({
     queryKey: ['portal-support-case', id],
@@ -89,6 +93,19 @@ export function SupportCaseDetail(): React.JSX.Element {
     },
     onError: (err: unknown) => {
       toast({ variant: 'destructive', title: getErrorMessage(err, t, 'supportCases.sendFailed') });
+    },
+  });
+
+  // The driver closes the own case (resolved). A later message reopens it.
+  const closeMutation = useMutation({
+    mutationFn: () => api.post<{ id: string }>(`/v1/portal/support-cases/${id ?? ''}/close`, {}),
+    onSuccess: () => {
+      setCloseOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ['portal-support-case', id] });
+      void queryClient.invalidateQueries({ queryKey: ['portal-support-cases'] });
+    },
+    onError: (err: unknown) => {
+      toast({ variant: 'destructive', title: getErrorMessage(err, t, 'supportCases.closeFailed') });
     },
   });
 
@@ -124,23 +141,14 @@ export function SupportCaseDetail(): React.JSX.Element {
   const lastAssistantId = [...caseDetail.messages]
     .reverse()
     .find((m) => m.senderType === 'assistant')?.id;
-  // A case the automatic answer resolved can be reopened by writing to us.
-  const canWrite =
-    caseDetail.status !== 'closed' &&
-    (caseDetail.status !== 'resolved' || ai?.resolutionSource === 'ai');
+  // A resolved or closed case keeps the message box: a message reopens it.
+  const isEnded = caseDetail.status === 'resolved' || caseDetail.status === 'closed';
 
   return (
     <div className="flex flex-col h-[calc(100dvh-8rem)]">
       {/* Header */}
       <div className="flex items-center gap-2 pb-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t('common.back')}
-          onClick={() => {
-            void navigate('/support');
-          }}
-        >
+        <Button variant="ghost" size="icon" aria-label={t('common.back')} onClick={backToList}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -150,7 +158,28 @@ export function SupportCaseDetail(): React.JSX.Element {
           </div>
           <h1 className="text-lg font-bold truncate">{caseDetail.subject}</h1>
         </div>
+        {!isEnded && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              setCloseOpen(true);
+            }}
+          >
+            {t('supportCases.closeCase')}
+          </Button>
+        )}
       </div>
+      <ConfirmDialog
+        open={closeOpen}
+        onOpenChange={setCloseOpen}
+        title={t('supportCases.closeConfirmTitle')}
+        description={t('supportCases.closeConfirmDescription')}
+        confirmLabel={t('supportCases.closeCase')}
+        isPending={closeMutation.isPending}
+        onConfirm={() => {
+          closeMutation.mutate();
+        }}
+      />
 
       {/* Info */}
       <Card className="mb-3">
@@ -242,22 +271,36 @@ export function SupportCaseDetail(): React.JSX.Element {
 
       {ai != null && <AiCaseStatus caseId={caseDetail.id} ai={ai} />}
 
+      {isEnded && <InfoNote className="mb-2">{t('supportCases.reopenNote')}</InfoNote>}
+
       {/* Message input */}
-      {canWrite && (
-        <form onSubmit={handleSendMessage} className="flex gap-2 border-t pt-3">
-          <Input
-            value={messageBody}
-            onChange={(e) => {
-              setMessageBody(e.target.value);
-            }}
-            placeholder={t('supportCases.messagePlaceholder')}
-            className="flex-1"
-          />
-          <Button type="submit" disabled={messageMutation.isPending || messageBody.trim() === ''}>
-            {t('supportCases.sendMessage')}
-          </Button>
-        </form>
-      )}
+      <form onSubmit={handleSendMessage} className="flex items-end gap-2 border-t pt-3">
+        {/* One line is the 48 px of the Send button beside it; the field grows
+              with its text and the button stays on its bottom edge. */}
+        <Textarea
+          value={messageBody}
+          onChange={(e) => {
+            setMessageBody(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            // Enter sends, Shift+Enter starts a new line, as in a chat.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              handleSendMessage(e);
+            }
+          }}
+          aria-label={t('supportCases.messagePlaceholder')}
+          placeholder={t('supportCases.messagePlaceholder')}
+          rows={1}
+          className="min-h-12 max-h-36 flex-1 resize-none rounded-lg py-[11px] leading-6 field-sizing-content"
+        />
+        <Button
+          type="submit"
+          size="field"
+          disabled={messageMutation.isPending || messageBody.trim() === ''}
+        >
+          {t('supportCases.sendMessage')}
+        </Button>
+      </form>
     </div>
   );
 }

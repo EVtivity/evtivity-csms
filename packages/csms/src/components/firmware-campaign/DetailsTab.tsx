@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { useHasAllSiteAccess } from '@/lib/auth';
+import { useSavedToast } from '@/components/saved-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 export interface CampaignDetail {
@@ -73,6 +74,7 @@ interface UpdateCampaignBody {
 
 export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const timezone = useUserTimezone();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -104,6 +106,7 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
   const updateMutation = useMutation({
     mutationFn: (body: UpdateCampaignBody) => api.patch(`/v1/firmware-campaigns/${id}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['firmware-campaigns', id] });
       setEditing(false);
     },

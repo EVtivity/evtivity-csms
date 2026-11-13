@@ -1,19 +1,32 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { isVisitStart } from '@/hooks/use-back-to-parent';
 
 interface PageHeaderProps {
   title: string;
   backTo?: string | number;
+  // Where a history back goes when the page is the first one of the visit
+  // (opened from a link or a page load), which has nothing to go back to.
+  fallbackTo?: string;
+  // Replaces backTo for pages whose back depends on how they were opened.
+  onBack?: () => void;
   children?: React.ReactNode;
 }
 
-export function PageHeader({ title, backTo = -1, children }: PageHeaderProps): React.JSX.Element {
+export function PageHeader({
+  title,
+  backTo = -1,
+  fallbackTo,
+  onBack,
+  children,
+}: PageHeaderProps): React.JSX.Element {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
 
   return (
@@ -23,8 +36,12 @@ export function PageHeader({ title, backTo = -1, children }: PageHeaderProps): R
           variant="ghost"
           size="icon"
           onClick={() => {
-            if (typeof backTo === 'string') {
+            if (onBack != null) {
+              onBack();
+            } else if (typeof backTo === 'string') {
               void navigate(backTo);
+            } else if (fallbackTo != null && isVisitStart(location)) {
+              void navigate(fallbackTo, { replace: true });
             } else {
               void navigate(backTo);
             }

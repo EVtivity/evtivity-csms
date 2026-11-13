@@ -222,6 +222,8 @@ describe('dashboard routes - site scoping and date ranges', () => {
           totalSessions: 0,
           totalEnergyWh: 0,
           faultedStations: 0,
+          chargingUnits: 0,
+          hasStationUnits: false,
           statusCounts: {},
           onboardingStatusCounts: {},
         },

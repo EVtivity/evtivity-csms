@@ -15,6 +15,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
+import { SavedMessage } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface Props {
@@ -157,9 +158,7 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
 
           <SaveButton isPending={mutation.isPending} />
 
-          {mutation.isSuccess && (
-            <p className="text-sm text-success">{t('settings.recaptchaSaved')}</p>
-          )}
+          {mutation.isSuccess && <SavedMessage>{t('settings.recaptchaSaved')}</SavedMessage>}
           {mutation.isError && (
             <p className="text-sm text-destructive">
               {getErrorMessage(mutation.error, t, 'settings.recaptchaSaveFailed')}

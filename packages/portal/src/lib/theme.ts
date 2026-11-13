@@ -30,7 +30,35 @@ export function adoptUiTheme(uiTheme: unknown): UiTheme {
   return theme;
 }
 
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch (err) {
+    console.warn('Could not read the saved appearance, using the defaults', err);
+    return null;
+  }
+}
+
+/**
+ * The mode on startup, before any server reply, the rule of
+ * `public/theme-init.js`: the stored mode, else the system color scheme. So a
+ * page shown while the API is down (Unable to Connect) keeps the driver's mode.
+ */
+export function resolveInitialTheme(): Theme {
+  const stored = readStored('portal_theme');
+  if (stored === 'dark' || stored === 'light') return stored;
+  // A browser without matchMedia (and jsdom) has no system scheme: light.
+  if (typeof window.matchMedia !== 'function') return 'light';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 /** The theme stored in this browser, Default when none or unknown. */
 export function storedUiTheme(): UiTheme {
-  return toUiTheme(localStorage.getItem('portal_ui_theme'));
+  return toUiTheme(readStored('portal_ui_theme'));
+}
+
+/** Applies the stored (or system) mode and theme at startup, before any server reply. */
+export function applyStartupAppearance(): void {
+  applyTheme(resolveInitialTheme());
+  applyUiTheme(storedUiTheme());
 }

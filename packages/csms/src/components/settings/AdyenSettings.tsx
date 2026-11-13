@@ -28,6 +28,8 @@ import {
 } from './PaymentWebhookSetup';
 import { providerErrorMessage } from './payment-provider-errors';
 import { StoredSecretInput } from './StoredSecretInput';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
+import { SavedMessage } from '@/components/saved-message';
 import { secretChange, type StoredSecret } from './stored-secret';
 
 export const ADYEN_WEBHOOK_PATH = '/v1/webhooks/payments/adyen';
@@ -598,7 +600,7 @@ export function AdyenSettings(): React.JSX.Element {
                 >
                   {testMutation.isPending && (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      <ButtonSpinner />
                     </div>
                   )}
                   <span className={testMutation.isPending ? 'invisible' : ''}>
@@ -608,7 +610,7 @@ export function AdyenSettings(): React.JSX.Element {
               </div>
             )}
             {saveMutation.isSuccess && !dirty && (
-              <p className="text-sm text-success">{t('settings.adyenSaved')}</p>
+              <SavedMessage>{t('settings.adyenSaved')}</SavedMessage>
             )}
             {saveMutation.isError && (
               <p className="text-sm text-destructive">

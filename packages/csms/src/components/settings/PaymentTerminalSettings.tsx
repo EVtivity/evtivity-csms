@@ -30,6 +30,8 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { defaultWebhookUrl } from './PaymentWebhookSetup';
 import { StoredSecretInput } from './StoredSecretInput';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
+import { SavedMessage } from '@/components/saved-message';
 import { secretChange, type StoredSecret } from './stored-secret';
 
 export const PAYMENT_TERMINAL_SETTINGS_KEY = ['payment-terminal-settings'] as const;
@@ -387,9 +389,7 @@ function IdtechCard({
               {dirty && (
                 <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
               )}
-              {save.isSuccess && !dirty && (
-                <p className="text-sm text-success">{t('common.saved')}</p>
-              )}
+              {save.isSuccess && !dirty && <SavedMessage />}
               <SaveButton isPending={save.isPending} disabled={!dirty || save.isPending} />
               <Button
                 type="button"
@@ -402,7 +402,7 @@ function IdtechCard({
               >
                 {test.isPending && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <ButtonSpinner />
                   </div>
                 )}
                 <span className={test.isPending ? 'invisible' : ''}>

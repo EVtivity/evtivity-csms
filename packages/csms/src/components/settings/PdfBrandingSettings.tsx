@@ -23,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
+import { SavedMessage } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 const LOGO_TYPES = ['image/png', 'image/svg+xml'];
@@ -219,9 +220,7 @@ export function PdfBrandingSettings({ settings }: Props): React.JSX.Element {
           </div>
 
           {canWrite && <SaveButton isPending={footerMutation.isPending} disabled={footerInvalid} />}
-          {footerMutation.isSuccess && (
-            <p className="text-sm text-success">{t('settings.pdfFooterSaved')}</p>
-          )}
+          {footerMutation.isSuccess && <SavedMessage>{t('settings.pdfFooterSaved')}</SavedMessage>}
           {footerMutation.isError && (
             <p className="text-sm text-destructive">
               {getErrorMessage(footerMutation.error, t, 'settings.pdfBrandingSaveFailed')}

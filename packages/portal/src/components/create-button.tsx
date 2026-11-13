@@ -3,6 +3,7 @@
 
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 
 interface CreateButtonProps {
   label: string;
@@ -22,6 +23,8 @@ interface CreateButtonProps {
   testId?: string;
   /** Spans the width of its container (portal forms and cards on phones). */
   fullWidth?: boolean;
+  /** While true the button is disabled and shows the pending ring over its label. */
+  pending?: boolean;
 }
 
 /**
@@ -30,6 +33,9 @@ interface CreateButtonProps {
  * area: page and card create actions are blue (`default`), add-a-row controls
  * inside a form are `outline`. Green is for confirming, never for create or add.
  * `gap-2` spaces the icon in the portal, whose Button has no gap of its own.
+ * The icon row is a block `flex`, not `inline-flex`: inside the inline label
+ * span an inline box sits on the text baseline, which lifts the icon and the
+ * label about 2 px above the button center.
  */
 export function CreateButton({
   label,
@@ -41,6 +47,7 @@ export function CreateButton({
   title,
   testId,
   fullWidth = false,
+  pending = false,
 }: CreateButtonProps): React.JSX.Element {
   return (
     <Button
@@ -48,13 +55,17 @@ export function CreateButton({
       variant={variant}
       size={size}
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled === true || pending}
       title={title}
       data-testid={testId}
-      className={fullWidth ? 'w-full gap-2' : 'gap-2'}
+      className={fullWidth ? 'relative w-full gap-2' : 'relative gap-2'}
     >
-      <Plus className="h-4 w-4" aria-hidden="true" />
-      {label}
+      <ButtonPendingLabel pending={pending}>
+        <span className="flex items-center gap-2">
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {label}
+        </span>
+      </ButtonPendingLabel>
     </Button>
   );
 }

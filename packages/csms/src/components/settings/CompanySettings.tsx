@@ -42,6 +42,7 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { SavedMessage } from '@/components/saved-message';
 import { ChargerPlateColorFields, chargerPlateColorErrors } from './ChargerPlateColorFields';
 
 const CURRENCY_NAMES: Record<SupportedCurrency, string> = {
@@ -884,9 +885,7 @@ export function CompanySettings({
           </div>
 
           <SaveButton isPending={companyMutation.isPending} />
-          {companyMutation.isSuccess && (
-            <p className="text-sm text-success">{t('settings.companySaved')}</p>
-          )}
+          {companyMutation.isSuccess && <SavedMessage>{t('settings.companySaved')}</SavedMessage>}
           {companyMutation.isError && (
             <p className="text-sm text-destructive">
               {getErrorMessage(companyMutation.error, t, 'settings.companySaveFailed')}

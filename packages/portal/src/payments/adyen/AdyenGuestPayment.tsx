@@ -8,6 +8,7 @@ import { formatCents } from '@/lib/utils';
 import type { GuestPayResult, GuestPaymentProps } from '../types';
 import { AdyenCardForm, type AdyenStep } from './AdyenCardForm';
 import { adyenRefusedMessage, readAdyenConfig, shopperBrowser } from './config';
+import { GuestAccountPrompt } from '@/components/GuestAccountPrompt';
 
 /**
  * Guest checkout with Adyen: a one-time card for the pre-authorization hold. A card
@@ -37,7 +38,8 @@ export function AdyenGuestPayment({
   const sessionToken = useRef<string | null>(null);
 
   if (adyen == null) {
-    return <p className="text-sm text-destructive">{t('guest.paymentNotConfigured')}</p>;
+    // Guest payment is not offered here: the guest charges with an account.
+    return <GuestAccountPrompt />;
   }
 
   function toStep(result: GuestPayResult): AdyenStep {
@@ -69,7 +71,6 @@ export function AdyenGuestPayment({
     <AdyenCardForm
       config={adyen}
       submitLabel={t('guest.startCharging')}
-      busyLabel={t('guest.processing')}
       errorKey="guest.paymentFailed"
       disabled={disabled}
       onSubmitData={(data) => guarded(() => pay(data, shopperBrowser(data.browserInfo)))}

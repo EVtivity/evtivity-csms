@@ -28,6 +28,7 @@ import {
 import { useMfaStatus } from '@/components/profile/mfa-status';
 import { PendingAvatarField } from '@/components/avatar/PendingAvatarField';
 import { useToast } from '@/components/ui/toast';
+import { useCreatedToast } from '@/components/saved-message';
 import { applyAvatarChoice, userAvatarPath, type AvatarChoice } from '@/lib/avatar';
 
 interface User {
@@ -50,6 +51,7 @@ interface Site {
 
 export function UserCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const canGrantAllSites = useHasAllSiteAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -127,6 +129,7 @@ export function UserCreate(): React.JSX.Element {
         });
       }
       void queryClient.invalidateQueries({ queryKey: ['users'] });
+      createdToast();
       void navigate(`/users/${created.id}`);
     },
   });

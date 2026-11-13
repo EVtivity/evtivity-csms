@@ -78,7 +78,7 @@ const OUTLINE: Record<string, string> = {
     'adds a load row inside the panel tree, under the blue Add Panel of its card',
   'components/load-management/LoadManagement.tsx|loadManagement.addTransformer':
     'secondary card header action next to the blue Add Panel of Electrical Infrastructure',
-  'components/station/station-unit-actions.tsx|stationUnits.addUnit':
+  'components/station/station-unit-actions.tsx|stationUnits.createUnit':
     'secondary tab header action next to the blue Create EVSE of the EVSE & Connectors tab',
   'pages/PricingHolidays.tsx|pricing.bulkAdd':
     'secondary header action next to the blue Add Holiday',

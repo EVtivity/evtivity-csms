@@ -197,7 +197,9 @@ describe('portal SupportCaseDetail driver AI', () => {
     expect(screen.queryByRole('button', { name: 'supportCases.ai.feedbackYes' })).toBeNull();
   });
 
-  it('keeps the composer on a case the automatic answer resolved, hides it on other resolved cases', async () => {
+  // Owner decision 2026-11-13: every resolved or closed case keeps the
+  // composer, since a driver message reopens it.
+  it('keeps the composer on a case the automatic answer resolved and on other resolved cases', async () => {
     getMock.mockResolvedValue(
       caseWith({ state: 'resolved_by_ai', resolutionSource: 'ai' }, { status: 'resolved' }),
     );
@@ -207,7 +209,8 @@ describe('portal SupportCaseDetail driver AI', () => {
     getMock.mockResolvedValue(caseWith(null, { status: 'resolved' }));
     renderPage();
     await screen.findByText('Charging stopped');
-    expect(screen.queryByPlaceholderText('supportCases.messagePlaceholder')).toBeNull();
+    expect(screen.getByPlaceholderText('supportCases.messagePlaceholder')).toBeTruthy();
+    expect(screen.getByText('supportCases.reopenNote')).toBeTruthy();
   });
 
   it('shows no AI block for a declined or not-asked case', async () => {

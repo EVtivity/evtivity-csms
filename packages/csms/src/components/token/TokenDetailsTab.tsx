@@ -28,6 +28,7 @@ import { formatDateTime } from '@/lib/timezone';
 import { formatCents } from '@/lib/formatting';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
+import { useSavedToast } from '@/components/saved-message';
 import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 
 interface TokenData {
@@ -56,6 +57,7 @@ interface TokenDetailsTabProps {
 
 export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { currency } = useCompanyCurrency();
@@ -89,6 +91,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
       expectedPrepaidBalanceCents?: number | null;
     }) => api.patch<TokenData>(`/v1/tokens/${token.id}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['tokens', token.id] });
       void queryClient.invalidateQueries({ queryKey: ['tokens'] });
       setEditing(false);

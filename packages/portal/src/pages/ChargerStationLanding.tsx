@@ -2,25 +2,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { MapPin, Plug } from 'lucide-react';
+import { AlertCircle, AlertTriangle, MapPin } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api } from '@/lib/api';
-import { cn, formatConnectorCurrentAmps, formatConnectorPowerKw, formatDate } from '@/lib/utils';
-import {
-  connectorStatusVariant,
-  connectorStatusClassName,
-  isStartable,
-} from '@/lib/connector-status';
-import { formatConnectorType } from '@/lib/charger-utils';
+import { ChargerHeading } from '@/components/ChargerHeading';
+import { PortCard, PortGrid } from '@/components/PortCard';
+import { formatDate } from '@/lib/utils';
+import { isStartable } from '@/lib/connector-status';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { EmptyState } from '@/components/ui/content-state';
 import { evseDisplayStatus } from '@evtivity/lib/evse-status';
+import { chargerUnitQuery } from '@/lib/station-units';
 
 interface ConnectorItem {
   connectorId: number;
@@ -32,6 +30,8 @@ interface ConnectorItem {
 
 interface EvseItem {
   evseId: number;
+  /** The unit (physical charger box) of the EVSE, null when it has none. */
+  unitId?: string | null;
   connectors: ConnectorItem[];
   reservationExpiresAt: string | null;
 }
@@ -46,6 +46,8 @@ interface StationInfo {
   siteCity: string | null;
   siteState: string | null;
   evses: EvseItem[];
+  /** Units of a station with several charger boxes; each is its own charger to drivers. */
+  units?: { id: string; name: string; evseIds: number[]; availableCount: number }[];
   maintenance: { active: boolean; plannedEndAt: string | null; message: string | null } | null;
   stationUnavailable: boolean;
 }
@@ -54,6 +56,11 @@ export function ChargerStationLanding(): React.JSX.Element {
   const { t } = useTranslation();
   const { stationId } = useParams<{ stationId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // `?unit=<id>` shows one unit (charger box) of a station with units as its
+  // own charger, as the signed-in charger page does. A unit id the station
+  // does not have is ignored, so the page never names another station's unit.
+  const unitParam = searchParams.get('unit');
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   // Signed-out visitors see times in the browser's time zone.
   const timezone = useAuth((s) => s.driver?.timezone);
@@ -62,9 +69,9 @@ export function ChargerStationLanding(): React.JSX.Element {
 
   useEffect(() => {
     if (isAuthenticated && stationId != null) {
-      void navigate(`/start/${stationId}`, { replace: true });
+      void navigate(`/start/${stationId}${chargerUnitQuery(unitParam)}`, { replace: true });
     }
-  }, [isAuthenticated, stationId, navigate]);
+  }, [isAuthenticated, stationId, unitParam, navigate]);
 
   const {
     data: station,
@@ -105,14 +112,32 @@ export function ChargerStationLanding(): React.JSX.Element {
     );
   }
 
+  const activeUnit = (station.units ?? []).find((unit) => unit.id === unitParam);
+  const shownEvses =
+    activeUnit != null
+      ? station.evses.filter((evse) => evse.unitId === activeUnit.id)
+      : station.evses;
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-4">
       <AuthBranding companyName={companyName} companyLogo={companyLogo} />
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>{station.stationId}</CardTitle>
-          {station.siteName != null && (
-            <p className="text-sm text-muted-foreground">{station.siteName}</p>
+          {activeUnit != null ? (
+            // A unit charger: the driver heading (box, station, location).
+            <ChargerHeading
+              title={activeUnit.name}
+              stationId={station.stationId}
+              siteName={station.siteName}
+              align="center"
+            />
+          ) : (
+            <>
+              <CardTitle data-testid="charger-title">{station.stationId}</CardTitle>
+              {station.siteName != null && (
+                <p className="text-sm text-muted-foreground">{station.siteName}</p>
+              )}
+            </>
           )}
         </CardHeader>
         <CardContent className="space-y-4">
@@ -141,35 +166,40 @@ export function ChargerStationLanding(): React.JSX.Element {
           ) : null}
 
           {station.stationUnavailable && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
-              <p className="text-sm">{t('errors.STATION_UNAVAILABLE')}</p>
-            </div>
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{t('errors.STATION_UNAVAILABLE')}</AlertDescription>
+            </Alert>
           )}
 
           {station.maintenance?.active === true && (
-            <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
-              <p className="font-semibold text-sm">{t('charger.maintenanceTitle')}</p>
-              {station.maintenance.plannedEndAt != null && (
-                <p className="mt-1 text-xs">
-                  {t('charger.maintenanceUntil', {
-                    time: formatDate(station.maintenance.plannedEndAt, timezone),
-                  })}
-                </p>
-              )}
-              {station.maintenance.message != null && station.maintenance.message.length > 0 && (
-                <p className="mt-1 text-xs">{station.maintenance.message}</p>
-              )}
-            </div>
+            <Alert variant="warning" className="items-start">
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+              <div>
+                <AlertTitle>{t('charger.maintenanceTitle')}</AlertTitle>
+                <AlertDescription>
+                  {station.maintenance.plannedEndAt != null && (
+                    <p>
+                      {t('charger.maintenanceUntil', {
+                        time: formatDate(station.maintenance.plannedEndAt, timezone),
+                      })}
+                    </p>
+                  )}
+                  {station.maintenance.message != null &&
+                    station.maintenance.message.length > 0 && (
+                      <p className="mt-1">{station.maintenance.message}</p>
+                    )}
+                </AlertDescription>
+              </div>
+            </Alert>
           )}
 
           {/* EVSE selection */}
-          {station.evses.length > 0 && (
+          {shownEvses.length > 0 && (
             <>
               <p className="text-sm text-muted-foreground">{t('stationDetail.selectConnector')}</p>
-              <div
-                className={`grid gap-3 ${station.evses.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}
-              >
-                {station.evses.map((evse) => {
+              <PortGrid count={shownEvses.length}>
+                {shownEvses.map((evse) => {
                   const connectorStatus = evseDisplayStatus(evse.connectors.map((c) => c.status));
                   const maintenanceBlocks = station.maintenance?.active === true;
                   // Block reserved EVSEs even after the holder plugs in: the
@@ -184,89 +214,26 @@ export function ChargerStationLanding(): React.JSX.Element {
                     !isReserved &&
                     isStartable(connectorStatus) &&
                     station.isOnline;
-
-                  const connectorTypes = [
-                    ...new Set(
-                      evse.connectors.map((c) => c.connectorType).filter((ct) => ct != null),
-                    ),
-                  ].map(formatConnectorType);
-                  const maxPowerKw = evse.connectors.reduce((max, c) => {
-                    const kw = c.maxPowerKw ?? 0;
-                    return kw > max ? kw : max;
-                  }, 0);
-                  const maxCurrentAmps = evse.connectors.reduce((max, c) => {
-                    const amps = c.maxCurrentAmps ?? 0;
-                    return amps > max ? amps : max;
-                  }, 0);
-
-                  const isCharging = ['charging', 'discharging'].includes(connectorStatus);
-                  const isIdleState = ['suspended_ev', 'suspended_evse', 'idle'].includes(
-                    connectorStatus,
-                  );
                   return (
-                    <Card
+                    <PortCard
                       key={evse.evseId}
-                      className={cn(
-                        'transition-all',
-                        isAvailable
-                          ? 'hover:shadow-md cursor-pointer'
-                          : 'opacity-50 cursor-not-allowed',
-                        isCharging && 'ring-2 ring-success animate-pulse',
-                        isIdleState && 'ring-2 ring-warning animate-pulse',
-                      )}
-                      onClick={() => {
-                        if (isAvailable) {
-                          void navigate(`/charge/${stationId ?? ''}/${String(evse.evseId)}`);
-                        }
+                      evseId={evse.evseId}
+                      connectors={evse.connectors}
+                      status={connectorStatus}
+                      available={isAvailable}
+                      reservationExpiresAt={evse.reservationExpiresAt}
+                      timezone={timezone}
+                      onSelect={() => {
+                        void navigate(`/charge/${stationId ?? ''}/${String(evse.evseId)}`);
                       }}
-                    >
-                      <CardContent className="p-3 space-y-2">
-                        <Badge
-                          variant={connectorStatusVariant()}
-                          className={cn('text-xs', connectorStatusClassName(connectorStatus))}
-                        >
-                          {t(`status.${connectorStatus}`)}
-                        </Badge>
-                        {connectorStatus === 'reserved' && (
-                          <p className="text-xs text-muted-foreground">
-                            {evse.reservationExpiresAt != null
-                              ? t('charger.reservedUntil', {
-                                  time: formatDate(evse.reservationExpiresAt, timezone),
-                                })
-                              : t('charger.reserved')}
-                          </p>
-                        )}
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1 text-sm font-medium">
-                            <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span>
-                              {connectorTypes.length > 0 ? connectorTypes.join(', ') : 'n/a'}
-                            </span>
-                          </div>
-                          {(maxPowerKw > 0 || maxCurrentAmps > 0) && (
-                            <p className="text-xs text-muted-foreground">
-                              {maxPowerKw > 0 ? `${formatConnectorPowerKw(maxPowerKw)} kW` : ''}
-                              {maxPowerKw > 0 && maxCurrentAmps > 0 ? ' / ' : ''}
-                              {maxCurrentAmps > 0
-                                ? `${formatConnectorCurrentAmps(maxCurrentAmps)}A`
-                                : ''}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            {t('stationDetail.connectorPort', { id: evse.evseId })}
-                          </p>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    />
                   );
                 })}
-              </div>
+              </PortGrid>
             </>
           )}
 
-          {station.evses.length === 0 && (
-            <EmptyState>{t('charger.stationNotAvailable')}</EmptyState>
-          )}
+          {shownEvses.length === 0 && <EmptyState>{t('charger.stationNotAvailable')}</EmptyState>}
         </CardContent>
       </Card>
       <AuthFooter companyName={companyName} branding={branding} />

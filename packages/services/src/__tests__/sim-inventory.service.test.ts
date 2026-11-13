@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   openSimAttachment: vi.fn(),
   closeAttachment: vi.fn(),
   attachSimToStation: vi.fn(),
+  attachSimToPaymentTerminal: vi.fn(),
+  openTerminalAttachment: vi.fn(),
   confirmAttachment: vi.fn(),
   findOrCreateSimRecord: vi.fn(),
   getSim: vi.fn(),
@@ -81,6 +83,8 @@ vi.mock('@evtivity/database', async () => {
     openSimAttachment: mocks.openSimAttachment,
     closeAttachment: mocks.closeAttachment,
     attachSimToStation: mocks.attachSimToStation,
+    attachSimToPaymentTerminal: mocks.attachSimToPaymentTerminal,
+    openTerminalAttachment: mocks.openTerminalAttachment,
     confirmAttachment: mocks.confirmAttachment,
     findOrCreateSimRecord: mocks.findOrCreateSimRecord,
     getSim: mocks.getSim,
@@ -107,12 +111,16 @@ const { db: dbExecutor } = await import('@evtivity/database');
 const {
   attachReportedStationSim,
   attachSim,
+  auditTerminalSimClosed,
   closeStationAttachmentOnIccidChange,
   confirmStationAttachment,
   deactivateSim,
   deleteSim,
+  detachSimAttachment,
   detachStationSim,
+  detachTerminalSim,
   enterStationIccid,
+  enterTerminalIccid,
   reactivateSim,
   updateSim,
 } = service;
@@ -952,5 +960,134 @@ describe('data plan push after a SIM change', () => {
     mocks.setSimStatus.mockResolvedValue({ kind: 'unchanged' });
     await deactivateSim('sim_abc', { actor: ACTOR });
     expect(mocks.planPushes).toEqual([['sta_9']]);
+  });
+});
+
+describe('attachReportedStationSim races', () => {
+  it('uses an attachment another request opened at the station meanwhile', async () => {
+    mocks.openStationAttachment
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(attachment({ id: 9, simId: 'sim_other' }));
+    mocks.getSim.mockResolvedValue(sim({ id: 'sim_other' }));
+    expect(await attachReportedStationSim('sta_1', ACTOR.audit)).toMatchObject({
+      kind: 'attached',
+      sim: { id: 'sim_other' },
+      attachment: { id: 9 },
+    });
+    expect(mocks.attachSimToStation).not.toHaveBeenCalled();
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('answers attach_conflict when the attachment it found keeps losing its SIM row', async () => {
+    mocks.openStationAttachment
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(attachment({ id: 9, simId: 'sim_gone' }));
+    mocks.getSim.mockResolvedValue(null);
+    expect(await attachReportedStationSim('sta_1', ACTOR.audit)).toEqual({
+      kind: 'attach_conflict',
+    });
+  });
+});
+
+describe('payment terminal SIMs', () => {
+  const terminalAttachment = (fields: Record<string, unknown> = {}) =>
+    attachment({ stationId: null, paymentTerminalId: 'ptm_1', ...fields });
+
+  it('attaches an entered ICCID confirmed for an all-site person and audits the SIM only', async () => {
+    mocks.attachSimToPaymentTerminal.mockResolvedValue({
+      kind: 'attached',
+      created: true,
+      attachment: terminalAttachment({ source: 'entered' }),
+    });
+    const out = await enterTerminalIccid('ptm_1', ICCID, {
+      actor: ACTOR,
+      source: 'entered',
+      withAllSites: true,
+    });
+    expect(out).toMatchObject({ kind: 'attached', attachment: { paymentTerminalId: 'ptm_1' } });
+    expect(mocks.attachSimToPaymentTerminal).toHaveBeenCalledWith(
+      {
+        simId: 'sim_abc',
+        paymentTerminalId: 'ptm_1',
+        source: 'entered',
+        by: 'usr_1',
+        withAllSites: true,
+        confirm: true,
+      },
+      expect.anything(),
+    );
+    // A terminal attachment names no station, so only the SIM row is written.
+    expect(auditCalls().map((c) => [c.table, c.args['action'], c.args['notes']])).toEqual([
+      ['sim_id', 'attached', 'payment_terminal'],
+    ]);
+  });
+
+  it('leaves a reported ICCID unconfirmed and answers unchanged for an existing attachment', async () => {
+    mocks.attachSimToPaymentTerminal.mockResolvedValue({
+      kind: 'attached',
+      created: false,
+      attachment: terminalAttachment(),
+    });
+    const out = await enterTerminalIccid('ptm_1', ICCID, {
+      actor: ACTOR,
+      source: 'reported',
+      withAllSites: true,
+    });
+    expect(out).toMatchObject({ kind: 'unchanged' });
+    expect(mocks.attachSimToPaymentTerminal.mock.calls[0]?.[0]).toMatchObject({ confirm: false });
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('passes a refusal of the writer through', async () => {
+    mocks.attachSimToPaymentTerminal.mockResolvedValue({ kind: 'terminal_has_sim' });
+    expect(
+      await enterTerminalIccid('ptm_1', ICCID, {
+        actor: ACTOR,
+        source: 'entered',
+        withAllSites: false,
+      }),
+    ).toEqual({ kind: 'terminal_has_sim' });
+  });
+
+  it('detaches the open terminal SIM with an audit row, and null without one', async () => {
+    expect(await detachTerminalSim('ptm_1', { actor: ACTOR })).toBeNull();
+    mocks.openTerminalAttachment.mockResolvedValue(terminalAttachment());
+    mocks.closeAttachment.mockImplementation((id: number, reason: string) =>
+      Promise.resolve(terminalAttachment({ id, detachedAt: new Date(), detachReason: reason })),
+    );
+    expect(await detachTerminalSim('ptm_1', { actor: ACTOR })).toMatchObject({
+      detachReason: 'detached',
+    });
+    // No station: no vouch to end and no station audit row.
+    expect(mocks.stationUpdates).toEqual([]);
+    expect(auditCalls().map((c) => c.args['notes'])).toEqual(['detached']);
+  });
+
+  it('audits the SIM side of a terminal attachment closed on a site change', async () => {
+    const open = terminalAttachment();
+    const closed = terminalAttachment({ detachedAt: new Date(), detachReason: 'site_changed' });
+    await auditTerminalSimClosed(open as never, closed as never, { actor: ACTOR });
+    expect(auditCalls()).toEqual([
+      expect.objectContaining({
+        table: 'sim_id',
+        args: expect.objectContaining({ action: 'detached', notes: 'detached' }),
+      }),
+    ]);
+  });
+});
+
+describe('detachSimAttachment (SIM page)', () => {
+  it('closes only the attachment named, wrapped in the data plan push of its station', async () => {
+    mocks.openSimAttachment.mockResolvedValue(attachment());
+    expect(await detachSimAttachment('sim_abc', 8, { actor: ACTOR })).toBeNull();
+    expect(mocks.closeAttachment).not.toHaveBeenCalled();
+    expect(await detachSimAttachment('sim_abc', 7, { actor: ACTOR })).toMatchObject({ id: 7 });
+    expect(mocks.closeAttachment).toHaveBeenCalledWith(7, 'detached', 'usr_1', expect.anything());
+    expect(mocks.planPushes).toEqual([['sta_1'], ['sta_1']]);
+  });
+
+  it('answers null for a SIM without an open attachment', async () => {
+    expect(await detachSimAttachment('sim_abc', 7, { actor: ACTOR })).toBeNull();
+    expect(mocks.planPushes).toEqual([[null]]);
   });
 });

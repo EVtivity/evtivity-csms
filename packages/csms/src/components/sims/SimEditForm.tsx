@@ -12,6 +12,7 @@ import { SaveButton } from '@/components/save-button';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import type { SimDetailData } from './sim-detail';
 
 const LABEL_MAX = 100;
@@ -134,9 +135,7 @@ export function SimEditForm({ sim }: { sim: SimDetailData }): React.JSX.Element 
             {dirty && (
               <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
             )}
-            {save.isSuccess && !dirty && (
-              <p className="text-sm text-success">{t('common.saved')}</p>
-            )}
+            {save.isSuccess && !dirty && <SavedMessage />}
             <SaveButton isPending={save.isPending} disabled={save.isPending || !dirty} />
           </div>
           {save.isError && (

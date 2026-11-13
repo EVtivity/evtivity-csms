@@ -63,11 +63,29 @@ describe('LoadManagement electrical safety notice', () => {
 
     const notice = await screen.findByTestId(NOTICE);
     expect(notice.getAttribute('role')).toBe('alert');
-    expect(notice.className).toContain('text-warning');
+    expect(notice.className).toContain('text-warning-text');
     expect(notice.textContent).toContain('loadManagement.electricalSafetyTitle');
     expect(notice.textContent).toContain('loadManagement.electricalSafetyBody');
     // Not dismissible: the notice has no close button.
     expect(notice.querySelector('button')).toBeNull();
+  });
+
+  it('places the warning first in the panel, before the strategy and the Save button', async () => {
+    apiMock.get.mockResolvedValue({
+      config: { strategy: 'equal_share', isEnabled: true },
+      hierarchy: [],
+      stations: [],
+    });
+    renderTab();
+
+    const notice = await screen.findByTestId(NOTICE);
+    const form = notice.closest('form');
+    expect(form).not.toBeNull();
+    expect(form?.firstElementChild).toBe(notice);
+    const strategy = screen.getByLabelText('loadManagement.allocationStrategy');
+    expect(
+      notice.compareDocumentPosition(strategy) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('hides the warning while load management is disabled', async () => {

@@ -22,6 +22,7 @@ import {
 } from '@/components/payment-terminals/payment-terminal-types';
 import { api } from '@/lib/api';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
+import { useCreatedToast } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface ProviderDevice {
@@ -55,6 +56,7 @@ export function PaymentTerminalNew(): React.JSX.Element {
 
 function PaymentTerminalNewForm({ providers }: { providers: string[] }): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -95,6 +97,7 @@ function PaymentTerminalNewForm({ providers }: { providers: string[] }): React.J
       api.post<PaymentTerminal>('/v1/payment-terminals', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: PAYMENT_TERMINALS_KEY });
+      createdToast();
       void navigate(`/payment-terminals/${created.id}`);
     },
   });

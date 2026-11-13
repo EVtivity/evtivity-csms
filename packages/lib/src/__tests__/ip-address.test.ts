@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { clientAddressKey, ipv6Groups, mappedIpv4, normalizeMappedIp } from '../ip-address.js';
+import {
+  canonicalIpAddress,
+  clientAddressKey,
+  ipv6Groups,
+  mappedIpv4,
+  normalizeMappedIp,
+} from '../ip-address.js';
 
 describe('clientAddressKey', () => {
   it('keeps an IPv4 address', () => {
@@ -75,5 +81,38 @@ describe('IPv4-mapped addresses', () => {
     expect(mappedIpv4('64:ff9b::c000:201')).toBeNull();
     expect(normalizeMappedIp('2001:db8::1')).toBe('2001:db8::1');
     expect(normalizeMappedIp('unknown')).toBe('unknown');
+  });
+});
+
+describe('canonicalIpAddress', () => {
+  it('keeps a dotted IPv4 address and trims spaces', () => {
+    expect(canonicalIpAddress(' 192.168.1.20 ')).toBe('192.168.1.20');
+  });
+
+  it('writes IPv6 in the RFC 5952 form', () => {
+    expect(canonicalIpAddress('2001:0DB8:0000:0000:0000:0000:0000:0001')).toBe('2001:db8::1');
+    expect(canonicalIpAddress('2001:db8:0:1:0:0:0:1')).toBe('2001:db8:0:1::1');
+    expect(canonicalIpAddress('2001:db8:0:0:1:0:0:1')).toBe('2001:db8::1:0:0:1');
+    expect(canonicalIpAddress('2001:db8:0:1:1:1:1:1')).toBe('2001:db8:0:1:1:1:1:1');
+    expect(canonicalIpAddress('0:0:0:0:0:0:0:0')).toBe('::');
+    expect(canonicalIpAddress('fe80:0:0:0:0:0:0:0')).toBe('fe80::');
+    expect(canonicalIpAddress('::FFFF:c000:0201')).toBe('::ffff:192.0.2.1');
+  });
+
+  it('refuses anything but one plain address', () => {
+    for (const bad of [
+      '',
+      'charger.local',
+      '192.168.1.20:8080',
+      '192.168.1.0/24',
+      '010.1.1.1',
+      '256.1.1.1',
+      '[2001:db8::1]',
+      '2001:db8::1/64',
+      'fe80::1%eth0',
+      '1.2.3.4\u0000',
+    ]) {
+      expect(canonicalIpAddress(bad)).toBeNull();
+    }
   });
 });

@@ -142,7 +142,7 @@ export function ConfigTemplatePushDetail(): React.JSX.Element {
             {rejected > 0 && (
               <div>
                 <span className="text-muted-foreground">{t('configTemplates.rejected')}: </span>
-                <span className="font-medium text-warning">{rejected}</span>
+                <span className="font-medium text-warning-text">{rejected}</span>
               </div>
             )}
             {failed > 0 && (

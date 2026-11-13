@@ -12,7 +12,7 @@ import {
   DialogFooter,
 } from './dialog';
 import { Button } from './button';
-import { Spinner } from '@/components/ui/spinner';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -80,7 +80,7 @@ export function ConfirmDialog({
         >
           {isPending && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <Spinner className="h-4 w-4" />
+              <ButtonSpinner />
             </div>
           )}
           <span className={`inline-flex items-center gap-1.5 ${isPending ? 'invisible' : ''}`}>

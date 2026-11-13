@@ -5,6 +5,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import type { CardSetupProps, GuestPaymentProps } from '../types';
 
+// The account prompt replaces guest payment where a provider cannot take it.
+vi.mock('@/components/GuestAccountPrompt', () => ({
+  GuestAccountPrompt: () => <p>guest-account-prompt</p>,
+}));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => (key.startsWith('errors.') ? `translated:${key}` : key),
@@ -247,9 +251,9 @@ describe('simulated module', () => {
       expect((button as HTMLButtonElement).disabled).toBe(true);
     });
 
-    it('shows not configured without test cards', () => {
+    it('offers the account prompt without test cards', () => {
       render(<SimulatedGuestPayment {...guestProps({ config: { provider: 'simulated' } })} />);
-      expect(screen.getByText('guest.paymentNotConfigured')).toBeTruthy();
+      expect(screen.getByText('guest-account-prompt')).toBeTruthy();
     });
   });
 });

@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { Info } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
@@ -28,6 +27,7 @@ import type { PasswordRule } from '@evtivity/lib/password-policy';
 import { MFA_STATUS_KEY, PASSKEYS_KEY, type PortalMfaStatus } from '@/lib/mfa-status';
 import { AccountRecoveryCodes } from './AccountRecoveryCodes';
 import { AccountPasskeys } from './AccountPasskeys';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { RecoveryCodesDisplay } from './RecoveryCodesDisplay';
 
 function methodLabelKey(method: string | null): string {
@@ -307,7 +307,7 @@ export function AccountSecurity(): React.JSX.Element {
         <Button type="submit" className="relative w-full" disabled={passwordLoading}>
           {passwordLoading && (
             <span className="absolute inset-0 flex items-center justify-center">
-              <Spinner className="h-4 w-4" />
+              <ButtonSpinner />
             </span>
           )}
           <span className={passwordLoading ? 'invisible' : ''}>{t('profile.changePassword')}</span>
@@ -469,7 +469,7 @@ export function AccountSecurity(): React.JSX.Element {
                     <Button type="submit" className="relative w-full" disabled={mfaLoading}>
                       {mfaLoading && (
                         <span className="absolute inset-0 flex items-center justify-center">
-                          <Spinner className="h-4 w-4" />
+                          <ButtonSpinner />
                         </span>
                       )}
                       <span className={mfaLoading ? 'invisible' : ''}>{t('profile.mfaSetUp')}</span>
@@ -537,7 +537,7 @@ export function AccountSecurity(): React.JSX.Element {
               <Button type="submit" className="relative w-full" disabled={mfaLoading}>
                 {mfaLoading && (
                   <span className="absolute inset-0 flex items-center justify-center">
-                    <Spinner className="h-4 w-4" />
+                    <ButtonSpinner />
                   </span>
                 )}
                 <span className={mfaLoading ? 'invisible' : ''}>{t('profile.mfaVerify')}</span>

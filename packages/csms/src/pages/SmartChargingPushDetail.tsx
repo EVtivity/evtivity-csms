@@ -141,7 +141,7 @@ export function SmartChargingPushDetail(): React.JSX.Element {
             {rejected > 0 && (
               <div>
                 <span className="text-muted-foreground">{t('smartCharging.rejected')}: </span>
-                <span className="font-medium text-warning">{rejected}</span>
+                <span className="font-medium text-warning-text">{rejected}</span>
               </div>
             )}
             {failed > 0 && (

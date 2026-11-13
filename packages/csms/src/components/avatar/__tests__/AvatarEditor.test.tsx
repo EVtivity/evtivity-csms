@@ -179,6 +179,28 @@ describe('AvatarField and AvatarEditor', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('stacks the footer with Save on top on phones and sets Remove apart in one row from sm', async () => {
+    renderField(vi.fn().mockResolvedValue(undefined));
+    await openEditor();
+    const remove = screen.getByRole('button', { name: /^avatar\.remove$/ });
+    const footer = (remove.parentElement as HTMLElement).parentElement as HTMLElement;
+    expect(footer.className).toContain('flex-col-reverse');
+    expect(footer.className).toContain('sm:flex-row');
+    expect(footer.className).toContain('sm:justify-end');
+    // flex-col-reverse shows the last item on top: Save, Random, Cancel, Remove.
+    const items = Array.from(footer.children);
+    expect(items.map((el) => el.textContent.trim())).toEqual([
+      'avatar.remove',
+      'common.cancel',
+      'avatar.random',
+      'common.save',
+    ]);
+    expect(items[0]?.className).toContain('sm:mr-auto');
+    expect(items[1]?.className).toContain('sm:order-2');
+    expect(items[2]?.className).toContain('sm:order-1');
+    expect(items[3]?.className).toContain('sm:order-3');
+  });
+
   it('removes behind a confirmation, and offers Remove only with an avatar', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderField(onSave);

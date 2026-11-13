@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
-import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -21,6 +20,7 @@ import {
   type FaultMode,
   type SimulateAction,
 } from '@/lib/simulate-actions';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { useSimulateAction } from '@/hooks/use-simulate-action';
 
 interface SimEvse {
@@ -218,7 +218,7 @@ export function StationSimulate({
             >
               {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <Spinner className="h-4 w-4" />
+                  <ButtonSpinner />
                 </div>
               )}
               {/* Two lines inside the 40 px button when a label is wider than a phone column. */}

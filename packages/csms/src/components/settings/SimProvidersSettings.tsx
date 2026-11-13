@@ -31,6 +31,8 @@ import { formatNumber } from '@/lib/formatting';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 import { DataRetentionLink } from './DataRetentionSettings';
 import { StoredSecretInput } from './StoredSecretInput';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
+import { SavedMessage } from '@/components/saved-message';
 import { secretChange, type StoredSecret } from './stored-secret';
 
 export const SIM_PROVIDER_SETTINGS_KEY = ['sim-provider-settings'] as const;
@@ -114,7 +116,7 @@ function SaveRow({
         <SaveButton isPending={isPending} disabled={!dirty || isPending} />
         {children}
       </div>
-      {isSuccess && !dirty && <p className="text-sm text-success">{t('settings.sim.saved')}</p>}
+      {isSuccess && !dirty && <SavedMessage>{t('settings.sim.saved')}</SavedMessage>}
       {error != null && (
         <p className="text-sm text-destructive">
           {getErrorMessage(error, t, 'settings.sim.saveFailed')}
@@ -283,7 +285,7 @@ function HologramCard({
               >
                 {test.isPending && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <ButtonSpinner />
                   </div>
                 )}
                 <span className={test.isPending ? 'invisible' : ''}>
@@ -484,7 +486,7 @@ function OneNceCard({
               >
                 {test.isPending && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <ButtonSpinner />
                   </div>
                 )}
                 <span className={test.isPending ? 'invisible' : ''}>

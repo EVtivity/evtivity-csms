@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
+import { isVisitStart, useBackToParent } from '@/hooks/use-back-to-parent';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,8 @@ const CATEGORY_OPTIONS = [
 export function NewSupportCase(): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const backToList = useBackToParent('/support');
   const [searchParams] = useSearchParams();
 
   const sessionId = searchParams.get('sessionId') ?? undefined;
@@ -67,7 +70,11 @@ export function NewSupportCase(): React.JSX.Element {
       api.post<{ id: string }>('/v1/portal/support-cases', data),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['portal-support-cases'] });
-      void navigate(`/support/${result.id}`);
+      // The case takes the form's place, so its back goes where the form's did.
+      void navigate(`/support/${result.id}`, {
+        replace: true,
+        state: isVisitStart(location) ? { visitStart: true } : (location.state as unknown),
+      });
     },
     onError: (err: unknown) => {
       // A newer notice: reload the features and ask again with its text.
@@ -115,7 +122,7 @@ export function NewSupportCase(): React.JSX.Element {
   if (driverAi.available && noticeVersion != null && aiChoice == null) {
     return (
       <div className="space-y-4">
-        <PageHeader title={t('supportCases.newCase')} backTo="/support" />
+        <PageHeader title={t('supportCases.newCase')} onBack={backToList} />
         <AiConsentStep
           noticeVersion={noticeVersion}
           onChoose={(decision) => {
@@ -130,7 +137,7 @@ export function NewSupportCase(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('supportCases.newCase')} backTo="/support" />
+      <PageHeader title={t('supportCases.newCase')} onBack={backToList} />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {driverAi.available && aiDecision != null && (

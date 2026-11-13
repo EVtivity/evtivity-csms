@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CancelButton } from '@/components/cancel-button';
 import {
@@ -16,6 +15,7 @@ import {
   type ProofRejection,
 } from '@/components/FactorProofField';
 import { api } from '@/lib/api';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface RegenerateResponse {
@@ -144,7 +144,7 @@ export function ProfileRecoveryCodes({
             <Button type="submit" disabled={regenerateMutation.isPending} className="relative">
               {regenerateMutation.isPending && (
                 <span className="absolute inset-0 flex items-center justify-center">
-                  <Spinner className="h-4 w-4" />
+                  <ButtonSpinner />
                 </span>
               )}
               <span className={regenerateMutation.isPending ? 'invisible' : ''}>

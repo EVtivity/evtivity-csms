@@ -14,6 +14,7 @@ import { WysiwygEditor } from '@/components/wysiwyg-editor';
 import { LanguageSelect, LANGUAGES } from '@/components/ui/language-select';
 import { Button } from '@/components/ui/button';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { SavedMessage } from '@/components/saved-message';
 import { api } from '@/lib/api';
 
 type ContentDocument = 'privacyPolicy' | 'termsOfService';
@@ -75,7 +76,7 @@ function ContentDocumentEditor({
           });
         }}
       />
-      {mutation.isSuccess && <p className="text-sm text-success">{t('settings.contentSaved')}</p>}
+      {mutation.isSuccess && <SavedMessage>{t('settings.contentSaved')}</SavedMessage>}
       {mutation.isError && (
         <p className="text-sm text-destructive">{t('settings.contentSaveFailed')}</p>
       )}

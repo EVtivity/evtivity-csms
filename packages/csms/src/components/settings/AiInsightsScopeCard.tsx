@@ -16,6 +16,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { Spinner } from '@/components/ui/spinner';
 import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { api } from '@/lib/api';
+import { SavedMessage } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 export interface ScopeSite {
@@ -360,9 +361,7 @@ export function AiInsightsScopeCard({
         )}
         {canWrite && data != null && (
           <div className="flex items-center justify-end gap-4">
-            {save.isSuccess && !dirty && (
-              <p className="text-sm text-success">{t('settings.aiSaved')}</p>
-            )}
+            {save.isSuccess && !dirty && <SavedMessage>{t('settings.aiSaved')}</SavedMessage>}
             {dirty && (
               <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
             )}

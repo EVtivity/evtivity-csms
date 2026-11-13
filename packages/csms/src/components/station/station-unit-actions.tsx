@@ -23,15 +23,39 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { useSavedToast } from '@/components/saved-message';
 import type { StationUnit } from '@/lib/station-units';
 
 /** The longest unit name the API stores (after trimming). */
 const UNIT_NAME_MAX = 50;
+/** The longest serial number the API stores (after trimming). */
+const UNIT_SERIAL_MAX = 64;
+/** The longest IPv6 text (an IPv4-mapped address in full form). */
+const UNIT_IP_MAX = 45;
 
-/** A unit being added (`id` null) or renamed. */
+/**
+ * A unit being added (`id` null) or edited: its name and the optional admin
+ * metadata (serial number, IP address; an empty field means none).
+ */
 export interface UnitNameDraft {
   id: string | null;
   name: string;
+  serialNumber: string;
+  ipAddress: string;
+}
+
+/** The body of a create (empty fields left out) or an edit (empty fields clear). */
+export function unitDraftBody(draft: UnitNameDraft): Record<string, string> {
+  const serialNumber = draft.serialNumber.trim();
+  const ipAddress = draft.ipAddress.trim();
+  if (draft.id == null) {
+    return {
+      name: draft.name,
+      ...(serialNumber !== '' ? { serialNumber } : {}),
+      ...(ipAddress !== '' ? { ipAddress } : {}),
+    };
+  }
+  return { name: draft.name, serialNumber, ipAddress };
 }
 
 interface UnitEvse {
@@ -72,7 +96,7 @@ function useAssignEvseUnit(stationId: string, onDone?: () => void) {
   });
 }
 
-/** The Add Unit and Rename Unit dialog. Open while `draft` is set. */
+/** The Create Unit and Edit Unit dialog. Open while `draft` is set. */
 export function StationUnitNameDialog({
   stationId,
   draft,
@@ -83,14 +107,16 @@ export function StationUnitNameDialog({
   onDraftChange: (draft: UnitNameDraft | null) => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const refresh = useUnitRefresh(stationId);
   const onError = useUnitError();
   const save = useMutation({
     mutationFn: (value: UnitNameDraft) =>
       value.id == null
-        ? api.post(`/v1/stations/${stationId}/units`, { name: value.name })
-        : api.patch(`/v1/stations/${stationId}/units/${value.id}`, { name: value.name }),
+        ? api.post(`/v1/stations/${stationId}/units`, unitDraftBody(value))
+        : api.patch(`/v1/stations/${stationId}/units/${value.id}`, unitDraftBody(value)),
     onSuccess: () => {
+      savedToast();
       onDraftChange(null);
       refresh();
     },
@@ -106,8 +132,11 @@ export function StationUnitNameDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {draft?.id == null ? t('stationUnits.addUnit') : t('stationUnits.renameUnit')}
+            {draft?.id == null ? t('stationUnits.createUnit') : t('stationUnits.editUnit')}
           </DialogTitle>
+          {draft?.id == null && (
+            <DialogDescription>{t('stationUnits.createUnitDescription')}</DialogDescription>
+          )}
         </DialogHeader>
         <form
           className="space-y-4"
@@ -127,6 +156,33 @@ export function StationUnitNameDialog({
                 if (draft != null) onDraftChange({ ...draft, name: e.target.value });
               }}
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="station-unit-serial">{t('stationUnits.serialNumber')}</Label>
+            <Input
+              id="station-unit-serial"
+              maxLength={UNIT_SERIAL_MAX}
+              autoComplete="off"
+              value={draft?.serialNumber ?? ''}
+              onChange={(e) => {
+                if (draft != null) onDraftChange({ ...draft, serialNumber: e.target.value });
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="station-unit-ip">{t('stationUnits.ipAddress')}</Label>
+            <Input
+              id="station-unit-ip"
+              maxLength={UNIT_IP_MAX}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="192.168.1.20"
+              value={draft?.ipAddress ?? ''}
+              onChange={(e) => {
+                if (draft != null) onDraftChange({ ...draft, ipAddress: e.target.value });
+              }}
+            />
+            <p className="text-xs text-muted-foreground">{t('stationUnits.ipAddressHint')}</p>
           </div>
           <DialogFooter>
             <CancelButton
@@ -368,10 +424,10 @@ export function StationUnitRemoveEvseDialog({
 }
 
 /**
- * Add Unit on the EVSE & Connectors tab header, before Create EVSE, with its name
+ * Create Unit on the EVSE & Connectors tab header, before Create EVSE, with its name
  * dialog. Renders nothing without `stations:write`.
  */
-export function StationAddUnitButton({
+export function StationCreateUnitButton({
   stationId,
 }: {
   stationId: string;
@@ -383,10 +439,10 @@ export function StationAddUnitButton({
   return (
     <>
       <CreateButton
-        label={t('stationUnits.addUnit')}
+        label={t('stationUnits.createUnit')}
         variant="outline"
         onClick={() => {
-          setDraft({ id: null, name: '' });
+          setDraft({ id: null, name: '', serialNumber: '', ipAddress: '' });
         }}
       />
       <StationUnitNameDialog stationId={stationId} draft={draft} onDraftChange={setDraft} />

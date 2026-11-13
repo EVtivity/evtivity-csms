@@ -13,6 +13,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 function isInvalidLink(err: unknown): boolean {
@@ -172,7 +173,7 @@ export function Activate(): React.JSX.Element {
             <Button type="submit" className="relative w-full" disabled={loading}>
               {loading && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <ButtonSpinner />
                 </div>
               )}
               <span className={loading ? 'invisible' : ''}>{t('auth.activateSubmit')}</span>

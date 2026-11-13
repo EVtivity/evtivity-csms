@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { Bot, Download, Sparkles, Square, X } from 'lucide-react';
 import { FileUploadButton } from '@/components/ui/file-upload-button';
 import { useStorageGuard } from '@/components/StorageUnavailableDialog';
-import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -21,6 +20,7 @@ import type { AiToolStepView } from '@/components/ai/ai-turn';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { formatNumber } from '@/lib/formatting';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { sendStorageUpload, type StorageUploadTicket } from '@evtivity/lib/storage-upload';
 
 // The attachment allowlist of the API upload pipeline (images, PDF, text).
@@ -316,7 +316,7 @@ export function MessageThread({
                     onClick={aiStream.stop}
                     data-testid="support-ai-stop"
                   >
-                    <Spinner className="h-4 w-4" />
+                    <ButtonSpinner />
                     <Square className="ml-1 h-3 w-3" />
                     <span className="ml-1">{t('supportCases.aiAssistStop')}</span>
                   </Button>
@@ -416,7 +416,7 @@ function MessageBubble({
             t('supportCases.operatorMessage')
           )}
           {isInternal && (
-            <span className="ml-2 text-warning">({t('supportCases.internalNote')})</span>
+            <span className="ml-2 text-warning-text">({t('supportCases.internalNote')})</span>
           )}
         </span>
         <span>{formatDateTime(message.createdAt, timezone)}</span>

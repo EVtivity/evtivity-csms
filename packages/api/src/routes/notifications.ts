@@ -356,6 +356,7 @@ export const SYSTEM_EVENT_TYPES = [
   'operator.PasswordChanged',
   'supportCase.NewCaseFromDriver',
   'supportCase.DriverReply',
+  'supportCase.DriverClosed',
   'session.EndRequestFailed',
   'paymentTerminal.Offline',
   'site.PayoutOnboarding',

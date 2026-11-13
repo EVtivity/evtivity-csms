@@ -51,8 +51,10 @@ export function RecoveryCodesDisplay({
     <div className="space-y-4" data-testid="recovery-codes">
       <Alert variant="warning">
         <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>{t('profile.recoveryCodesTitle')}</AlertTitle>
-        <AlertDescription>{t('profile.recoveryCodesStoreNote')}</AlertDescription>
+        <div>
+          <AlertTitle>{t('profile.recoveryCodesTitle')}</AlertTitle>
+          <AlertDescription>{t('profile.recoveryCodesStoreNote')}</AlertDescription>
+        </div>
       </Alert>
       <ul
         aria-label={t('profile.recoveryCodesTitle')}

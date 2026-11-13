@@ -79,6 +79,7 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: {},
   evses: {},
   connectors: {},
+  stationUnits: {},
   guestSessions: {},
   chargingSessions: {},
   meterValues: {},
@@ -505,6 +506,8 @@ describe('Portal guest routes - gates and history', () => {
       setupDbResults(
         [{ status: 'failed', stationOcppId: 'CS-001', evseId: 1, chargingSessionId: 'ses_1' }],
         [{ isSimulator: true }],
+        // the unit (charger box) of the EVSE: none
+        [],
         [
           {
             energyDeliveredWh: 0,
@@ -531,6 +534,7 @@ describe('Portal guest routes - gates and history', () => {
     it('omits the failure reason when the payment record has none', async () => {
       setupDbResults(
         [{ status: 'failed', stationOcppId: 'CS-001', evseId: 1, chargingSessionId: 'ses_1' }],
+        [],
         [],
         [],
         [{ failureReason: null }],

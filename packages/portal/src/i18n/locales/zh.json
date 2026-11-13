@@ -7,6 +7,7 @@
     "backToHome": "返回首页",
     "save": "保存",
     "saving": "保存中...",
+    "saved": "保存成功",
     "cancel": "取消",
     "keep": "保留",
     "back": "返回",
@@ -332,6 +333,8 @@
     "payWithCard": "使用银行卡支付",
     "startWithAccount": "使用账户开始",
     "signIn": "登录",
+    "signInToCharge": "请使用账户在此充电。",
+    "register": "注册",
     "stationNotAvailable": "此充电桩当前不可用。",
     "pricing": "定价",
     "pricingFree": "免费",
@@ -366,6 +369,7 @@
     "siteContact": "充电站联系方式",
     "evNotDetectedTitle": "未检测到电动车",
     "evNotDetectedDescription": "充电桩未检测到此端口连接的电动车。请插入您的车辆并重试。",
+    "plugInAnimationLabel": "将充电线插入您的车辆",
     "startAnyway": "仍然开始",
     "proceedAnyway": "仍然继续",
     "simulatorPlugInHint": "模拟器：开始充电前，请先打开 CSMS 控制台，进入此充电桩的 Simulate 标签页，点击 Plug In。",
@@ -419,7 +423,6 @@
     "incorrectCvc": "CVC号码不正确。",
     "insufficientFunds": "余额不足，请使用其他卡。",
     "processingError": "处理出错，请重试。",
-    "paymentNotConfigured": "此充电桩未配置支付功能。",
     "loadingPayment": "加载支付表单..."
   },
   "guestSession": {
@@ -566,6 +569,11 @@
     "sendFailed": "发送消息失败，请重试。",
     "createFailed": "创建支持工单失败，请重试。",
     "downloadFailed": "下载附件失败，请重试。",
+    "closeCase": "关闭工单",
+    "closeConfirmTitle": "关闭此工单？",
+    "closeConfirmDescription": "支持团队会看到您关闭了此工单。您可以随时发送消息重新打开。",
+    "closeFailed": "无法关闭工单，请重试。",
+    "reopenNote": "发送消息即可重新打开此工单。",
     "station": "充电桩",
     "categories": {
       "billing_dispute": "账单争议",
@@ -1107,7 +1115,7 @@
     "paymentMethods": "支付方式",
     "rfidCards": "RFID 卡",
     "vehicles": "车辆",
-    "supportCases": "工单",
+    "supportCases": "客服支持",
     "managePayments": "管理支付方式",
     "totalCases": "个工单",
     "viewAllCases": "查看全部工单",
@@ -1651,5 +1659,9 @@
         "AccountBillingChanged": "车队账单已更改"
       }
     }
+  },
+  "connectorTypeNames": {
+    "other": "其他",
+    "pantograph": "受电弓"
   }
 }

@@ -29,6 +29,7 @@ import {
 } from '@evtivity/lib/load-allocation';
 import { formatNumber } from '@/lib/formatting';
 import { getErrorMessage } from '@/lib/error-message';
+import { useSavedToast } from '@/components/saved-message';
 import {
   flattenPanelNodes,
   parentPanelIds,
@@ -96,6 +97,7 @@ export function PanelForm({
   onSaved,
 }: PanelFormProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const isEdit = panel != null;
 
   const [name, setName] = useState('');
@@ -197,6 +199,7 @@ export function PanelForm({
       return api.post(`/v1/sites/${siteId}/panels`, body);
     },
     onSuccess: () => {
+      savedToast();
       onSaved();
       onClose();
     },

@@ -3,19 +3,21 @@
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { initialUiLanguage } from '@evtivity/lib/languages';
 import en from './locales/en.json';
 
+// The stored driver language, else the browser language, else English. Read
+// without a request, so the Unable to Connect page (shown while the API is down)
+// is in the driver's language.
 function getInitialLanguage(): string {
-  const stored = localStorage.getItem('portal_language');
-  if (stored != null) return stored;
-  const browserFull = navigator.language;
-  if (browserFull === 'zh-TW' || browserFull === 'zh-Hant') return 'zh-TW';
-  const browser = browserFull.split('-')[0];
-  if (browser === 'de') return 'de';
-  if (browser === 'es') return 'es';
-  if (browser === 'ko') return 'ko';
-  if (browser === 'zh') return 'zh';
-  return 'en';
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem('portal_language');
+  } catch (err) {
+    console.warn('Could not read the saved language, using the browser language', err);
+  }
+  const browser = navigator.languages.length > 0 ? navigator.languages : [navigator.language];
+  return initialUiLanguage(stored, browser);
 }
 
 const savedLanguage = getInitialLanguage();

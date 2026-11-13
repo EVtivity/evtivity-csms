@@ -54,7 +54,7 @@ describe('PricingHolidays dialogs', () => {
     expect(form.className).toContain('grid');
     expect(form.className).toContain('gap-4');
     const cancel = within(form).getByText('common.cancel');
-    const create = within(form).getByText('common.create');
+    const create = within(form).getByRole('button', { name: 'common.create' });
     expect(cancel.parentElement).toBe(create.parentElement);
     expect(cancel.parentElement?.parentElement).toBe(form);
   });

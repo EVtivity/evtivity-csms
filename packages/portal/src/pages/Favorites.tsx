@@ -89,13 +89,21 @@ export function Favorites(): React.JSX.Element {
           >
             <div className="space-y-1 min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold truncate">
-                  {fav.unitName != null ? `${fav.stationId}, ${fav.unitName}` : fav.stationId}
+                <span className="text-sm font-semibold truncate" data-testid="charger-row-title">
+                  {fav.unitName ?? fav.stationId}
                 </span>
                 <div
                   className={`h-2 w-2 rounded-full shrink-0 ${fav.isOnline ? 'bg-success' : 'bg-destructive'}`}
                 />
               </div>
+              {fav.unitName != null && (
+                <p
+                  className="text-xs text-muted-foreground truncate"
+                  data-testid="charger-row-station"
+                >
+                  {fav.stationId}
+                </p>
+              )}
               {fav.siteName != null && (
                 <p className="text-xs text-muted-foreground truncate">{fav.siteName}</p>
               )}

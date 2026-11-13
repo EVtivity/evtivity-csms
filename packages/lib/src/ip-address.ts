@@ -79,3 +79,40 @@ export function clientAddressKey(ip: string, ipv6Prefix: 48 | 64 = 64): string {
     .map((g) => g.toString(16))
     .join(':')}::/${String(ipv6Prefix)}`;
 }
+
+/**
+ * A device address as typed by a person, in canonical form, or null when it
+ * is not one plain IPv4 or IPv6 address. Surrounding spaces are trimmed; a
+ * port, a prefix length (`/24`), a zone (`%eth0`), brackets and host names
+ * are refused. IPv4 stays dotted (Node refuses leading zeros); IPv6 follows
+ * RFC 5952 section 4: lower case, no leading zeros in a group, the longest run
+ * of two or more zero groups (the first of equal runs) as `::`, and an
+ * IPv4-mapped address with its dotted tail (`::ffff:192.0.2.1`).
+ */
+export function canonicalIpAddress(text: string): string | null {
+  const value = text.trim();
+  if (isIP(value) === 4) return value;
+  if (value.includes('%') || isIP(value) !== 6) return null;
+  const groups = ipv6Groups(value);
+  if (groups == null) return null;
+  const mapped = mappedIpv4(value);
+  if (mapped != null) return `::ffff:${mapped}`;
+  let bestStart = -1;
+  let bestLength = 0;
+  for (let i = 0; i < 8; ) {
+    if (groups[i] !== 0) {
+      i += 1;
+      continue;
+    }
+    let j = i;
+    while (j < 8 && groups[j] === 0) j += 1;
+    if (j - i > bestLength) {
+      bestStart = i;
+      bestLength = j - i;
+    }
+    i = j;
+  }
+  const hex = groups.map((g) => g.toString(16));
+  if (bestLength < 2) return hex.join(':');
+  return `${hex.slice(0, bestStart).join(':')}::${hex.slice(bestStart + bestLength).join(':')}`;
+}

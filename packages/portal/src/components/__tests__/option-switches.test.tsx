@@ -115,7 +115,7 @@ describe('portal option switches', () => {
 
   it('switches the station search between our network and partner networks', async () => {
     getMock.mockImplementation((url: string) => {
-      if (url.startsWith('/v1/security/public')) return Promise.resolve({ roamingEnabled: true });
+      if (url === '/v1/portal/features') return Promise.resolve({ roamingEnabled: true });
       return Promise.resolve([]);
     });
     render(wrap(<StationSearchList onSelect={() => undefined} />));
@@ -133,11 +133,25 @@ describe('portal option switches', () => {
     expect(screen.getByPlaceholderText('chargerSearch.roamingSearchPlaceholder')).toBeDefined();
   });
 
-  it('hides the network switch without roaming', async () => {
-    getMock.mockResolvedValue({ roamingEnabled: false });
+  it('hides the network switch while roaming is off', async () => {
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(url === '/v1/portal/features' ? { roamingEnabled: false } : []),
+    );
     render(wrap(<StationSearchList onSelect={() => undefined} />));
     await waitFor(() => {
-      expect(getMock).toHaveBeenCalled();
+      expect(getMock).toHaveBeenCalledWith('/v1/portal/features');
+    });
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+    expect(screen.getByPlaceholderText('chargerSearch.searchPlaceholder')).toBeDefined();
+  });
+
+  it('hides the network switch when the features read fails', async () => {
+    getMock.mockImplementation((url: string) =>
+      url === '/v1/portal/features' ? Promise.reject(new Error('down')) : Promise.resolve([]),
+    );
+    render(wrap(<StationSearchList onSelect={() => undefined} />));
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith('/v1/portal/features');
     });
     expect(screen.queryByRole('radiogroup')).toBeNull();
   });

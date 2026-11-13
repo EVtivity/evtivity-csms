@@ -19,13 +19,20 @@ import { pgErrorCode, PG_UNIQUE_VIOLATION } from './pg-errors.js';
 export const STATION_UNITS_MAX = 64;
 /** The most characters of a unit name after trimming (`station_units.name`). */
 export const STATION_UNIT_NAME_MAX = 50;
+/** The most characters of a unit serial number after trimming. */
+export const STATION_UNIT_SERIAL_MAX = 64;
 
 export type StationUnitRow = typeof stationUnits.$inferSelect;
 
-/** A unit as the audit row records it: its id, name and EVSE numbers. */
+/**
+ * A unit as the audit row records it: its id, name, admin metadata (serial
+ * number and IP address, null when not set) and EVSE numbers.
+ */
 export interface UnitSnapshot {
   id: string;
   name: string;
+  serialNumber: string | null;
+  ipAddress: string | null;
   evseIds: number[];
 }
 
@@ -35,6 +42,9 @@ export interface StationUnitView {
   stationId: string;
   name: string;
   sortOrder: number;
+  /** Admin metadata: never put it in a driver, partner or layout reply. */
+  serialNumber: string | null;
+  ipAddress: string | null;
   evseIds: string[];
   evseNumbers: number[];
 }
@@ -74,7 +84,13 @@ async function snapshot(tx: Tx, unit: StationUnitRow): Promise<UnitSnapshot> {
     .from(evses)
     .where(eq(evses.unitId, unit.id))
     .orderBy(asc(evses.evseId));
-  return { id: unit.id, name: unit.name, evseIds: rows.map((r) => r.evseId) };
+  return {
+    id: unit.id,
+    name: unit.name,
+    serialNumber: unit.serialNumber,
+    ipAddress: unit.ipAddress,
+    evseIds: rows.map((r) => r.evseId),
+  };
 }
 
 async function nameTaken(
@@ -109,13 +125,23 @@ async function runUnitWrite<T>(
 }
 
 /**
+ * The admin metadata of a unit as the service passes it: a checked value, or
+ * null to clear it. Left out keeps the stored value (update) or stores none
+ * (create).
+ */
+export interface UnitDetailsInput {
+  serialNumber?: string | null;
+  ipAddress?: string | null;
+}
+
+/**
  * Creates a unit at the end of the station's order. `evseIds` (EVSE row ids)
  * move into the new unit from wherever they were; each must be an EVSE of
  * the station.
  */
 export async function createStationUnit(
   stationUuid: string,
-  input: { name: string; evseIds?: string[] },
+  input: { name: string; evseIds?: string[] } & UnitDetailsInput,
 ): Promise<UnitWriteResult<StationUnitRow>> {
   const name = input.name.trim();
   return runUnitWrite(async (tx) => {
@@ -144,7 +170,13 @@ export async function createStationUnit(
     }
     const [unit] = await tx
       .insert(stationUnits)
-      .values({ stationId: stationUuid, name, sortOrder: (counts[0]?.maxOrder ?? -1) + 1 })
+      .values({
+        stationId: stationUuid,
+        name,
+        sortOrder: (counts[0]?.maxOrder ?? -1) + 1,
+        serialNumber: input.serialNumber ?? null,
+        ipAddress: input.ipAddress ?? null,
+      })
       .returning();
     if (unit == null) throw new Error('Station unit insert returned no row');
     if (evseIds.length > 0) {
@@ -157,11 +189,11 @@ export async function createStationUnit(
   });
 }
 
-/** Renames a unit or moves it in the station's order. */
+/** Renames a unit, changes its admin metadata or moves it in the station's order. */
 export async function updateStationUnit(
   stationUuid: string,
   unitId: string,
-  input: { name?: string; sortOrder?: number },
+  input: { name?: string; sortOrder?: number } & UnitDetailsInput,
 ): Promise<UnitWriteResult<StationUnitRow>> {
   return runUnitWrite(async (tx) => {
     if (!(await lockStation(tx, stationUuid))) return { ok: false, reason: 'station_not_found' };
@@ -173,8 +205,11 @@ export async function updateStationUnit(
     const name = input.name?.trim();
     const nameChanged = name != null && name !== unit.name;
     const orderChanged = input.sortOrder != null && input.sortOrder !== unit.sortOrder;
+    const serialChanged =
+      input.serialNumber !== undefined && input.serialNumber !== unit.serialNumber;
+    const ipChanged = input.ipAddress !== undefined && input.ipAddress !== unit.ipAddress;
     const before = await snapshot(tx, unit);
-    if (!nameChanged && !orderChanged) {
+    if (!nameChanged && !orderChanged && !serialChanged && !ipChanged) {
       return { ok: true, value: unit, changed: false, before, after: before };
     }
     if (nameChanged && (await nameTaken(tx, stationUuid, name, unit.id))) {
@@ -185,6 +220,8 @@ export async function updateStationUnit(
       .set({
         ...(nameChanged ? { name } : {}),
         ...(orderChanged ? { sortOrder: input.sortOrder } : {}),
+        ...(serialChanged ? { serialNumber: input.serialNumber ?? null } : {}),
+        ...(ipChanged ? { ipAddress: input.ipAddress ?? null } : {}),
         updatedAt: new Date(),
       })
       .where(eq(stationUnits.id, unit.id))
@@ -195,7 +232,12 @@ export async function updateStationUnit(
       value: updated,
       changed: true,
       before,
-      after: { ...before, name: updated.name },
+      after: {
+        ...before,
+        name: updated.name,
+        serialNumber: updated.serialNumber,
+        ipAddress: updated.ipAddress,
+      },
     };
   });
 }
@@ -313,6 +355,8 @@ export async function readUnitsOfStations(
       stationId: u.stationId,
       name: u.name,
       sortOrder: u.sortOrder,
+      serialNumber: u.serialNumber,
+      ipAddress: u.ipAddress,
       evseIds: evseRows.map((e) => e.id),
       evseNumbers: evseRows.map((e) => e.evseId),
     });

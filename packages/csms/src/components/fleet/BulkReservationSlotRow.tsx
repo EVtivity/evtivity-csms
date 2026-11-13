@@ -12,6 +12,7 @@ import { StationCombobox, type StationSelection } from '@/components/station-com
 import { DriverCombobox } from '@/components/driver-combobox';
 import { api } from '@/lib/api';
 import { formatConnectorPowerKw } from '@/lib/connector-rating';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
 interface Connector {
   id: string;
@@ -51,6 +52,7 @@ export function BulkReservationSlotRow({
   excludeConnectorKeys,
 }: BulkReservationSlotRowProps): React.JSX.Element {
   const { t } = useTranslation();
+  const typeLabel = useConnectorTypeLabel();
   const fieldId = useId();
   const stationFieldId = `${fieldId}-station`;
   const driverFieldId = `${fieldId}-driver`;
@@ -66,7 +68,7 @@ export function BulkReservationSlotRow({
     const options: Array<{ key: string; evseId: number; connectorId: number; label: string }> = [];
     for (const evse of connectorsQuery.data) {
       for (const conn of evse.connectors) {
-        const type = conn.connectorType ?? 'Unknown';
+        const type = typeLabel(conn.connectorType);
         const power =
           conn.maxPowerKw != null ? `${formatConnectorPowerKw(Number(conn.maxPowerKw))} kW` : '';
         const label = `Port ${String(evse.evseId)}-${String(conn.connectorId)}: ${type}${power !== '' ? ` (${power})` : ''}`;
@@ -81,7 +83,7 @@ export function BulkReservationSlotRow({
     return options.filter(
       (o) => excludeConnectorKeys?.has(o.key) !== true || o.key === slot.connectorKey,
     );
-  }, [connectorsQuery.data, excludeConnectorKeys, slot.connectorKey]);
+  }, [connectorsQuery.data, excludeConnectorKeys, slot.connectorKey, typeLabel]);
 
   // Reset connector when station changes (or clears)
   useEffect(() => {

@@ -10,7 +10,8 @@
     "allSiteAccessRequiredDescription": "This page covers every site. Only users with access to all sites can open it.",
     "backToHome": "Back to Dashboard",
     "save": "Save",
-    "saved": "Saved",
+    "saved": "Saved successfully",
+    "createdSuccessfully": "Created successfully",
     "reset": "Reset",
     "columns": "Columns",
     "success": "Success",
@@ -424,6 +425,7 @@
   "dashboard": {
     "title": "Dashboard",
     "totalStations": "Total Stations",
+    "chargingUnits": "Charging Units",
     "online": "Online",
     "uptime": "Uptime",
     "activeSessions": "Active Sessions",
@@ -473,6 +475,7 @@
     },
     "info": {
       "totalStations": "Accepted charging stations. Pending and blocked stations are counted apart.",
+      "chargingUnits": "Physical chargers at accepted stations. A station without units counts as one. A station with units counts each unit with an EVSE in service, plus one for its EVSEs without a unit.",
       "online": "Percentage of accepted stations currently connected and communicating via OCPP.",
       "onlineCount": "Number of stations currently connected and communicating via OCPP.",
       "uptime": "Average connector uptime across all stations over the last 30 days.",
@@ -614,7 +617,6 @@
       "lastEvent": "Last Event",
       "empty": "No security events in this range.",
       "noStations": "No stations with events of this severity.",
-      "truncated": "Showing {{shown}} of {{total}} stations.",
       "criticalRow": "critical"
     }
   },
@@ -1397,7 +1399,6 @@
     "connectorRegionNorthAmerican": "North American",
     "connectorRegionEuropean": "European",
     "connectorRegionUniversal": "Universal / Other",
-    "connectorUnknown": "Unknown",
     "uploadFailed": "Failed to upload image. Please try again.",
     "profileUpgradePending": "Upgrade to security profile {{profile}} pending. It applies when the station reconnects with it; until then the current profile stays active.",
     "cancelProfileUpgrade": "Cancel upgrade",
@@ -5251,7 +5252,8 @@
       },
       "resolutionSource": {
         "operator": "Support team",
-        "ai": "AI"
+        "ai": "AI",
+        "driver": "Driver"
       },
       "driverAction": {
         "try_other_connector": "Try another connector",
@@ -6444,7 +6446,7 @@
     "statusCancelled": "Cancelled",
     "empty": "No maintenance windows",
     "schedule": "Schedule Maintenance",
-    "activeNow": "Site is currently under maintenance",
+    "activeNow": "Site Is Currently Under Maintenance",
     "endNow": "End now",
     "endsAt": "Expected to end at {{time}}",
     "noneActive": "No active maintenance for this site.",
@@ -7743,16 +7745,22 @@
     }
   },
   "stationUnits": {
-    "description": "The physical charger boxes of this station, such as a master box and its extenders. Drivers see each unit as its own charger; sessions and commands stay with the station.",
-    "addUnit": "Add Unit",
-    "renameUnit": "Rename Unit",
+    "createUnit": "Create Unit",
+    "createUnitDescription": "Group this station's EVSEs by physical charger box.",
+    "editUnit": "Edit Unit",
     "deleteUnit": "Delete Unit",
     "deleteConfirm": "Delete {{name}}? Its EVSEs stay on the station without a unit, and drivers' favorites and watches of it are removed.",
     "unitName": "Unit Name",
+    "serialNumber": "Serial Number",
+    "ipAddress": "IP Address",
+    "ipAddressHint": "One IPv4 or IPv6 address, without a port.",
+    "serialNumberValue": "S/N {{value}}",
+    "ipAddressValue": "IP {{value}}",
     "noEvses": "No EVSEs",
     "noUnit": "No Unit",
+    "unit": "Unit",
+    "evseCreatedWithoutUnit": "The EVSE was created without its unit. It is listed under EVSEs Without a Unit.",
     "evsesWithoutUnit": "EVSEs Without a Unit",
-    "empty": "This station has no units. Add a unit to group its EVSEs by physical charger box.",
     "evseCount_one": "{{count}} EVSE",
     "evseCount_other": "{{count}} EVSEs",
     "unitCount_one": "{{count}} Unit",
@@ -7767,5 +7775,9 @@
     "evse": "EVSE",
     "chooseEvse": "Choose an EVSE",
     "evseInUnit": "{{evse}} ({{unit}})"
+  },
+  "connectorTypeNames": {
+    "other": "Other",
+    "pantograph": "Pantograph"
   }
 }

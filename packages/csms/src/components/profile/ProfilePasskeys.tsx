@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Info } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   startRegistration,
@@ -564,7 +564,7 @@ export function ProfilePasskeys(): React.JSX.Element {
         <div className="space-y-3">
           {lastFactor && (
             <Alert variant="warning">
-              <Info className="h-4 w-4" />
+              <AlertTriangle className="h-4 w-4" />
               <AlertDescription>{t('passkeys.removeLastFactor')}</AlertDescription>
             </Alert>
           )}

@@ -6,10 +6,10 @@ import { useParams, useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { SearchInput } from '@/components/search-input';
 import { api } from '@/lib/api';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface SearchableDriver {
@@ -81,9 +81,7 @@ export function FleetAddDriver(): React.JSX.Element {
                     }}
                     disabled={addDriverMutation.isPending}
                   >
-                    {mutatingId === driver.id && addDriverMutation.isPending && (
-                      <Spinner className="h-4 w-4 shrink-0" />
-                    )}
+                    {mutatingId === driver.id && addDriverMutation.isPending && <ButtonSpinner />}
                     <span>
                       {driver.firstName} {driver.lastName}
                     </span>

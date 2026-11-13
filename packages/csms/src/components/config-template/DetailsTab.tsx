@@ -37,6 +37,7 @@ import {
   isBootOwnedRefusal,
   templateVariablesForSave,
 } from '@/components/config-template/TemplateVariableRows';
+import { useSavedToast } from '@/components/saved-message';
 import type { TemplateVariable } from '@/components/config-template/TemplateVariableRows';
 
 export interface TemplateDetail {
@@ -66,6 +67,7 @@ interface Props {
 
 export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
   const navigate = useNavigate();
@@ -111,6 +113,7 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
       targetFilter?: TargetFilterValue | null;
     }) => api.patch(`/v1/config-templates/${id}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['config-templates', id] });
       void queryClient.invalidateQueries({
         queryKey: ['config-templates', id, 'matching-stations'],

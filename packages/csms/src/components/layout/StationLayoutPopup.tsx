@@ -14,6 +14,7 @@ import { ConnectorStatusBadge } from '@/components/ConnectorStatusBadge';
 import { StationStatusBadge } from '@/components/StationStatusBadge';
 import { StationOnlineBadge } from '@/components/StationOnlineBadge';
 import { useHasPermission } from '@/lib/auth';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 import { formatEnergy, formatNumber } from '@/lib/formatting';
 import { formatConnectorPowerKw } from '@/lib/connector-rating';
 import { stationDisplayState } from '@/lib/station-display-state';
@@ -91,6 +92,7 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
     ref,
   ) {
     const { t } = useTranslation();
+    const typeLabel = useConnectorTypeLabel();
     const closeRef = useRef<HTMLButtonElement>(null);
     const simulateRef = useRef<HTMLButtonElement>(null);
     // The simulator screen slides over the details (simulator stations, stations:write).
@@ -290,7 +292,7 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
                   >
                     <span className="shrink-0">
                       {t('sites.layoutView.evse', { id: evse.evseId })} ·{' '}
-                      {conn.connectorType ?? `#${String(conn.connectorId)}`}
+                      {typeLabel(conn.connectorType)}
                     </span>
                     {/* The status at the end: the badge of the connector views. */}
                     <span className="flex min-w-0 flex-wrap items-center justify-end gap-1 text-right text-muted-foreground">

@@ -23,6 +23,7 @@ import {
   computeMaxContinuousKw,
   effectiveCircuitVoltageV,
 } from '@evtivity/lib/load-allocation';
+import { useSavedToast } from '@/components/saved-message';
 import { formatNumber } from '@/lib/formatting';
 
 interface CircuitStatus {
@@ -60,6 +61,7 @@ export function CircuitForm({
   onSaved,
 }: CircuitFormProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const isEdit = circuit != null;
 
   const [name, setName] = useState('');
@@ -109,6 +111,7 @@ export function CircuitForm({
       return api.post(`/v1/sites/${siteId}/panels/${panelId}/circuits`, body);
     },
     onSuccess: () => {
+      savedToast();
       onSaved();
       onClose();
     },

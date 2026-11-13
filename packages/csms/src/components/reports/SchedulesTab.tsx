@@ -19,7 +19,6 @@ import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { Spinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
 import {
   Dialog,
@@ -31,6 +30,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { LoadingLogo } from '@/components/loading-logo';
 import { reportTypeFormats, useReportTypes } from '@/hooks/use-report-types';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { ReportTypesLoadError } from '@/components/reports/ReportTypesLoadError';
 
 interface Schedule {
@@ -311,7 +311,7 @@ export function SchedulesTab(): React.JSX.Element {
                       >
                         {runningId === schedule.id && (
                           <span className="absolute inset-0 flex items-center justify-center">
-                            <Spinner className="h-4 w-4" />
+                            <ButtonSpinner />
                           </span>
                         )}
                         <span className={runningId === schedule.id ? 'invisible' : ''}>

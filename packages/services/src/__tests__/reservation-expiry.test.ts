@@ -318,6 +318,17 @@ describe('expireDueReservations (cron)', () => {
     expect(feeStatesWritten()).toEqual(['charged']);
   });
 
+  it('TC-RES-22: an acked active hold with no fee state expires as a no-show', async () => {
+    routeSql({ expired: [expiredRow({ id: 'r_plain', no_show_fee_state: null, acked: true })] });
+    await expireDueReservations(deps);
+    const expired = h.writeAudit.mock.calls
+      .map((c) => c[0] as { reservationId: string; action: string; reason?: string })
+      .filter((a) => a.action === 'expired');
+    expect(expired).toEqual([
+      expect.objectContaining({ reservationId: 'r_plain', reason: 'no_show' }),
+    ]);
+  });
+
   it('TC-RES-22: the expired audit reason tells a no-show from a hold that was never one', async () => {
     routeSql({
       expired: [

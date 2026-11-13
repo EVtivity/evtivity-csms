@@ -28,6 +28,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { AI_STATUS_KEY } from './use-ai-status';
 import { AiModelField } from './AiModelField';
 import { AiSystemPromptField } from './AiSystemPromptField';
+import { SavedMessage } from '@/components/saved-message';
 import { isCustomModel, isDefaultPrompt, useAiDefaults } from './use-ai-defaults';
 
 /** Product names, the same in every language. */
@@ -297,7 +298,7 @@ export function PersonalAiConfigCard({ surface }: PersonalAiConfigCardProps): Re
             {getErrorMessage(save.error, t, 'settings.aiSaveFailed')}
           </p>
         )}
-        {save.isSuccess && <p className="text-sm text-success">{t('settings.aiSaved')}</p>}
+        {save.isSuccess && <SavedMessage>{t('settings.aiSaved')}</SavedMessage>}
         <div className="flex justify-end gap-2">
           {config?.configured === true && (
             <Button

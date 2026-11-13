@@ -22,7 +22,7 @@ function StatusIcon({ status }: { status: AiToolStepStatus }): React.JSX.Element
       return <CircleAlert className="h-3 w-3 text-destructive" aria-hidden="true" />;
     case 'refused':
     case 'rejected':
-      return <Ban className="h-3 w-3 text-warning" aria-hidden="true" />;
+      return <Ban className="h-3 w-3 text-warning-text" aria-hidden="true" />;
     case 'pending_confirmation':
       return <Clock className="h-3 w-3 text-info" aria-hidden="true" />;
   }

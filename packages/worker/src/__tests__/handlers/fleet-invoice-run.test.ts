@@ -26,7 +26,10 @@ vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['/temp
 vi.mock('../../fleet-invoice-worker.js', () => ({ enqueueFleetInvoice: vi.fn() }));
 vi.mock('../../member-invoice-worker.js', () => ({ enqueueMemberInvoice: vi.fn() }));
 
-const { runFleetInvoiceCron } = await import('../../handlers/fleet-invoice-run.js');
+const { runFleetInvoiceCron, fleetInvoiceRunHandler } =
+  await import('../../handlers/fleet-invoice-run.js');
+const database = await import('@evtivity/database');
+const services = await import('@evtivity/services/fleet-invoice-run');
 type Deps = Parameters<typeof runFleetInvoiceCron>[1];
 
 const log = {
@@ -171,5 +174,60 @@ describe('runFleetInvoiceCron', () => {
     await runFleetInvoiceCron(log, d);
     const calls = vi.mocked(d.enqueue).mock.calls.map((c) => c[0]);
     expect(calls.slice(0, 3)).toEqual(calls.slice(3));
+  });
+});
+
+describe('fleetInvoiceRunHandler', () => {
+  function defaults(digestFleets: number, overdueSent: number, memberFailed: number): void {
+    vi.mocked(database.getSystemTimezone).mockResolvedValue('UTC');
+    vi.mocked(database.getFleetInvoiceRunDay).mockResolvedValue(31);
+    vi.mocked(database.getCompanyCurrency).mockResolvedValue('USD');
+    vi.mocked(services.sendFleetInvoiceRunFailureDigests).mockResolvedValue({
+      periods: digestFleets,
+      fleets: digestFleets,
+    });
+    vi.mocked(services.sendFleetInvoiceOverdueNotices).mockResolvedValue({
+      sent: overdueSent,
+      noContacts: 0,
+      failed: 0,
+    });
+    vi.mocked(services.sendMemberInvoiceOverdueNotices).mockResolvedValue({
+      sent: 0,
+      failed: memberFailed,
+    });
+  }
+
+  it('runs the default steps with the template folders and logs a quiet run at debug', async () => {
+    defaults(0, 0, 0);
+    await fleetInvoiceRunHandler(log);
+    expect(services.sendFleetInvoiceRunFailureDigests).toHaveBeenCalledWith(
+      { templatesDirs: ['/templates'] },
+      log,
+    );
+    expect(services.sendFleetInvoiceOverdueNotices).toHaveBeenCalledWith(
+      { templatesDirs: ['/templates'] },
+      log,
+      expect.any(Date),
+    );
+    expect(services.sendMemberInvoiceOverdueNotices).toHaveBeenCalledWith(
+      { templatesDirs: ['/templates'] },
+      log,
+      expect.any(Date),
+    );
+    expect(log.debug).toHaveBeenCalledWith(expect.anything(), 'Fleet invoice run');
+    expect(log.info).not.toHaveBeenCalled();
+  });
+
+  it('logs at info when a digest, a notice or a failure went out', async () => {
+    for (const [digest, sent, failed] of [
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    ] as const) {
+      vi.clearAllMocks();
+      defaults(digest, sent, failed);
+      await fleetInvoiceRunHandler(log);
+      expect(log.info).toHaveBeenCalledWith(expect.anything(), 'Fleet invoice run');
+    }
   });
 });

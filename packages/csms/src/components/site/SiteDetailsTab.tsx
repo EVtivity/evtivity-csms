@@ -20,8 +20,6 @@ import { LANGUAGES } from '@/components/ui/language-select';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
 import { SiteAiInsightsRow } from '@/components/site/SiteAiInsightsRow';
-import { SiteDataPlanCard } from '@/components/site/SiteDataPlanCard';
-import type { DataPlan } from '@evtivity/lib/station-data-plan';
 import {
   NO_POWER_EQUIPMENT,
   chargerPlacementOf,
@@ -47,6 +45,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { useSavedToast } from '@/components/saved-message';
 import { TIMEZONE_OPTIONS, formatDateTime } from '@/lib/timezone';
 
 interface Site extends SiteAiInsightsState {
@@ -69,10 +68,7 @@ interface Site extends SiteAiInsightsState {
   freeVendEnabled: boolean;
   freeVendTemplateId21: string | null;
   freeVendTemplateId16: string | null;
-  carbonRegionCode: string | null;
   stationMessageLanguage: string | null;
-  autochargeEnabled?: boolean | null;
-  dataPlan?: DataPlan | null;
   stationCount: number;
   /** Stored layout settings, null when never saved (the default parking lot shows). */
   layoutSettings?: SiteLayoutSettings | null;
@@ -80,15 +76,6 @@ interface Site extends SiteAiInsightsState {
   powerEquipment?: LayoutPowerEquipment;
   createdAt: string;
   updatedAt: string;
-}
-
-interface CarbonFactor {
-  id: number;
-  regionCode: string;
-  regionName: string;
-  countryCode: string;
-  carbonIntensityKgPerKwh: string;
-  source: string;
 }
 
 export interface SiteDetailsTabProps {
@@ -110,6 +97,7 @@ export function SiteDetailsTab({
   deleteError,
 }: SiteDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('sites:write');
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -156,19 +144,6 @@ export function SiteDetailsTab({
     [storedLayout, layoutStations, site.stationCount, site.powerEquipment],
   );
 
-  const { data: carbonFactors } = useQuery({
-    queryKey: ['carbon-factors'],
-    queryFn: () => api.get<CarbonFactor[]>('/v1/carbon/factors'),
-  });
-
-  const carbonRegionMutation = useMutation({
-    mutationFn: (regionCode: string | null) =>
-      api.put(`/v1/sites/${siteId}/carbon-region`, { regionCode }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites'] });
-    },
-  });
-
   const stationMessageLanguageMutation = useMutation({
     mutationFn: (language: string | null) =>
       api.patch<Site>(`/v1/sites/${siteId}`, { stationMessageLanguage: language }),
@@ -177,17 +152,10 @@ export function SiteDetailsTab({
     },
   });
 
-  const autochargeMutation = useMutation({
-    mutationFn: (value: boolean | null) =>
-      api.patch<Site>(`/v1/sites/${siteId}`, { autochargeEnabled: value }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites'] });
-    },
-  });
-
   const updateMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.patch<Site>(`/v1/sites/${siteId}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['sites'] });
       setEditing(false);
       setHasSubmitted(false);
@@ -571,7 +539,6 @@ export function SiteDetailsTab({
           </dl>
         )}
       </TabPanel>
-      {!editing && <SiteDataPlanCard siteId={site.id} dataPlan={site.dataPlan ?? null} />}
       {!editing && (
         <TabPanel title={t('sites.contact')} description={t('sites.contactPublicNote')}>
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -594,61 +561,6 @@ export function SiteDetailsTab({
               </dd>
             </div>
           </dl>
-        </TabPanel>
-      )}
-      {!editing && (
-        <TabPanel
-          title={t('sites.carbonRegion')}
-          description={t('sites.carbonRegionDescription')}
-          bodyClassName="space-y-4"
-        >
-          <div className="flex items-center gap-4">
-            <Select
-              aria-label={t('sites.carbonRegion')}
-              value={site.carbonRegionCode ?? ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                carbonRegionMutation.mutate(val === '' ? null : val);
-              }}
-              disabled={!canWrite || carbonRegionMutation.isPending}
-              className="max-w-sm"
-            >
-              <option value="">{t('sites.noCarbonRegion')}</option>
-              {(() => {
-                const grouped: Record<string, CarbonFactor[]> = {};
-                for (const f of carbonFactors ?? []) {
-                  const list = grouped[f.countryCode] ?? [];
-                  list.push(f);
-                  grouped[f.countryCode] = list;
-                }
-                return Object.entries(grouped).map(([groupCountry, factors]) => (
-                  <optgroup key={groupCountry} label={groupCountry}>
-                    {factors.map((f) => (
-                      <option key={f.regionCode} value={f.regionCode}>
-                        {f.regionName} ({Math.round(Number(f.carbonIntensityKgPerKwh) * 1000)} g
-                        CO₂/kWh)
-                      </option>
-                    ))}
-                  </optgroup>
-                ));
-              })()}
-            </Select>
-            {site.carbonRegionCode != null &&
-              (() => {
-                const factor = carbonFactors?.find((f) => f.regionCode === site.carbonRegionCode);
-                return factor != null ? (
-                  <span className="text-sm text-muted-foreground">
-                    {t('sites.carbonIntensity')}:{' '}
-                    {Math.round(Number(factor.carbonIntensityKgPerKwh) * 1000)} g CO₂/kWh
-                  </span>
-                ) : null;
-              })()}
-          </div>
-          {carbonRegionMutation.isError && (
-            <p className="text-sm text-destructive">
-              {getErrorMessage(carbonRegionMutation.error, t)}
-            </p>
-          )}
         </TabPanel>
       )}
       {!editing && (
@@ -676,33 +588,6 @@ export function SiteDetailsTab({
           {stationMessageLanguageMutation.isError && (
             <p className="mt-2 text-sm text-destructive">
               {getErrorMessage(stationMessageLanguageMutation.error, t)}
-            </p>
-          )}
-        </TabPanel>
-      )}
-      {!editing && (
-        <TabPanel
-          title={t('sites.autocharge')}
-          description={t('sites.autochargeDescription')}
-          bodyClassName="space-y-2"
-        >
-          <Select
-            aria-label={t('sites.autocharge')}
-            value={site.autochargeEnabled == null ? '' : site.autochargeEnabled ? 'on' : 'off'}
-            onChange={(e) => {
-              const val = e.target.value;
-              autochargeMutation.mutate(val === '' ? null : val === 'on');
-            }}
-            disabled={autochargeMutation.isPending}
-            className="max-w-sm"
-          >
-            <option value="">{t('sites.autochargeDefault')}</option>
-            <option value="on">{t('vehicles.autochargeOn')}</option>
-            <option value="off">{t('vehicles.autochargeOff')}</option>
-          </Select>
-          {autochargeMutation.isError && (
-            <p className="text-sm text-destructive">
-              {getErrorMessage(autochargeMutation.error, t)}
             </p>
           )}
         </TabPanel>

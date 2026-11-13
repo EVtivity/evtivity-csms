@@ -22,6 +22,7 @@ import {
   type FactorProof,
   type ProofRejection,
 } from '@/components/FactorProofField';
+import { SavedMessage } from '@/components/saved-message';
 import { useMfaStatus } from '@/components/profile/mfa-status';
 
 interface Props {
@@ -460,7 +461,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
 
           <SaveButton isPending={mutation.isPending} />
 
-          {mutation.isSuccess && <p className="text-sm text-success">{t('settings.ssoSaved')}</p>}
+          {mutation.isSuccess && <SavedMessage>{t('settings.ssoSaved')}</SavedMessage>}
           {mutation.isError && (
             <p className="text-sm text-destructive" role="alert">
               {saveError !== '' ? saveError : t('settings.ssoSaveFailed')}

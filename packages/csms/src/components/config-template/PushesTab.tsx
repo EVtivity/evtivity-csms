@@ -128,7 +128,7 @@ export function ConfigTemplatePushesTab({ templateId }: Props): React.JSX.Elemen
                   <TableCell>{push.acceptedCount}</TableCell>
                   <TableCell>
                     {push.rejectedCount > 0 ? (
-                      <span className="text-warning">{push.rejectedCount}</span>
+                      <span className="text-warning-text">{push.rejectedCount}</span>
                     ) : (
                       0
                     )}

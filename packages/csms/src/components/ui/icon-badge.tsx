@@ -7,13 +7,14 @@ import { cn } from '@/lib/utils';
 export type IconBadgeTone = 'info' | 'warning' | 'destructive' | 'success' | 'muted';
 
 /**
- * Solid tone fills with dark ink (`--on-tone`): the icon is at least 4.2:1 on
- * every fill in both themes. `muted` is the inverse of the card (muted
+ * Solid tone fills with dark ink (`--on-tone`): the icon is at least 4:1 on
+ * info, destructive and success in every theme. Warning uses the ink of its own
+ * fill (`--warning-foreground`, at least 9:1 on the bright amber). `muted` is the inverse of the card (muted
  * foreground fill, card-colored icon, 4.7:1 light, 6.8:1 dark).
  */
 const TONES: Record<IconBadgeTone, string> = {
   info: 'bg-info text-on-tone',
-  warning: 'bg-warning text-on-tone',
+  warning: 'bg-warning text-warning-foreground',
   destructive: 'bg-destructive text-on-tone',
   success: 'bg-success text-on-tone',
   muted: 'bg-muted-foreground text-card',

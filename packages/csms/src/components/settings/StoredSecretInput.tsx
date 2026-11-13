@@ -57,7 +57,7 @@ export function StoredSecretInput({
         <p className="text-xs text-muted-foreground">{hint}</p>
       ) : removing ? (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-warning">{t('settings.secretRemovePending')}</p>
+          <p className="text-xs text-warning-text">{t('settings.secretRemovePending')}</p>
           <Button
             type="button"
             variant="link"

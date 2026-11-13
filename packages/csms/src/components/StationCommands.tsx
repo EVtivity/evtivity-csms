@@ -47,6 +47,7 @@ import {
   type FirmwareSignatureValue,
 } from '@/components/FirmwareSignatureFields';
 import { DateTimeInput } from '@/components/ui/date-time-input';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { Textarea } from '@/components/ui/textarea';
 
 const RESET_TYPES = ['Immediate', 'OnIdle'] as const;
@@ -1436,9 +1437,11 @@ export function StationCommands({
                 handleAdvancedSubmit();
               }}
               disabled={advancedMutation.isPending}
+              className="relative"
             >
-              {advancedMutation.isPending && <Spinner className="h-4 w-4" />}
-              {t('common.send')}
+              <ButtonPendingLabel pending={advancedMutation.isPending}>
+                {t('common.send')}
+              </ButtonPendingLabel>
             </Button>
           </>
         )}
@@ -1497,9 +1500,14 @@ export function StationCommands({
             {/* Once the station answered, or the command was queued or failed, only
                 Close: a Send here would send the command again. */}
             {result == null && (
-              <Button onClick={handleQuickSubmit} disabled={mutation.isPending}>
-                {mutation.isPending && <Spinner className="h-4 w-4" />}
-                {t('common.send')}
+              <Button
+                onClick={handleQuickSubmit}
+                disabled={mutation.isPending}
+                className="relative"
+              >
+                <ButtonPendingLabel pending={mutation.isPending}>
+                  {t('common.send')}
+                </ButtonPendingLabel>
               </Button>
             )}
           </DialogFooter>

@@ -25,6 +25,7 @@ import {
   vehicleBatteryErrors,
   type VehicleBattery,
 } from '@/components/VehicleBatteryFields';
+import { useCreatedToast } from '@/components/saved-message';
 import {
   VehiclePreconditioningFields,
   preconditioningInputValues,
@@ -56,6 +57,7 @@ interface Vehicle {
 
 export function VehicleCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -109,6 +111,7 @@ export function VehicleCreate(): React.JSX.Element {
     }) => api.post<Vehicle>(`/v1/drivers/${id ?? ''}/vehicles`, body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', id ?? '', 'vehicles'] });
+      createdToast();
       void navigate(`/drivers/${id ?? ''}/vehicles/${created.id}`);
     },
   });

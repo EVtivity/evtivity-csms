@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table';
 import { ApiError, getApiErrorCode, getApiErrorFieldDetails } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { providerErrorMessage } from './payment-provider-errors';
 
 /** An EVtivity webhook endpoint at the provider, as the settings routes return it. */
@@ -299,7 +300,7 @@ export function PaymentWebhookSetup<T>({
             >
               {mutation.isPending && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <ButtonSpinner />
                 </div>
               )}
               <span className={`flex items-center gap-2 ${mutation.isPending ? 'invisible' : ''}`}>

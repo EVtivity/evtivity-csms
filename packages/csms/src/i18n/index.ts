@@ -3,9 +3,24 @@
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { initialUiLanguage } from '@evtivity/lib/languages';
 import en from './locales/en.json';
 
-const savedLanguage = localStorage.getItem('language') ?? 'en';
+// The stored user language, else the browser language, else English. Read
+// without a request, so the Unable to Connect page (shown while the API is down)
+// is in the user's language.
+function getInitialLanguage(): string {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem('language');
+  } catch (err) {
+    console.warn('Could not read the saved language, using the browser language', err);
+  }
+  const browser = navigator.languages.length > 0 ? navigator.languages : [navigator.language];
+  return initialUiLanguage(stored, browser);
+}
+
+const savedLanguage = getInitialLanguage();
 
 // The page language follows the UI language, so screen readers read the text in
 // that language (WCAG 3.1.1). index.html starts with lang="en".

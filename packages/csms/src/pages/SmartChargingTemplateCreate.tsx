@@ -24,6 +24,7 @@ import {
   midnightInTimezone,
   toDatetimeLocalInTimezone,
 } from '@/lib/schedule-anchor';
+import { useCreatedToast } from '@/components/saved-message';
 import { useHasAllSiteAccess } from '@/lib/auth';
 
 type OcppVersion = '2.1' | '1.6';
@@ -51,6 +52,7 @@ interface CreatedTemplate {
 
 export function SmartChargingTemplateCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const hasAllSiteAccess = useHasAllSiteAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -88,6 +90,7 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
       api.post<CreatedTemplate>('/v1/smart-charging/templates', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['smart-charging-templates'] });
+      createdToast();
       void navigate(`/smart-charging/${created.id}`);
     },
   });

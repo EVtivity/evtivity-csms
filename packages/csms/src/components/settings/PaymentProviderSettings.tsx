@@ -7,7 +7,7 @@ import { useLoadedValues, useSavedBaseline } from '@/hooks/use-loaded-values';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, FlaskConical } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
+import { SavedMessage } from '@/components/saved-message';
 import { percentError, preAuthAmountError, rangeError } from './payment-amount-validation';
 
 /** Why the provider-switch guard refuses a provider (catalog entry and 409 `details`). */
@@ -443,7 +444,7 @@ function PaymentProviderForm({ data }: { data: PaymentSettingsResponse }): React
           </CardHeader>
           <CardContent className="space-y-4">
             <Alert variant="info">
-              <FlaskConical className="h-4 w-4" />
+              <Info className="h-4 w-4" />
               <AlertDescription>{t('paymentProviders.simulated.testMode')}</AlertDescription>
             </Alert>
             <p className="text-sm text-muted-foreground">
@@ -520,7 +521,7 @@ function PaymentProviderForm({ data }: { data: PaymentSettingsResponse }): React
 
       {upgradeError != null && (
         <Alert variant="destructive" className="items-start">
-          <AlertTriangle className="mt-0.5 h-4 w-4" />
+          <AlertCircle className="mt-0.5 h-4 w-4" />
           <AlertDescription className="space-y-2">
             <p>{getErrorMessage(saveMutation.error, t)}</p>
             <UpgradePendingDetails providerId={attemptedProvider} details={upgradeError} />
@@ -540,7 +541,7 @@ function PaymentProviderForm({ data }: { data: PaymentSettingsResponse }): React
         </div>
       )}
       {saveMutation.isSuccess && !hasUnsavedChanges && (
-        <p className="text-sm text-success">{t('paymentProviders.general.saved')}</p>
+        <SavedMessage>{t('paymentProviders.general.saved')}</SavedMessage>
       )}
       {saveMutation.isError && upgradeError == null && (
         <p className="text-sm text-destructive">{getErrorMessage(saveMutation.error, t)}</p>
@@ -562,7 +563,7 @@ export function PaymentProviderSettings(): React.JSX.Element {
   if (query.data == null) {
     return (
       <Alert variant="destructive">
-        <AlertTriangle className="h-4 w-4" />
+        <AlertCircle className="h-4 w-4" />
         <AlertDescription className="flex flex-wrap items-center gap-2">
           <span>{t('paymentProviders.general.loadFailed')}</span>
           <Button

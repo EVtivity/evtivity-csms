@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useSavedToast } from '@/components/saved-message';
 import { LoadingLogo } from '@/components/loading-logo';
 
 // -- Types --
@@ -265,6 +266,7 @@ const STATION_PAGE_SIZE = 10;
 
 function StationDataSection(): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const [editStation, setEditStation] = useState<NeviStation | null>(null);
   const [stationPage, setStationPage] = useState(1);
@@ -306,6 +308,7 @@ function StationDataSection(): React.JSX.Element {
     mutationFn: (data: { stationId: string; body: Record<string, unknown> }) =>
       api.put(`/v1/nevi/station-data/${data.stationId}`, data.body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['nevi-station-data'] });
       setEditStation(null);
     },
@@ -627,6 +630,7 @@ function StationDataSection(): React.JSX.Element {
 
 function ExcludedDowntimeSection(): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const timezone = useUserTimezone();
   const queryClient = useQueryClient();
 
@@ -665,6 +669,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
   const createMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post('/v1/nevi/excluded-downtime', body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['excluded-downtime'] });
       setDialogOpen(false);
       setForm(EMPTY_DOWNTIME_FORM);

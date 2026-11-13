@@ -150,6 +150,7 @@ import {
   reportFileFormat,
   reportFiltersError,
   reportJobId,
+  reportRequiredPermissions,
   sweepStaleReports,
   REPORT_GENERATING_TIMEOUT_MS,
   REPORT_PENDING_RETRY_MS,
@@ -214,6 +215,14 @@ describe('reportFiltersError', () => {
 
   it('has no filter rule for an unknown report type', () => {
     expect(reportFiltersError('bogus', {})).toBeNull();
+  });
+
+  it('names the permissions a report type needs on top of reports:*', () => {
+    expect(reportRequiredPermissions('revenue')).toEqual(['payments:read']);
+    expect(reportRequiredPermissions('driverActivity')).toEqual(['drivers:read']);
+    expect(reportRequiredPermissions('nevi')).toEqual(['payments:read']);
+    expect(reportRequiredPermissions('energy')).toEqual([]);
+    expect(reportRequiredPermissions('bogus')).toEqual([]);
   });
 
   it('has no required filters for the other report types', () => {

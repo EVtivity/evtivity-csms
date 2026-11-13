@@ -283,6 +283,7 @@ describe('Dashboard routes', () => {
       [{ totalSessions: 10, totalEnergyWh: 50000 }],
       [{ activeSessions: 3 }],
       [{ faulted: 1 }],
+      [{ chargingUnits: 13, hasStationUnits: true }],
     );
     const response = await app.inject({
       method: 'GET',
@@ -298,6 +299,9 @@ describe('Dashboard routes', () => {
     expect(body).toHaveProperty('totalSessions', 100);
     expect(body).toHaveProperty('totalEnergyWh', 500000);
     expect(body).toHaveProperty('faultedStations', 1);
+    // Physical chargers: units of stations with units, 1 per station without.
+    expect(body).toHaveProperty('chargingUnits', 13);
+    expect(body).toHaveProperty('hasStationUnits', true);
     expect(body.statusCounts).toEqual({ available: 5, faulted: 1 });
     expect(body.onboardingStatusCounts).toEqual({ accepted: 6, pending: 2, blocked: 1 });
     // The faulted count reads the station list's display status.
@@ -334,6 +338,8 @@ describe('Dashboard routes', () => {
     expect(body.totalStations).toBe(0);
     expect(body.onlineStations).toBe(0);
     expect(body.onlinePercent).toBe(0);
+    expect(body.chargingUnits).toBe(0);
+    expect(body.hasStationUnits).toBe(false);
   });
 
   it('GET /v1/dashboard/stats leaves conformance stations and their sessions out', async () => {

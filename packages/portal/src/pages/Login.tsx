@@ -31,6 +31,7 @@ import { useRecaptchaToken } from '@/hooks/use-recaptcha-token';
 import { useRegistrationStatus } from '@/hooks/use-registration-enabled';
 import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { MfaChallenge } from '@/components/MfaChallenge';
+import { rememberReturnPath, safeReturnPath } from '@/lib/return-path';
 
 const DEV_AUTO_LOGIN = import.meta.env.VITE_PORTAL_AUTO_LOGIN;
 
@@ -111,16 +112,22 @@ export function Login(): React.JSX.Element {
   // Sign-up shows only once the features confirm registration is open.
   const registrationEnabled = useRegistrationStatus().state === 'open';
 
+  // A guest who signs in from a charger page returns to it (`?next=`).
+  const returnPath = safeReturnPath(searchParams.get('next'));
+
   useEffect(() => {
     if (isAuthenticated) {
-      void navigate('/');
+      void navigate(returnPath ?? '/');
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, returnPath]);
 
   // Required MFA: set up a method before the session.
   useEffect(() => {
-    if (mfaEnrollment != null) void navigate('/mfa-setup');
-  }, [mfaEnrollment, navigate]);
+    if (mfaEnrollment != null) {
+      rememberReturnPath(returnPath);
+      void navigate('/mfa-setup');
+    }
+  }, [mfaEnrollment, navigate, returnPath]);
 
   const passkeyLogin = securityPublic?.passkeyLoginEnabled === true && webauthnSupported();
   // The button's options are fetched before the click, so the prompt starts inside it.

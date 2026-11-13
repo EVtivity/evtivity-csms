@@ -47,7 +47,7 @@ interface MeterValueSeries {
 
 function uptimeColor(pct: number): string {
   if (pct >= 97) return 'text-success';
-  if (pct >= 90) return 'text-warning';
+  if (pct >= 90) return 'text-warning-text';
   return 'text-destructive';
 }
 

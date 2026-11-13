@@ -64,7 +64,10 @@ describe('PartnerRolesCard', () => {
       });
     });
     await waitFor(() => {
-      expect(toastMock).toHaveBeenCalledWith({ title: 'roaming.partners.approvedRolesSaved' });
+      expect(toastMock).toHaveBeenCalledWith({
+        variant: 'success',
+        title: 'roaming.partners.approvedRolesSaved',
+      });
     });
   });
 

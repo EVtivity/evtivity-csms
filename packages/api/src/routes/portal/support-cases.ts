@@ -26,6 +26,7 @@ import type { PaginatedResponse } from '../../lib/pagination.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import {
   addDriverMessage,
+  closeSupportCaseByDriver,
   createSupportCase,
   recordDriverAiFeedback,
   recordSupportCaseAttachmentAdded,
@@ -668,6 +669,70 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         body: body.body,
         log: request.log,
       });
+    },
+  );
+
+  // The driver closes the own case (resolved). A later reply reopens it.
+  app.post(
+    '/portal/support-cases/:id/close',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Support'],
+        summary: 'Close the own support case',
+        operationId: 'portalCloseSupportCase',
+        description:
+          "Sets the case to resolved, closed by the driver, with a system message and an audit row, and tells the assigned operator. A case already resolved or closed is answered unchanged. A later driver message reopens the case. Another driver's case answers 404 like an unknown one.",
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(caseIdParams),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                id: z.string().describe('Support case ID'),
+                status: z
+                  .enum(supportCaseStatusEnum.enumValues)
+                  .describe('Case status after the request (resolved or closed)'),
+                resolutionSource: z
+                  .enum(SUPPORT_CASE_RESOLUTION_SOURCES)
+                  .nullable()
+                  .describe('Who resolved the case: driver after this close'),
+              })
+              .loose(),
+          ),
+          404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
+        },
+      },
+      // 20 closes per driver per hour: each one notifies an operator.
+      config: {
+        rateLimit: {
+          max: 20,
+          timeWindow: '1 hour',
+          keyGenerator: (request) => {
+            const driverId = (request.user as unknown as Record<string, unknown> | undefined)?.[
+              'driverId'
+            ];
+            return typeof driverId === 'string' ? `support-case-close:${driverId}` : request.ip;
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const { id } = request.params as z.infer<typeof caseIdParams>;
+      const result = await closeSupportCaseByDriver({ caseId: id, driverId, log: request.log });
+      if (result.outcome === 'not_found') {
+        await reply
+          .status(404)
+          .send({ error: 'Support case not found', code: 'SUPPORT_CASE_NOT_FOUND' });
+        return;
+      }
+      const row = result.supportCase;
+      return {
+        id: row.id,
+        status: row.status,
+        resolutionSource: oneOf(SUPPORT_CASE_RESOLUTION_SOURCES, row.resolutionSource),
+      };
     },
   );
 

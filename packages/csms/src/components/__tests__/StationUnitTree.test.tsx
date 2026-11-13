@@ -129,33 +129,56 @@ describe('EVSE & Connectors tab with station units', () => {
     expect(within(loose).getByText('charts.evse:{"id":15}')).toBeDefined();
   });
 
-  it('puts Add Unit before Create EVSE with the units hint, and no Unit picker on the EVSE cards', () => {
+  it('puts Create Unit before Create EVSE, no units text in the header, and no Unit picker on the EVSE cards', () => {
     renderTab({ withUnits: false });
     const buttons = screen
       .getAllByRole('button')
       .map((b) => b.textContent)
-      .filter((label) => label === 'stationUnits.addUnit' || label === 'stations.addEvse');
-    expect(buttons).toEqual(['stationUnits.addUnit', 'stations.addEvse']);
-    expect(screen.getByText('stationUnits.empty')).toBeDefined();
+      .filter((label) => label === 'stationUnits.createUnit' || label === 'stations.addEvse');
+    expect(buttons).toEqual(['stationUnits.createUnit', 'stations.addEvse']);
+    expect(screen.queryByText('stationUnits.description')).toBeNull();
     expect(screen.getByText('stations.evseConnectorsTab')).toBeDefined();
     expect(screen.queryByRole('combobox')).toBeNull();
     cleanup();
     renderTab({ withUnits: true, units: UNITS });
-    expect(screen.getByText('stationUnits.description')).toBeDefined();
-    expect(screen.queryByText('stationUnits.empty')).toBeNull();
+    expect(screen.queryByText('stationUnits.description')).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   it('adds a unit from the tab header', async () => {
     postMock.mockResolvedValue({ id: 'unt_new' });
     renderTab({ withUnits: false });
-    fireEvent.click(screen.getByRole('button', { name: 'stationUnits.addUnit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stationUnits.createUnit' }));
+    expect(screen.getByText('stationUnits.createUnitDescription')).toBeDefined();
     fireEvent.change(screen.getByLabelText('stationUnits.unitName'), {
       target: { value: 'Box 1' },
     });
     fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }));
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith('/v1/stations/sta_1/units', { name: 'Box 1' });
+    });
+  });
+
+  it('sends the optional serial number and IP address with a new unit', async () => {
+    postMock.mockResolvedValue({ id: 'unt_new' });
+    renderTab({ withUnits: false });
+    fireEvent.click(screen.getByRole('button', { name: 'stationUnits.createUnit' }));
+    fireEvent.change(screen.getByLabelText('stationUnits.unitName'), {
+      target: { value: 'Box 1' },
+    });
+    fireEvent.change(screen.getByLabelText('stationUnits.serialNumber'), {
+      target: { value: ' EM4-0001 ' },
+    });
+    fireEvent.change(screen.getByLabelText('stationUnits.ipAddress'), {
+      target: { value: '192.168.1.21' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }));
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith('/v1/stations/sta_1/units', {
+        name: 'Box 1',
+        serialNumber: 'EM4-0001',
+        ipAddress: '192.168.1.21',
+      });
     });
   });
 
@@ -189,19 +212,63 @@ describe('EVSE & Connectors tab with station units', () => {
     expect((enabled as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('renames and deletes a unit from its card, the delete after the confirmation', async () => {
+  it('shows the serial number and IP address in the unit header when set', () => {
+    const units = UNITS.map((u, i) =>
+      i === 0 ? { ...u, serialNumber: 'EM4-0001', ipAddress: '192.168.1.21' } : u,
+    );
+    renderTab({ withUnits: true, units });
+    const box1 = screen.getByTestId('station-unit-unt_box1');
+    expect(within(box1).getByText(/stationUnits\.serialNumberValue.*EM4-0001/)).toBeTruthy();
+    expect(within(box1).getByText(/stationUnits\.ipAddressValue.*192\.168\.1\.21/)).toBeTruthy();
+    const box2 = screen.getByTestId('station-unit-unt_box2');
+    expect(within(box2).queryByText(/stationUnits\.serialNumberValue/)).toBeNull();
+    expect(within(box2).queryByText(/stationUnits\.ipAddressValue/)).toBeNull();
+  });
+
+  it('clears the serial number and IP address with empty fields on an edit', async () => {
+    patchMock.mockResolvedValue({});
+    const units = UNITS.map((u, i) =>
+      i === 0 ? { ...u, serialNumber: 'EM4-0001', ipAddress: '192.168.1.21' } : u,
+    );
+    renderTab({ withUnits: true, units });
+    const box1 = screen.getByTestId('station-unit-unt_box1');
+    fireEvent.click(within(box1).getByRole('button', { name: 'stationUnits.editUnit' }));
+    expect(screen.getByLabelText<HTMLInputElement>('stationUnits.serialNumber').value).toBe(
+      'EM4-0001',
+    );
+    fireEvent.change(screen.getByLabelText('stationUnits.serialNumber'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('stationUnits.ipAddress'), { target: { value: ' ' } });
+    fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }));
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith('/v1/stations/sta_1/units/unt_box1', {
+        name: 'Box 1',
+        serialNumber: '',
+        ipAddress: '',
+      });
+    });
+  });
+
+  it('edits and deletes a unit from its card, the delete after the confirmation', async () => {
     patchMock.mockResolvedValue({});
     deleteMock.mockResolvedValue({ success: true });
     renderTab({ withUnits: true, units: UNITS });
     const box1 = screen.getByTestId('station-unit-unt_box1');
-    fireEvent.click(within(box1).getByRole('button', { name: 'stationUnits.renameUnit' }));
+    fireEvent.click(within(box1).getByRole('button', { name: 'stationUnits.editUnit' }));
     fireEvent.change(screen.getByLabelText('stationUnits.unitName'), {
       target: { value: 'Master' },
+    });
+    fireEvent.change(screen.getByLabelText('stationUnits.serialNumber'), {
+      target: { value: 'EM4-0001' },
+    });
+    fireEvent.change(screen.getByLabelText('stationUnits.ipAddress'), {
+      target: { value: '192.168.1.21' },
     });
     fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }));
     await waitFor(() => {
       expect(patchMock).toHaveBeenCalledWith('/v1/stations/sta_1/units/unt_box1', {
         name: 'Master',
+        serialNumber: 'EM4-0001',
+        ipAddress: '192.168.1.21',
       });
     });
     fireEvent.click(within(box1).getByRole('button', { name: 'stationUnits.deleteUnit' }));
@@ -266,15 +333,15 @@ describe('EVSE & Connectors tab with station units', () => {
     expect((open as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('hides the unit actions and Add Unit without stations:write', () => {
+  it('hides the unit actions and Create Unit without stations:write', () => {
     canWrite.value = false;
     renderTab({ withUnits: true, units: UNITS });
     const box1 = screen.getByTestId('station-unit-unt_box1');
     expect(within(box1).queryByRole('button', { name: 'stationUnits.assignEvse' })).toBeNull();
-    expect(within(box1).queryByRole('button', { name: 'stationUnits.renameUnit' })).toBeNull();
+    expect(within(box1).queryByRole('button', { name: 'stationUnits.editUnit' })).toBeNull();
     expect(within(box1).queryByRole('button', { name: 'stationUnits.deleteUnit' })).toBeNull();
     expect(within(box1).queryByRole('button', { name: 'stationUnits.removeEvse' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'stationUnits.addUnit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'stationUnits.createUnit' })).toBeNull();
     expect(within(box1).queryByRole('combobox')).toBeNull();
     // The heading only: the EVSE cards name no unit.
     expect(within(box1).getAllByText('Box 1')).toHaveLength(1);

@@ -85,6 +85,7 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: {},
   evses: {},
   connectors: {},
+  stationUnits: {},
   guestSessions: {},
   chargingSessions: {},
   meterValues: {},
@@ -388,6 +389,33 @@ describe('Portal guest routes - handler logic', () => {
       // Adyen Web needs the shopper country to start.
       expect(body.countryCode).toBe('NL');
       expect(mockHoldTerms).toHaveBeenCalledWith(CTX, null, 'CS-001');
+    });
+
+    it('names the unit and the connector type of the EVSE', async () => {
+      setupDbResults(
+        [{ id: 'sta_000000000001', siteId: null, freeVendEnabled: false }],
+        [{ id: 'evs_000000000001', unitName: 'Box 3' }],
+        [{ connectorType: 'Type2' }],
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/charger-config/EM4-MASTER/6',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ unitName: 'Box 3', connectorType: 'Type2' });
+    });
+
+    it('names no unit and no connector type for an EVSE without them', async () => {
+      setupDbResults(
+        [{ id: 'sta_000000000001', siteId: null, freeVendEnabled: false }],
+        [{ id: 'evs_000000000001', unitName: null }],
+        [],
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/charger-config/CS-001/1',
+      });
+      expect(response.json()).toMatchObject({ unitName: null, connectorType: null });
     });
 
     it('returns tariff pricing in the company currency', async () => {
@@ -1287,6 +1315,20 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.json().code).toBe('SESSION_NOT_FOUND');
     });
 
+    it('names the unit (charger box) of the EVSE', async () => {
+      setupDbResults(
+        [{ status: 'charging', stationOcppId: 'EM4-MASTER', evseId: 6, chargingSessionId: null }],
+        [{ isSimulator: false }],
+        [{ unitName: 'Box 3' }],
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/status/abc123def456abc12345',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().unitName).toBe('Box 3');
+    });
+
     it('returns guest session status without charging session', async () => {
       setupDbResults([
         {
@@ -1319,6 +1361,8 @@ describe('Portal guest routes - handler logic', () => {
         ],
         // parent chargingStations.isSimulator lookup
         [{ isSimulator: false }],
+        // the unit (charger box) of the EVSE: none
+        [],
         [
           {
             energyDeliveredWh: 5000,
@@ -1357,6 +1401,8 @@ describe('Portal guest routes - handler logic', () => {
           },
         ],
         [{ isSimulator: false }],
+        // the unit (charger box) of the EVSE: none
+        [],
         [
           {
             status: 'faulted',
@@ -1392,6 +1438,8 @@ describe('Portal guest routes - handler logic', () => {
           },
         ],
         [{ isSimulator: false }],
+        // the unit (charger box) of the EVSE: none
+        [],
         [
           {
             status: 'completed',

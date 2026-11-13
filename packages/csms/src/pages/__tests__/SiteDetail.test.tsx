@@ -180,6 +180,37 @@ describe('Site detail AI tab (plan v0.1.45, section 6)', () => {
   });
 });
 
+describe('Site detail Autocharge, Data Plan and Carbon Region tabs', () => {
+  it('places the three tabs right after Free Vend, in this order', async () => {
+    renderSite(['sites:read'], false);
+    await screen.findByRole('tab', { name: 'common.details' });
+    const names = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    const freeVend = names.indexOf('sites.freeVend');
+    expect(names.slice(freeVend, freeVend + 4)).toEqual([
+      'sites.freeVend',
+      'sites.autocharge',
+      'dataPlan.title',
+      'sites.carbonRegion',
+    ]);
+  });
+
+  it.each([
+    ['?tab=autocharge', 'sites.autocharge'],
+    ['?tab=data-plan', 'dataPlan.title'],
+    ['?tab=carbon-region', 'sites.carbonRegion'],
+  ])('%s opens its tab', async (search, name) => {
+    renderSite(['sites:read'], false, search);
+    const tab = await screen.findByRole('tab', { name });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('keeps the three settings out of the Details tab source', () => {
+    expect(detailsTabSource).not.toContain('autochargeEnabled');
+    expect(detailsTabSource).not.toContain('SiteDataPlanCard');
+    expect(detailsTabSource).not.toContain('carbon-region');
+  });
+});
+
 describe('Site detail stations tab sort', () => {
   it('requests the site stations sorted by the clicked column', async () => {
     renderSite(['sites:read', 'stations:read'], true, '?tab=stations');

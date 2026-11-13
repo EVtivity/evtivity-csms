@@ -222,3 +222,76 @@ export async function extraUnitChargerCount(siteId: string): Promise<number> {
   }
   return extra;
 }
+
+/** A charger of the location page: the EVSE rows it groups. */
+export interface LocationCharger {
+  /** OCPP station identity. */
+  stationId: string;
+  /**
+   * The unit, or null for a station without units (the whole station) and for
+   * the EVSEs without a unit of a station with units; both are named by the station.
+   */
+  unitId: string | null;
+  unitName: string | null;
+  evseIds: number[];
+  evseCount: number;
+  /** EVSEs of the charger with a row a driver can start on now. */
+  availableCount: number;
+}
+
+interface LocationChargerRow {
+  stationUuid: string;
+  stationId: string;
+  evseId: number;
+  available: boolean;
+}
+
+/**
+ * The chargers of a location page, in the order of the page rows: a station
+ * without units is one charger; a station with units gives each unit, then its
+ * EVSEs without a unit (driverChargers). Only EVSEs the page lists count (an
+ * EVSE without a connector has no row), so a charger with none of them is left
+ * out, and the availability follows the rows' own rule.
+ */
+export async function locationChargers(
+  rows: readonly LocationChargerRow[],
+): Promise<LocationCharger[]> {
+  const stationOrder: string[] = [];
+  const byStation = new Map<string, LocationChargerRow[]>();
+  for (const row of rows) {
+    const list = byStation.get(row.stationUuid);
+    if (list == null) {
+      stationOrder.push(row.stationUuid);
+      byStation.set(row.stationUuid, [row]);
+    } else {
+      list.push(row);
+    }
+  }
+  const unitData = await loadStationDriverUnits(stationOrder);
+  const out: LocationCharger[] = [];
+  for (const uuid of stationOrder) {
+    const stationRows = byStation.get(uuid) ?? [];
+    const stationId = stationRows[0]?.stationId ?? '';
+    const listedIds: number[] = [];
+    for (const r of stationRows) if (!listedIds.includes(r.evseId)) listedIds.push(r.evseId);
+    const startable = new Set(stationRows.filter((r) => r.available).map((r) => r.evseId));
+    const data = unitData.get(uuid);
+    const chargers = data == null ? null : driverChargers(data.evses, data.units);
+    const groups = chargers ?? [
+      { unitId: null, unitName: null, evseIds: listedIds.sort((a, b) => a - b) },
+    ];
+    for (const c of groups) {
+      const evseIds = c.evseIds.filter((id) => listedIds.includes(id));
+      if (evseIds.length === 0) continue;
+      out.push({
+        stationId,
+        unitId: c.unitId,
+        unitName: c.unitName,
+        evseIds,
+        evseCount: evseIds.length,
+        availableCount: evseIds.filter((id) => startable.has(id)).length,
+      });
+    }
+  }
+  return out;
+}

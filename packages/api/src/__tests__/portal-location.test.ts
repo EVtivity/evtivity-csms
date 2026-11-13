@@ -306,6 +306,7 @@ describe('Portal location routes', () => {
         contactIsPublic: false,
       };
       const charger = {
+        stationUuid: 'sta_0250',
         stationId: 'CS-0250',
         stationName: 'CS-0250',
         evseId: 1,
@@ -327,6 +328,18 @@ describe('Portal location routes', () => {
       const body = JSON.parse(response.body);
       expect(body.availableCount).toBe(0);
       expect(body.chargers[0].available).toBe(false);
+      // A station without units is one charger; the station row id stays internal.
+      expect(body.chargers[0].stationUuid).toBeUndefined();
+      expect(body.driverChargers).toEqual([
+        {
+          stationId: 'CS-0250',
+          unitId: null,
+          unitName: null,
+          evseIds: [1],
+          evseCount: 1,
+          availableCount: 0,
+        },
+      ]);
       expect(mockEvseAvailableSql).toHaveBeenCalledWith('evses', 'charging_stations');
       expect(mockSqlRaw).toHaveBeenCalledWith('EVSE_AVAILABLE(evses,charging_stations)');
       expect(mockEvseOpenToDriversSql).toHaveBeenCalledWith('evses', 'charging_stations');

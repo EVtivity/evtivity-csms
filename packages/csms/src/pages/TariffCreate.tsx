@@ -26,6 +26,7 @@ import {
   type RestrictionType,
   type TariffRestrictions,
 } from '@/lib/tariff-restrictions';
+import { useCreatedToast } from '@/components/saved-message';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 
 interface Tariff {
@@ -49,6 +50,7 @@ export function TariffCreate(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const canWrite = useHasCompanyWidePermission('pricing:write');
   // Price labels say whether prices are entered excluding or including tax.
   const taxBasis = useCompanyTaxBasis() ?? DEFAULT_TAX_BASIS;
@@ -95,6 +97,7 @@ export function TariffCreate(): React.JSX.Element {
     }) => api.post<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pricing-groups', id ?? ''] });
+      createdToast();
       void navigate(`/pricing/${id ?? ''}?tab=tariffs`);
     },
   });

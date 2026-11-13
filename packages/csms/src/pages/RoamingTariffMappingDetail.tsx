@@ -28,6 +28,7 @@ import type {
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { LoadingLogo } from '@/components/loading-logo';
+import { useSavedToast } from '@/components/saved-message';
 import { useHasPermission } from '@/lib/auth';
 
 interface TariffMapping {
@@ -48,6 +49,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const canWrite = useHasPermission('roaming:write');
 
   const [editing, setEditing] = useState(false);
@@ -65,6 +67,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
     mutationFn: (body: TariffMappingBody) =>
       api.patch<TariffMapping>(`/v1/ocpi/tariff-mappings/${id ?? ''}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
       setEditing(false);
       setHasSubmitted(false);

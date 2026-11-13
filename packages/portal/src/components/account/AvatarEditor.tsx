@@ -16,6 +16,8 @@ import { api } from '@/lib/api';
 import { usePortalFeatures, PORTAL_FEATURES_QUERY_KEY } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import { cn } from '@/lib/utils';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { AVATAR_QUERY_KEY, uploadAvatarImage, type DriverAvatar as Avatar } from '@/lib/avatar';
 
 type AvatarLib = typeof import('@evtivity/lib/account-avatar');
@@ -285,7 +287,7 @@ export function AvatarEditor({
               storage.guard(uploadEnabled, () => fileInput.current?.click());
             }}
           >
-            {busy ? <Spinner className="mr-2 h-4 w-4" /> : <Upload className="mr-2 h-4 w-4" />}
+            {busy ? <ButtonSpinner className="mr-2" /> : <Upload className="mr-2 h-4 w-4" />}
             {t('account.avatarChooseImage')}
           </Button>
         </div>
@@ -297,12 +299,17 @@ export function AvatarEditor({
         </p>
       )}
 
-      <div className="flex flex-wrap justify-end gap-2">
+      {/*
+        The dialog footer: stacked full width on phones with Save on top (the
+        CSMS DialogFooter order); from sm one row, Remove set apart on the left
+        and Random, Cancel, Save on the right.
+      */}
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         {current != null && (
           <Button
             type="button"
             variant="outline"
-            className="mr-auto text-destructive"
+            className="text-destructive sm:mr-auto"
             disabled={busy}
             onClick={() => {
               if (live) setRemoveOpen(true);
@@ -312,7 +319,13 @@ export function AvatarEditor({
             {t('account.avatarRemove')}
           </Button>
         )}
-        <Button type="button" variant="outline" disabled={busy} onClick={onDone}>
+        <Button
+          type="button"
+          variant="outline"
+          className="sm:order-2"
+          disabled={busy}
+          onClick={onDone}
+        >
           {t('common.cancel')}
         </Button>
         {tab === 'create' && lib != null && draft != null && (
@@ -320,6 +333,7 @@ export function AvatarEditor({
             <Button
               type="button"
               variant="outline"
+              className="sm:order-1"
               disabled={busy}
               onClick={() => {
                 setDraft({ kind: 'generated', updatedAt: null, ...lib.randomGeneratedAvatar() });
@@ -328,9 +342,8 @@ export function AvatarEditor({
               <Shuffle className="mr-2 h-4 w-4" />
               {t('account.avatarRandom')}
             </Button>
-            <Button type="button" disabled={busy} onClick={save}>
-              {busy && <Spinner className="mr-2 h-4 w-4" />}
-              {t('common.save')}
+            <Button type="button" disabled={busy} onClick={save} className="relative sm:order-3">
+              <ButtonPendingLabel pending={busy}>{t('common.save')}</ButtonPendingLabel>
             </Button>
           </>
         )}

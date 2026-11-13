@@ -41,7 +41,6 @@ export function AdyenCardSetup({
     <AdyenCardForm
       config={config}
       submitLabel={t('payments.saveCard')}
-      busyLabel={t('common.saving')}
       errorKey="payments.failedSave"
       onSubmitData={async (data) =>
         toStep(await submit({ ...data, currency }, shopperBrowser(data.browserInfo)))

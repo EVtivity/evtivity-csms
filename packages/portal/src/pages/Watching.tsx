@@ -83,13 +83,21 @@ export function Watching(): React.JSX.Element {
           >
             <div className="space-y-1 min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold truncate">
-                  {w.unitName != null ? `${w.stationId}, ${w.unitName}` : w.stationId}
+                <span className="text-sm font-semibold truncate" data-testid="charger-row-title">
+                  {w.unitName ?? w.stationId}
                 </span>
                 <div
                   className={`h-2 w-2 rounded-full shrink-0 ${w.isOnline ? 'bg-success' : 'bg-destructive'}`}
                 />
               </div>
+              {w.unitName != null && (
+                <p
+                  className="text-xs text-muted-foreground truncate"
+                  data-testid="charger-row-station"
+                >
+                  {w.stationId}
+                </p>
+              )}
               {w.siteName != null && (
                 <p className="text-xs text-muted-foreground truncate">{w.siteName}</p>
               )}

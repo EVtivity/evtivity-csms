@@ -172,8 +172,8 @@ describe('EVSE plate label', () => {
         { connectorType: 'CCS1' },
       ],
     };
-    expect(evsePlateLabel(t, 'en', e, true)).toBe('EVSE 1, CCS1 and CHAdeMO');
-    expect(evsePlateLabel(t, 'de', e, true)).toBe('EVSE 1, CCS1 und CHAdeMO');
+    expect(evsePlateLabel(t, 'en', e)).toBe('EVSE 1, CCS1 and CHAdeMO');
+    expect(evsePlateLabel(t, 'de', e)).toBe('EVSE 1, CCS1 und CHAdeMO');
   });
 
   it('has the label in all six locales', () => {

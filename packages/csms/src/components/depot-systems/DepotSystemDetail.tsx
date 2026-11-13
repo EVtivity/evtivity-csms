@@ -57,6 +57,7 @@ import {
   type DepotSystemIdentifiers,
   type DepotSystemWithPassword,
 } from './depot-system-types';
+import { SavedMessage } from '@/components/saved-message';
 import { proofBody, useProofStep } from './use-proof-step';
 
 const DETAIL_TABS = ['details', 'refused', 'identifiers', 'history'] as const;
@@ -326,9 +327,7 @@ function SettingsCard({
               {dirty && (
                 <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
               )}
-              {save.isSuccess && !dirty && (
-                <p className="text-sm text-success">{t('common.saved')}</p>
-              )}
+              {save.isSuccess && !dirty && <SavedMessage />}
               <SaveButton isPending={save.isPending} disabled={!dirty || save.isPending} />
             </div>
           )}

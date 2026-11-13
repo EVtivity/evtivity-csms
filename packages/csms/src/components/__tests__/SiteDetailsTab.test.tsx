@@ -161,7 +161,13 @@ describe('SiteDetailsTab writes', () => {
     expect(screen.queryByText('common.edit')).toBeNull();
     expect(screen.queryByText('common.delete')).toBeNull();
     expect(languageSelect().disabled).toBe(true);
-    expect(screen.getByLabelText('sites.carbonRegion')).toHaveProperty('disabled', true);
+  });
+
+  it('leaves Autocharge, Data Plan and Carbon Region to their own tabs', () => {
+    renderTab();
+    expect(screen.queryByLabelText('sites.autocharge')).toBeNull();
+    expect(screen.queryByText('dataPlan.title')).toBeNull();
+    expect(screen.queryByLabelText('sites.carbonRegion')).toBeNull();
   });
 
   it('sends null for a field the operator emptied', async () => {

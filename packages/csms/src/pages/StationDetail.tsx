@@ -12,7 +12,8 @@ import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { AlertCircle, AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { ConnectorStatus } from '@/components/charts/ConnectorStatus';
@@ -338,52 +339,55 @@ export function StationDetail(): React.JSX.Element {
       )}
 
       {station.onboardingStatus === 'pending' && (
-        <Card className="border-warning">
-          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm">{t('stations.pendingApproval')}</p>
-            {canWriteStations && (
-              <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0 sm:shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setRejectConfirmOpen(true);
-                  }}
-                  disabled={rejectMutation.isPending}
-                >
-                  {t('stations.reject')}
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    approveMutation.mutate();
-                  }}
-                  disabled={approveMutation.isPending}
-                >
-                  {t('stations.approve')}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-      {station.onboardingStatus === 'blocked' && (
-        <Card className="border-destructive">
-          <CardContent className="flex items-center justify-between p-4">
-            <p className="text-sm">{t('stations.blockedInfo')}</p>
-            {canWriteStations && (
+        <Alert variant="warning" className="flex-col items-stretch sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <AlertDescription>{t('stations.pendingApproval')}</AlertDescription>
+          </div>
+          {canWriteStations && (
+            <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0 sm:shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRejectConfirmOpen(true);
+                }}
+                disabled={rejectMutation.isPending}
+              >
+                {t('stations.reject')}
+              </Button>
               <Button
                 size="sm"
                 onClick={() => {
-                  unblockMutation.mutate();
+                  approveMutation.mutate();
                 }}
-                disabled={unblockMutation.isPending}
+                disabled={approveMutation.isPending}
               >
-                {t('stations.unblock')}
+                {t('stations.approve')}
               </Button>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          )}
+        </Alert>
+      )}
+      {station.onboardingStatus === 'blocked' && (
+        <Alert variant="destructive" className="justify-between">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <AlertDescription>{t('stations.blockedInfo')}</AlertDescription>
+          </div>
+          {canWriteStations && (
+            <Button
+              size="sm"
+              className="shrink-0"
+              onClick={() => {
+                unblockMutation.mutate();
+              }}
+              disabled={unblockMutation.isPending}
+            >
+              {t('stations.unblock')}
+            </Button>
+          )}
+        </Alert>
       )}
 
       {showInsightsTab && (

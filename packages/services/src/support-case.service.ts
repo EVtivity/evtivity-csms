@@ -705,8 +705,94 @@ function isOpenAiState(state: string | null): state is DriverAiOpenState {
   return state != null && (DRIVER_AI_OPEN_STATES as readonly string[]).includes(state);
 }
 
+/** The system message of a driver's own close and of a reopen by a reply. */
+export const DRIVER_CLOSED_MESSAGE = 'Closed by the driver';
+export const DRIVER_REOPENED_MESSAGE = 'Reopened by the driver';
+
+/** Outcome of a driver's close: `not_found` covers another driver's case too. */
+export type DriverCloseOutcome =
+  | { outcome: 'closed'; supportCase: SupportCaseRow }
+  | { outcome: 'unchanged'; supportCase: SupportCaseRow }
+  | { outcome: 'not_found' };
+
 /**
- * A driver reply. Audited with the driver as actor. A reply on a case the AI
+ * The driver closes the own case (owner decision 2026-11-13): `resolved` with
+ * resolution source `driver`. In one transaction under the row lock: the
+ * status, the system message and the audit row with the driver as actor. A
+ * case the AI still handles ends its AI step as escalated, as an operator's
+ * status change does (`updateSupportCase`). A case already resolved or closed
+ * changes nothing (`unchanged`). After the commit the assigned operator, else
+ * the fallback admin, gets `supportCase.DriverClosed` (fail-open); the driver
+ * gets no `supportCase.Resolved` notice for the own close.
+ */
+export async function closeSupportCaseByDriver(input: {
+  caseId: string;
+  driverId: string;
+  log?: WarnLogger;
+}): Promise<DriverCloseOutcome> {
+  const { caseId, driverId } = input;
+  const actor: SupportCaseActor = { actor: 'driver', actorDriverId: driverId };
+  const result = await db.transaction(async (tx): Promise<DriverCloseOutcome> => {
+    const [existing] = await tx
+      .select()
+      .from(supportCases)
+      .where(and(eq(supportCases.id, caseId), eq(supportCases.driverId, driverId)))
+      .for('update');
+    if (existing == null) return { outcome: 'not_found' };
+    if (existing.status === 'resolved' || existing.status === 'closed') {
+      return { outcome: 'unchanged', supportCase: existing };
+    }
+    const now = new Date();
+    const aiStepOpen = isOpenAiState(existing.aiState);
+    const [updated] = await tx
+      .update(supportCases)
+      .set({
+        status: 'resolved',
+        resolvedAt: now,
+        resolutionSource: 'driver',
+        ...(aiStepOpen ? { aiState: 'escalated', aiStateReason: null } : {}),
+        updatedAt: now,
+      })
+      .where(eq(supportCases.id, caseId))
+      .returning();
+    if (updated == null) return { outcome: 'not_found' };
+    await tx.insert(supportCaseMessages).values({
+      caseId,
+      senderType: 'system',
+      senderId: driverId,
+      body: DRIVER_CLOSED_MESSAGE,
+      isInternal: false,
+    });
+    if (aiStepOpen) {
+      await auditInTransaction(tx, caseId, 'escalated_from_ai', actor, {
+        before: { status: existing.status, aiState: existing.aiState },
+        after: { status: 'resolved', aiState: 'escalated', reason: null },
+      });
+    }
+    await auditInTransaction(tx, caseId, 'status_changed', actor, {
+      before: { status: existing.status },
+      after: { status: 'resolved', resolutionSource: 'driver', reason: 'driver_closed' },
+    });
+    return { outcome: 'closed', supportCase: updated };
+  });
+
+  if (result.outcome === 'closed') {
+    const row = result.supportCase;
+    void dispatchOperatorNotification(
+      'driver_closed',
+      row.id,
+      row.caseNumber,
+      row.subject,
+      row.assignedTo,
+    );
+    void notifySupportCaseEvent('supportCase.updated', row.id, driverId);
+  }
+  return result;
+}
+
+/**
+ * A driver reply. Audited with the driver as actor. A reply to a resolved or
+ * closed case reopens it (`open`). A reply on a case the AI
  * still handles escalates it to operators (`driver_replied`, plan 2.2 step 6),
  * so a driver who keeps writing reaches a person; the operator notice is then
  * the new case notice, else the driver reply notice.
@@ -719,6 +805,43 @@ export async function addDriverMessage(input: {
 }): Promise<SupportCaseMessageRow | undefined> {
   const { supportCase, driverId } = input;
   const actor: SupportCaseActor = { actor: 'driver', actorDriverId: driverId };
+  // A resolved or closed case reopens when the driver writes (owner decision
+  // 2026-11-13; before, only a case the automatic answer resolved did), by
+  // compare-and-set from the status read, so an operator's later status
+  // change is never overwritten (P5). The reopen and its system message
+  // come before the reply, so the thread reads in order.
+  if (supportCase.status === 'resolved' || supportCase.status === 'closed') {
+    const reopened = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(supportCases)
+        .set({
+          status: 'open',
+          resolvedAt: null,
+          closedAt: null,
+          resolutionSource: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(eq(supportCases.id, supportCase.id), eq(supportCases.status, supportCase.status)),
+        )
+        .returning({ id: supportCases.id });
+      if (row == null) return false;
+      await tx.insert(supportCaseMessages).values({
+        caseId: supportCase.id,
+        senderType: 'system',
+        senderId: driverId,
+        body: DRIVER_REOPENED_MESSAGE,
+        isInternal: false,
+      });
+      await auditInTransaction(tx, supportCase.id, 'status_changed', actor, {
+        before: { status: supportCase.status, resolutionSource: supportCase.resolutionSource },
+        after: { status: 'open', resolutionSource: null, reason: 'driver_replied' },
+      });
+      return true;
+    });
+    if (reopened) void notifySupportCaseEvent('supportCase.updated', supportCase.id, driverId);
+  }
+
   const [message] = await db
     .insert(supportCaseMessages)
     .values({
@@ -738,36 +861,6 @@ export async function addDriverMessage(input: {
     db,
     input.log,
   );
-
-  // A case the automatic answer resolved reopens when the driver writes
-  // ("You can reopen it by writing to us", plan 2.11), by compare-and-set so
-  // an operator's later status change is never overwritten (P5).
-  if (supportCase.status === 'resolved' && supportCase.resolutionSource === 'ai') {
-    const reopened = await db
-      .update(supportCases)
-      .set({ status: 'open', resolvedAt: null, resolutionSource: null, updatedAt: new Date() })
-      .where(
-        and(
-          eq(supportCases.id, supportCase.id),
-          eq(supportCases.status, 'resolved'),
-          eq(supportCases.resolutionSource, 'ai'),
-        ),
-      )
-      .returning({ id: supportCases.id });
-    if (reopened.length > 0) {
-      await audit(
-        supportCase.id,
-        'status_changed',
-        actor,
-        {
-          before: { status: 'resolved', resolutionSource: 'ai' },
-          after: { status: 'open', resolutionSource: null, reason: 'driver_replied' },
-        },
-        db,
-        input.log,
-      );
-    }
-  }
 
   let escalated = false;
   if (isOpenAiState(supportCase.aiState)) {

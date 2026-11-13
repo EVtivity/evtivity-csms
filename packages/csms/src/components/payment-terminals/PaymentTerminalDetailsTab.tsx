@@ -29,6 +29,7 @@ import { formatDateTime } from '@/lib/timezone';
 import { PairingFields, type PairingValue } from './PairingFields';
 import { TerminalOnlineStatus } from './PaymentTerminalsTable';
 import { TerminalTestPaymentPanel } from './TerminalTestPaymentPanel';
+import { SavedMessage } from '@/components/saved-message';
 import {
   PAYMENT_TERMINALS_KEY,
   terminalName,
@@ -519,7 +520,7 @@ function TerminalEditPanel({ terminal }: { terminal: PaymentTerminal }): React.J
           <p className="text-sm text-destructive">{getErrorMessage(save.error, t)}</p>
         )}
         <div className="flex flex-wrap items-center justify-end gap-4">
-          {save.isSuccess && !dirty && <p className="text-sm text-success">{t('common.saved')}</p>}
+          {save.isSuccess && !dirty && <SavedMessage />}
           {dirty && <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>}
           <SaveButton isPending={save.isPending} disabled={save.isPending || !dirty} />
         </div>

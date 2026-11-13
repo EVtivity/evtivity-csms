@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { SavedMessage } from '@/components/saved-message';
 import { api } from '@/lib/api';
 
 interface MarketingSettingsProps {
@@ -99,9 +100,7 @@ export function MarketingSettings({ settings }: MarketingSettingsProps): React.J
             });
           }}
         />
-        {marketingMutation.isSuccess && (
-          <p className="text-sm text-success">{t('settings.marketingSaved')}</p>
-        )}
+        {marketingMutation.isSuccess && <SavedMessage>{t('settings.marketingSaved')}</SavedMessage>}
         {marketingMutation.isError && (
           <p className="text-sm text-destructive">{t('settings.marketingSaveFailed')}</p>
         )}

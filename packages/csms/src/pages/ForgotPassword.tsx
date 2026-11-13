@@ -62,7 +62,7 @@ export function ForgotPassword(): React.JSX.Element {
       <CardHeader className="text-center">
         <h2 className="text-2xl font-semibold">{t('auth.forgotPasswordTitle')}</h2>
         <p className="text-sm text-muted-foreground">{t('auth.forgotPasswordSubtitle')}</p>
-        {redirectMessage != null && <p className="text-sm text-warning">{redirectMessage}</p>}
+        {redirectMessage != null && <p className="text-sm text-warning-text">{redirectMessage}</p>}
         {sent && <p className="text-sm text-success">{t('auth.resetLinkSent')}</p>}
         {error != null && <p className="text-sm text-destructive">{error}</p>}
       </CardHeader>

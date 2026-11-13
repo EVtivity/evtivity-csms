@@ -16,6 +16,7 @@ import {
 import '@adyen/adyen-web/styles/adyen.css';
 import './adyen-theme.css';
 import { Button } from '@/components/ui/button';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { Spinner } from '@/components/ui/spinner';
 import { getErrorMessage } from '@/lib/error-message';
 import { actionResultCode, adyenLocale, cardFieldStyles, type AdyenCheckoutConfig } from './config';
@@ -29,7 +30,6 @@ export type AdyenStep =
 export interface AdyenCardFormProps {
   config: AdyenCheckoutConfig;
   submitLabel: string;
-  busyLabel: string;
   /** i18n key of the message for an unexpected error (network, API). */
   errorKey: ParseKeys;
   disabled?: boolean;
@@ -54,7 +54,6 @@ type Phase = 'loading' | 'ready' | 'busy' | 'action' | 'failed';
 export function AdyenCardForm({
   config,
   submitLabel,
-  busyLabel,
   errorKey,
   disabled = false,
   onSubmitData,
@@ -228,8 +227,8 @@ export function AdyenCardForm({
       {note}
       <div className="flex gap-2">
         {phase !== 'action' && (
-          <Button type="submit" className="flex-1" disabled={busy || disabled}>
-            {phase === 'busy' ? busyLabel : submitLabel}
+          <Button type="submit" className="relative flex-1" disabled={busy || disabled}>
+            <ButtonPendingLabel pending={phase === 'busy'}>{submitLabel}</ButtonPendingLabel>
           </Button>
         )}
         {onCancel != null && (

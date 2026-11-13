@@ -1932,7 +1932,7 @@ export default function SiteLayout3D({
                       className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-semibold shadow-xs"
                       style={{ left: 0, top: 0, visibility: 'hidden' }}
                     >
-                      {evsePlateLabel(t, i18n.language, e, s.chargingKind === 'dc')}
+                      {evsePlateLabel(t, i18n.language, e)}
                     </div>
                   );
                 }),

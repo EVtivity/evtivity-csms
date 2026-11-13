@@ -812,6 +812,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   portalListSessions: N,
   portalSetSessionVehicle: N,
   // Portal Support
+  portalCloseSupportCase: N,
   portalConfirmAttachment: N,
   portalCreateSupportCase: N,
   portalCreateSupportMessage: N,

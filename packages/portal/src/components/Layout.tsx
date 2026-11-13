@@ -104,7 +104,7 @@ export function Layout(): React.JSX.Element {
             }}
             className={cn(
               'relative h-10 w-10 flex items-center justify-center rounded-full bg-muted transition-colors hover:bg-muted/80',
-              hasFavorites ? 'text-warning' : 'text-muted-foreground hover:text-foreground',
+              hasFavorites ? 'text-warning-text' : 'text-muted-foreground hover:text-foreground',
             )}
             aria-label={t('favorites.title')}
           >

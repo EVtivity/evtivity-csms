@@ -107,6 +107,12 @@
     "./secret-config": {
       "import": "./src/secret-config.ts"
     },
+    "./connector-faces": {
+      "import": "./src/connector-faces.ts"
+    },
+    "./connector-type-label": {
+      "import": "./src/connector-type-label.ts"
+    },
     "./display-label": {
       "import": "./src/display-label.ts"
     },

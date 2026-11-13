@@ -25,6 +25,7 @@ vi.mock('@evtivity/database', () => {
   };
   return {
     STATION_UNIT_NAME_MAX: 50,
+    STATION_UNIT_SERIAL_MAX: 64,
     STATION_UNITS_MAX: 64,
     chargingStations: { id: 'id', siteId: 'site_id' },
     evses: { id: 'id', evseId: 'evse_id', stationId: 'station_id' },
@@ -49,6 +50,7 @@ vi.mock('../lib/station-status-events.js', () => ({
 
 import {
   assignEvseUnit,
+  checkUnitDetails,
   createUnit,
   deleteUnit,
   updateUnit,
@@ -113,6 +115,100 @@ describe('station unit service', () => {
       });
     }
     expect(m.createStationUnit).not.toHaveBeenCalled();
+  });
+
+  it('checks the serial number and stores the IP address in canonical form', () => {
+    expect(checkUnitDetails({})).toEqual({});
+    expect(checkUnitDetails({ serialNumber: ' EM4-0001 ', ipAddress: ' 192.168.1.21 ' })).toEqual({
+      serialNumber: 'EM4-0001',
+      ipAddress: '192.168.1.21',
+    });
+    expect(checkUnitDetails({ ipAddress: '2001:0DB8:0:0:0:0:0:0001' })).toEqual({
+      ipAddress: '2001:db8::1',
+    });
+    // An empty or blank value, or null, clears the field.
+    expect(checkUnitDetails({ serialNumber: '  ', ipAddress: '' })).toEqual({
+      serialNumber: null,
+      ipAddress: null,
+    });
+    expect(checkUnitDetails({ serialNumber: null, ipAddress: null })).toEqual({
+      serialNumber: null,
+      ipAddress: null,
+    });
+  });
+
+  it('refuses an invalid IP address or serial number with the field, before writing', async () => {
+    for (const ipAddress of [
+      'charger.local',
+      '192.168.1.21:8080',
+      '192.168.1.0/24',
+      '300.1.1.1',
+      'fe80::1%eth0',
+      '[2001:db8::1]',
+    ]) {
+      await expect(createUnit('sta_1', { name: 'Box 1', ipAddress }, ctx)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'ipAddress' },
+      });
+    }
+    for (const serialNumber of ['SN\n1', 'SN\u202e1', 'SN\u200b1', 'x'.repeat(65)]) {
+      await expect(updateUnit('sta_1', 'unt_1', { serialNumber }, ctx)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'serialNumber' },
+      });
+    }
+    expect(m.createStationUnit).not.toHaveBeenCalled();
+    expect(m.updateStationUnit).not.toHaveBeenCalled();
+  });
+
+  it('passes the checked details to the writer and notes a details change', async () => {
+    m.selectRows = [[], [{ siteId: 'sit_1' }]];
+    m.createStationUnit.mockResolvedValue({
+      ok: true,
+      value: UNIT,
+      changed: true,
+      before: null,
+      after: {
+        id: 'unt_1',
+        name: 'Box 1',
+        serialNumber: 'SN1',
+        ipAddress: '10.0.0.5',
+        evseIds: [],
+      },
+    });
+    await createUnit('sta_1', { name: 'Box 1', serialNumber: 'SN1', ipAddress: '10.0.0.5' }, ctx);
+    expect(m.createStationUnit).toHaveBeenCalledWith('sta_1', {
+      name: 'Box 1',
+      evseIds: [],
+      serialNumber: 'SN1',
+      ipAddress: '10.0.0.5',
+    });
+    m.updateStationUnit.mockResolvedValue({
+      ok: true,
+      value: UNIT,
+      changed: true,
+      before: {
+        id: 'unt_1',
+        name: 'Box 1',
+        serialNumber: 'SN1',
+        ipAddress: '10.0.0.5',
+        evseIds: [],
+      },
+      after: { id: 'unt_1', name: 'Box 1', serialNumber: null, ipAddress: '10.0.0.6', evseIds: [] },
+    });
+    await updateUnit('sta_1', 'unt_1', { serialNumber: '', ipAddress: '10.0.0.6' }, ctx);
+    expect(m.updateStationUnit).toHaveBeenCalledWith('sta_1', 'unt_1', {
+      serialNumber: null,
+      ipAddress: '10.0.0.6',
+    });
+    const update = m.writeAudit.mock.calls[1]?.[1] as {
+      notes: string;
+      before: { unit: { serialNumber: string | null } };
+      after: { unit: { serialNumber: string | null; ipAddress: string | null } };
+    };
+    expect(update.notes).toBe('Unit details changed');
+    expect(update.before.unit.serialNumber).toBe('SN1');
+    expect(update.after.unit).toMatchObject({ serialNumber: null, ipAddress: '10.0.0.6' });
   });
 
   it('maps the writer refusals to API errors', async () => {

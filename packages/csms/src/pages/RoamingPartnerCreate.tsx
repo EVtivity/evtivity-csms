@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { useCreatedToast } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface Partner {
@@ -30,6 +31,7 @@ interface CreateResult {
 
 export function RoamingPartnerCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -55,6 +57,7 @@ export function RoamingPartnerCreate(): React.JSX.Element {
       allowRawToken: boolean;
     }) => api.post<CreateResult>('/v1/ocpi/partners', data),
     onSuccess: (result) => {
+      createdToast();
       setCreatedToken(result.registrationToken);
       setCreatedId(result.partner.id);
       void queryClient.invalidateQueries({ queryKey: ['ocpi-partners'] });

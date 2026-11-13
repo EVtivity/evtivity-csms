@@ -10,7 +10,6 @@ import {
 import { Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CardContent, CardHeader } from '@/components/ui/card';
@@ -35,6 +34,7 @@ import {
 } from '@/lib/mfa-pending';
 import { passkeyErrorText, webauthnUnavailableReason } from '@/lib/webauthn';
 import { passkeyUnavailableKey, signInPasskeyContext } from '@/lib/passkey-unavailable';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import type { UiTheme } from '@/lib/theme';
 
 interface MfaVerifyResponse {
@@ -318,7 +318,7 @@ export function MfaChallenge(): React.JSX.Element {
             <Button type="submit" className="relative w-full" disabled={loading}>
               {loading && (
                 <span className="absolute inset-0 flex items-center justify-center">
-                  <Spinner className="h-4 w-4" />
+                  <ButtonSpinner />
                 </span>
               )}
               <span className={loading ? 'invisible' : ''}>

@@ -17,6 +17,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { formatDateTime } from '@/lib/timezone';
+import { useSavedToast } from '@/components/saved-message';
 import type { PricingGroup } from '@/lib/types';
 
 interface PricingGroupDetailsTabProps {
@@ -31,6 +32,7 @@ export function PricingGroupDetailsTab({
   onDeleted,
 }: PricingGroupDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   // Pricing writes are company-wide: the API answers 404 to a site-restricted user.
   const canWrite = useHasCompanyWidePermission('pricing:write');
@@ -45,6 +47,7 @@ export function PricingGroupDetailsTab({
     mutationFn: (body: { name?: string; description?: string | null }) =>
       api.patch<PricingGroup>(`/v1/pricing-groups/${group.id}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['pricing-groups', group.id] });
       void queryClient.invalidateQueries({ queryKey: ['pricing-groups'] });
       setEditing(false);

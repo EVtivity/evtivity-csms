@@ -36,6 +36,7 @@ import { formatConnectorPowerKw } from '@/lib/connector-rating';
 import { reservationFeeLabel } from '@/lib/reservation-fee';
 import type { ReservationCancellationFee } from '@/lib/reservation-fee';
 import { reservationStatusVariant } from '@/lib/status-variants';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
 function getStatusLabel(status: string, t: (key: string) => string): string {
   switch (status) {
@@ -118,6 +119,7 @@ export function ReservationDetailsTab({
   timezone,
 }: ReservationDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const typeLabel = useConnectorTypeLabel();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -147,7 +149,7 @@ export function ReservationDetailsTab({
     const options: Array<{ key: string; evseId: number; label: string }> = [];
     for (const evse of connectorsQuery.data) {
       for (const conn of evse.connectors) {
-        const type = conn.connectorType ?? 'Unknown';
+        const type = typeLabel(conn.connectorType);
         const power =
           conn.maxPowerKw != null ? `${formatConnectorPowerKw(conn.maxPowerKw)} kW` : '';
         options.push({
@@ -158,7 +160,7 @@ export function ReservationDetailsTab({
       }
     }
     return options;
-  }, [connectorsQuery.data]);
+  }, [connectorsQuery.data, typeLabel]);
 
   const editMutation = useMutation({
     mutationFn: (body: {
@@ -238,7 +240,7 @@ export function ReservationDetailsTab({
     const options: Array<{ key: string; evseId: number; label: string }> = [];
     for (const evse of reassignConnectorsQuery.data) {
       for (const conn of evse.connectors) {
-        const type = conn.connectorType ?? 'Unknown';
+        const type = typeLabel(conn.connectorType);
         const power =
           conn.maxPowerKw != null ? `${formatConnectorPowerKw(conn.maxPowerKw)} kW` : '';
         options.push({
@@ -249,7 +251,7 @@ export function ReservationDetailsTab({
       }
     }
     return options;
-  }, [reassignConnectorsQuery.data]);
+  }, [reassignConnectorsQuery.data, typeLabel]);
 
   function startEdit(): void {
     setEditConnectorKey(
@@ -451,7 +453,7 @@ export function ReservationDetailsTab({
               <dt className="text-muted-foreground">{t('reservations.connector')}</dt>
               <dd className="font-medium">
                 {reservation.evseOcppId != null
-                  ? `Port ${String(reservation.evseOcppId)}${reservation.connectorType ? `: ${reservation.connectorType}` : ''}${reservation.connectorMaxPowerKw ? ` (${reservation.connectorMaxPowerKw} kW)` : ''}`
+                  ? `Port ${String(reservation.evseOcppId)}${reservation.connectorType ? `: ${typeLabel(reservation.connectorType)}` : ''}${reservation.connectorMaxPowerKw ? ` (${reservation.connectorMaxPowerKw} kW)` : ''}`
                   : 'n/a'}
               </dd>
             </div>

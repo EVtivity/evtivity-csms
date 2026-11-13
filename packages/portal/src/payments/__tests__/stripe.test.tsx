@@ -10,6 +10,10 @@ const { stripeMock, loadStripeMock } = vi.hoisted(() => ({
   loadStripeMock: vi.fn(() => Promise.resolve(null)),
 }));
 
+// The account prompt replaces guest payment where a provider cannot take it.
+vi.mock('@/components/GuestAccountPrompt', () => ({
+  GuestAccountPrompt: () => <p>guest-account-prompt</p>,
+}));
 vi.mock('@stripe/stripe-js/pure', () => ({ loadStripe: loadStripeMock }));
 
 vi.mock('@stripe/react-stripe-js', () => ({
@@ -194,9 +198,9 @@ describe('Stripe module', () => {
       expect((button as HTMLButtonElement).disabled).toBe(true);
     });
 
-    it('shows not configured without a publishable key', () => {
+    it('offers the account prompt without a publishable key', () => {
       render(<StripeGuestPayment {...guestProps({ config: { provider: 'stripe' } })} />);
-      expect(screen.getByText('guest.paymentNotConfigured')).toBeTruthy();
+      expect(screen.getByText('guest-account-prompt')).toBeTruthy();
     });
   });
 });

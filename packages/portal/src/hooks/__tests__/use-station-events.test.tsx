@@ -80,4 +80,69 @@ describe('useStationEvents', () => {
     vi.advanceTimersByTime(STATION_EVENTS_RETRY_MS);
     expect(FakeEventSource.instances).toHaveLength(1);
   });
+
+  it('opens no stream without a station', () => {
+    renderHook(
+      () => {
+        useStationEvents(undefined);
+      },
+      { wrapper },
+    );
+    expect(FakeEventSource.instances).toHaveLength(0);
+  });
+
+  it('opens the public stream of the station and refetches its views on a status event only', () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    renderHook(
+      () => {
+        useStationEvents('CS-3');
+      },
+      {
+        wrapper: ({ children }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+    const es = FakeEventSource.instances[0];
+    if (es == null) throw new Error('no stream');
+    expect(es.url.endsWith('/v1/portal/chargers/CS-3/events')).toBe(true);
+    const send = (data: string): void => {
+      es.onmessage?.({ data } as MessageEvent<string>);
+    };
+    send(JSON.stringify({ eventType: 'session.updated' }));
+    expect(invalidate).not.toHaveBeenCalled();
+    send('not json');
+    send('42');
+    expect(warn).toHaveBeenCalledTimes(2);
+    send(JSON.stringify({ eventType: 'station.status' }));
+    expect(invalidate.mock.calls.map((c) => c[0]?.queryKey)).toEqual([
+      ['station-detail', 'CS-3'],
+      ['station-landing', 'CS-3'],
+      ['charger-info', 'CS-3'],
+      ['charger-pricing', 'CS-3'],
+      ['guest-charger-config', 'CS-3'],
+    ]);
+  });
+
+  it('cancels a pending reopen on unmount and waits for one reopen per close', () => {
+    const { unmount } = renderHook(
+      () => {
+        useStationEvents('CS-4');
+      },
+      { wrapper },
+    );
+    const first = FakeEventSource.instances[0];
+    if (first == null) throw new Error('no stream');
+    first.readyState = FakeEventSource.CLOSED;
+    first.onerror?.();
+    // A second error while the reopen waits schedules no second one.
+    first.onerror?.();
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(STATION_EVENTS_RETRY_MS);
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
 });

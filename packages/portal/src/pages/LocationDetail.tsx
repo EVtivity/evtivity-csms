@@ -1,11 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Link, useParams, useSearchParams, useNavigate } from 'react-router';
+import { useParams, useSearchParams, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Clock, Mail, MapPin, Phone, Plug, User } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { ArrowLeft, Clock, Mail, MapPin, Phone, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
@@ -14,23 +13,14 @@ import { LocationMap } from '@/components/LocationMap';
 import { PopularTimesChart } from '@/components/PopularTimesChart';
 import type { PopularTimesData } from '@/components/PopularTimesChart';
 import { api } from '@/lib/api';
-import { formatConnectorPowerKw } from '@/lib/utils';
-import { connectorStatusVariant, connectorStatusClassName } from '@/lib/connector-status';
 import { EmptyState } from '@/components/ui/content-state';
-
-interface ChargerInfo {
-  stationId: string;
-  evseId: number;
-  // The unit (charger box) of the EVSE on a station with units; null otherwise.
-  unitId?: string | null;
-  unitName?: string | null;
-  connectorType: string | null;
-  maxPowerKw: string | null;
-  status: string;
-  // The API's driver availability rule: station online, enabled and not under
-  // maintenance, EVSE not reserved, and a startable connector status.
-  available: boolean;
-}
+import {
+  groupLocationRows,
+  LocationChargerRow,
+  type LocationChargerInfo,
+  type LocationConnectorRow,
+} from '@/components/LocationChargerRow';
+import { chargerRowKey } from '@/lib/station-units';
 
 interface LocationInfo {
   siteId: string;
@@ -48,7 +38,9 @@ interface LocationInfo {
   stationCount: number;
   evseCount: number;
   availableCount: number;
-  chargers: ChargerInfo[];
+  chargers: LocationConnectorRow[];
+  /** One per charger; absent from an API before v0.1.52, then grouped from the rows. */
+  driverChargers?: LocationChargerInfo[];
 }
 
 export function LocationDetail(): React.JSX.Element {
@@ -162,62 +154,13 @@ export function LocationDetail(): React.JSX.Element {
               <div className="space-y-2">
                 <p className="text-sm font-medium">{t('location.stations')}</p>
                 <div className="space-y-2">
-                  {location.chargers.map((c) => {
-                    const isStartable = c.available;
-                    // A connector can report Available while its station is
-                    // disabled, offline, under maintenance or the EVSE is reserved.
-                    const shownStatus =
-                      !c.available && c.status === 'available' ? 'unavailable' : c.status;
-                    const meta = (
-                      <span className="text-xs text-muted-foreground">
-                        {c.connectorType != null ? c.connectorType : ''}
-                        {c.connectorType != null && c.maxPowerKw != null ? ' - ' : ''}
-                        {c.maxPowerKw != null
-                          ? `${formatConnectorPowerKw(Number(c.maxPowerKw))} kW`
-                          : ''}
-                      </span>
-                    );
-                    const inner = (
-                      <>
-                        <span className="flex min-w-0 items-center gap-2">
-                          <Plug
-                            className={`h-4 w-4 shrink-0 ${isStartable ? 'text-success' : 'text-muted-foreground'}`}
-                          />
-                          <span className="truncate font-medium">
-                            {c.unitName != null ? `${c.stationId}, ${c.unitName}` : c.stationId}
-                          </span>
-                        </span>
-                        <span className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
-                          {meta}
-                          <Badge
-                            variant={connectorStatusVariant()}
-                            className={connectorStatusClassName(shownStatus)}
-                          >
-                            {t(`status.${shownStatus}`)}
-                          </Badge>
-                        </span>
-                      </>
-                    );
-                    const key = `${c.stationId}-${String(c.evseId)}`;
-                    return isStartable ? (
-                      <Link
-                        key={key}
-                        to={`/charge/${c.stationId}/${String(c.evseId)}`}
-                        className="block"
-                      >
-                        <Button variant="outline" size="row" className="justify-between">
-                          {inner}
-                        </Button>
-                      </Link>
-                    ) : (
-                      <div
-                        key={key}
-                        className="flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-4 py-3 opacity-70"
-                      >
-                        {inner}
-                      </div>
-                    );
-                  })}
+                  {(location.driverChargers ?? groupLocationRows(location.chargers)).map((c) => (
+                    <LocationChargerRow
+                      key={chargerRowKey(c.stationId, c.unitId)}
+                      charger={c}
+                      rows={location.chargers}
+                    />
+                  ))}
                 </div>
               </div>
             ) : (

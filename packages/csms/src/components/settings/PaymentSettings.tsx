@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
-import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
@@ -33,6 +32,8 @@ import { PaymentProviderSettings } from './PaymentProviderSettings';
 import { SitePayoutAccountCard } from './SitePayoutAccountCard';
 import { StripeWebhookCard } from './StripeWebhookCard';
 import { StoredSecretInput } from './StoredSecretInput';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
+import { SavedMessage } from '@/components/saved-message';
 import { secretChange, type StoredSecret } from './stored-secret';
 
 /**
@@ -538,7 +539,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                     >
                       {stripeTestMutation.isPending && (
                         <div className="absolute inset-0 flex items-center justify-center">
-                          <Spinner className="h-4 w-4" />
+                          <ButtonSpinner />
                         </div>
                       )}
                       <span className={stripeTestMutation.isPending ? 'invisible' : ''}>
@@ -548,7 +549,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                   </div>
                 )}
                 {stripeSaveMutation.isSuccess && !stripeHasUnsavedChanges && (
-                  <p className="text-sm text-success">{t('settings.stripeSaved')}</p>
+                  <SavedMessage>{t('settings.stripeSaved')}</SavedMessage>
                 )}
                 {stripeSaveMutation.isError && (
                   <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
@@ -755,12 +756,12 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                         </div>
                       )}
                       {sitePaymentSaveMutation.isSuccess && !siteHasUnsavedChanges && (
-                        <p className="text-sm text-success">{t('settings.stripeSaved')}</p>
+                        <SavedMessage>{t('settings.stripeSaved')}</SavedMessage>
                       )}
                       {sitePaymentSaveMutation.data?.holdBelowSessionFee === true &&
                         currency != null &&
                         !siteHasUnsavedChanges && (
-                          <p role="alert" className="text-sm text-warning">
+                          <p role="alert" className="text-sm text-warning-text">
                             {t('settings.holdBelowSessionFee', {
                               fee: formatCurrencyAmount(
                                 sitePaymentSaveMutation.data.sessionFeeCents ?? 0,

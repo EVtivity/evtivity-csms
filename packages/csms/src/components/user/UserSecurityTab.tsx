@@ -6,7 +6,6 @@ import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { TabPanel } from '@/components/ui/tab-panel';
@@ -23,6 +22,7 @@ import {
   type FactorProof,
   type ProofRejection,
 } from '@/components/FactorProofField';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { useMfaStatus } from '@/components/profile/mfa-status';
 
 export interface UserSecurityTabProps {
@@ -157,7 +157,7 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
         <Button type="submit" className="relative w-fit" disabled={resetPasswordMutation.isPending}>
           {resetPasswordMutation.isPending && (
             <span className="absolute inset-0 flex items-center justify-center">
-              <Spinner className="h-4 w-4" />
+              <ButtonSpinner />
             </span>
           )}
           <span className={resetPasswordMutation.isPending ? 'invisible' : ''}>

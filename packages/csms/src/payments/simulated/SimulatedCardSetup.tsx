@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlaskConical } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CreateButton } from '@/components/create-button';
 import { CancelButton } from '@/components/cancel-button';
@@ -89,7 +89,7 @@ export function SimulatedCardSetup({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Alert variant="warning">
-        <FlaskConical />
+        <AlertTriangle className="h-4 w-4" />
         <AlertDescription>{t('paymentProviders.simulated.testMode')}</AlertDescription>
       </Alert>
       {challenge != null ? (
@@ -119,7 +119,8 @@ export function SimulatedCardSetup({
           <CreateButton
             type="submit"
             disabled={loading}
-            label={loading ? t('common.saving') : t('payments.addCard')}
+            label={t('payments.addCard')}
+            pending={loading}
           />
         )}
         <CancelButton onClick={onCancel} />

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send } from 'lucide-react';
+import { CheckCircle2, Info, Send } from 'lucide-react';
 import { useTab } from '@/hooks/use-tab';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
@@ -479,6 +479,7 @@ function StorageProviderForm({
   return (
     <div className="space-y-4" data-testid={`storage-tab-${tab}`}>
       <Alert variant={isActive ? 'success' : 'info'} data-testid={`storage-status-${tab}`}>
+        {isActive ? <CheckCircle2 className="h-4 w-4" /> : <Info className="h-4 w-4" />}
         <AlertDescription>
           {isActive
             ? t('settings.storage.statusActive', { provider: providerName })

@@ -48,11 +48,6 @@ export function qrTransactionLimits(params: URLSearchParams): QrTransactionLimit
   };
 }
 
-/** Add a space before trailing digits: "Type1" -> "Type 1", "CCS2" -> "CCS2" */
-export function formatConnectorType(type: string): string {
-  return type.replace(/^(Type)(\d)$/i, '$1 $2');
-}
-
 export async function checkGuestConnectorStatus(
   stationId: string,
   evseId: string,

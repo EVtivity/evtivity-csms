@@ -9,6 +9,7 @@ import { formatCents } from '@/lib/utils';
 import type { GuestPaymentProps } from '../types';
 import { readTestCards } from './cards';
 import { TestCardSelect, TestModeNotice } from './TestCardSelect';
+import { GuestAccountPrompt } from '@/components/GuestAccountPrompt';
 
 /**
  * Guest payment of the test provider: the one-time card is a test card number.
@@ -43,7 +44,8 @@ export function SimulatedGuestPayment({
   }
 
   if (cards.length === 0) {
-    return <p className="text-sm text-destructive">{t('guest.paymentNotConfigured')}</p>;
+    // Guest payment is not offered here: the guest charges with an account.
+    return <GuestAccountPrompt />;
   }
 
   return (

@@ -133,6 +133,7 @@ vi.mock('@evtivity/database', () => {
     invoiceLineItems: h.table('invoiceLineItems'),
     chargingSessions: h.table('chargingSessions'),
     drivers: h.table('drivers'),
+    fleets: h.table('fleets'),
     paymentRecords: h.table('paymentRecords'),
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     getInvoicePaymentTermsDays: vi.fn(() => Promise.resolve(h.state.paymentTermsDays)),
@@ -183,6 +184,7 @@ import {
   markInvoicePaid,
   isSessionCollected,
   invoiceStatusFor,
+  insertInvoice,
 } from '../invoice.service.js';
 
 const ENDED = new Date('2026-06-04T11:00:00Z');
@@ -1000,6 +1002,42 @@ describe('getInvoice', () => {
 
     expect(result?.creditNote).toEqual(note);
     expect(result?.creditedInvoice).toBeNull();
+  });
+
+  it('returns the fleet of a fleet invoice, or null when the fleet is gone', async () => {
+    queue('invoices', [{ ...invoice, driverId: null, fleetId: 'flt_1' }]);
+    queue('invoiceLineItems', []);
+    queue('fleets', [{ id: 'flt_1', name: 'Acme Logistics' }]);
+    expect((await getInvoice('inv_1'))?.fleet).toEqual({ id: 'flt_1', name: 'Acme Logistics' });
+
+    queue('invoices', [{ ...invoice, driverId: null, fleetId: 'flt_gone' }]);
+    queue('invoiceLineItems', []);
+    queue('fleets', []);
+    expect((await getInvoice('inv_1'))?.fleet).toBeNull();
+  });
+});
+
+describe('insertInvoice', () => {
+  it('refuses lines that do not add up to the charged amount, before any write', async () => {
+    await expect(
+      insertInvoice({
+        driverId: 'drv_1',
+        currency: 'EUR',
+        lines: [
+          {
+            sessionId: 'ses_1',
+            description: 'Charging session',
+            metadata: { kind: 'session' },
+            taxRate: 0.19,
+            netCents: 100,
+            taxCents: 19,
+          },
+        ],
+        chargedCents: 120,
+        status: 'issued',
+      } as never),
+    ).rejects.toThrow('Invoice lines total 119 but the sessions were charged 120');
+    expect(db.transaction).not.toHaveBeenCalled();
   });
 });
 

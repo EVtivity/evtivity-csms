@@ -67,6 +67,7 @@ function renderCheckout(): void {
       <Routes>
         <Route path="/charge/:stationId/:evseId/checkout" element={<GuestCheckout />} />
         <Route path="/guest-session/:token" element={<p>guest session page</p>} />
+        <Route path="/charge/:stationId/:evseId" element={<p>charger page</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -117,10 +118,11 @@ describe('GuestCheckout', () => {
     expect(await screen.findByText('translated:errors.PAYMENT_FAILED')).toBeTruthy();
   });
 
-  it('shows payment not configured when no provider is active', async () => {
+  it('sends the guest back to the charger page when no provider is active', async () => {
     getMock.mockResolvedValue(chargerConfig({ paymentEnabled: false, paymentProvider: null }));
     renderCheckout();
-    expect(await screen.findByText('guest.paymentNotConfigured')).toBeTruthy();
+    expect(await screen.findByText('charger page')).toBeTruthy();
+    expect(screen.queryByLabelText('guest.emailForReceipt')).toBeNull();
   });
 
   it('shows not supported for a provider this portal has no module for', async () => {

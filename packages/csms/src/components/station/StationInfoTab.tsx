@@ -30,6 +30,7 @@ import { OCPP_BASE_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/timezone';
 import { StationAiInsightsRow } from './StationAiInsightsRow';
 import type { StationAiInsightsState } from './StationAiInsightsRow';
+import { useSavedToast } from '@/components/saved-message';
 import { stationSimKey } from '@/components/sim/sim-connectivity';
 
 interface Site {
@@ -108,6 +109,7 @@ export function StationInfoTab({
   simEnabled = false,
 }: StationInfoTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -168,6 +170,7 @@ export function StationInfoTab({
       imsi?: string | null;
     }) => api.patch<Station & { simAttachment?: string }>(`/v1/stations/${stationId}`, body),
     onSuccess: (data, body) => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['stations'] });
       // A new ICCID can attach, replace or detach the station's SIM, and create a SIM.
       if ('iccid' in body || 'imsi' in body) {

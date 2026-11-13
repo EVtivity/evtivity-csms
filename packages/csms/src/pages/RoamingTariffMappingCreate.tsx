@@ -20,6 +20,7 @@ import type {
   TariffMappingValues,
 } from '@/components/roaming/TariffMappingFields';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { useCreatedToast } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface TariffMapping {
@@ -28,6 +29,7 @@ interface TariffMapping {
 
 export function RoamingTariffMappingCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -39,6 +41,7 @@ export function RoamingTariffMappingCreate(): React.JSX.Element {
       api.post<TariffMapping>('/v1/ocpi/tariff-mappings', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
+      createdToast();
       void navigate(`/roaming/tariffs/${String(created.id)}`);
     },
   });

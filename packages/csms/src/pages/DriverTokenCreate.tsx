@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { useCreatedToast } from '@/components/saved-message';
 import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 
 interface DriverToken {
@@ -27,6 +28,7 @@ interface DriverToken {
 
 export function DriverTokenCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -41,6 +43,7 @@ export function DriverTokenCreate(): React.JSX.Element {
       api.post<DriverToken>(`/v1/drivers/${id ?? ''}/tokens`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', id, 'tokens'] });
+      createdToast();
       void navigate(`/drivers/${id ?? ''}?tab=tokens`);
     },
   });

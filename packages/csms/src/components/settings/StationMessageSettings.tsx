@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RotateCcw } from 'lucide-react';
+import { Info, RotateCcw } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -628,6 +628,11 @@ export function StationMessageSettings({
               })}
             </div>
             <div className="space-y-4 p-6">
+              <Alert variant="info">
+                <Info className="h-4 w-4" />
+                <AlertDescription>{t('messages.description')}</AlertDescription>
+              </Alert>
+
               <div className="space-y-2">
                 <Label htmlFor="station-message-template-language" className="leading-6">
                   {t('messages.templateLanguage')}
@@ -692,10 +697,6 @@ export function StationMessageSettings({
                 </pre>
                 <p className="text-xs text-muted-foreground">{t('messages.previewHint')}</p>
               </div>
-
-              <Alert variant="info">
-                <AlertDescription>{t('messages.description')}</AlertDescription>
-              </Alert>
 
               {canWriteTemplates && (
                 <div className="flex justify-end flex-wrap items-center gap-3">

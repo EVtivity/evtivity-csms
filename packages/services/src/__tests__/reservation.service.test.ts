@@ -207,7 +207,11 @@ vi.mock('../reservation-notify.js', async () => {
 });
 
 import {
+  assertReservationsAllowed,
+  assertReservationWindow,
   cancelReservationWithStation,
+  publishCancelReservation,
+  resendStoredHold,
   createReservation,
   dispatchReservation,
   reassignReservation,
@@ -1312,5 +1316,174 @@ describe('reassignReservation', () => {
       }),
     ).rejects.toMatchObject({ statusCode: 409, code: 'EVSE_IN_USE' });
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('assertReservationsAllowed', () => {
+  it('refuses when reservations are off system-wide, at the site or at the station', async () => {
+    h.settings.enabled = false;
+    await expect(assertReservationsAllowed(station)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'RESERVATION_DISABLED',
+      message: 'Reservations are disabled system-wide',
+    });
+    h.settings.enabled = true;
+    queue('sites', [{ reservationsEnabled: false }]);
+    await expect(assertReservationsAllowed(station)).rejects.toMatchObject({
+      message: 'Reservations are disabled for this site',
+    });
+    await expect(
+      assertReservationsAllowed({ ...station, siteId: null, reservationsEnabled: false }),
+    ).rejects.toMatchObject({ message: 'Reservations are disabled for this station' });
+  });
+
+  it('refuses an unavailable station with 409, and passes without a site row', async () => {
+    await expect(
+      assertReservationsAllowed({ ...station, siteId: null, reportedStatus: 'faulted' }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'STATION_UNAVAILABLE' });
+    await expect(assertReservationsAllowed(station)).resolves.toBeUndefined();
+  });
+});
+
+describe('assertReservationWindow', () => {
+  it('refuses an explicit start in the past only when the start is checked', async () => {
+    const startsAt = new Date(Date.now() - 2 * 60_000);
+    const window = { startsAt, effectiveStart: startsAt, expiresAt: new Date(Date.now() + HOUR) };
+    await expect(
+      assertReservationWindow({ ...window, checkStartInPast: true }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'RESERVATION_STARTS_IN_PAST' });
+    await expect(
+      assertReservationWindow({ ...window, checkStartInPast: false }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('reservation edges', () => {
+  const logger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() });
+
+  it('binds an explicit token of the driver on create', async () => {
+    queue('sites', [{ reservationsEnabled: true }]);
+    queue('drivers', [{ id: 'drv_1' }]);
+    queue('driverPaymentMethods', [{ id: 'pm_1' }]);
+    queue('driverTokens', [{ id: 'tok_own', driverId: 'drv_1' }]);
+    const created = await createReservation({
+      station,
+      driverId: 'drv_1',
+      tokenId: 'tok_own',
+      expiresAt: new Date(Date.now() + HOUR),
+      actor: operator,
+    });
+    expect(created.tokenId).toBe('tok_own');
+  });
+
+  it('refuses a token without a driver', async () => {
+    queue('sites', [{ reservationsEnabled: true }]);
+    await expect(
+      createReservation({
+        station,
+        driverId: null,
+        tokenId: 'tok_own',
+        expiresAt: new Date(Date.now() + HOUR),
+        actor: operator,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'tokenId requires driverId' });
+  });
+
+  it('logs a failed reservation.changed publish and still creates', async () => {
+    queueCreateLookups();
+    h.publish.mockRejectedValueOnce(new Error('redis down'));
+    const log = logger();
+    const created = await createReservation({
+      station,
+      evseOcppId: 1,
+      driverId: 'drv_1',
+      expiresAt: new Date(Date.now() + HOUR),
+      actor: operator,
+      logger: log,
+    });
+    expect(created.status).toBe('active');
+    await vi.waitFor(() => {
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        'reservation.changed publish failed',
+      );
+    });
+  });
+
+  it('logs a failed CancelReservation publish instead of throwing', async () => {
+    h.publishOcppCommand.mockRejectedValueOnce(new Error('redis down'));
+    const log = logger();
+    await expect(
+      publishCancelReservation({ publish: h.publish } as never, 'CS-1', 42, log),
+    ).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationOcppId: 'CS-1', reservationOcppId: 42 }),
+      'CancelReservation publish failed',
+    );
+  });
+
+  it('answers false and logs when the stored hold cannot be re-sent', async () => {
+    queue('reservations', [row()]);
+    h.publishOcppCommand.mockRejectedValueOnce(new Error('redis down'));
+    const log = logger();
+    const sent = await resendStoredHold('rsv_1', {
+      stationOcppId: 'CS-1',
+      cause: 'test',
+      logger: log,
+    });
+    expect(sent).toBe(false);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ reservationId: 'rsv_1' }),
+      'Re-sending the stored reservation to the station failed',
+    );
+    expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('answers false without a send for a hold that is no longer active', async () => {
+    expect(await resendStoredHold('rsv_gone', { stationOcppId: 'CS-1', cause: 'test' })).toBe(
+      false,
+    );
+    expect(h.publishOcppCommand).not.toHaveBeenCalled();
+  });
+
+  it('binds an explicit token on edit', async () => {
+    const existing = row({ status: 'scheduled', startsAt: new Date(Date.now() + HOUR) });
+    queue('reservations', loaded(existing));
+    queue('driverTokens', [{ id: 'tok_2', driverId: 'drv_1' }]);
+    h.updateQueue.push([{ ...existing, tokenId: 'tok_2' }]);
+    await updateReservation({
+      reservationDbId: 'rsv_1',
+      changes: { tokenId: 'tok_2' },
+      actor: operator,
+    });
+    const update = h.events.find((e) => e.kind === 'update');
+    expect(update?.set).toMatchObject({ tokenId: 'tok_2' });
+  });
+
+  it('logs a failed restore after a refused edit and still answers 502', async () => {
+    const existing = row();
+    const newExpiry = new Date(Date.now() + 2 * HOUR);
+    // The load, the edit's conflict check (none), the restore's (a conflict).
+    queue('reservations', loaded(existing), [], [{ id: 'rsv_other' }]);
+    h.updateQueue.push([{ ...existing, expiresAt: newExpiry }]);
+    h.sendOcppCommandAndWait.mockResolvedValueOnce({
+      commandId: 'c1',
+      response: { status: 'Rejected' },
+    });
+    const log = logger();
+    await expect(
+      updateReservation({
+        reservationDbId: 'rsv_1',
+        changes: { expiresAt: newExpiry },
+        actor: operator,
+        logger: log,
+      }),
+    ).rejects.toMatchObject({ statusCode: 502, code: 'RESERVATION_REJECTED' });
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ reservationId: 'rsv_1' }),
+      'Restoring a reservation after a refused edit failed',
+    );
   });
 });

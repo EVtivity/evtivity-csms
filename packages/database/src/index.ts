@@ -863,6 +863,7 @@ export type {
 export {
   STATION_UNITS_MAX,
   STATION_UNIT_NAME_MAX,
+  STATION_UNIT_SERIAL_MAX,
   createStationUnit,
   deleteStationUnit,
   readStationUnits,
@@ -874,6 +875,7 @@ export type {
   StationUnitRow,
   StationUnitView,
   UnitSnapshot,
+  UnitDetailsInput,
   UnitWriteFailure,
   UnitWriteResult,
 } from './lib/station-units.js';

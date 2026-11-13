@@ -29,6 +29,7 @@ import { NacsListIcon as NACSIcon } from '@/components/connector-icons/NacsListI
 import { formatDateTime, formatRelativeTime } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
 export const STATIONS_COLUMNS: ColumnMeta[] = [
   {
@@ -138,24 +139,10 @@ function connectorTypeKey(type: string): string {
   return 'unknown';
 }
 
-function connectorDisplayName(type: string): string {
-  const key = connectorTypeKey(type);
-  const names: Record<string, string> = {
-    ccs1: 'CCS1',
-    ccs2: 'CCS2',
-    ccs: 'CCS',
-    chademo: 'CHAdeMO',
-    type1: 'Type 1',
-    type2: 'Type 2',
-    nacs: 'NACS',
-    unknown: type,
-  };
-  return names[key] ?? type;
-}
-
 function ConnectorTypeIcon({ type }: { type: string }): React.JSX.Element {
   const key = connectorTypeKey(type);
-  const name = connectorDisplayName(type);
+  const typeLabel = useConnectorTypeLabel();
+  const name = typeLabel(type);
 
   let icon: React.JSX.Element;
   switch (key) {
@@ -323,7 +310,7 @@ export function StationsTable({
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-2">
                             <Type1Icon />
-                            <span>Type 1 (J1772)</span>
+                            <span>J1772</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Type2Icon />

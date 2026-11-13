@@ -7,8 +7,16 @@ export interface StationUnit {
   stationId: string;
   name: string;
   sortOrder: number;
+  /** Admin metadata: the box's serial number and IP address, null when not set. */
+  serialNumber?: string | null;
+  ipAddress?: string | null;
   evseIds: string[];
   evseNumbers: number[];
+}
+
+/** The station's units in unit order: sort order, then name. */
+export function orderedUnits(units: readonly StationUnit[]): StationUnit[] {
+  return [...units].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 }
 
 export interface UnitGroup<E> {
@@ -25,9 +33,7 @@ export function groupEvsesByUnit<E extends { evseId: number; unitId?: string | n
   evses: readonly E[],
   units: readonly StationUnit[],
 ): { units: UnitGroup<E>[]; unassigned: E[] } {
-  const ordered = [...units].sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
-  );
+  const ordered = orderedUnits(units);
   const known = new Set(ordered.map((u) => u.id));
   return {
     units: ordered.map((unit) => ({

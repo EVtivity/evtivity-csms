@@ -8,7 +8,6 @@ import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, RefreshCw, Trash2, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +36,7 @@ import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
 import { useHasCompanyWidePermission } from '@/lib/auth';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { Textarea } from '@/components/ui/textarea';
 
 /** The sort keys of `GET /v1/pnc/ca-certificates` (the API list sort definition in `lib/sorts/`). */
@@ -139,7 +139,7 @@ export function CaCertificatesTab(): React.JSX.Element {
                       disabled={refreshRootsMutation.isPending}
                     >
                       {refreshRootsMutation.isPending ? (
-                        <Spinner className="h-4 w-4" />
+                        <ButtonSpinner />
                       ) : (
                         <RefreshCw className="h-4 w-4" />
                       )}

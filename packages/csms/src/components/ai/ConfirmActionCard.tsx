@@ -123,7 +123,7 @@ export function ConfirmActionCard({
       className="space-y-2 rounded-md border border-warning bg-warning/10 p-3 text-sm"
     >
       <div className="flex items-center gap-2 font-medium">
-        <ShieldAlert className="h-4 w-4 text-warning" aria-hidden="true" />
+        <ShieldAlert className="h-4 w-4 text-warning-text" aria-hidden="true" />
         <span className="flex-1">{t('ai.confirmTitle')}</span>
         {state === 'confirmed' && <Badge variant="success">{t('ai.confirmed')}</Badge>}
         {state === 'rejected' && <Badge variant="secondary">{t('ai.rejected')}</Badge>}
@@ -149,7 +149,7 @@ export function ConfirmActionCard({
         <span className="break-all">{event.path}</span>
       </div>
       {hosts.length > 0 && (
-        <p className="text-xs font-medium text-warning" data-testid="ai-confirm-links">
+        <p className="text-xs font-medium text-warning-text" data-testid="ai-confirm-links">
           {t('ai.confirmLinks', { hosts: hosts.join(', ') })}
         </p>
       )}

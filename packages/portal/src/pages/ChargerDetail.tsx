@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   Building2,
   CalendarClock,
@@ -14,7 +15,6 @@ import {
   Mail,
   MapPin,
   Phone,
-  Plug,
   Star,
   User,
   Zap,
@@ -25,7 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DateTimeInput } from '@/components/ui/date-time-input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { InfoNote } from '@/components/ui/info-note';
 import { ReportIssue } from '@/components/ReportIssue';
 import { useToast } from '@/components/ui/toast';
@@ -35,17 +35,14 @@ import { usePriceDisplay } from '@/hooks/use-price-display';
 import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
+import { ChargerHeading } from '@/components/ChargerHeading';
+import { PortCard, PortGrid } from '@/components/PortCard';
 import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { getErrorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth';
 import { accountBillingAt, useDriverBilling } from '@/lib/fleet-billing';
-import { cn, formatConnectorCurrentAmps, formatConnectorPowerKw, formatDate } from '@/lib/utils';
-import {
-  connectorStatusVariant,
-  connectorStatusClassName,
-  isEvseSelectable,
-} from '@/lib/connector-status';
-import { formatConnectorType } from '@/lib/charger-utils';
+import { cn, formatDate } from '@/lib/utils';
+import { isEvseSelectable } from '@/lib/connector-status';
 import { noShowFeeEstimate, noShowFeeNote } from '@/lib/reservation-fee';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { useCableCheck } from '@/hooks/use-cable-check';
@@ -535,24 +532,16 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       </div>
 
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <h1 className="text-xl font-bold" data-testid="charger-title">
-              {activeUnit?.name ?? station.stationId}
-            </h1>
-            {favoriteData?.isFavorite === true && (
-              <Star className="h-4 w-4 shrink-0 text-warning" fill="currentColor" />
-            )}
-          </div>
-          {activeUnit != null && (
-            <p className="text-xs text-muted-foreground" data-testid="charger-station-id">
-              {station.stationId}
-            </p>
-          )}
-          {station.siteName != null && (
-            <p className="text-xs text-muted-foreground">{station.siteName}</p>
-          )}
-        </div>
+        <ChargerHeading
+          title={activeUnit?.name ?? station.stationId}
+          stationId={activeUnit != null ? station.stationId : null}
+          siteName={station.siteName}
+          adornment={
+            favoriteData?.isFavorite === true ? (
+              <Star className="h-4 w-4 shrink-0 text-warning-text" fill="currentColor" />
+            ) : undefined
+          }
+        />
         <div className="flex items-center gap-1.5 shrink-0">
           <span
             className={cn(
@@ -591,25 +580,31 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       ) : null}
 
       {station.stationUnavailable && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
-          <p className="text-sm">{t('errors.STATION_UNAVAILABLE')}</p>
-        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t('errors.STATION_UNAVAILABLE')}</AlertDescription>
+        </Alert>
       )}
 
       {station.maintenance?.active === true && (
-        <div className="rounded-md border border-warning/40 bg-warning/10 p-4">
-          <p className="font-semibold">{t('charger.maintenanceTitle')}</p>
-          {station.maintenance.plannedEndAt != null && (
-            <p className="mt-1 text-sm">
-              {t('charger.maintenanceUntil', {
-                time: formatDate(station.maintenance.plannedEndAt, timezone),
-              })}
-            </p>
-          )}
-          {station.maintenance.message != null && station.maintenance.message.length > 0 && (
-            <p className="mt-2 text-sm">{station.maintenance.message}</p>
-          )}
-        </div>
+        <Alert variant="warning" className="items-start">
+          <AlertTriangle className="mt-0.5 h-4 w-4" />
+          <div>
+            <AlertTitle>{t('charger.maintenanceTitle')}</AlertTitle>
+            <AlertDescription>
+              {station.maintenance.plannedEndAt != null && (
+                <p>
+                  {t('charger.maintenanceUntil', {
+                    time: formatDate(station.maintenance.plannedEndAt, timezone),
+                  })}
+                </p>
+              )}
+              {station.maintenance.message != null && station.maintenance.message.length > 0 && (
+                <p className="mt-1">{station.maintenance.message}</p>
+              )}
+            </AlertDescription>
+          </div>
+        </Alert>
       )}
 
       {/* Site Contact */}
@@ -665,100 +660,39 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       {/* Active session overlay */}
       {hasActiveSession && (
         <div className="rounded-lg border bg-card p-6 flex flex-col items-center gap-3 text-center">
-          <AlertCircle className="h-8 w-8 text-warning" />
+          <AlertCircle className="h-8 w-8 text-warning-text" />
           <p className="text-sm font-medium">{t('stationDetail.activeSessionWarning')}</p>
         </div>
       )}
 
       {/* EVSE grid — one tile per EVSE */}
       {station.evses.length > 0 && !hasActiveSession && (
-        <div className={`grid gap-3 ${visibleEvses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+        <PortGrid count={visibleEvses.length}>
           {visibleEvses.map((evse) => {
-            const connectorStatus = evseDisplayStatus(evse.connectors.map((c) => c.status));
-            const isAvailable = isEvseSelectable(evse, {
-              mode,
-              isOnline: station.isOnline,
-              maintenanceActive: station.maintenance?.active === true,
-              stationUnavailable: station.stationUnavailable,
-            });
             const isSelected = selectedEvseId === evse.evseId;
-
-            const connectorTypes = [
-              ...new Set(evse.connectors.map((c) => c.connectorType).filter((t) => t != null)),
-            ].map(formatConnectorType);
-            const maxPowerKw = evse.connectors.reduce((max, c) => {
-              const kw = c.maxPowerKw != null ? Number(c.maxPowerKw) : 0;
-              return kw > max ? kw : max;
-            }, 0);
-            const maxCurrentAmps = evse.connectors.reduce((max, c) => {
-              const amps = c.maxCurrentAmps ?? 0;
-              return amps > max ? amps : max;
-            }, 0);
-
-            const isCharging = ['charging', 'discharging'].includes(connectorStatus);
-            const isIdleState = ['suspended_ev', 'suspended_evse', 'idle'].includes(
-              connectorStatus,
-            );
             return (
-              <Card
+              <PortCard
                 key={evse.evseId}
-                className={cn(
-                  'transition-all',
-                  isAvailable
-                    ? isSelected
-                      ? 'border-primary bg-primary/5 shadow-md cursor-pointer'
-                      : 'hover:shadow-md cursor-pointer'
-                    : 'opacity-50 cursor-not-allowed',
-                  isCharging && 'ring-2 ring-success animate-pulse',
-                  isIdleState && 'ring-2 ring-warning animate-pulse',
-                )}
-                onClick={() => {
-                  if (isAvailable) {
-                    setSelectedEvseId(isSelected ? null : evse.evseId);
-                    setError('');
-                  }
+                evseId={evse.evseId}
+                connectors={evse.connectors}
+                status={evseDisplayStatus(evse.connectors.map((c) => c.status))}
+                available={isEvseSelectable(evse, {
+                  mode,
+                  isOnline: station.isOnline,
+                  maintenanceActive: station.maintenance?.active === true,
+                  stationUnavailable: station.stationUnavailable,
+                })}
+                selected={isSelected}
+                reservationExpiresAt={evse.reservationExpiresAt}
+                timezone={timezone}
+                onSelect={() => {
+                  setSelectedEvseId(isSelected ? null : evse.evseId);
+                  setError('');
                 }}
-              >
-                <CardContent className="p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Badge
-                      variant={connectorStatusVariant()}
-                      className={cn('text-xs', connectorStatusClassName(connectorStatus))}
-                    >
-                      {t(`status.${connectorStatus}`)}
-                    </Badge>
-                    {isSelected && <Zap className="h-4 w-4 text-link" />}
-                  </div>
-                  {connectorStatus === 'reserved' && (
-                    <p className="text-xs text-muted-foreground">
-                      {evse.reservationExpiresAt != null
-                        ? t('charger.reservedUntil', {
-                            time: formatDate(evse.reservationExpiresAt, timezone),
-                          })
-                        : t('charger.reserved')}
-                    </p>
-                  )}
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1 text-sm font-medium">
-                      <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>{connectorTypes.length > 0 ? connectorTypes.join(', ') : 'n/a'}</span>
-                    </div>
-                    {(maxPowerKw > 0 || maxCurrentAmps > 0) && (
-                      <p className="text-xs text-muted-foreground">
-                        {maxPowerKw > 0 ? `${formatConnectorPowerKw(maxPowerKw)} kW` : ''}
-                        {maxPowerKw > 0 && maxCurrentAmps > 0 ? ' / ' : ''}
-                        {maxCurrentAmps > 0 ? `${formatConnectorCurrentAmps(maxCurrentAmps)}A` : ''}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {t('stationDetail.connectorPort', { id: evse.evseId })}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              />
             );
           })}
-        </div>
+        </PortGrid>
       )}
 
       {/* Back to the full grid when a QR code narrowed it to one connector */}
@@ -781,6 +715,17 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
             <CardTitle className="text-base">{t('reservations.reserveConnector')}</CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-0 space-y-3">
+            {!hasDefaultPaymentMethod && paymentMethods != null && (
+              <Alert variant="warning">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  {t('reservations.paymentMethodRequired')}{' '}
+                  <Link to="/payment-methods" className="underline font-medium">
+                    {t('payments.addPaymentMethod')}
+                  </Link>
+                </AlertDescription>
+              </Alert>
+            )}
             <div>
               <label className="text-sm font-medium" htmlFor="reserveStartsAt">
                 {t('reservations.startsAt')}
@@ -822,17 +767,6 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                 ? `${t('reservations.maxHoursHint', { hours: reservationMaxHours })} ${noShowText}`
                 : noShowText}
             </InfoNote>
-            {!hasDefaultPaymentMethod && paymentMethods != null && (
-              <Alert variant="warning">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  {t('reservations.paymentMethodRequired')}{' '}
-                  <Link to="/payment-methods" className="underline font-medium">
-                    {t('payments.addPaymentMethod')}
-                  </Link>
-                </AlertDescription>
-              </Alert>
-            )}
             {error !== '' && <p className="text-sm text-destructive">{error}</p>}
             <Button
               className="w-full gap-2"
@@ -1012,13 +946,17 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
         hideCancel
         onConfirm={() => undefined}
       >
-        <EvPlugAnimation />
         {station.isSimulator && (
-          <Alert variant="info" className="mt-4">
+          <Alert variant="info" className="mb-4">
             <Info className="h-4 w-4" />
             <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
           </Alert>
         )}
+        <EvPlugAnimation
+          connectorType={
+            station.evses.find((e) => e.evseId === selectedEvseId)?.connectors[0]?.connectorType
+          }
+        />
       </ConfirmDialog>
       <ConfirmDialog
         open={showRemoveFavorite}

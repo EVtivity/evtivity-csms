@@ -34,6 +34,9 @@ describe('portal control heights', () => {
     expect(buttonVariants({ size: 'icon' }).split(' ')).toEqual(
       expect.arrayContaining(['h-10', 'w-10']),
     );
+    expect(buttonVariants({ size: 'field' }).split(' ')).toEqual(
+      expect.arrayContaining(['h-12', 'shrink-0']),
+    );
     expect(buttonVariants({ size: 'row' }).split(' ')).toEqual(
       expect.arrayContaining(['h-auto', 'min-h-12', 'whitespace-normal']),
     );

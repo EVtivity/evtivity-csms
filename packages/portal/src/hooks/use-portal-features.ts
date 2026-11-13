@@ -28,6 +28,8 @@ export interface PortalFeatures {
   reservationMaxHours?: number;
   currency?: string;
   avatarUploadEnabled?: boolean;
+  /** OCPI roaming is on (roaming.enabled): the charger search offers the Partner Network tab. */
+  roamingEnabled?: boolean;
 }
 
 /** The portal feature flags, one cached request shared by every reader. */

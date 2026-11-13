@@ -3,7 +3,7 @@
 
 // The Security Events card: the donut of every severity, the station rows as
 // served (critical rows red), the link to the station Security tab, the
-// filters in the request, escaped chart labels, the empty and truncated notes.
+// filters in the request, escaped chart labels, the empty note and the station list pages.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -129,9 +129,11 @@ afterEach(() => {
 
 describe('SecurityEventsCard', () => {
   it('builds the request path from the filters', () => {
-    expect(securityEventsPath('7d', '', '')).toBe('/v1/dashboard/security-events?range=7d');
-    expect(securityEventsPath('24h', 'sit_a', 'critical')).toBe(
-      '/v1/dashboard/security-events?range=24h&siteId=sit_a&severity=critical',
+    expect(securityEventsPath('7d', '', '')).toBe(
+      '/v1/dashboard/security-events?range=7d&page=1&limit=20',
+    );
+    expect(securityEventsPath('24h', 'sit_a', 'critical', 3)).toBe(
+      '/v1/dashboard/security-events?range=24h&siteId=sit_a&severity=critical&page=3&limit=20',
     );
   });
 
@@ -188,7 +190,7 @@ describe('SecurityEventsCard', () => {
       target: { value: '30d' },
     });
     await waitFor(() => {
-      expect(state.requested).toContain('/v1/dashboard/security-events?range=30d');
+      expect(state.requested).toContain('/v1/dashboard/security-events?range=30d&page=1&limit=20');
     });
     const site = await screen.findByLabelText('dashboard.securityEvents.site');
     fireEvent.change(site, { target: { value: 'sit_b' } });
@@ -197,7 +199,7 @@ describe('SecurityEventsCard', () => {
     });
     await waitFor(() => {
       expect(state.requested).toContain(
-        '/v1/dashboard/security-events?range=30d&siteId=sit_b&severity=high',
+        '/v1/dashboard/security-events?range=30d&siteId=sit_b&severity=high&page=1&limit=20',
       );
     });
   });
@@ -211,7 +213,7 @@ describe('SecurityEventsCard', () => {
     expect(state.requested.some((p) => p.startsWith('/v1/sites'))).toBe(false);
   });
 
-  it('shows the empty text without events and the truncated note past the limit', async () => {
+  it('shows the empty text without events', async () => {
     state.reply = {
       ...reply,
       counts: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
@@ -224,11 +226,49 @@ describe('SecurityEventsCard', () => {
     // An empty ring at the donut height, so the card keeps its size.
     expect(screen.getByTestId('empty-donut')).toBeTruthy();
     expect(screen.getByTestId('chart-placeholder').style.minHeight).toBe('280px');
-    cleanup();
+  });
+
+  it('shows no page controls for one page', async () => {
+    state.reply = reply;
+    renderCard();
+    await screen.findAllByTestId('security-events-row');
+    expect(screen.queryByText('common.next')).toBeNull();
+  });
+
+  it('pages the station list and starts again at page 1 on a new filter', async () => {
     state.reply = { ...reply, stationTotal: 75 };
     renderCard();
-    expect(
-      await screen.findByText('dashboard.securityEvents.truncated {"shown":2,"total":75}'),
-    ).toBeTruthy();
+    expect(await screen.findByText('common.pageOf {"page":1,"totalPages":4}')).toBeTruthy();
+    fireEvent.click(screen.getByText('common.next'));
+    await waitFor(() => {
+      expect(state.requested).toContain('/v1/dashboard/security-events?range=7d&page=2&limit=20');
+    });
+    expect(await screen.findByText('common.pageOf {"page":2,"totalPages":4}')).toBeTruthy();
+    // The donut keeps the counts of the whole range on every page.
+    expect(captured.series).toEqual([1, 2, 0, 0, 4]);
+    fireEvent.change(screen.getByLabelText('dashboard.securityEvents.severity'), {
+      target: { value: 'high' },
+    });
+    await waitFor(() => {
+      expect(state.requested).toContain(
+        '/v1/dashboard/security-events?range=7d&severity=high&page=1&limit=20',
+      );
+    });
+  });
+
+  it('steps back to the last page when the list shrinks', async () => {
+    state.reply = { ...reply, stationTotal: 45 };
+    renderCard();
+    await screen.findByText('common.pageOf {"page":1,"totalPages":3}');
+    fireEvent.click(screen.getByText('common.next'));
+    await screen.findByText('common.pageOf {"page":2,"totalPages":3}');
+    // Rows aged out of the range: page 3 answers a total of two pages.
+    state.reply = { ...reply, stationTotal: 21 };
+    fireEvent.click(screen.getByText('common.next'));
+    await waitFor(() => {
+      expect(state.requested).toContain('/v1/dashboard/security-events?range=7d&page=3&limit=20');
+    });
+    // Back on page 2 (its cached reply still counts three pages).
+    expect(await screen.findByText(/^common\.pageOf \{"page":2,/)).toBeTruthy();
   });
 });

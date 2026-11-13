@@ -48,6 +48,7 @@
 
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-warning-text: hsl(var(--warning-text));
 
   --color-info: hsl(var(--info));
   --color-info-foreground: hsl(var(--info-foreground));
@@ -277,17 +278,40 @@
   animation: border-pulse 2s ease-in-out infinite;
 }
 
-@keyframes ev-plug-nudge {
+/* The plug-in animation (EvPlugAnimation): the handle drawn plugged in moves
+   away and back, and the port light shows while it is in. A 4 s loop. */
+@keyframes ev-plug-in {
   0%,
-  100% {
-    transform: translateX(0);
+  12% {
+    transform: translate(-44px, 8px);
   }
-  50% {
-    transform: translateX(8px);
+  40%,
+  84% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(-44px, 8px);
   }
 }
-.animate-ev-plug-nudge {
-  animation: ev-plug-nudge 1.8s ease-in-out infinite;
+.ev-plug-handle {
+  animation: ev-plug-in 4s ease-in-out infinite;
+}
+@keyframes ev-plug-light {
+  0%,
+  42% {
+    opacity: 0;
+  }
+  50%,
+  82% {
+    opacity: 1;
+  }
+  90%,
+  100% {
+    opacity: 0;
+  }
+}
+.ev-plug-light {
+  animation: ev-plug-light 4s ease-in-out infinite;
 }
 
 /* Reduced motion */

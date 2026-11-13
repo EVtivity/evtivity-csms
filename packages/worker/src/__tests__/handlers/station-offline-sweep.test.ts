@@ -235,4 +235,38 @@ describe('runStationOfflineSweep', () => {
     expect(notifyStationFaulted).toHaveBeenCalledTimes(1);
     expect(log.warn).toHaveBeenCalledTimes(1);
   });
+
+  it('skips a hold without a driver and keeps going when one fault notice fails', async () => {
+    mockFind.mockResolvedValue([candidate('CS-1')]);
+    mockMark.mockResolvedValue({ siteId: null });
+    const { deps, notifyStationFaulted } = makeDeps({}, [
+      { id: 'res-guest', reservation_id: 20, driver_id: null },
+      { id: 'res-a', reservation_id: 21, driver_id: 'drv-1' },
+      { id: 'res-b', reservation_id: 22, driver_id: 'drv-2' },
+    ]);
+    notifyStationFaulted.mockRejectedValueOnce(new Error('smtp'));
+    const log = makeLog();
+    await runStationOfflineSweep(deps, log);
+    expect(notifyStationFaulted).toHaveBeenCalledTimes(2);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ reservationId: 'res-a' }),
+      'reservation.StationFaulted notification failed',
+    );
+  });
+
+  it('logs a failed reservation lookup and still counts the station offline', async () => {
+    mockFind.mockResolvedValue([candidate('CS-1')]);
+    mockMark.mockResolvedValue({ siteId: null });
+    const { deps, sql } = makeDeps({});
+    (sql as unknown as { mockRejectedValueOnce: (e: Error) => void }).mockRejectedValueOnce(
+      new Error('db'),
+    );
+    const log = makeLog();
+    const result = await runStationOfflineSweep(deps, log);
+    expect(result.markedOffline).toBe(1);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationId: 'CS-1' }),
+      'Reservation lookup for the offline station failed',
+    );
+  });
 });

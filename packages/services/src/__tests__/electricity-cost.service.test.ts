@@ -167,4 +167,43 @@ describe('recalculateSiteElectricityCost', () => {
     expect(updateParams(0)).toEqual(['ses_2', 22]);
     expect(updateParams(1)).toEqual(['ses_3', 44]);
   });
+
+  it('reads a missing count row as 0 and writes nothing', async () => {
+    selectResults.push([]);
+    expect(await recalculateSiteElectricityCost(SITE, { companyCurrency: 'EUR' })).toEqual({
+      before: 0,
+      updated: 0,
+      remaining: 0,
+    });
+  });
+
+  it('writes nothing for a site that is gone', async () => {
+    selectResults.push([{ n: 2 }], []);
+    expect(await recalculateSiteElectricityCost(SITE, { companyCurrency: 'EUR' })).toEqual({
+      before: 2,
+      updated: 0,
+      remaining: 2,
+    });
+    expect(executeCalls).toHaveLength(0);
+  });
+
+  it('skips a session without an end time or without energy', async () => {
+    mockLoadPeriods.mockResolvedValue([periods[0]]);
+    const ended = new Date('2026-06-08T10:00:00Z');
+    selectResults.push(
+      [{ n: 3 }],
+      [{ timezone: 'UTC' }],
+      [
+        { id: 'ses_1', endedAt: null, energyWh: '1000' },
+        { id: 'ses_2', endedAt: ended, energyWh: null },
+        { id: 'ses_3', endedAt: ended, energyWh: '1000' },
+      ],
+      // A chunk shorter than the chunk size is the last one: the count follows.
+      [{ n: 2 }],
+    );
+    const result = await recalculateSiteElectricityCost(SITE, { companyCurrency: 'EUR' });
+    expect(result).toEqual({ before: 3, updated: 1, remaining: 2 });
+    expect(executeCalls).toHaveLength(1);
+    expect(updateParams(0)).toEqual(['ses_3', 12]);
+  });
 });

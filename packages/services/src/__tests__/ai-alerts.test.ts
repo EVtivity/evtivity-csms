@@ -16,7 +16,7 @@ const db = vi.hoisted(() => ({
   getActiveAiProviderAlerts: vi.fn(),
   getSystemTimezone: vi.fn(),
   /** Rows the `client` tagged template answers, in call order. */
-  rows: [] as unknown[][],
+  rows: [] as (unknown[] | Error)[],
   queries: [] as string[],
 }));
 const lib = vi.hoisted(() => ({
@@ -27,7 +27,8 @@ const lib = vi.hoisted(() => ({
 vi.mock('@evtivity/database', () => ({
   client: (strings: TemplateStringsArray) => {
     db.queries.push(strings.join('?'));
-    return Promise.resolve(db.rows.shift() ?? []);
+    const next = db.rows.shift();
+    return next instanceof Error ? Promise.reject(next) : Promise.resolve(next ?? []);
   },
   recordAiProviderQuotaFailure: db.recordAiProviderQuotaFailure,
   claimAiProviderAlertNotice: db.claimAiProviderAlertNotice,
@@ -146,6 +147,92 @@ describe('noteAiProviderSuccess', () => {
   });
 });
 
+describe('alert edge cases (fail-open)', () => {
+  it('keeps going when the alert change cannot be published', async () => {
+    db.recordAiProviderQuotaFailure.mockResolvedValue({ started: true, since: SINCE });
+    db.claimAiProviderAlertNotice.mockResolvedValue(true);
+    db.rows = [
+      [
+        {
+          ...ADMIN,
+          phone: null,
+          first_name: null,
+          last_name: null,
+          language: null,
+          timezone: null,
+        },
+      ],
+    ];
+    lib.publish.mockRejectedValue(new Error('redis down'));
+    await noteAiProviderQuotaExceeded('deepseek', new Date('2026-10-15T09:00:00Z'));
+    expect(lib.dispatchSystemNotification).toHaveBeenCalledTimes(1);
+    const [, , recipient, vars] = lib.dispatchSystemNotification.mock.calls[0] as unknown[];
+    expect(recipient).toMatchObject({
+      phone: undefined,
+      firstName: undefined,
+      language: undefined,
+    });
+    expect(vars).toMatchObject({ firstName: '', lastName: '' });
+  });
+
+  it('does not announce a clear another process already made', async () => {
+    db.getActiveAiProviderAlerts.mockResolvedValue([
+      { provider: 'deepseek', since: SINCE, lastSeenAt: SINCE },
+    ]);
+    db.clearAiProviderAlert.mockResolvedValue(false);
+    await noteAiProviderSuccess('deepseek');
+    expect(lib.publish).not.toHaveBeenCalled();
+  });
+
+  it('never throws when the alert state cannot be read on success', async () => {
+    db.getActiveAiProviderAlerts.mockRejectedValue(new Error('db down'));
+    await expect(noteAiProviderSuccess('deepseek')).resolves.toBeUndefined();
+    expect(db.clearAiProviderAlert).not.toHaveBeenCalled();
+  });
+
+  it('logs a budget notice whose site read fails and sends the next one', async () => {
+    db.rows = [new Error('db down'), [ADMIN]];
+    await dispatchAiBudgetNotices([
+      {
+        scope: 'site',
+        siteId: 'sit_1',
+        period: '2026-10',
+        level: 'warn',
+        percent: 80,
+        usedTokens: 8,
+        limitTokens: 10,
+      },
+      {
+        scope: 'company',
+        siteId: null,
+        period: '2026-10',
+        level: 'warn',
+        percent: 80,
+        usedTokens: 8,
+        limitTokens: 10,
+      },
+    ]);
+    expect(lib.dispatchSystemNotification).toHaveBeenCalledTimes(1);
+    expect(lib.dispatchSystemNotification.mock.calls[0]?.[3]).toMatchObject({ scope: 'company' });
+  });
+
+  it('names no site when the site is gone', async () => {
+    db.rows = [[], [ADMIN]];
+    await dispatchAiBudgetNotices([
+      {
+        scope: 'site',
+        siteId: 'sit_x',
+        period: '2026-10',
+        level: 'exceeded',
+        percent: 100,
+        usedTokens: 1,
+        limitTokens: 1,
+      },
+    ]);
+    expect(lib.dispatchSystemNotification.mock.calls[0]?.[3]).toMatchObject({ siteName: '' });
+  });
+});
+
 describe('aiProviderGate', () => {
   it('is open without an alert, probe for the claimed probe, paused otherwise', async () => {
     expect(await aiProviderGate('deepseek')).toBe('open');
@@ -193,6 +280,29 @@ describe('trackAiProviderCalls', () => {
     ).rejects.toMatchObject({ code: 'quota_exceeded' });
     await vi.waitFor(() => {
       expect(db.recordAiProviderQuotaFailure).toHaveBeenCalledWith('deepseek', expect.any(Date));
+    });
+  });
+
+  it('clears the provider alert state after a completed call', async () => {
+    const ok: AiAdapter = {
+      provider: 'deepseek',
+      capabilities: () => ({}) as ReturnType<AiAdapter['capabilities']>,
+      async *stream(): AsyncIterable<AiStreamEvent> {
+        yield { type: 'text_delta', text: 'hi' };
+        yield { type: 'finish', reason: 'end' };
+      },
+      complete: () => Promise.reject(new Error('unused')),
+    };
+    db.getActiveAiProviderAlerts.mockResolvedValue([
+      { provider: 'deepseek', since: SINCE, lastSeenAt: SINCE },
+    ]);
+    db.clearAiProviderAlert.mockResolvedValue(true);
+    const wrapped = trackAiProviderCalls(ok);
+    const events: AiStreamEvent[] = [];
+    for await (const event of wrapped.stream(REQ, new AbortController().signal)) events.push(event);
+    expect(events.map((e) => e.type)).toEqual(['text_delta', 'finish']);
+    await vi.waitFor(() => {
+      expect(db.clearAiProviderAlert).toHaveBeenCalledWith('deepseek');
     });
   });
 

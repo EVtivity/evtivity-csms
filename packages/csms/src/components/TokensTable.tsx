@@ -202,7 +202,7 @@ export function TokensTable({
                       const days = Math.ceil((ms - Date.now()) / 86_400_000);
                       const text = formatDate(token.expiresAt, timezone);
                       if (days < 0) return <span className="text-destructive">{text}</span>;
-                      if (days <= 30) return <span className="text-warning">{text}</span>;
+                      if (days <= 30) return <span className="text-warning-text">{text}</span>;
                       return text;
                     })()}
                   </TableCell>

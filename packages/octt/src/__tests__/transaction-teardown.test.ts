@@ -132,4 +132,63 @@ describe('stopOpenTransactions', () => {
     );
     expect(freshClient.disconnect).toHaveBeenCalled();
   });
+
+  it('stops nothing when the reconnect fails, and drops the fresh client on a later disconnect', async () => {
+    const warn = vi.fn();
+    const spyLogger = { ...logger, warn } as unknown as typeof logger;
+    freshClient.connect.mockRejectedValueOnce(new Error('refused'));
+    const client = makeClient(
+      [{ version: 'ocpp2.1', transactionId: 'TX3', seqNo: 0, evse: undefined }],
+      false,
+    );
+    await stopOpenTransactions({
+      client: client as unknown as TestOcppClient,
+      stationId: 'OCTT-1',
+      stationDbId: 'sta_1',
+      version: 'ocpp2.1',
+      logger: spyLogger,
+    });
+    expect(freshClient.sendCall).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      { error: 'refused' },
+      'Teardown reconnect failed, open transactions not stopped',
+    );
+    const onDisconnected = freshClient.setDisconnectedHandler.mock.calls[0]?.[0] as () => void;
+    freshClient.disconnect.mockClear();
+    onDisconnected();
+    expect(freshClient.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a failed stop, goes on, and reports a session the CSMS keeps active', async () => {
+    vi.useFakeTimers();
+    try {
+      const warn = vi.fn();
+      const spyLogger = { ...logger, warn } as unknown as typeof logger;
+      for (let i = 0; i < 60; i++) activeRows.push([{ id: 'ses_1' }]);
+      const client = makeClient([
+        { version: 'ocpp2.1', transactionId: 'TX4', seqNo: 0, evse: undefined },
+        { version: 'ocpp2.1', transactionId: 'TX5', seqNo: 0, evse: undefined },
+      ]);
+      client.sendCall.mockRejectedValueOnce('timeout');
+      const done = stopOpenTransactions({
+        client: client as unknown as TestOcppClient,
+        stationId: 'OCTT-1',
+        stationDbId: 'sta_1',
+        version: 'ocpp2.1',
+        logger: spyLogger,
+      });
+      await vi.advanceTimersByTimeAsync(11_000);
+      await done;
+      expect(client.sendCall).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledWith(
+        { transactionId: 'TX4', error: 'timeout' },
+        'Teardown stop of open transaction failed',
+      );
+      expect(warn).toHaveBeenCalledWith(
+        'Teardown: CSMS still has an active session for the test station',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

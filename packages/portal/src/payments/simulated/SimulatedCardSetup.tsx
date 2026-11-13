@@ -8,6 +8,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import type { CardSetupProps, SetupStepResult } from '../types';
 import { challengeMethodId, readTestCards, refusedMessage } from './cards';
 import { SimulatedChallenge, type ChallengeOutcome } from './SimulatedChallenge';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { TestCardSelect, TestModeNotice } from './TestCardSelect';
 
 /** Card setup of the test provider: pick a test card, answer its challenge if it has one. */
@@ -89,8 +90,8 @@ export function SimulatedCardSetup({
       )}
       <div className="flex gap-2">
         {challenge == null && (
-          <Button type="submit" className="flex-1" disabled={loading}>
-            {loading ? t('common.saving') : t('payments.saveCard')}
+          <Button type="submit" className="relative flex-1" disabled={loading}>
+            <ButtonPendingLabel pending={loading}>{t('payments.saveCard')}</ButtonPendingLabel>
           </Button>
         )}
         <Button

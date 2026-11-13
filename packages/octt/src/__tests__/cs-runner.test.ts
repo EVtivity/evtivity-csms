@@ -72,4 +72,46 @@ describe('runCsTests', () => {
     expect(results.map((r) => r.testId)).toEqual(['TC_1']);
     expect(closeCsSql).toHaveBeenCalledOnce();
   });
+
+  it('filters by module and test id and counts every result status', async () => {
+    const other = { ...testCase('TC_X', 'ocpp2.1'), module: 'C' } as CsTestCase;
+    registry.push(
+      testCase('TC_P', 'ocpp2.1'),
+      testCase('TC_F', 'ocpp2.1'),
+      testCase('TC_S', 'ocpp2.1'),
+      testCase('TC_E', 'ocpp2.1'),
+      testCase('TC_N', 'ocpp2.1'),
+      other,
+    );
+    const status: Record<string, CsTestCaseResult['result']['status']> = {
+      TC_P: 'passed',
+      TC_F: 'failed',
+      TC_S: 'skipped',
+      TC_E: 'error',
+      TC_N: 'notApplicable',
+    };
+    executeCsTest.mockImplementation((tc: CsTestCase) => {
+      const result = passed(tc);
+      return Promise.resolve({ ...result, result: { ...result.result, status: status[tc.id] } });
+    });
+    const summary = await runCsTests(
+      {
+        serverUrl: '',
+        sut: 'cs',
+        module: 'B',
+        testIds: ['TC_P', 'TC_F', 'TC_S', 'TC_E', 'TC_N', 'TC_X'],
+      },
+      () => undefined,
+    );
+    expect(summary).toMatchObject({
+      total: 5,
+      passed: 1,
+      failed: 1,
+      skipped: 1,
+      errors: 1,
+      notApplicable: 1,
+    });
+    const only = await runCsTests({ serverUrl: '', sut: 'cs', testIds: ['TC_P'] }, () => undefined);
+    expect(only.total).toBe(1);
+  });
 });

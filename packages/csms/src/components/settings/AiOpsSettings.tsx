@@ -44,6 +44,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 import { AiAdvancedOptions, AiPromptSummary } from './AiAdvancedOptions';
 import { DataRetentionLink } from './DataRetentionSettings';
+import { SavedMessage } from '@/components/saved-message';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 /**
@@ -329,9 +330,7 @@ function AiKeysCard({
         )}
         {canWrite && (
           <div className="flex items-center justify-end gap-4">
-            {save.isSuccess && !dirty && (
-              <p className="text-sm text-success">{t('settings.aiSaved')}</p>
-            )}
+            {save.isSuccess && !dirty && <SavedMessage>{t('settings.aiSaved')}</SavedMessage>}
             {dirty && (
               <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
             )}
@@ -607,7 +606,7 @@ function AiOpsSurfaceCard({
               }}
             />
             {!providerHasKey && (
-              <p className="text-xs text-warning">{t('settings.aiProviderNoKey')}</p>
+              <p className="text-xs text-warning-text">{t('settings.aiProviderNoKey')}</p>
             )}
           </div>
           <div className="space-y-2">
@@ -667,9 +666,7 @@ function AiOpsSurfaceCard({
         )}
         {canWrite && (
           <div className="flex items-center justify-end gap-4">
-            {save.isSuccess && !dirty && (
-              <p className="text-sm text-success">{t('settings.aiSaved')}</p>
-            )}
+            {save.isSuccess && !dirty && <SavedMessage>{t('settings.aiSaved')}</SavedMessage>}
             <SaveButton
               isPending={save.isPending}
               disabled={!dirty}

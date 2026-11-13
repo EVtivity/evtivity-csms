@@ -167,6 +167,29 @@ describe('AvatarEditor, live', () => {
     });
   });
 
+  it('stacks the footer with Save on top on phones and sets Remove apart in one row from sm', async () => {
+    mockFeatures(false);
+    renderEditor();
+    const save = await screen.findByRole('button', { name: 'common.save' });
+    const footer = save.parentElement as HTMLElement;
+    expect(footer.className).toContain('flex-col-reverse');
+    expect(footer.className).toContain('sm:flex-row');
+    expect(footer.className).toContain('sm:justify-end');
+    // flex-col-reverse shows the last button on top: Save, Random, Cancel, Remove.
+    const labels = Array.from(footer.children).map((b) => b.textContent);
+    expect(labels).toEqual([
+      'account.avatarRemove',
+      'common.cancel',
+      'account.avatarRandom',
+      'common.save',
+    ]);
+    const cls = Array.from(footer.children).map((b) => b.className);
+    expect(cls[0]).toContain('sm:mr-auto');
+    expect(cls[1]).toContain('sm:order-2');
+    expect(cls[2]).toContain('sm:order-1');
+    expect(cls[3]).toContain('sm:order-3');
+  });
+
   it('Random changes the preview', async () => {
     mockFeatures(false);
     renderEditor();

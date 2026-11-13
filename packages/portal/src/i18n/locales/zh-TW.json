@@ -7,6 +7,7 @@
     "backToHome": "返回首頁",
     "save": "儲存",
     "saving": "儲存中...",
+    "saved": "儲存成功",
     "cancel": "取消",
     "keep": "保留",
     "back": "返回",
@@ -332,6 +333,8 @@
     "payWithCard": "使用信用卡支付",
     "startWithAccount": "使用帳戶開始",
     "signIn": "登入",
+    "signInToCharge": "請使用帳戶在此充電。",
+    "register": "註冊",
     "stationNotAvailable": "此充電樁目前不可用。",
     "pricing": "價格",
     "pricingFree": "免費",
@@ -366,6 +369,7 @@
     "siteContact": "充電站聯絡方式",
     "evNotDetectedTitle": "未偵測到電動車",
     "evNotDetectedDescription": "充電樁未偵測到此充電埠連接的電動車。請插入您的車輛並重試。",
+    "plugInAnimationLabel": "將充電線插入您的車輛",
     "startAnyway": "仍然開始",
     "proceedAnyway": "仍然繼續",
     "simulatorPlugInHint": "模擬器：開始充電前，請先開啟 CSMS 控制台，進入此充電樁的 Simulate 分頁，點選 Plug In。",
@@ -419,7 +423,6 @@
     "incorrectCvc": "CVC 號碼不正確。",
     "insufficientFunds": "餘額不足，請使用其他卡。",
     "processingError": "處理出錯，請重試。",
-    "paymentNotConfigured": "此充電樁未設定支付功能。",
     "loadingPayment": "載入支付表單..."
   },
   "guestSession": {
@@ -548,7 +551,7 @@
     "viewSessionHint": "查看使用此預約的工作階段"
   },
   "supportCases": {
-    "title": "客服案件",
+    "title": "客服支援",
     "newCase": "新增客服案件",
     "subject": "主題",
     "description": "描述",
@@ -566,6 +569,11 @@
     "sendFailed": "傳送訊息失敗，請重試。",
     "createFailed": "建立客服案件失敗，請重試。",
     "downloadFailed": "下載附件失敗，請重試。",
+    "closeCase": "關閉案件",
+    "closeConfirmTitle": "關閉此案件？",
+    "closeConfirmDescription": "客服團隊會看到您已關閉此案件。您隨時可以傳送訊息重新開啟。",
+    "closeFailed": "無法關閉案件，請再試一次。",
+    "reopenNote": "傳送訊息即可重新開啟此案件。",
     "station": "充電樁",
     "categories": {
       "billing_dispute": "帳單爭議",
@@ -1107,7 +1115,7 @@
     "paymentMethods": "支付方式",
     "rfidCards": "RFID 卡",
     "vehicles": "車輛",
-    "supportCases": "客服案件",
+    "supportCases": "客服支援",
     "managePayments": "管理支付方式",
     "totalCases": "個客服案件",
     "viewAllCases": "查看全部客服案件",
@@ -1651,5 +1659,9 @@
         "AccountBillingChanged": "車隊帳單已變更"
       }
     }
+  },
+  "connectorTypeNames": {
+    "other": "其他",
+    "pantograph": "受電弓"
   }
 }

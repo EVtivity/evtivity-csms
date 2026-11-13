@@ -33,6 +33,7 @@ import {
   isPanelVoltageAllowed,
   type TransformerKind,
 } from '@evtivity/lib/load-allocation';
+import { useSavedToast } from '@/components/saved-message';
 import {
   flattenPanelNodes,
   formatKva,
@@ -74,6 +75,7 @@ export function TransformerForm({
   onSaved,
 }: TransformerFormProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const isEdit = transformer != null;
 
   const [kind, setKind] = useState<TransformerKind>('service');
@@ -189,6 +191,7 @@ export function TransformerForm({
       return api.post(`/v1/sites/${siteId}/transformers`, body);
     },
     onSuccess: () => {
+      savedToast();
       onSaved();
       onClose();
     },

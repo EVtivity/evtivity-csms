@@ -19,6 +19,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { stationPasswordRules, validateStationPassword } from '@evtivity/lib/station-password';
+import { useCreatedToast } from '@/components/saved-message';
 import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 
 interface Station {
@@ -33,6 +34,7 @@ interface Site {
 
 export function StationCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -68,6 +70,7 @@ export function StationCreate(): React.JSX.Element {
     }) => api.post<Station>('/v1/stations', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['stations'] });
+      createdToast();
       void navigate(`/stations/${created.id}`);
     },
   });

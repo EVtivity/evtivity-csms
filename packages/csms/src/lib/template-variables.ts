@@ -139,6 +139,7 @@ export const OPERATOR_ACCOUNT_EVENTS = [
 export const OPERATOR_SUPPORT_EVENTS = [
   'supportCase.NewCaseFromDriver',
   'supportCase.DriverReply',
+  'supportCase.DriverClosed',
 ] as const;
 
 // Session alerts: sent to operators who manage the session's site

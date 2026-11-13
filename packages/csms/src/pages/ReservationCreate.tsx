@@ -18,11 +18,13 @@ import { StationCombobox, type StationSelection } from '@/components/station-com
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatConnectorPowerKw } from '@/lib/connector-rating';
+import { useCreatedToast } from '@/components/saved-message';
 import {
   getDefaultStartsAt,
   getDefaultExpiresAt,
   isStartsAtInFuture,
 } from '@/lib/reservation-datetime';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
 interface Reservation {
   id: string;
@@ -51,6 +53,8 @@ interface Site {
 
 export function ReservationCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const typeLabel = useConnectorTypeLabel();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -89,7 +93,7 @@ export function ReservationCreate(): React.JSX.Element {
     const options: Array<{ key: string; evseId: number; connectorId: number; label: string }> = [];
     for (const evse of connectorsQuery.data) {
       for (const conn of evse.connectors) {
-        const type = conn.connectorType ?? 'Unknown';
+        const type = typeLabel(conn.connectorType);
         const power =
           conn.maxPowerKw != null ? `${formatConnectorPowerKw(conn.maxPowerKw)} kW` : '';
         const label = `Port ${String(evse.evseId)}-${String(conn.connectorId)}: ${type}${power ? ` (${power})` : ''}`;
@@ -102,7 +106,7 @@ export function ReservationCreate(): React.JSX.Element {
       }
     }
     return options;
-  }, [connectorsQuery.data]);
+  }, [connectorsQuery.data, typeLabel]);
 
   // Reset connector selection when station changes
   useEffect(() => {
@@ -147,6 +151,7 @@ export function ReservationCreate(): React.JSX.Element {
       // Invalidate every cached reservations query (list, station tab, driver
       // tab, etc.) so the operator sees the new row when they navigate back.
       void queryClient.invalidateQueries({ queryKey: ['reservations'] });
+      createdToast();
       void navigate(`/reservations/${created.id}`);
     },
   });

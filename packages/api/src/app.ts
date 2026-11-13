@@ -5,7 +5,7 @@ import { deriveKey, KEY_LABELS } from '@evtivity/lib/derived-keys';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import cookie from '@fastify/cookie';
-import { AppError } from '@evtivity/lib';
+import { AppError, ValidationError } from '@evtivity/lib';
 import type { Redis } from 'ioredis';
 import {
   db,
@@ -204,7 +204,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return;
     }
     if (error instanceof AppError) {
-      void reply.status(error.statusCode).send({ error: error.message, code: error.code });
+      // A ValidationError that names the refused field (`{ field: 'ipAddress' }`)
+      // tells the caller which one, so a form can mark it.
+      const details: unknown = error instanceof ValidationError ? error.details : null;
+      const field =
+        details != null && typeof details === 'object' && 'field' in details
+          ? details.field
+          : undefined;
+      void reply.status(error.statusCode).send({
+        error: error.message,
+        code: error.code,
+        ...(typeof field === 'string' ? { field } : {}),
+      });
       return;
     }
     // Framework 4xx (schema validation, body parser, JWT, rate limit), coded by status.

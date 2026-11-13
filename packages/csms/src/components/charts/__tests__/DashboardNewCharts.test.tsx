@@ -149,13 +149,14 @@ describe('new dashboard charts', () => {
     expect(escapeChartText(`a & "b" 'c'`)).toBe('a &amp; &quot;b&quot; &#39;c&#39;');
   });
 
-  it('labels connector types and keeps an unlisted one as sent', () => {
+  it('labels connector types with the shared display names', () => {
     render(
       <EvsesByConnectorTypeChart
         data={[
           { connectorType: 'ccs2', evseCount: 3, connectorCount: 4 },
           { connectorType: 'unknown', evseCount: 1, connectorCount: 1 },
           { connectorType: 'mcs', evseCount: 1, connectorCount: 1 },
+          { connectorType: 'vendorx', evseCount: 1, connectorCount: 1 },
         ]}
       />,
     );
@@ -164,14 +165,14 @@ describe('new dashboard charts', () => {
       labels: { rotate: number; hideOverlappingLabels: boolean; trim: boolean };
     };
     // Short standard names on the axis, so no label is rotated, hidden or clipped.
-    expect(xaxis.categories).toEqual(['CCS2', 'stations.connectorUnknown', 'mcs']);
+    expect(xaxis.categories).toEqual(['CCS2', 'connectorTypeNames.other', 'MCS', 'vendorx']);
     expect(xaxis.labels).toEqual({ rotate: 0, hideOverlappingLabels: false, trim: false });
-    // The tooltip names the full type.
+    // The tooltip names the same type.
     const tooltip = captured.options?.tooltip as {
       x: { formatter: (val: number, opts?: { dataPointIndex?: number }) => string };
     };
-    expect(tooltip.x.formatter(0, { dataPointIndex: 0 })).toBe('CCS2 (Combined Charging System 2)');
-    expect(tooltip.x.formatter(0, { dataPointIndex: 2 })).toBe('mcs');
+    expect(tooltip.x.formatter(0, { dataPointIndex: 0 })).toBe('CCS2');
+    expect(tooltip.x.formatter(0, { dataPointIndex: 3 })).toBe('vendorx');
   });
 
   it('keeps every listed connector type short enough for an unrotated axis', () => {
@@ -183,7 +184,7 @@ describe('new dashboard charts', () => {
     );
     const xaxis = captured.options?.xaxis as { categories: string[] };
     expect(xaxis.categories).toEqual([
-      'Type 1',
+      'J1772',
       'CCS1',
       'NACS',
       'Type 2',

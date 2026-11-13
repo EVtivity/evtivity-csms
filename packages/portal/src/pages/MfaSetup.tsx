@@ -27,6 +27,7 @@ import {
   webauthnUnavailableReason,
   type PasskeyErrorText,
 } from '@/lib/webauthn';
+import { takeReturnPath } from '@/lib/return-path';
 
 interface EnrollmentConfirmResponse {
   success: true;
@@ -105,7 +106,7 @@ export function MfaSetup(): React.JSX.Element {
   async function finish(data: EnrollmentConfirmResponse): Promise<void> {
     if (data.driver != null) await completeMfaLogin(data.driver);
     clearMfaEnrollment();
-    void navigate('/', { replace: true });
+    void navigate(takeReturnPath() ?? '/', { replace: true });
   }
 
   return (

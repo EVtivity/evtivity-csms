@@ -19,7 +19,11 @@ const svc = vi.hoisted(() => ({
 }));
 
 vi.mock('../services/station-unit.service.js', () => svc);
-vi.mock('@evtivity/database', () => ({ STATION_UNIT_NAME_MAX: 50, STATION_UNITS_MAX: 64 }));
+vi.mock('@evtivity/database', () => ({
+  STATION_UNIT_NAME_MAX: 50,
+  STATION_UNIT_SERIAL_MAX: 64,
+  STATION_UNITS_MAX: 64,
+}));
 vi.mock('../middleware/rbac.js', async () =>
   (await import('./helpers/rbac-permission-mock.js')).rbacPermissionMock(),
 );
@@ -43,6 +47,8 @@ const VIEW = {
   stationId: STATION,
   name: 'Box 1',
   sortOrder: 0,
+  serialNumber: null,
+  ipAddress: null,
   evseIds: ['evs_000000000001'],
   evseNumbers: [1],
 };
@@ -153,6 +159,50 @@ describe('station unit routes', () => {
       expect(res.statusCode).toBe(400);
     }
     expect(svc.createUnit).not.toHaveBeenCalled();
+  });
+
+  it('passes the serial number and IP address to the service, null and empty included', async () => {
+    svc.createUnit.mockResolvedValue({ ...VIEW, serialNumber: 'SN1', ipAddress: '10.0.0.5' });
+    const created = await app.inject({
+      method: 'POST',
+      url: `/stations/${STATION}/units`,
+      headers: auth,
+      payload: { name: 'Box 1', serialNumber: 'SN1', ipAddress: '10.0.0.5' },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ serialNumber: 'SN1', ipAddress: '10.0.0.5' });
+    expect(svc.createUnit).toHaveBeenCalledWith(
+      STATION,
+      { name: 'Box 1', serialNumber: 'SN1', ipAddress: '10.0.0.5' },
+      expect.anything(),
+    );
+    svc.updateUnit.mockResolvedValue({ ...VIEW, serialNumber: null, ipAddress: null });
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: `/stations/${STATION}/units/${UNIT}`,
+      headers: auth,
+      payload: { serialNumber: '', ipAddress: null },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(svc.updateUnit).toHaveBeenCalledWith(
+      STATION,
+      UNIT,
+      { serialNumber: '', ipAddress: null },
+      expect.anything(),
+    );
+  });
+
+  it('refuses a serial number with a control or invisible character in the schema', async () => {
+    for (const serialNumber of ['SN\n1', 'SN\u202e1', 'SN\u200b1']) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${STATION}/units/${UNIT}`,
+        headers: auth,
+        payload: { serialNumber },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(svc.updateUnit).not.toHaveBeenCalled();
   });
 
   it('passes the service errors through', async () => {

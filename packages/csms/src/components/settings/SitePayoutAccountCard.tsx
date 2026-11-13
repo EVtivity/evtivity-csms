@@ -19,6 +19,7 @@ import { LoadingLogo } from '@/components/loading-logo';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { providerErrorMessage } from './payment-provider-errors';
 
 type PayoutState = 'onboarding' | 'action_required' | 'pending' | 'active' | 'disabled';
@@ -391,7 +392,7 @@ export function SitePayoutAccountCard({
                 >
                   {refreshMutation.isPending && (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      <ButtonSpinner />
                     </div>
                   )}
                   <span

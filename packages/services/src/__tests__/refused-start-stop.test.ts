@@ -28,6 +28,7 @@ import {
   REFUSED_START_STOP_GRACE_MS,
   refusedStartStopJobId,
   runRefusedStartStop,
+  showPaymentStopMessage,
 } from '../refused-start-stop.js';
 import { PAYMENT_STOP_JOB_OPTIONS, PAYMENT_STOP_QUEUE } from '@evtivity/lib/worker-queues';
 
@@ -130,5 +131,61 @@ describe('runRefusedStartStop', () => {
     publishOcppCommand.mockRejectedValueOnce(new Error('redis down'));
     await expect(runRefusedStartStop(h.deps, target)).rejects.toThrow('redis down');
     expect(dispatchOneShotStationMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('showPaymentStopMessage', () => {
+  function settingsDeps(rows: unknown[] | Error) {
+    const sql = vi.fn(() => (rows instanceof Error ? Promise.reject(rows) : Promise.resolve(rows)));
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const pubsub = { publish: vi.fn(), subscribe: vi.fn() };
+    return {
+      logger,
+      deps: { sql, pubsub, logger } as unknown as Parameters<typeof showPaymentStopMessage>[0],
+    };
+  }
+
+  it('renders with the company name, support phone and the stored message lifetime', async () => {
+    const { deps } = settingsDeps([
+      { key: 'company.name', value: 'Acme' },
+      { key: 'company.supportPhone', value: '+1 555 0100' },
+      { key: 'stationMessage.eventMessageTtlSeconds', value: 45 },
+    ]);
+    await showPaymentStopMessage(deps, target, 'payment_failed');
+    expect(dispatchOneShotStationMessage).toHaveBeenCalledWith(
+      deps.pubsub,
+      deps.sql,
+      {
+        stationOcppId: 'KEBA-1',
+        stationDbId: 'station-uuid',
+        state: 'payment_failed',
+        context: { companyName: 'Acme', stationOcppId: 'KEBA-1', supportPhone: '+1 555 0100' },
+      },
+      { ttlSeconds: 45, autoClearMs: 45_000 },
+    );
+  });
+
+  it('falls back to EVtivity, no phone and 30 s for missing or invalid settings', async () => {
+    const { deps } = settingsDeps([
+      { key: 'company.supportPhone', value: '' },
+      { key: 'stationMessage.eventMessageTtlSeconds', value: 0 },
+    ]);
+    await showPaymentStopMessage(deps, target, 'payment_failed');
+    const [, , message, options] = dispatchOneShotStationMessage.mock.calls[0]! as unknown[];
+    expect((message as { context: unknown }).context).toEqual({
+      companyName: 'EVtivity',
+      stationOcppId: 'KEBA-1',
+    });
+    expect(options).toEqual({ ttlSeconds: 30, autoClearMs: 30_000 });
+  });
+
+  it('warns and never throws when the settings read or the dispatch fails (fail-open)', async () => {
+    const { deps, logger } = settingsDeps(new Error('db down'));
+    await expect(showPaymentStopMessage(deps, target, 'payment_failed')).resolves.toBeUndefined();
+    expect(dispatchOneShotStationMessage).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'payment_failed' }),
+      'Failed to publish payment-failure display message',
+    );
   });
 });

@@ -10,7 +10,8 @@
     "allSiteAccessRequiredDescription": "이 페이지는 모든 사이트를 다룹니다. 전체 사이트에 접근할 수 있는 사용자만 열 수 있습니다.",
     "backToHome": "대시보드로 돌아가기",
     "save": "저장",
-    "saved": "저장됨",
+    "saved": "저장되었습니다",
+    "createdSuccessfully": "생성되었습니다",
     "reset": "초기화",
     "columns": "열",
     "success": "성공",
@@ -424,6 +425,7 @@
   "dashboard": {
     "title": "대시보드",
     "totalStations": "전체 충전소",
+    "chargingUnits": "충전 유닛",
     "online": "온라인",
     "uptime": "가동률",
     "activeSessions": "활성 세션",
@@ -473,6 +475,7 @@
     },
     "info": {
       "totalStations": "승인된 충전소입니다. 대기 중이거나 차단된 충전소는 따로 집계됩니다.",
+      "chargingUnits": "승인된 충전소의 물리적 충전기입니다. 유닛이 없는 충전소는 1개로 집계되고, 유닛이 있는 충전소는 운영 중인 EVSE가 있는 유닛마다 1개, 유닛이 없는 EVSE가 있으면 1개를 더 집계합니다.",
       "online": "현재 OCPP를 통해 연결되어 통신 중인 승인된 충전소 비율입니다.",
       "onlineCount": "현재 OCPP를 통해 연결되어 통신 중인 충전소 수입니다.",
       "uptime": "최근 30일간 전체 충전소의 평균 커넥터 가동률입니다.",
@@ -614,7 +617,6 @@
       "lastEvent": "마지막 이벤트",
       "empty": "이 기간에 보안 이벤트가 없습니다.",
       "noStations": "이 심각도의 이벤트가 있는 충전소가 없습니다.",
-      "truncated": "충전소 {{total}}개 중 {{shown}}개를 표시합니다.",
       "criticalRow": "위험"
     }
   },
@@ -1397,7 +1399,6 @@
     "connectorRegionNorthAmerican": "북미",
     "connectorRegionEuropean": "유럽",
     "connectorRegionUniversal": "범용 / 기타",
-    "connectorUnknown": "알 수 없음",
     "uploadFailed": "이미지를 업로드하지 못했습니다. 다시 시도해 주세요.",
     "profileUpgradePending": "보안 프로필 {{profile}}(으)로 업그레이드 대기 중입니다. 충전소가 이 프로필로 다시 연결되면 적용되며, 그때까지는 현재 프로필이 유지됩니다.",
     "cancelProfileUpgrade": "업그레이드 취소",
@@ -5251,7 +5252,8 @@
       },
       "resolutionSource": {
         "operator": "지원팀",
-        "ai": "AI"
+        "ai": "AI",
+        "driver": "운전자"
       },
       "driverAction": {
         "try_other_connector": "다른 커넥터 사용",
@@ -7743,16 +7745,22 @@
     }
   },
   "stationUnits": {
-    "description": "이 충전소의 물리적 충전기 박스(마스터 박스와 확장 박스 등)입니다. 운전자에게는 각 유닛이 별도의 충전기로 보이며, 세션과 명령은 충전소 단위로 유지됩니다.",
-    "addUnit": "유닛 추가",
-    "renameUnit": "유닛 이름 변경",
+    "createUnit": "유닛 생성",
+    "createUnitDescription": "이 충전소의 EVSE를 물리적 충전기 박스별로 묶습니다.",
+    "editUnit": "유닛 편집",
     "deleteUnit": "유닛 삭제",
     "deleteConfirm": "{{name}}을(를) 삭제할까요? EVSE는 유닛 없이 충전소에 남고, 이 유닛에 대한 운전자의 즐겨찾기와 알림은 삭제됩니다.",
     "unitName": "유닛 이름",
+    "serialNumber": "일련번호",
+    "ipAddress": "IP 주소",
+    "ipAddressHint": "포트 없이 IPv4 또는 IPv6 주소 하나를 입력합니다.",
+    "serialNumberValue": "S/N {{value}}",
+    "ipAddressValue": "IP {{value}}",
     "noEvses": "EVSE 없음",
     "noUnit": "유닛 없음",
+    "unit": "유닛",
+    "evseCreatedWithoutUnit": "EVSE가 유닛 없이 생성되었습니다. 유닛이 없는 EVSE에 표시됩니다.",
     "evsesWithoutUnit": "유닛이 없는 EVSE",
-    "empty": "이 충전소에는 유닛이 없습니다. 유닛을 추가하여 EVSE를 물리적 충전기 박스별로 묶으세요.",
     "evseCount_one": "EVSE {{count}}개",
     "evseCount_other": "EVSE {{count}}개",
     "unitCount_one": "유닛 {{count}}개",
@@ -7767,5 +7775,9 @@
     "evse": "EVSE",
     "chooseEvse": "EVSE 선택",
     "evseInUnit": "{{evse}} ({{unit}})"
+  },
+  "connectorTypeNames": {
+    "other": "기타",
+    "pantograph": "팬터그래프"
   }
 }

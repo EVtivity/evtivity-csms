@@ -97,6 +97,42 @@ describe('deleteObjectsUnderPrefix', () => {
   });
 });
 
+describe('deleteObjectsUnderPrefix with odd S3 answers', () => {
+  function scripted(answers: unknown[]) {
+    const send = vi.fn(async (command: unknown): Promise<unknown> => {
+      void command;
+      return answers.shift();
+    });
+    return { storage: new S3ObjectStorage({ send } as unknown as S3Client, 'main'), send };
+  }
+
+  it('deletes nothing for a listing without contents', async () => {
+    const { storage, send } = scripted([{}]);
+    await expect(storage.deleteObjectsUnderPrefix('main', 'avatars/drv_1/')).resolves.toBe(0);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes only keys under the prefix and skips entries without a key', async () => {
+    const { storage, send } = scripted([
+      { Contents: [{ Key: 'avatars/drv_1/a.jpg' }, { Key: 'avatars/drv_10/b.jpg' }, {}] },
+      {},
+    ]);
+    await expect(storage.deleteObjectsUnderPrefix('main', 'avatars/drv_1/')).resolves.toBe(1);
+    const command = send.mock.calls[1]?.[0];
+    expect(command).toBeInstanceOf(DeleteObjectsCommand);
+    expect((command as DeleteObjectsCommand).input.Delete?.Objects).toEqual([
+      { Key: 'avatars/drv_1/a.jpg' },
+    ]);
+  });
+
+  it('names an unknown code when S3 refuses a delete without one', async () => {
+    const { storage } = scripted([{ Contents: [{ Key: 'p/a' }] }, { Errors: [{ Key: 'p/a' }] }]);
+    await expect(storage.deleteObjectsUnderPrefix('main', 'p/')).rejects.toThrow(
+      'S3 could not delete 1 object(s) under p/: unknown',
+    );
+  });
+});
+
 describe('purgeDriverAvatarObjects', () => {
   it("deletes the driver's clean images and uploads in every bucket, and nobody else's", async () => {
     const objects = {
@@ -167,6 +203,22 @@ describe('runAvatarCleanupJob', () => {
     dbRows = [[]];
     await expect(
       runAvatarCleanupJob('delete-object', { driverId: DRIVER, bucket: 'b', key: 'k' }, null, log),
+    ).rejects.toThrow('not configured');
+  });
+
+  it('throws for the user jobs without storage, so the queue retries', async () => {
+    dbRows = [[]];
+    await expect(
+      runAvatarCleanupJob('purge-user', { userId: 'usr_1', buckets: [] }, null, log),
+    ).rejects.toThrow('not configured');
+    dbRows = [[]];
+    await expect(
+      runAvatarCleanupJob(
+        'delete-user-object',
+        { userId: 'usr_1', bucket: 'b', key: 'k' },
+        null,
+        log,
+      ),
     ).rejects.toThrow('not configured');
   });
 

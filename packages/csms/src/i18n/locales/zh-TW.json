@@ -10,7 +10,8 @@
     "allSiteAccessRequiredDescription": "此頁面涵蓋所有充電站。只有可以存取所有充電站的使用者才能開啟。",
     "backToHome": "返回儀表板",
     "save": "儲存",
-    "saved": "已儲存",
+    "saved": "儲存成功",
+    "createdSuccessfully": "建立成功",
     "reset": "重設",
     "columns": "欄位",
     "success": "成功",
@@ -424,6 +425,7 @@
   "dashboard": {
     "title": "儀表板",
     "totalStations": "充電樁總數",
+    "chargingUnits": "充電單元",
     "online": "線上",
     "uptime": "執行時間",
     "activeSessions": "活躍工作階段",
@@ -473,6 +475,7 @@
     },
     "info": {
       "totalStations": "已接受的充電樁。待審核和已封鎖的充電樁另行計數。",
+      "chargingUnits": "已接受充電樁的實體充電機。沒有單元的充電樁計為一個。有單元的充電樁按每個含使用中 EVSE 的單元計數，另有未分配單元的 EVSE 時再加一個。",
       "online": "當前透過 OCPP 連線並通訊的已接受充電樁百分比。",
       "onlineCount": "當前透過 OCPP 連線並通訊的充電樁數量。",
       "uptime": "過去 30 天所有充電樁連接器的平均執行時間。",
@@ -614,7 +617,6 @@
       "lastEvent": "最近事件",
       "empty": "此時間範圍內沒有安全事件。",
       "noStations": "沒有此嚴重程度事件的充電樁。",
-      "truncated": "顯示 {{total}} 個充電樁中的 {{shown}} 個。",
       "criticalRow": "嚴重"
     }
   },
@@ -1397,7 +1399,6 @@
     "connectorRegionNorthAmerican": "北美",
     "connectorRegionEuropean": "歐洲",
     "connectorRegionUniversal": "通用 / 其他",
-    "connectorUnknown": "未知",
     "uploadFailed": "上傳圖片失敗，請重試。",
     "profileUpgradePending": "正在等待升級至安全設定檔 {{profile}}。充電樁使用此設定檔重新連線後生效；在此之前維持目前的設定檔。",
     "cancelProfileUpgrade": "取消升級",
@@ -5251,7 +5252,8 @@
       },
       "resolutionSource": {
         "operator": "客服團隊",
-        "ai": "AI"
+        "ai": "AI",
+        "driver": "駕駛員"
       },
       "driverAction": {
         "try_other_connector": "嘗試其他充電槍",
@@ -7743,16 +7745,22 @@
     }
   },
   "stationUnits": {
-    "description": "此充電樁的實體充電箱，例如主箱及其擴充箱。駕駛員會將每個單元視為獨立的充電器；工作階段與命令仍屬於充電樁。",
-    "addUnit": "新增單元",
-    "renameUnit": "重新命名單元",
+    "createUnit": "建立單元",
+    "createUnitDescription": "依實體充電箱將此充電樁的 EVSE 分組。",
+    "editUnit": "編輯單元",
     "deleteUnit": "刪除單元",
     "deleteConfirm": "刪除 {{name}}？其 EVSE 會保留在充電樁上且不屬於任何單元，駕駛員對它的收藏與提醒將被移除。",
     "unitName": "單元名稱",
+    "serialNumber": "序號",
+    "ipAddress": "IP 位址",
+    "ipAddressHint": "一個 IPv4 或 IPv6 位址，不含連接埠。",
+    "serialNumberValue": "序號 {{value}}",
+    "ipAddressValue": "IP {{value}}",
     "noEvses": "無 EVSE",
     "noUnit": "無單元",
+    "unit": "單元",
+    "evseCreatedWithoutUnit": "EVSE 已建立，但未分配單元。它顯示在未分配單元的 EVSE 中。",
     "evsesWithoutUnit": "未分配單元的 EVSE",
-    "empty": "此充電樁沒有單元。新增單元可依實體充電箱將其 EVSE 分組。",
     "evseCount_one": "{{count}} 個 EVSE",
     "evseCount_other": "{{count}} 個 EVSE",
     "unitCount_one": "{{count}} 個單元",
@@ -7767,5 +7775,9 @@
     "evse": "EVSE",
     "chooseEvse": "選擇 EVSE",
     "evseInUnit": "{{evse}}（{{unit}}）"
+  },
+  "connectorTypeNames": {
+    "other": "其他",
+    "pantograph": "受電弓"
   }
 }

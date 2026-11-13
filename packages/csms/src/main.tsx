@@ -11,10 +11,9 @@ import '@fontsource/inter/700.css';
 import './index.css';
 import { i18nReady } from './i18n';
 import { App } from './App';
-import { applyTheme, applyUiTheme, resolveInitialTheme, resolveInitialUiTheme } from './lib/theme';
+import { applyStartupAppearance } from './lib/theme';
 
-applyTheme(resolveInitialTheme());
-applyUiTheme(resolveInitialUiTheme());
+applyStartupAppearance();
 
 const root = document.getElementById('root');
 if (root == null) {

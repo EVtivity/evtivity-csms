@@ -60,6 +60,10 @@ const adyen = vi.hoisted(() => {
   return { state, AdyenCheckout, Card, submit, details };
 });
 
+// The account prompt replaces guest payment where a provider cannot take it.
+vi.mock('@/components/GuestAccountPrompt', () => ({
+  GuestAccountPrompt: () => <p>guest-account-prompt</p>,
+}));
 vi.mock('@adyen/adyen-web', () => ({ AdyenCheckout: adyen.AdyenCheckout, Card: adyen.Card }));
 
 vi.mock('react-i18next', () => ({
@@ -407,17 +411,17 @@ describe('adyen module', () => {
       expect(actions.resolve).toHaveBeenCalledWith({ resultCode: 'Refused' });
     });
 
-    it('shows the not configured text without the company country', () => {
+    it('offers the account prompt without the company country', () => {
       const props = guestProps();
       delete props.countryCode;
       render(<AdyenGuestPayment {...props} />);
-      expect(screen.getByText('guest.paymentNotConfigured')).toBeTruthy();
+      expect(screen.getByText('guest-account-prompt')).toBeTruthy();
       expect(adyen.AdyenCheckout).not.toHaveBeenCalled();
     });
 
-    it('shows the not configured text without a client key', () => {
+    it('offers the account prompt without a client key', () => {
       render(<AdyenGuestPayment {...guestProps({ config: { provider: 'adyen' } })} />);
-      expect(screen.getByText('guest.paymentNotConfigured')).toBeTruthy();
+      expect(screen.getByText('guest-account-prompt')).toBeTruthy();
     });
   });
 });

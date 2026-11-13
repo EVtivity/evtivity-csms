@@ -33,6 +33,7 @@ import { LoadingLogo } from '@/components/loading-logo';
 import { useLoadedValues, useSavedBaseline } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { SavedMessage } from '@/components/saved-message';
 import { formatNumber } from '@/lib/formatting';
 
 export const DATA_RETENTION_QUERY_KEY = ['data-retention-settings'] as const;
@@ -276,9 +277,7 @@ function DataRetentionForm({
       )}
       {canWrite && (
         <div className="flex items-center justify-end gap-4">
-          {mutation.isSuccess && changedKeys.length === 0 && (
-            <p className="text-sm text-success">{t('common.saved')}</p>
-          )}
+          {mutation.isSuccess && changedKeys.length === 0 && <SavedMessage />}
           {changedKeys.length > 0 && (
             <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
           )}

@@ -95,6 +95,16 @@ export function StationUnitTree<E extends TreeEvse>({
               <h3 className="text-sm font-medium">{unit.name}</h3>
               {badge(unitEvses)}
               {count(unitEvses.length)}
+              {unit.serialNumber != null && (
+                <span className="text-xs text-muted-foreground">
+                  {t('stationUnits.serialNumberValue', { value: unit.serialNumber })}
+                </span>
+              )}
+              {unit.ipAddress != null && (
+                <span className="text-xs text-muted-foreground">
+                  {t('stationUnits.ipAddressValue', { value: unit.ipAddress })}
+                </span>
+              )}
             </div>
             {canWrite && (
               <div className="flex flex-wrap items-center gap-1">
@@ -113,9 +123,14 @@ export function StationUnitTree<E extends TreeEvse>({
                   }}
                 />
                 <EditIconButton
-                  title={t('stationUnits.renameUnit')}
+                  title={t('stationUnits.editUnit')}
                   onClick={() => {
-                    setRenaming({ id: unit.id, name: unit.name });
+                    setRenaming({
+                      id: unit.id,
+                      name: unit.name,
+                      serialNumber: unit.serialNumber ?? '',
+                      ipAddress: unit.ipAddress ?? '',
+                    });
                   }}
                 />
                 <RemoveIconButton

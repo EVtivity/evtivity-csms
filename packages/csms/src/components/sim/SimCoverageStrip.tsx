@@ -34,13 +34,13 @@ const LABEL_STYLE: Record<CoverageLabel, { icon: LucideIcon; box: string; iconCl
   partial: {
     icon: CircleDashed,
     box: 'border-warning/60 bg-warning/10',
-    iconClass: 'text-warning',
+    iconClass: 'text-warning-text',
   },
   pending: { icon: Clock, box: 'border-info/60 bg-info/10', iconClass: 'text-info' },
   not_fetched: {
     icon: CircleHelp,
     box: 'border-dashed border-warning/60 bg-background',
-    iconClass: 'text-warning',
+    iconClass: 'text-warning-text',
   },
   unavailable: {
     icon: Ban,

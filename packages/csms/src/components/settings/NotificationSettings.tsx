@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { emailPreviewDocument } from '@/lib/email-preview';
+import { SavedMessage } from '@/components/saved-message';
 import { useLoadedValues, withoutUntouchedSecrets } from '@/hooks/use-loaded-values';
 
 const DEFAULT_EMAIL_WRAPPER = `<!DOCTYPE html>
@@ -374,9 +375,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 {t('settings.testNotification')}
               </Button>
             </div>
-            {smtpMutation.isSuccess && (
-              <p className="text-sm text-success">{t('settings.smtpSaved')}</p>
-            )}
+            {smtpMutation.isSuccess && <SavedMessage>{t('settings.smtpSaved')}</SavedMessage>}
             {smtpMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.smtpSaveFailed')}</p>
             )}
@@ -479,9 +478,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 {t('settings.testNotification')}
               </Button>
             </div>
-            {twilioMutation.isSuccess && (
-              <p className="text-sm text-success">{t('settings.twilioSaved')}</p>
-            )}
+            {twilioMutation.isSuccess && <SavedMessage>{t('settings.twilioSaved')}</SavedMessage>}
             {twilioMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.twilioSaveFailed')}</p>
             )}
@@ -539,7 +536,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               />
             </div>
             {webhookMutation.isSuccess && (
-              <p className="text-sm text-success">{t('settings.webhooksSaved')}</p>
+              <SavedMessage>{t('settings.webhooksSaved')}</SavedMessage>
             )}
             {webhookMutation.isError && (
               <p className="text-sm text-destructive">
@@ -621,7 +618,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                   </Button>
                 </div>
                 {emailLayoutMutation.isSuccess && (
-                  <p className="text-sm text-success">{t('settings.emailLayoutSaved')}</p>
+                  <SavedMessage>{t('settings.emailLayoutSaved')}</SavedMessage>
                 )}
                 {emailLayoutMutation.isError && (
                   <p className="text-sm text-destructive">{t('settings.emailLayoutSaveFailed')}</p>

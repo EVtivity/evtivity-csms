@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
+import { useSavedToast } from '@/components/saved-message';
 import { getErrorMessage } from '@/lib/error-message';
 
 export interface StationDataPlanState {
@@ -31,6 +32,7 @@ interface Props {
 /** Station detail > Configurations: the data plan the station runs and its own choice. */
 export function StationDataPlanCard({ station }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('stations:write');
   const current = station.dataPlan ?? '';
@@ -41,6 +43,7 @@ export function StationDataPlanCard({ station }: Props): React.JSX.Element {
     mutationFn: (dataPlan: DataPlan | null) =>
       api.patch(`/v1/stations/${station.id}`, { dataPlan }),
     onSuccess: () => {
+      savedToast();
       setConfirmOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['stations', station.id] });
       void queryClient.invalidateQueries({ queryKey: ['audit'] });

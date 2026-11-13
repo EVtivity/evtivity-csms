@@ -905,4 +905,67 @@ describe('fleetSessionLines', () => {
     const lines = fleetSessionLines(session(20));
     expect(lines.map((l) => l.metadata.kind)).toEqual(['session']);
   });
+
+  it('writes the idle line without minutes when the breakdown does not know them', () => {
+    const s = session(55);
+    for (const group of s.costBreakdown.components ?? []) {
+      delete (group as { billableIdleMinutes?: number | null }).billableIdleMinutes;
+    }
+    const lines = fleetSessionLines(s);
+    expect(lines[1]?.description).toBe('Idle fee');
+    expect(lines[1]?.metadata).toEqual({ kind: 'idleFee' });
+    expect(taxTotals(lines).grossCents).toBe(s.finalCostCents);
+  });
+
+  it('keeps a zero session line for a session billed only for idle time', () => {
+    const idleOnly = { ...tariff, pricePerKwh: '0', pricePerSession: '0' };
+    const breakdown = toSessionCostBreakdown(
+      calculateSessionCost(idleOnly, 10000, 90, 55, 30, 0, 'net'),
+    );
+    const lines = fleetSessionLines({
+      ...session(55),
+      finalCostCents: breakdown.grossCents,
+      costBreakdown: breakdown,
+    });
+    expect(lines.map((l) => [l.metadata.kind, l.netCents, l.taxCents])).toEqual([
+      ['session', 0, 0],
+      ['idleFee', 250, 25],
+    ]);
+  });
+});
+
+describe('listMemberInvoiceDrivers', () => {
+  const now = new Date('2026-10-08T10:00:00Z');
+
+  it('lists the drivers with member-billed sessions of the period, in the company currency', async () => {
+    h.state.memberCandidates = [{ driver_id: 'drv_a' }, { driver_id: 'drv_b' }];
+    const { listMemberInvoiceDrivers } = await import('../fleet-invoice.service.js');
+    expect(await listMemberInvoiceDrivers('flt_1', '2026-09', now)).toEqual(['drv_a', 'drv_b']);
+    const index = h.state.statements.findIndex((s) => s.includes('SELECT DISTINCT cs.driver_id'));
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(h.state.params[index]).toEqual(
+      expect.arrayContaining(['flt_1', '2026-10-01T00:00:00.000Z', 'EUR', '2026-09-01']),
+    );
+  });
+
+  it('refuses a period that has not ended and an unknown fleet', async () => {
+    const { listMemberInvoiceDrivers } = await import('../fleet-invoice.service.js');
+    await expect(listMemberInvoiceDrivers('flt_1', '2026-10', now)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    h.state.fleet = null;
+    await expect(listMemberInvoiceDrivers('flt_x', '2026-09', now)).rejects.toMatchObject({
+      code: 'FLEET_NOT_FOUND',
+    });
+    expect(h.state.statements.some((s) => s.includes('SELECT DISTINCT'))).toBe(false);
+  });
+});
+
+describe('numeric columns read as numbers', () => {
+  it('keeps a numeric tax rate the driver returned as a number', async () => {
+    h.state.candidates = [{ ...candidateRow(candidate()), tariff_tax_rate: 0.19 }];
+    await createFleetInvoice('flt_1', '2026-09', new Date('2026-10-08T10:00:00Z'));
+    const input = vi.mocked(insertInvoiceInTransaction).mock.calls[0]?.[1];
+    expect(input?.lines[0]?.taxRate).toBe(0.19);
+  });
 });

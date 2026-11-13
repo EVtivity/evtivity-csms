@@ -3,7 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, X } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
@@ -40,7 +40,11 @@ function NoticeAlert({ notice }: { notice: AiUsageNotice }): React.JSX.Element {
   });
   return (
     <Alert variant={notice.level === 'exceeded' ? 'destructive' : 'warning'} className="pr-10">
-      <AlertTriangle className="h-4 w-4" />
+      {notice.level === 'exceeded' ? (
+        <AlertCircle className="h-4 w-4" />
+      ) : (
+        <AlertTriangle className="h-4 w-4" />
+      )}
       <AlertDescription>{text(notice, site?.name ?? null)}</AlertDescription>
       <Button
         type="button"

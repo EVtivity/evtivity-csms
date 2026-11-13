@@ -17,7 +17,7 @@ const buttonVariants = cva(
         destructive:
           'bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/50 disabled:text-destructive-foreground/70',
         outline:
-          'border border-control bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50',
+          'border border-control bg-background text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50',
         secondary:
           'border border-control bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:bg-secondary/50 disabled:text-secondary-foreground/50',
         ghost: 'hover:bg-accent hover:text-accent-foreground disabled:opacity-50',
@@ -28,6 +28,9 @@ const buttonVariants = cva(
         sm: 'h-9 rounded-md px-3',
         lg: 'h-11 rounded-md px-8',
         icon: 'h-10 w-10',
+        // The height of a field (48 px), for the one button of a composer row
+        // that sits on the bottom edge of a growing field (the support reply).
+        field: 'h-12 shrink-0 px-4',
         // Full-width option that wraps its text (a choice card, a connector row).
         row: 'h-auto min-h-12 w-full gap-2 whitespace-normal px-4 py-3',
       },

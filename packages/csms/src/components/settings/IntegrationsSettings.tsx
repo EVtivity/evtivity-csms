@@ -9,7 +9,6 @@ import { AutochargeSettings } from '@/components/settings/AutochargeSettings';
 import { RfidSelfServiceSettings } from '@/components/settings/RfidSelfServiceSettings';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
-import { Spinner } from '@/components/ui/spinner';
 import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,6 +31,8 @@ import { BusDepotSystemsSettings } from './BusDepotSystemsSettings';
 import { SimProvidersSettings } from '@/components/settings/SimProvidersSettings';
 import { OcppDataPlanSettings } from '@/components/settings/OcppDataPlanSettings';
 import { StorageSettings, STORAGE_TAB_PARAM } from '@/components/settings/StorageSettings';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
+import { SavedMessage } from '@/components/saved-message';
 import { isEditedField, useLoadedValues } from '@/hooks/use-loaded-values';
 
 // A bus depot system opened in place belongs to its sub tab; another sub tab drops it.
@@ -563,9 +564,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
             }
           }}
         />
-        {ocppDefaultsMutation.isSuccess && (
-          <p className="text-sm text-success">{t('common.saved')}</p>
-        )}
+        {ocppDefaultsMutation.isSuccess && <SavedMessage />}
       </TabsContent>
       <TabsContent value="roaming" className="mt-4">
         <Card>
@@ -807,14 +806,14 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                       pncTestMutation.mutate();
                     }}
                     disabled={pncTestMutation.isPending}
+                    className="relative"
                   >
-                    {pncTestMutation.isPending && <Spinner className="h-4 w-4" />}
-                    {t('settings.pncTestConnection')}
+                    <ButtonPendingLabel pending={pncTestMutation.isPending}>
+                      {t('settings.pncTestConnection')}
+                    </ButtonPendingLabel>
                   </Button>
                 </div>
-                {pncSaveMutation.isSuccess && (
-                  <p className="text-sm text-success">{t('settings.pncSaved')}</p>
-                )}
+                {pncSaveMutation.isSuccess && <SavedMessage>{t('settings.pncSaved')}</SavedMessage>}
                 {pncSaveMutation.isError && (
                   <p className="text-sm text-destructive">{t('settings.pncSaveFailed')}</p>
                 )}
@@ -1032,9 +1031,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   }
                 }}
               />
-              {guestLimitsMutation.isSuccess && (
-                <p className="text-sm text-success">{t('common.saved')}</p>
-              )}
+              {guestLimitsMutation.isSuccess && <SavedMessage />}
             </div>
           </CardContent>
         </Card>
@@ -1074,9 +1071,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 }
               }}
             />
-            {idlingGracePeriodMutation.isSuccess && (
-              <p className="text-sm text-success">{t('common.saved')}</p>
-            )}
+            {idlingGracePeriodMutation.isSuccess && <SavedMessage />}
           </CardContent>
         </Card>
       </TabsContent>
@@ -1119,9 +1114,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 }
               }}
             />
-            {staleSessionTimeoutMutation.isSuccess && (
-              <p className="text-sm text-success">{t('common.saved')}</p>
-            )}
+            {staleSessionTimeoutMutation.isSuccess && <SavedMessage />}
             <div className="grid gap-2 max-w-xs">
               <Label htmlFor="ev-connection-timeout">
                 {t('settings.evConnectionTimeoutSeconds')}
@@ -1154,9 +1147,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 }
               }}
             />
-            {evConnectionTimeoutMutation.isSuccess && (
-              <p className="text-sm text-success">{t('common.saved')}</p>
-            )}
+            {evConnectionTimeoutMutation.isSuccess && <SavedMessage />}
           </CardContent>
         </Card>
       </TabsContent>
@@ -1198,9 +1189,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 );
               }}
             />
-            {pricingSettingsMutation.isSuccess && (
-              <p className="text-sm text-success">{t('common.saved')}</p>
-            )}
+            {pricingSettingsMutation.isSuccess && <SavedMessage />}
           </CardContent>
         </Card>
       </TabsContent>
@@ -1308,9 +1297,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 );
               }}
             />
-            {googleMapsMutation.isSuccess && (
-              <p className="text-sm text-success">{t('common.saved')}</p>
-            )}
+            {googleMapsMutation.isSuccess && <SavedMessage />}
             {googleMapsMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.googleMapsSaveFailed')}</p>
             )}
@@ -1418,9 +1405,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 );
               }}
             />
-            {ftpMutation.isSuccess && (
-              <p className="text-sm text-success">{t('settings.ftpSaved')}</p>
-            )}
+            {ftpMutation.isSuccess && <SavedMessage>{t('settings.ftpSaved')}</SavedMessage>}
             {ftpMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.ftpSaveFailed')}</p>
             )}
@@ -1498,9 +1483,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 );
               }}
             />
-            {sentryMutation.isSuccess && (
-              <p className="text-sm text-success">{t('common.saved')}</p>
-            )}
+            {sentryMutation.isSuccess && <SavedMessage />}
             {sentryMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.sentrySaveFailed')}</p>
             )}

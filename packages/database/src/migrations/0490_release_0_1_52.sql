@@ -68,3 +68,16 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_station_watches_unit" ON "station_watches" ("driver_id", "station_id", "unit_id") NULLS NOT DISTINCT;
 --> statement-breakpoint
 DROP INDEX IF EXISTS "idx_station_watches_unique";
+--> statement-breakpoint
+-- A driver can close the own support case (resolved, resolution source
+-- driver). The CHECK is replaced whole, so a rerun ends with the same one.
+ALTER TABLE "support_cases" DROP CONSTRAINT IF EXISTS "support_cases_resolution_source_check";
+--> statement-breakpoint
+ALTER TABLE "support_cases" ADD CONSTRAINT "support_cases_resolution_source_check"
+  CHECK ("resolution_source" IN ('operator', 'ai', 'driver'));
+--> statement-breakpoint
+-- Optional admin metadata of a unit (beta.4): its serial number and IP
+-- address, null on every existing row. The API checks and canonicalizes both.
+ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "serial_number" text;
+--> statement-breakpoint
+ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "ip_address" text;

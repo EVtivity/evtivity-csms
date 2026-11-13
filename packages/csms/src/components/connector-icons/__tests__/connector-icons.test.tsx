@@ -11,15 +11,16 @@ import {
   faceTransform,
   type ConnectorIconSize,
   type FaceGeometry,
-} from '../connector-face';
-import { CONNECTOR_KIND_NAMES } from '../connector-kind-name';
-import { TYPE1_FACE } from '../Type1Icon';
-import { TYPE2_FACE } from '../Type2Icon';
-import { CCS1_FACE } from '../Ccs1Icon';
-import { CCS2_FACE } from '../Ccs2Icon';
-import { CHADEMO_FACE } from '../ChademoIcon';
-import { NACS_FACE } from '../NacsIcon';
-import { MCS_FACE } from '../McsIcon';
+} from '@evtivity/lib/connector-faces';
+import {
+  CCS1_FACE,
+  CCS2_FACE,
+  CHADEMO_FACE,
+  MCS_FACE,
+  NACS_FACE,
+  TYPE1_FACE,
+  TYPE2_FACE,
+} from '@evtivity/lib/connector-faces';
 import { CONNECTOR_SPECS, type ConnectorKind } from '../../layout/site-layout-connectors';
 import { ConnectorTypeIcon } from '../../ConnectorTypeIcon';
 import { statusIconColor } from '@/lib/chart-theme';
@@ -221,17 +222,5 @@ describe('connector face pictograms', () => {
     expect(icon.querySelector('path')?.getAttribute('stroke')).toBe(
       statusIconColor('preparing', true),
     );
-  });
-
-  it('names every kind by its standard name', () => {
-    expect(KINDS.map((k) => CONNECTOR_KIND_NAMES[k]).sort()).toEqual([
-      'CCS1',
-      'CCS2',
-      'CHAdeMO',
-      'MCS',
-      'NACS',
-      'Type 1',
-      'Type 2',
-    ]);
   });
 });

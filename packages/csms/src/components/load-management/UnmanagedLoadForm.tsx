@@ -16,6 +16,7 @@ import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SaveButton } from '@/components/save-button';
+import { useSavedToast } from '@/components/saved-message';
 import { api } from '@/lib/api';
 
 interface UnmanagedLoadFormProps {
@@ -36,6 +37,7 @@ export function UnmanagedLoadForm({
   onSaved,
 }: UnmanagedLoadFormProps): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
 
   const [name, setName] = useState('');
   const [estimatedDrawKw, setEstimatedDrawKw] = useState('0');
@@ -58,6 +60,7 @@ export function UnmanagedLoadForm({
       return api.post(`/v1/sites/${siteId}/unmanaged-loads`, body);
     },
     onSuccess: () => {
+      savedToast();
       onSaved();
       onClose();
     },

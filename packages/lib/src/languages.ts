@@ -19,3 +19,28 @@ export function toUiLanguage(locale: string | null | undefined): UiLanguage {
   const base = lower.split('-')[0];
   return isUiLanguage(base) ? base : 'en';
 }
+
+// The UI language a locale names, or null when it names none of them ('fr-FR').
+function matchUiLanguage(locale: string): UiLanguage | null {
+  const lower = locale.trim().toLowerCase();
+  if (lower === '') return null;
+  if (lower.startsWith('zh')) return toUiLanguage(lower);
+  const base = lower.split('-')[0];
+  return isUiLanguage(base) ? base : null;
+}
+
+// The language a web app starts in, before any server reply: the stored choice
+// (the saved user or driver language), else the first browser language the UI
+// has, else English. It needs no request, so an error page shown while the API
+// cannot be reached is in the user's language too.
+export function initialUiLanguage(
+  stored: string | null | undefined,
+  browserLocales: readonly string[] = [],
+): UiLanguage {
+  if (isUiLanguage(stored)) return stored;
+  for (const locale of browserLocales) {
+    const match = matchUiLanguage(locale);
+    if (match != null) return match;
+  }
+  return 'en';
+}

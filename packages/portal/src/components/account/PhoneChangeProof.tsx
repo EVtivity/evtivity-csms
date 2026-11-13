@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import {
   FactorProofField,
@@ -14,6 +13,7 @@ import {
 } from '@/components/FactorProofField';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import type { PortalMfaStatus } from '@/lib/mfa-status';
 
 /** What a phone change sends next to the number. */
@@ -123,7 +123,7 @@ export function PhoneChangeProof({
         >
           {sending && (
             <span className="absolute inset-0 flex items-center justify-center">
-              <Spinner className="h-4 w-4" />
+              <ButtonSpinner />
             </span>
           )}
           <span className={sending ? 'invisible' : ''}>{t('profile.phoneSendCode')}</span>

@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
+import { SavedMessage } from '@/components/saved-message';
 import {
   centsToMajorInput,
   formatCurrencyAmount,
@@ -134,9 +135,7 @@ export function PrepaidSettings({ settings, readOnly = false }: Props): React.JS
             <SaveButton isPending={mutation.isPending} />
           )}
 
-          {mutation.isSuccess && (
-            <p className="text-sm text-success">{t('settings.prepaidSettingsSaved')}</p>
-          )}
+          {mutation.isSuccess && <SavedMessage>{t('settings.prepaidSettingsSaved')}</SavedMessage>}
           {mutation.isError && (
             <p className="text-sm text-destructive">{t('settings.prepaidSettingsSaveFailed')}</p>
           )}

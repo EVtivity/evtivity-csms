@@ -14,6 +14,7 @@ import { CreateButton } from '@/components/create-button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { SaveButton } from '@/components/save-button';
+import { SavedMessage } from '@/components/saved-message';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
@@ -254,6 +255,15 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
       {/* Configuration Card */}
       <TabPanel title={t('sites.loadManagement')}>
         <form onSubmit={handleSave} noValidate className="space-y-4">
+          {isEnabled && (
+            <Alert variant="warning" data-testid="load-management-safety-notice">
+              <AlertTriangle />
+              <div>
+                <AlertTitle>{t('loadManagement.electricalSafetyTitle')}</AlertTitle>
+                <AlertDescription>{t('loadManagement.electricalSafetyBody')}</AlertDescription>
+              </div>
+            </Alert>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="strategy">{t('loadManagement.allocationStrategy')}</Label>
             <Select
@@ -261,6 +271,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
               value={strategy}
               onChange={(e) => {
                 setStrategy(e.target.value as LoadAllocationStrategy);
+                saveMutation.reset();
               }}
             >
               <option value="equal_share">{t('loadManagement.equalShare')}</option>
@@ -311,20 +322,13 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
               checked={isEnabled}
               onChange={(e) => {
                 setIsEnabled(e.target.checked);
+                saveMutation.reset();
               }}
             />
             <Label htmlFor="lm-enabled">{t('loadManagement.enableLoadManagement')}</Label>
           </div>
-          {isEnabled && (
-            <Alert variant="warning" data-testid="load-management-safety-notice">
-              <AlertTriangle />
-              <div>
-                <AlertTitle>{t('loadManagement.electricalSafetyTitle')}</AlertTitle>
-                <AlertDescription>{t('loadManagement.electricalSafetyBody')}</AlertDescription>
-              </div>
-            </Alert>
-          )}
           <SaveButton isPending={saveMutation.isPending} />
+          {saveMutation.isSuccess && <SavedMessage />}
           {saveMutation.isError && (
             <p className="text-sm text-destructive">
               {getErrorMessage(saveMutation.error, t, 'loadManagement.saveFailed')}

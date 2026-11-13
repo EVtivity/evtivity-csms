@@ -9,6 +9,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/utils';
 import type { GuestPaymentProps } from '../types';
 import { cardElementOptions, getStripe, stringField } from './load';
+import { GuestAccountPrompt } from '@/components/GuestAccountPrompt';
 
 const KNOWN_CARD_ERRORS: Record<string, string> = {
   card_declined: 'guest.cardDeclined',
@@ -88,10 +89,10 @@ export function StripeGuestPayment({
   disabled,
   pay,
 }: GuestPaymentProps): React.JSX.Element {
-  const { t } = useTranslation();
   const publishableKey = stringField(config, 'publishableKey');
   if (publishableKey == null) {
-    return <p className="text-sm text-destructive">{t('guest.paymentNotConfigured')}</p>;
+    // Guest payment is not offered here: the guest charges with an account.
+    return <GuestAccountPrompt />;
   }
   return (
     <Elements stripe={getStripe(publishableKey)}>

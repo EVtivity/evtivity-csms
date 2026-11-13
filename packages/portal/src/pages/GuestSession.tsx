@@ -17,6 +17,7 @@ import {
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorCard } from '@/components/ui/error-card';
 import { useToast } from '@/components/ui/toast';
@@ -30,6 +31,8 @@ interface GuestSessionStatus {
   status: string;
   stationOcppId: string;
   evseId: number;
+  /** The unit (charger box) of the EVSE on a station with units, null otherwise. */
+  unitName?: string | null;
   isSimulator?: boolean;
   energyDeliveredWh?: string | null;
   currentCostCents?: number | null;
@@ -279,6 +282,11 @@ export function GuestSession(): React.JSX.Element {
             <StatusIcon className="h-5 w-5" />
             {isIdle ? t('sessionDetail.idle') : statusLabel(session.status, t)}
           </div>
+          {session.unitName != null && (
+            <p className="text-sm font-medium" data-testid="guest-unit-name">
+              {session.unitName}
+            </p>
+          )}
           <p className="text-sm text-muted-foreground">
             {t('guest.stationPort', { stationId: session.stationOcppId, evseId: session.evseId })}
           </p>
@@ -288,6 +296,22 @@ export function GuestSession(): React.JSX.Element {
             </p>
           )}
         </div>
+
+        {/* Faulted charging session: ended unbilled */}
+        {isFailed && session.faulted === true && (
+          <Alert variant="destructive" role="status" className="items-start">
+            <AlertCircle className="mt-0.5 h-4 w-4" />
+            <AlertDescription>{t('guestSession.faultedNotice')}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Failure reason */}
+        {isFailed && session.failureReason != null && (
+          <Alert variant="destructive" className="items-start">
+            <AlertCircle className="mt-0.5 h-4 w-4" />
+            <AlertDescription>{session.failureReason}</AlertDescription>
+          </Alert>
+        )}
 
         {/* Stats grid */}
         <div className="grid grid-cols-3 gap-3">
@@ -355,32 +379,6 @@ export function GuestSession(): React.JSX.Element {
                   <span className="font-medium">{formatDate(session.endedAt)}</span>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Faulted charging session: ended unbilled */}
-        {isFailed && session.faulted === true && (
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-                <p role="status" className="text-sm text-destructive">
-                  {t('guestSession.faultedNotice')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Failure reason */}
-        {isFailed && session.failureReason != null && (
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-                <p className="text-sm text-destructive">{session.failureReason}</p>
-              </div>
             </CardContent>
           </Card>
         )}

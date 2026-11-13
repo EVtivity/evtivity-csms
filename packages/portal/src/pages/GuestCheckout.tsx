@@ -31,6 +31,10 @@ interface ChargerConfig {
   /** Company country; Adyen Web needs it. */
   countryCode?: string | null;
   preAuthAmountCents?: number;
+  /** The unit (charger box) of the EVSE on a station with units, null otherwise. */
+  unitName?: string | null;
+  /** The type of the EVSE's first connector, for the plug-in animation. */
+  connectorType?: string | null;
 }
 
 /** The paid checkout terms: present only when a provider and its hold terms are. */
@@ -58,10 +62,12 @@ function FreeStartForm({
   stationId,
   evseId,
   isSimulator,
+  connectorType,
 }: {
   stationId: string;
   evseId: string;
   isSimulator: boolean;
+  connectorType: string | null;
 }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -116,13 +122,13 @@ function FreeStartForm({
         hideCancel
         onConfirm={() => undefined}
       >
-        <EvPlugAnimation />
         {isSimulator && (
-          <Alert variant="info" className="mt-4">
+          <Alert variant="info" className="mb-4">
             <Info className="h-4 w-4" />
             <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
           </Alert>
         )}
+        <EvPlugAnimation connectorType={connectorType} />
       </ConfirmDialog>
     </form>
   );
@@ -133,11 +139,13 @@ function CheckoutForm({
   evseId,
   checkout,
   isSimulator,
+  connectorType,
 }: {
   stationId: string;
   evseId: string;
   checkout: PaidCheckout;
   isSimulator: boolean;
+  connectorType: string | null;
 }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -274,13 +282,13 @@ function CheckoutForm({
         hideCancel
         onConfirm={() => undefined}
       >
-        <EvPlugAnimation />
         {isSimulator && (
-          <Alert variant="info" className="mt-4">
+          <Alert variant="info" className="mb-4">
             <Info className="h-4 w-4" />
             <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
           </Alert>
         )}
+        <EvPlugAnimation connectorType={connectorType} />
       </ConfirmDialog>
     </div>
   );
@@ -300,15 +308,17 @@ export function GuestCheckout(): React.JSX.Element {
     api
       .get<ChargerConfig>(`/v1/portal/guest/charger-config/${stationId}/${evseId}`)
       .then((data) => {
-        setConfig(data);
         if (!data.isFree && paidCheckout(data) == null) {
-          setError(t('guest.paymentNotConfigured'));
+          // No guest payment here: the charger page offers sign-in instead.
+          void navigate(`/charge/${stationId}/${evseId}`, { replace: true });
+          return;
         }
+        setConfig(data);
       })
-      .catch(() => {
-        setError(t('guest.paymentNotConfigured'));
+      .catch((err: unknown) => {
+        setError(getErrorMessage(err, t, 'charger.notFound'));
       });
-  }, [stationId, evseId, t]);
+  }, [stationId, evseId, t, navigate]);
 
   if (error !== '') {
     return (
@@ -347,6 +357,11 @@ export function GuestCheckout(): React.JSX.Element {
             </Button>
             <div>
               <CardTitle>{t('guest.checkoutTitle')}</CardTitle>
+              {config.unitName != null && (
+                <p className="text-sm font-medium" data-testid="guest-unit-name">
+                  {config.unitName}
+                </p>
+              )}
               <CardDescription>{t('guest.stationPort', { stationId, evseId })}</CardDescription>
             </div>
           </div>
@@ -357,6 +372,7 @@ export function GuestCheckout(): React.JSX.Element {
               stationId={stationId ?? ''}
               evseId={evseId ?? ''}
               isSimulator={config.isSimulator === true}
+              connectorType={config.connectorType ?? null}
             />
           ) : checkout != null ? (
             <CheckoutForm
@@ -364,6 +380,7 @@ export function GuestCheckout(): React.JSX.Element {
               evseId={evseId ?? ''}
               checkout={checkout}
               isSimulator={config.isSimulator === true}
+              connectorType={config.connectorType ?? null}
             />
           ) : null}
         </CardContent>

@@ -5,8 +5,10 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { AppError, ValidationError } from '@evtivity/lib';
 import { displayLabelProblem } from '@evtivity/lib/display-label';
+import { canonicalIpAddress } from '@evtivity/lib/ip-address';
 import {
   STATION_UNIT_NAME_MAX,
+  STATION_UNIT_SERIAL_MAX,
   STATION_UNITS_MAX,
   chargingStations,
   createStationUnit,
@@ -21,6 +23,7 @@ import {
   updateStationUnit,
   writeAudit,
   type StationUnitView,
+  type UnitDetailsInput,
   type UnitSnapshot,
   type UnitWriteResult,
 } from '@evtivity/database';
@@ -56,6 +59,57 @@ function checkName(name: string): void {
       { field: 'name' },
     );
   }
+}
+
+/**
+ * The admin metadata as the writer takes it. Left out stays left out (an
+ * update keeps the stored value); an empty or blank value clears it (null).
+ * The serial number follows the display label rule (1 to 64 characters after
+ * trimming, no control or invisible format characters); the IP address must
+ * be one plain IPv4 or IPv6 address and is stored in canonical form.
+ */
+export function checkUnitDetails(input: {
+  serialNumber?: string | null | undefined;
+  ipAddress?: string | null | undefined;
+}): UnitDetailsInput {
+  const out: UnitDetailsInput = {};
+  if (input.serialNumber !== undefined) {
+    const serial = input.serialNumber?.trim() ?? '';
+    if (serial === '') {
+      out.serialNumber = null;
+    } else {
+      const problem = displayLabelProblem(serial, STATION_UNIT_SERIAL_MAX);
+      if (problem === 'too_long') {
+        throw new ValidationError(
+          `The serial number holds at most ${String(STATION_UNIT_SERIAL_MAX)} characters`,
+          { field: 'serialNumber' },
+        );
+      }
+      if (problem != null) {
+        throw new ValidationError(
+          'The serial number must not contain control or invisible format characters',
+          { field: 'serialNumber' },
+        );
+      }
+      out.serialNumber = serial;
+    }
+  }
+  if (input.ipAddress !== undefined) {
+    const text = input.ipAddress?.trim() ?? '';
+    if (text === '') {
+      out.ipAddress = null;
+    } else {
+      const ip = canonicalIpAddress(text);
+      if (ip == null) {
+        throw new ValidationError(
+          'The IP address must be one IPv4 or IPv6 address, without a port, prefix length or host name',
+          { field: 'ipAddress' },
+        );
+      }
+      out.ipAddress = ip;
+    }
+  }
+  return out;
 }
 
 function unwrap<T>(result: UnitWriteResult<T>): Extract<UnitWriteResult<T>, { ok: true }> {
@@ -180,35 +234,60 @@ async function readUnit(stationUuid: string, unitId: string): Promise<StationUni
 /** Creates a unit; `evseIds` are the OCPP EVSE numbers that move into it. */
 export async function createUnit(
   stationUuid: string,
-  input: { name: string; evseIds?: number[] },
+  input: {
+    name: string;
+    evseIds?: number[];
+    serialNumber?: string | null;
+    ipAddress?: string | null;
+  },
   ctx: UnitContext,
 ): Promise<StationUnitView> {
   checkName(input.name);
+  const details = checkUnitDetails(input);
   const rowIds = await evseRowIds(stationUuid, input.evseIds ?? []);
   const result = unwrap(
-    await createStationUnit(stationUuid, { name: input.name, evseIds: rowIds }),
+    await createStationUnit(stationUuid, { name: input.name, evseIds: rowIds, ...details }),
   );
   await afterChange(stationUuid, { before: null, after: result.after, notes: 'Unit created' }, ctx);
   return readUnit(stationUuid, result.value.id);
 }
 
-/** Renames a unit or moves it in the station's order. */
+/** Renames a unit, changes its serial number or IP address, or moves it in the order. */
 export async function updateUnit(
   stationUuid: string,
   unitId: string,
-  input: { name?: string; sortOrder?: number },
+  input: {
+    name?: string;
+    sortOrder?: number;
+    serialNumber?: string | null;
+    ipAddress?: string | null;
+  },
   ctx: UnitContext,
 ): Promise<StationUnitView> {
   if (input.name != null) checkName(input.name);
-  const result = unwrap(await updateStationUnit(stationUuid, unitId, input));
+  const details = checkUnitDetails(input);
+  const result = unwrap(
+    await updateStationUnit(stationUuid, unitId, {
+      ...(input.name != null ? { name: input.name } : {}),
+      ...(input.sortOrder != null ? { sortOrder: input.sortOrder } : {}),
+      ...details,
+    }),
+  );
   if (result.changed) {
     const renamed = result.before?.name !== result.after?.name;
+    const detailsChanged =
+      result.before?.serialNumber !== result.after?.serialNumber ||
+      result.before?.ipAddress !== result.after?.ipAddress;
     await afterChange(
       stationUuid,
       {
         before: result.before,
         after: result.after,
-        notes: renamed ? 'Unit renamed' : 'Unit moved in the order',
+        notes: renamed
+          ? 'Unit renamed'
+          : detailsChanged
+            ? 'Unit details changed'
+            : 'Unit moved in the order',
       },
       ctx,
     );

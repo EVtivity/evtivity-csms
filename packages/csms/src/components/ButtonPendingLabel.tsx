@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { ButtonSpinner } from '@/components/ui/button-spinner';
+
 /**
  * A button label with a spinner over it while `pending`. The text stays in place, invisible, so
  * the button keeps its size. The button needs `relative`.
@@ -20,7 +22,7 @@ export function ButtonPendingLabel({
           data-testid="button-pending-spinner"
           aria-hidden="true"
         >
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <ButtonSpinner />
         </span>
       )}
       <span className={pending ? 'invisible' : ''}>{children}</span>

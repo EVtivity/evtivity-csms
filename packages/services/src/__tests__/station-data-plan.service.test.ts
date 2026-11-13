@@ -278,3 +278,72 @@ describe('snapshotStationDataPlansByOcppIds', () => {
     expect(warn).toHaveBeenCalled();
   });
 });
+
+describe('fail-open edges', () => {
+  it('pushes nothing for no station, and skips the push when the station read fails', async () => {
+    expect(await pushStationDataPlan([], { pubsub: pubsub as never })).toEqual([]);
+    mocks.readStationDataPlans.mockRejectedValueOnce(new Error('db down'));
+    log.warn.mockClear();
+    expect(await pushStationDataPlan(['a'], { pubsub: pubsub as never, log })).toEqual([]);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationIds: ['a'] }),
+      'Data plan push skipped: station read failed',
+    );
+  });
+
+  it('compares nothing for an empty snapshot and fails open when the compare read fails', async () => {
+    mocks.readStationDataPlans.mockClear();
+    expect(await pushStationDataPlanChanges(new Map(), { pubsub: pubsub as never })).toEqual([]);
+    expect(mocks.readStationDataPlans).not.toHaveBeenCalled();
+    mocks.readStationDataPlans.mockRejectedValueOnce(new Error('db down'));
+    log.warn.mockClear();
+    expect(
+      await pushStationDataPlanChanges(states({ id: 'a' }), { pubsub: pubsub as never, log }),
+    ).toEqual([]);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.anything(),
+      'Data plan compare failed; the stations get it at their next boot',
+    );
+  });
+
+  it('skips a station deleted between the snapshot and the compare', async () => {
+    mocks.readStationDataPlans.mockResolvedValueOnce(new Map());
+    pubsub.publish.mockClear();
+    expect(
+      await pushStationDataPlanChanges(states({ id: 'a' }), { pubsub: pubsub as never }),
+    ).toEqual([]);
+    expect(pubsub.publish).not.toHaveBeenCalled();
+  });
+
+  it('snapshots nothing for blank ids and fails open on a snapshot read error', async () => {
+    mocks.readStationDataPlans.mockClear();
+    const run = vi.fn().mockResolvedValue('done');
+    mocks.readStationDataPlans.mockRejectedValueOnce(new Error('db down'));
+    log.warn.mockClear();
+    expect(
+      await withStationDataPlanPush(['a', null, ''], run, { pubsub: pubsub as never, log }),
+    ).toBe('done');
+    expect(mocks.readStationDataPlans).toHaveBeenCalledWith(['a']);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationIds: ['a'] }),
+      'Data plan snapshot failed; no push follows',
+    );
+    mocks.readStationDataPlans.mockClear();
+    expect(await withStationDataPlanPush([null, undefined], run)).toBe('done');
+    expect(mocks.readStationDataPlans).not.toHaveBeenCalled();
+  });
+
+  it('reports no effective change for a station missing from the snapshot', async () => {
+    mocks.readStationDataPlans.mockResolvedValueOnce(new Map());
+    mocks.setStationDataPlan.mockResolvedValueOnce({ before: null, after: 'cellular' });
+    const result = await changeStationDataPlan('gone', 'cellular', actor, {
+      pubsub: pubsub as never,
+    });
+    expect(result).toEqual({
+      changed: true,
+      before: null,
+      after: 'cellular',
+      effectiveChanged: false,
+    });
+  });
+});

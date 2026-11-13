@@ -97,7 +97,7 @@ export const DRIVER_AI_STATE_REASONS = [
 export type DriverAiStateReason = (typeof DRIVER_AI_STATE_REASONS)[number];
 
 /** `support_cases.resolution_source`. */
-export const SUPPORT_CASE_RESOLUTION_SOURCES = ['operator', 'ai'] as const;
+export const SUPPORT_CASE_RESOLUTION_SOURCES = ['operator', 'ai', 'driver'] as const;
 export type SupportCaseResolutionSource = (typeof SUPPORT_CASE_RESOLUTION_SOURCES)[number];
 
 /** `support_case_status` value of a case the AI handles before operators see it. */

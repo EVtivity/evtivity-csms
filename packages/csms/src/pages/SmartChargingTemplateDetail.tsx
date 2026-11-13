@@ -44,6 +44,7 @@ import { useUserTimezone } from '@/lib/timezone';
 import { fromDatetimeLocalInTimezone, toDatetimeLocalInTimezone } from '@/lib/schedule-anchor';
 import { LoadingLogo } from '@/components/loading-logo';
 import { uiLocale } from '@/lib/formatting';
+import { useSavedToast } from '@/components/saved-message';
 import { useHasAllSiteAccess } from '@/lib/auth';
 
 /** The sort keys of `GET /v1/smart-charging/templates/:id/pushes` (the API list sort definition in `lib/sorts/`). */
@@ -155,6 +156,7 @@ function buildSetChargingProfilePayload(template: TemplateDetail): Record<string
 
 export function SmartChargingTemplateDetail(): React.JSX.Element {
   const { t } = useTranslation();
+  const savedToast = useSavedToast();
   const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
   const { id } = useParams<{ id: string }>();
@@ -226,6 +228,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
     mutationFn: (body: Record<string, unknown>) =>
       api.patch(`/v1/smart-charging/templates/${id ?? ''}`, body),
     onSuccess: () => {
+      savedToast();
       void queryClient.invalidateQueries({ queryKey: ['smart-charging-templates'] });
       void queryClient.invalidateQueries({
         queryKey: ['smart-charging-templates', id, 'matching-stations'],
@@ -1016,7 +1019,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                         <TableCell>{push.acceptedCount}</TableCell>
                         <TableCell>
                           {push.rejectedCount > 0 ? (
-                            <span className="text-warning">{push.rejectedCount}</span>
+                            <span className="text-warning-text">{push.rejectedCount}</span>
                           ) : (
                             0
                           )}

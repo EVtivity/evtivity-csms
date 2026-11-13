@@ -9,6 +9,7 @@ import { ChevronDown, ChevronRight, Pencil, Plus, Trash2, Zap, AlertTriangle } f
 import { Button } from '@/components/ui/button';
 import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { PowerBar } from './PowerBar';
@@ -174,6 +175,29 @@ export function PanelTree({
 
   return (
     <div className="space-y-4">
+      {stationsNotOnCircuit.length > 0 && (
+        <Alert variant="warning" className="items-start" data-testid="stations-not-on-circuit">
+          <AlertTriangle className="mt-0.5 h-4 w-4" />
+          <div className="min-w-0 flex-1">
+            <AlertTitle>{t('loadManagement.stationsNotOnCircuit')}</AlertTitle>
+            <AlertDescription>
+              <p>{t('loadManagement.stationsNotOnCircuitWarning')}</p>
+              <div className="mt-3 max-h-48 overflow-y-auto space-y-1 text-foreground">
+                {stationsNotOnCircuit.map((station) => (
+                  <div key={station.id} className="flex items-center gap-2 text-sm">
+                    <Zap className="h-3 w-3 text-muted-foreground" />
+                    <span>{station.stationId}</span>
+                    <Badge variant={station.isOnline ? 'success' : 'outline'} className="text-xs">
+                      {station.isOnline ? t('status.online') : t('status.offline')}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </AlertDescription>
+          </div>
+        </Alert>
+      )}
+
       {hierarchy.length > 0 && (
         // The tree keeps its desktop layout on phones and scrolls sideways in its own
         // container: nested panels and circuits indent at every level.
@@ -201,29 +225,6 @@ export function PanelTree({
           <div className="space-y-2">
             {unlinkedTransformers.map((tx) => (
               <UnlinkedTransformer key={tx.id} ctx={ctx} transformer={tx} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {stationsNotOnCircuit.length > 0 && (
-        <div className="mt-6 rounded-lg border border-warning/50 bg-warning/5 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="h-4 w-4 text-warning" />
-            <p className="text-sm font-medium">{t('loadManagement.stationsNotOnCircuit')}</p>
-          </div>
-          <p className="text-xs text-muted-foreground mb-3">
-            {t('loadManagement.stationsNotOnCircuitWarning')}
-          </p>
-          <div className="max-h-48 overflow-y-auto space-y-1">
-            {stationsNotOnCircuit.map((station) => (
-              <div key={station.id} className="flex items-center gap-2 text-sm">
-                <Zap className="h-3 w-3 text-muted-foreground" />
-                <span>{station.stationId}</span>
-                <Badge variant={station.isOnline ? 'success' : 'outline'} className="text-xs">
-                  {station.isOnline ? t('status.online') : t('status.offline')}
-                </Badge>
-              </div>
             ))}
           </div>
         </div>

@@ -108,6 +108,18 @@ const dashboardStatsResponse = z
       .int()
       .min(0)
       .describe('Number of accepted stations currently in faulted state'),
+    chargingUnits: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Physical chargers of the accepted stations of the user sites: a station without units counts 1; a station with units counts its units holding an EVSE in service, plus 1 when it has EVSEs in service without a unit. Conformance stations are left out.',
+      ),
+    hasStationUnits: z
+      .boolean()
+      .describe(
+        'Whether an accepted station of the user sites has a unit. The CSMS shows the Charging Units card only then.',
+      ),
     statusCounts: z
       .record(z.string(), z.number().int().min(0))
       .describe('Map of station availability status to count, accepted stations'),
@@ -681,6 +693,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
         totalSessions: 0,
         totalEnergyWh: 0,
         faultedStations: 0,
+        chargingUnits: 0,
+        hasStationUnits: false,
         statusCounts: {},
         onboardingStatusCounts: {},
       };
@@ -740,26 +754,53 @@ export function dashboardRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .where(and(eq(chargingStations.onboardingStatus, 'accepted'), ...stationConditions));
 
-      const [stationRows, earlier, [todayTotals], [active], [faulted]] = await Promise.all([
-        db
-          .select({
-            status: chargingStations.availability,
-            onboardingStatus: chargingStations.onboardingStatus,
-            isOnline: chargingStations.isOnline,
-            count: count(),
-          })
-          .from(chargingStations)
-          .where(and(...stationConditions))
-          .groupBy(
-            chargingStations.availability,
-            chargingStations.onboardingStatus,
-            chargingStations.isOnline,
+      // Physical chargers: a station without units is one charger; a station
+      // with units is one charger per unit that holds an EVSE in service, and
+      // one more for its EVSEs in service without a unit (the driver view of
+      // `features/station-units.md`). The subqueries name the outer row as
+      // charging_stations.id: drizzle renders a column bare inside sql``, which
+      // would resolve to the inner table's own id.
+      const chargingUnitsQuery = db
+        .select({
+          chargingUnits: sql<number>`coalesce(sum(case
+            when exists (select 1 from station_units su where su.station_id = charging_stations.id)
+            then (select count(distinct e.unit_id) from evses e
+                  where e.station_id = charging_stations.id and e.retired_at is null and e.unit_id is not null)
+               + (case when exists (select 1 from evses e
+                  where e.station_id = charging_stations.id and e.retired_at is null and e.unit_id is null)
+                  then 1 else 0 end)
+            else 1 end), 0)::int`.mapWith(Number),
+          hasStationUnits: sql<boolean>`coalesce(bool_or(exists (
+            select 1 from station_units su where su.station_id = charging_stations.id)), false)`.mapWith(
+            Boolean,
           ),
-        earlierTotals,
-        todayTotalsQuery,
-        activeSessionsQuery,
-        faultedStationsQuery,
-      ]);
+        })
+        .from(chargingStations)
+        .where(and(eq(chargingStations.onboardingStatus, 'accepted'), ...stationConditions));
+
+      const [stationRows, earlier, [todayTotals], [active], [faulted], [units]] = await Promise.all(
+        [
+          db
+            .select({
+              status: chargingStations.availability,
+              onboardingStatus: chargingStations.onboardingStatus,
+              isOnline: chargingStations.isOnline,
+              count: count(),
+            })
+            .from(chargingStations)
+            .where(and(...stationConditions))
+            .groupBy(
+              chargingStations.availability,
+              chargingStations.onboardingStatus,
+              chargingStations.isOnline,
+            ),
+          earlierTotals,
+          todayTotalsQuery,
+          activeSessionsQuery,
+          faultedStationsQuery,
+          chargingUnitsQuery,
+        ],
+      );
 
       // Station counts cover accepted stations: a pending or blocked station
       // is not in service. onboardingStatusCounts counts every station.
@@ -785,6 +826,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
         totalSessions: earlier.totalSessions + (todayTotals?.totalSessions ?? 0),
         totalEnergyWh: earlier.totalEnergyWh + (todayTotals?.totalEnergyWh ?? 0),
         faultedStations: faulted?.faulted ?? 0,
+        chargingUnits: units?.chargingUnits ?? 0,
+        hasStationUnits: units?.hasStationUnits ?? false,
         statusCounts,
         onboardingStatusCounts,
       };

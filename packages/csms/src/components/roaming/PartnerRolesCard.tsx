@@ -56,7 +56,7 @@ export function PartnerRolesCard({
       api.patch(`/v1/ocpi/partners/${partnerId}`, { approvedRoles: roles }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ocpi-partners'] });
-      toast({ title: t('roaming.partners.approvedRolesSaved') });
+      toast({ variant: 'success', title: t('roaming.partners.approvedRolesSaved') });
     },
     onError: (err) => {
       toast({ variant: 'destructive', title: getErrorMessage(err, t) });
@@ -85,7 +85,7 @@ export function PartnerRolesCard({
             : t('roaming.partners.declaredRoles', { roles: declared.join(', ') })}
         </p>
         {held.length > 0 && (
-          <p className="text-sm text-warning" role="status">
+          <p className="text-sm text-warning-text" role="status">
             {t('roaming.partners.heldRoles', { roles: held.join(', ') })}
           </p>
         )}

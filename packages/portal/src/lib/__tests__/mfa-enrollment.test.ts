@@ -85,4 +85,17 @@ describe('enrollmentPost', () => {
       ApiError,
     );
   });
+
+  it('throws ApiError with a null body when the refusal is not JSON', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>', { status: 502 })));
+    const err = await enrollmentPost('/v1/portal/driver/mfa/confirm', 'tok', {}).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(502);
+    expect((err as ApiError).body).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
 });

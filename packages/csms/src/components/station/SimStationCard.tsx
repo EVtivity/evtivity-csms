@@ -15,6 +15,7 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import {
   DATALINK_LABEL_KEYS,
   signalGradeVariant,
@@ -142,7 +143,7 @@ export function SimStationCard({
               >
                 {readDeviceModel.isPending && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <ButtonSpinner />
                   </div>
                 )}
                 <span className={readDeviceModel.isPending ? 'invisible' : ''}>

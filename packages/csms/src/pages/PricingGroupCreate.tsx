@@ -14,10 +14,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
+import { useCreatedToast } from '@/components/saved-message';
 import type { PricingGroup } from '@/lib/types';
 
 export function PricingGroupCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const createdToast = useCreatedToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const canWrite = useHasCompanyWidePermission('pricing:write');
@@ -32,6 +34,7 @@ export function PricingGroupCreate(): React.JSX.Element {
       api.post<PricingGroup>('/v1/pricing-groups', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['pricing-groups'] });
+      createdToast();
       void navigate(`/pricing/${created.id}`);
     },
   });

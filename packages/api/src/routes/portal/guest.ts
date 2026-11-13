@@ -27,6 +27,7 @@ import {
   paymentRecords,
   reservations,
   sites,
+  stationUnits,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { publicStationServed } from '../../lib/public-station.js';
@@ -104,6 +105,14 @@ const guestPricingInfo = z
   })
   .loose();
 
+const guestUnitNameField = z
+  .string()
+  .nullable()
+  .optional()
+  .describe(
+    'On a station with units, the name of the unit (charger box) holding the EVSE; null when the EVSE has none or the station is not served to drivers',
+  );
+
 const chargerConfigResponse = z
   .object({
     paymentEnabled: z
@@ -142,6 +151,14 @@ const chargerConfigResponse = z
     pricing: guestPricingInfo
       .optional()
       .describe('Resolved pricing for this station (null when no tariff is assigned)'),
+    unitName: guestUnitNameField,
+    connectorType: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "Type of the EVSE's first connector in service as the station reports it (the plug-in animation draws its face); null when unknown",
+      ),
   })
   .loose();
 
@@ -195,6 +212,7 @@ const guestStatusResponse = z
       .describe('Guest session lifecycle state'),
     stationOcppId: z.string().max(255).describe('OCPP station identity'),
     evseId: z.number().int().min(1).describe('EVSE ID on the station'),
+    unitName: guestUnitNameField,
     isSimulator: z
       .boolean()
       .optional()
@@ -682,8 +700,9 @@ export function portalGuestRoutes(app: FastifyInstance): void {
 
       // Verify EVSE exists
       const [evse] = await db
-        .select({ id: evses.id })
+        .select({ id: evses.id, unitName: stationUnits.name })
         .from(evses)
+        .leftJoin(stationUnits, eq(stationUnits.id, evses.unitId))
         .where(
           and(
             eq(evses.stationId, station.id),
@@ -696,6 +715,13 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
         return;
       }
+      const [firstConnector] = await db
+        .select({ connectorType: connectors.connectorType })
+        .from(connectors)
+        .where(and(eq(connectors.evseId, evse.id), isNull(connectors.retiredAt)))
+        .orderBy(asc(connectors.connectorId))
+        .limit(1);
+      const connectorType = firstConnector?.connectorType ?? null;
 
       // Free-vend overrides any tariff: event-projections skips the payment
       // gate and bills $0 regardless of what tariff is configured. The guest
@@ -744,6 +770,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           paymentEnabled: false,
           isFree,
           isSimulator: station.isSimulator,
+          unitName: evse.unitName ?? null,
+          connectorType,
           paymentProvider: null,
           pricing,
         };
@@ -762,6 +790,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         paymentEnabled: true,
         isFree,
         isSimulator: station.isSimulator,
+        unitName: evse.unitName ?? null,
+        connectorType,
         // The guest checkout loads the payment UI of paymentProvider.provider.
         // publishableKey stays for portal bundles cached before the descriptor.
         paymentProvider: clientConfig,
@@ -1293,10 +1323,27 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .where(eq(chargingStations.stationId, guest.stationOcppId));
 
+      // The unit (charger box) of the session's EVSE, named only while the
+      // station is served to drivers and the EVSE is in service (case 394).
+      const [evseUnit] = await db
+        .select({ unitName: stationUnits.name })
+        .from(evses)
+        .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
+        .innerJoin(stationUnits, eq(stationUnits.id, evses.unitId))
+        .where(
+          and(
+            eq(chargingStations.stationId, guest.stationOcppId),
+            eq(evses.evseId, guest.evseId),
+            isNull(evses.retiredAt),
+            publicStationServed(),
+          ),
+        );
+
       const result: Record<string, unknown> = {
         status: guest.status,
         stationOcppId: guest.stationOcppId,
         evseId: guest.evseId,
+        unitName: evseUnit?.unitName ?? null,
         isSimulator: parentStation?.isSimulator ?? false,
       };
 

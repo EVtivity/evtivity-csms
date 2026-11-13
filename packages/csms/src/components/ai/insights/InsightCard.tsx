@@ -37,6 +37,7 @@ import {
   useInsightFeedback,
   useRegenerateInsight,
 } from './insight-api';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { INSIGHT_ICONS, insightHeadline } from './insight-display';
 
 interface InsightCardProps {
@@ -150,7 +151,7 @@ export function InsightCard({
           regenerate.mutate({ id: insight.id });
         }}
       >
-        {regenerate.isPending ? <Spinner className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
+        {regenerate.isPending ? <ButtonSpinner /> : <RefreshCw className="h-4 w-4" />}
         {t('aiInsights.regenerate')}
       </Button>
     ) : null;
@@ -420,11 +421,7 @@ export function InsightCard({
                 data-testid="ai-insight-wrong-regenerate"
                 onClick={regenerateWithNote}
               >
-                {regenerate.isPending ? (
-                  <Spinner className="h-4 w-4" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
+                {regenerate.isPending ? <ButtonSpinner /> : <RefreshCw className="h-4 w-4" />}
                 {t('aiInsights.regenerate')}
               </Button>
             )}

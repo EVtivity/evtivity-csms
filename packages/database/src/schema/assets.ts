@@ -267,6 +267,11 @@ export const stationUnits = pgTable(
     // Operator-chosen name, 1 to 50 characters (the display label rule).
     name: varchar('name', { length: 50 }).notNull(),
     sortOrder: integer('sort_order').notNull().default(0),
+    // Admin metadata, never shown to drivers or partners: the box's serial
+    // number (1 to 64 characters, the display label rule) and its IP address
+    // (IPv4 or IPv6, stored in canonical form).
+    serialNumber: text('serial_number'),
+    ipAddress: text('ip_address'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

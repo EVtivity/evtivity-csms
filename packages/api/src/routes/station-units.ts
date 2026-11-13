@@ -4,7 +4,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { DISPLAY_LABEL_PATTERN } from '@evtivity/lib/display-label';
-import { STATION_UNIT_NAME_MAX, STATION_UNITS_MAX } from '@evtivity/database';
+import {
+  STATION_UNIT_NAME_MAX,
+  STATION_UNIT_SERIAL_MAX,
+  STATION_UNITS_MAX,
+} from '@evtivity/database';
 import { authorize } from '../middleware/rbac.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import {
@@ -53,8 +57,30 @@ const unitName = z
     `Unit name, 1 to ${String(STATION_UNIT_NAME_MAX)} characters after trimming, unique per station regardless of case. Control and invisible format characters answer 400 VALIDATION_ERROR`,
   );
 
+// Admin metadata of a unit. Shown to CSMS users only: no driver, partner,
+// OCPP or site layout reply carries it (security case 401).
+const serialNumber = z
+  .string()
+  .max(1000)
+  .regex(DISPLAY_LABEL_PATTERN, 'Must not contain control or invisible format characters')
+  .nullable()
+  .optional()
+  .describe(
+    `Serial number of the unit box, 1 to ${String(STATION_UNIT_SERIAL_MAX)} characters after trimming, not unique. An empty string or null clears it; left out keeps it. Control and invisible format characters answer 400 VALIDATION_ERROR`,
+  );
+const ipAddress = z
+  .string()
+  .max(100)
+  .nullable()
+  .optional()
+  .describe(
+    'IP address of the unit box, one IPv4 or IPv6 address without a port, prefix length or host name, stored in canonical form (RFC 5952 for IPv6). An empty string or null clears it; left out keeps it. Anything else answers 400 VALIDATION_ERROR (field ipAddress)',
+  );
+
 const createBody = z.object({
   name: unitName,
+  serialNumber,
+  ipAddress,
   evseIds: z
     .array(z.number().int().min(1))
     .max(1000)
@@ -70,6 +96,8 @@ const updateBody = z.object({
     .max(10000)
     .optional()
     .describe('Position in the station order'),
+  serialNumber,
+  ipAddress,
 });
 const evseUnitBody = z.object({
   unitId: ID_PARAMS.unitId
@@ -83,11 +111,26 @@ const unitItem = z
     stationId: z.string().describe('Station ID'),
     name: z.string().describe('Unit name'),
     sortOrder: z.number().describe('Position in the station order'),
+    serialNumber: z
+      .string()
+      .nullable()
+      .describe('Serial number of the unit box, null when not set'),
+    ipAddress: z
+      .string()
+      .nullable()
+      .describe('IP address of the unit box in canonical form, null when not set'),
     evseIds: z.array(z.string()).describe('EVSE record IDs of the unit, by EVSE number'),
     evseNumbers: z.array(z.number()).describe('OCPP EVSE IDs of the unit, ascending'),
   })
   .loose()
   .describe('A station unit with its EVSEs');
+
+const refusedField = {
+  field: z
+    .enum(['name', 'serialNumber', 'ipAddress', 'unitId'])
+    .optional()
+    .describe('The refused field of a VALIDATION_ERROR'),
+};
 
 const stationNotFound = errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]);
 const notFoundErrors = errorWith('Station, unit or EVSE not found', [
@@ -150,10 +193,11 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         body: zodSchema(createBody),
         response: {
           201: itemResponse(unitItem),
-          400: errorWith('Invalid name or too many units', [
-            ERROR_CODES.VALIDATION_ERROR,
-            ERROR_CODES.STATION_UNIT_LIMIT_REACHED,
-          ]),
+          400: errorWith(
+            'Invalid name, serial number or IP address, or too many units',
+            [ERROR_CODES.VALIDATION_ERROR, ERROR_CODES.STATION_UNIT_LIMIT_REACHED],
+            refusedField,
+          ),
           404: errorWith('Station or EVSE not found', [
             ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.EVSE_NOT_FOUND,
@@ -168,7 +212,12 @@ export function stationUnitRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof createBody>;
       const unit = await createUnit(
         id,
-        { name: body.name, ...(body.evseIds != null ? { evseIds: body.evseIds } : {}) },
+        {
+          name: body.name,
+          ...(body.evseIds != null ? { evseIds: body.evseIds } : {}),
+          ...(body.serialNumber !== undefined ? { serialNumber: body.serialNumber } : {}),
+          ...(body.ipAddress !== undefined ? { ipAddress: body.ipAddress } : {}),
+        },
         context(request),
       );
       await reply.status(201).send(unit);
@@ -182,15 +231,20 @@ export function stationUnitRoutes(app: FastifyInstance): void {
       config: writeConfig,
       schema: {
         tags: ['Stations'],
-        summary: 'Rename or reorder a station unit',
-        description: 'The same name and order again change nothing and write no history.',
+        summary: 'Update a station unit',
+        description:
+          'Renames the unit, sets or clears its serial number and IP address, or moves it in the station order. The same values again change nothing and write no history.',
         operationId: 'updateStationUnit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(unitParams),
         body: zodSchema(updateBody),
         response: {
           200: itemResponse(unitItem),
-          400: errorWith('Invalid name', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith(
+            'Invalid name, serial number or IP address',
+            [ERROR_CODES.VALIDATION_ERROR],
+            refusedField,
+          ),
           404: errorWith('Station or unit not found', [
             ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.STATION_UNIT_NOT_FOUND,
@@ -209,6 +263,8 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         {
           ...(body.name != null ? { name: body.name } : {}),
           ...(body.sortOrder != null ? { sortOrder: body.sortOrder } : {}),
+          ...(body.serialNumber !== undefined ? { serialNumber: body.serialNumber } : {}),
+          ...(body.ipAddress !== undefined ? { ipAddress: body.ipAddress } : {}),
         },
         context(request),
       );

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it } from 'vitest';
-import { groupEvsesByUnit, unitStatus, type StationUnit } from '../station-units';
+import { groupEvsesByUnit, orderedUnits, unitStatus, type StationUnit } from '../station-units';
 
 // GitHub discussion 59: one OCPP 1.6 station, 8 boxes of 2 AC EVSEs.
 const UNITS: StationUnit[] = Array.from({ length: 8 }, (_, i) => ({
@@ -64,5 +64,17 @@ describe('unitStatus', () => {
   it('keeps a connector fault of another unit out of this unit', () => {
     const otherFaulted = { status: 'faulted', statusReason: 'connector_faulted' };
     expect(unitStatus(['available', 'available'], otherFaulted)).toBe('available');
+  });
+});
+
+describe('orderedUnits', () => {
+  it('orders units by sort order, then name, without changing the input', () => {
+    const input = [
+      UNITS[2],
+      { ...UNITS[1], sortOrder: 2, name: 'Alpha' },
+      UNITS[0],
+    ] as StationUnit[];
+    expect(orderedUnits(input).map((u) => u.name)).toEqual(['Box 1', 'Alpha', 'Box 3']);
+    expect(input[0]?.name).toBe('Box 3');
   });
 });

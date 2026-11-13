@@ -26,6 +26,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
 import { SortableTableHead } from '@/components/ui/sortable-table-head';
+import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 
 /** The sort keys of `GET /v1/invoices` (`invoiceListSort` in the API). */
@@ -322,7 +323,7 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
               <Button type="submit" disabled={generateMutation.isPending} className="relative">
                 {generateMutation.isPending && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <ButtonSpinner />
                   </div>
                 )}
                 <span className={generateMutation.isPending ? 'invisible' : ''}>

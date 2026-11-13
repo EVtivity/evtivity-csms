@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, Ban, Check } from 'lucide-react';
+import { AlertCircle, Ban, Check, CheckCircle2 } from 'lucide-react';
 import { isAiProposalRefusalReason } from '@evtivity/lib/ai-proposals';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmButton } from '@/components/confirm-button';
@@ -224,6 +224,7 @@ export function InsightActionSection({
 
       {action.result != null && (
         <Alert variant={ran ? 'success' : 'destructive'}>
+          {ran ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
           <AlertDescription>
             {ran ? t('aiInsights.action.executed') : t('aiInsights.action.confirmFailed')}
             {action.result.httpStatus > 0 && ` (HTTP ${String(action.result.httpStatus)})`}

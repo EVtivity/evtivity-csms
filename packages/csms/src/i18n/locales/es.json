@@ -10,7 +10,8 @@
     "allSiteAccessRequiredDescription": "Esta página abarca todos los sitios. Solo los usuarios con acceso a todos los sitios pueden abrirla.",
     "backToHome": "Volver al panel",
     "save": "Guardar",
-    "saved": "Guardado",
+    "saved": "Guardado correctamente",
+    "createdSuccessfully": "Creado correctamente",
     "reset": "Restablecer",
     "columns": "Columnas",
     "success": "Exitoso",
@@ -424,6 +425,7 @@
   "dashboard": {
     "title": "Panel",
     "totalStations": "Total de estaciones",
+    "chargingUnits": "Unidades de carga",
     "online": "En línea",
     "uptime": "Tiempo activo",
     "activeSessions": "Sesiones activas",
@@ -473,6 +475,7 @@
     },
     "info": {
       "totalStations": "Estaciones de carga aceptadas. Las estaciones pendientes y bloqueadas se cuentan aparte.",
+      "chargingUnits": "Cargadores físicos de las estaciones aceptadas. Una estación sin unidades cuenta como uno. Una estación con unidades cuenta cada unidad con un EVSE en servicio, más uno por sus EVSE sin unidad.",
       "online": "Porcentaje de estaciones aceptadas actualmente conectadas y comunicándose vía OCPP.",
       "onlineCount": "Número de estaciones actualmente conectadas y comunicándose vía OCPP.",
       "uptime": "Tiempo de actividad promedio de los conectores en los últimos 30 días.",
@@ -614,7 +617,6 @@
       "lastEvent": "Último Evento",
       "empty": "No hay eventos de seguridad en este periodo.",
       "noStations": "No hay estaciones con eventos de esta gravedad.",
-      "truncated": "Se muestran {{shown}} de {{total}} estaciones.",
       "criticalRow": "crítico"
     }
   },
@@ -1397,7 +1399,6 @@
     "connectorRegionNorthAmerican": "Norteamérica",
     "connectorRegionEuropean": "Europa",
     "connectorRegionUniversal": "Universal / Otros",
-    "connectorUnknown": "Desconocido",
     "uploadFailed": "No se pudo subir la imagen. Intente nuevamente.",
     "profileUpgradePending": "Actualización al perfil de seguridad {{profile}} pendiente. Se aplica cuando la estación se reconecta con el; hasta entonces sigue activo el perfil actual.",
     "cancelProfileUpgrade": "Cancelar actualización",
@@ -5251,7 +5252,8 @@
       },
       "resolutionSource": {
         "operator": "Equipo de soporte",
-        "ai": "IA"
+        "ai": "IA",
+        "driver": "Conductor"
       },
       "driverAction": {
         "try_other_connector": "Probar otro conector",
@@ -7743,16 +7745,22 @@
     }
   },
   "stationUnits": {
-    "description": "Las cajas de carga físicas de esta estación, como una caja maestra y sus extensiones. Los conductores ven cada unidad como su propio cargador; las sesiones y los comandos siguen en la estación.",
-    "addUnit": "Agregar Unidad",
-    "renameUnit": "Renombrar Unidad",
+    "createUnit": "Crear Unidad",
+    "createUnitDescription": "Agrupe los EVSE de esta estación por caja de carga física.",
+    "editUnit": "Editar Unidad",
     "deleteUnit": "Eliminar Unidad",
     "deleteConfirm": "¿Eliminar {{name}}? Sus EVSE siguen en la estación sin unidad, y se quitan los favoritos y avisos de los conductores para ella.",
     "unitName": "Nombre de la Unidad",
+    "serialNumber": "Número de Serie",
+    "ipAddress": "Dirección IP",
+    "ipAddressHint": "Una dirección IPv4 o IPv6, sin puerto.",
+    "serialNumberValue": "N/S {{value}}",
+    "ipAddressValue": "IP {{value}}",
     "noEvses": "Sin EVSE",
     "noUnit": "Sin Unidad",
+    "unit": "Unidad",
+    "evseCreatedWithoutUnit": "El EVSE se creó sin su unidad. Aparece en EVSE sin Unidad.",
     "evsesWithoutUnit": "EVSE sin Unidad",
-    "empty": "Esta estación no tiene unidades. Agregue una unidad para agrupar sus EVSE por caja de carga física.",
     "evseCount_one": "{{count}} EVSE",
     "evseCount_other": "{{count}} EVSE",
     "unitCount_one": "{{count}} Unidad",
@@ -7767,5 +7775,9 @@
     "evse": "EVSE",
     "chooseEvse": "Elija un EVSE",
     "evseInUnit": "{{evse}} ({{unit}})"
+  },
+  "connectorTypeNames": {
+    "other": "Otro",
+    "pantograph": "Pantógrafo"
   }
 }

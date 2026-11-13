@@ -17,6 +17,7 @@ import {
   UI_CONTRAST_PAIRS,
   UI_SHAPE_TOKENS,
   UI_THEME_TOKENS,
+  contrastOnTint,
   contrastRatio,
   renderThemeCss,
   requiredContrast,
@@ -122,6 +123,31 @@ describe('ui theme contrast (WCAG 2.2)', () => {
           if (ratio < requiredContrast(theme, pair.kind)) failing.push(`${pair.fg}/${pair.bg}`);
         }
         expect(failing).toEqual([]);
+      });
+    }
+  }
+
+  it('splits warning into a bright fill and a darker text color in light mode', () => {
+    for (const theme of UI_THEMES) {
+      const light = UI_THEME_TOKENS[theme].light;
+      // The fill is the bright amber (not brown) and carries dark text.
+      expect(light.warning, theme).toBe('37.7 92.1% 50%');
+      expect(contrastRatio(light['warning-foreground'], light.warning)).toBeGreaterThanOrEqual(7);
+      // Warning text and icons on the card and the page use the deep amber.
+      expect(light['warning-text'], theme).not.toBe(light.warning);
+    }
+  });
+
+  for (const theme of UI_THEMES) {
+    for (const mode of ['light', 'dark'] as const) {
+      it(`${theme} ${mode}: warning text meets AA on the Alert tint (10 percent fill)`, () => {
+        const t = UI_THEME_TOKENS[theme][mode];
+        for (const surface of ['card', 'background'] as const) {
+          expect(
+            contrastOnTint(t['warning-text'], t.warning, t[surface], 0.1),
+            surface,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
       });
     }
   }

@@ -215,7 +215,7 @@ export function ConformanceDetail(): React.JSX.Element {
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-xs text-muted-foreground">{t('conformance.errors')}</p>
-            <p className="text-2xl font-bold text-warning">{run.errors}</p>
+            <p className="text-2xl font-bold text-warning-text">{run.errors}</p>
           </CardContent>
         </Card>
         <Card>

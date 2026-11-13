@@ -8,12 +8,24 @@ import { driverFavoriteStations, stationWatches } from '../schema/drivers.js';
 import { stationAuditActionEnum } from '../schema/audit.js';
 
 describe('station units schema', () => {
-  it('declares station_units with its name and order columns', () => {
+  it('declares station_units with its name, order and optional admin metadata columns', () => {
     const cfg = getTableConfig(stationUnits);
     expect(cfg.name).toBe('station_units');
     expect(cfg.columns.map((c) => c.name).sort()).toEqual(
-      ['created_at', 'id', 'name', 'sort_order', 'station_id', 'updated_at'].sort(),
+      [
+        'created_at',
+        'id',
+        'ip_address',
+        'name',
+        'serial_number',
+        'sort_order',
+        'station_id',
+        'updated_at',
+      ].sort(),
     );
+    for (const name of ['serial_number', 'ip_address']) {
+      expect(cfg.columns.find((c) => c.name === name)?.notNull).toBe(false);
+    }
     expect(cfg.uniqueConstraints.map((u) => u.name)).toContain('uq_station_units_id_station');
   });
 

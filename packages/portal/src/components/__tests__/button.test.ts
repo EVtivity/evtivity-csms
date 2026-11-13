@@ -23,3 +23,17 @@ describe('buttonVariants disabled styles', () => {
     expect(buttonVariants({ variant }).split(' ')).toContain('disabled:opacity-50');
   });
 });
+
+describe('buttonVariants text color', () => {
+  // A filled or bordered button carries its own text color, so a tinted container (the
+  // warning Alert, a status card) never colors its label.
+  it.each([
+    ['default', 'text-primary-foreground'],
+    ['destructive', 'text-destructive-foreground'],
+    ['outline', 'text-foreground'],
+    ['secondary', 'text-secondary-foreground'],
+    ['link', 'text-link'],
+  ] as const)('%s sets %s', (variant, color) => {
+    expect(buttonVariants({ variant }).split(' ')).toContain(color);
+  });
+});

@@ -101,6 +101,17 @@ export function SimProviderStatusCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {notice}
+        {status?.usage != null && usageNearLimit(status.usage) && (
+          <Alert variant="warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {t('stations.sim.usageWarning', {
+                amount: formatDataBytes(status.usage.bytes),
+                limit: formatDataBytes(status.usage.limitBytes ?? 0),
+              })}
+            </AlertDescription>
+          </Alert>
+        )}
         <p className="text-xs text-muted-foreground">
           {statusFetchedAt == null
             ? t('stations.sim.notFetchedYet')
@@ -169,17 +180,6 @@ export function SimProviderStatusCard({
             </DescriptionItem>
           )}
         </DescriptionList>
-        {status?.usage != null && usageNearLimit(status.usage) && (
-          <Alert variant="warning">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              {t('stations.sim.usageWarning', {
-                amount: formatDataBytes(status.usage.bytes),
-                limit: formatDataBytes(status.usage.limitBytes ?? 0),
-              })}
-            </AlertDescription>
-          </Alert>
-        )}
         {missing.length > 0 && (
           <p className="text-xs text-muted-foreground">
             {t('stations.sim.notReported', {

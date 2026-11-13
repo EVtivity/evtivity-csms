@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, escapeChartText, getGridColor } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 import { ChartBody, type QueryState } from './ChartBody';
-import { connectorTypeLabel, connectorTypeShortLabel } from './ConnectorStatus';
+import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
 export interface EvsesByConnectorTypePoint {
   connectorType: string;
@@ -32,32 +32,15 @@ export function EvsesByConnectorTypeChart({
   const { t, i18n } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
 
-  // The axis shows the short standard name ("CCS1"), so labels never rotate or
-  // clip; the tooltip names the full type ("CCS1 (Combined Charging System 1)").
-  // An unknown vendor value is station data, and ApexCharts writes the tooltip
-  // titles (the x formatter and the axis tooltip category) as HTML, so both
-  // arrays are escaped (security review AI-L1, the case 306 rule).
+  const typeLabel = useConnectorTypeLabel();
+  // The axis and the tooltip show the shared display name ("CCS1", "J1772",
+  // "Other" for the grouped `unknown`). An unknown vendor value is station
+  // data, and ApexCharts writes the tooltip titles (the x formatter and the
+  // axis tooltip category) as HTML, so the labels are escaped (security
+  // review AI-L1, the case 306 rule).
   const labels = useMemo(
-    () =>
-      data.map((d) =>
-        escapeChartText(
-          d.connectorType === 'unknown'
-            ? t('stations.connectorUnknown')
-            : (connectorTypeShortLabel(d.connectorType) ?? d.connectorType),
-        ),
-      ),
-    [data, t],
-  );
-  const fullLabels = useMemo(
-    () =>
-      data.map((d) =>
-        escapeChartText(
-          d.connectorType === 'unknown'
-            ? t('stations.connectorUnknown')
-            : (connectorTypeLabel(d.connectorType) ?? d.connectorType),
-        ),
-      ),
-    [data, t],
+    () => data.map((d) => escapeChartText(typeLabel(d.connectorType))),
+    [data, typeLabel],
   );
 
   const options = useMemo<ApexOptions>(
@@ -84,7 +67,7 @@ export function EvsesByConnectorTypeChart({
       tooltip: {
         x: {
           formatter: (val: number, opts?: { dataPointIndex?: number }) =>
-            fullLabels[opts?.dataPointIndex ?? -1] ?? String(val),
+            labels[opts?.dataPointIndex ?? -1] ?? String(val),
         },
         y: {
           formatter: (val: number, opts?: { dataPointIndex?: number }) =>
@@ -97,7 +80,7 @@ export function EvsesByConnectorTypeChart({
       colors: [CHART_COLORS.secondary],
       responsive: [{ breakpoint: 768, options: { chart: { height: 250 } } }],
     }),
-    [isDark, labels, fullLabels, data, t, i18n.language],
+    [isDark, labels, data, t, i18n.language],
   );
 
   const series = useMemo(

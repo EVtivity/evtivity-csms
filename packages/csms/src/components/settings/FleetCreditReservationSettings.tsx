@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
+import { SavedMessage } from '@/components/saved-message';
 import {
   centsToMajorInput,
   formatCurrencyAmount,
@@ -120,7 +121,7 @@ export function FleetCreditReservationSettings({ settings }: Props): React.JSX.E
       <SaveButton isPending={mutation.isPending} />
 
       {mutation.isSuccess && (
-        <p className="text-sm text-success">{t('settings.fleetCreditReservationSaved')}</p>
+        <SavedMessage>{t('settings.fleetCreditReservationSaved')}</SavedMessage>
       )}
       {mutation.isError && (
         <p className="text-sm text-destructive">{t('settings.fleetCreditReservationSaveFailed')}</p>

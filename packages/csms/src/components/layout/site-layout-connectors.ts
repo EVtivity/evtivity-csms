@@ -7,10 +7,23 @@
 // come from the standard or manufacturer drawings cited at each spec; every
 // value is in the site layout standards table.
 
-/** The connector types the layout draws. */
-export type ConnectorKind = 'type1' | 'type2' | 'ccs1' | 'ccs2' | 'chademo' | 'nacs' | 'mcs';
+import {
+  CCS1_CONTACTS,
+  CCS1_DC_Y,
+  CCS2_CONTACTS,
+  CCS2_DC_Y,
+  J1772_CONTACTS,
+  TYPE2_CONTACTS,
+  connectorKindOf,
+  type ConnectorContact,
+  type ConnectorKind,
+} from '@evtivity/lib/connector-faces';
 
-/** The connector kind of a station connector type (OCPP 1.6, 2.x and CSMS spellings), by the charging kind when unknown. */
+// The kinds, the kind of a station type and the contact layouts live with the
+// face pictograms in @evtivity/lib/connector-faces (one geometry source for
+// the CSMS 3D handles and 2D cards and the portal plug-in animation).
+export { connectorKindOf, type ConnectorContact, type ConnectorKind };
+
 /**
  * The thickest AC charging cable the layout draws: 16.1 mm, the thickest
  * OLFLEX CHARGE AC cable (5G6+1x0.5, LAPP data sheet, EN 50620 and IEC
@@ -26,31 +39,11 @@ export function chargerCableDiameterM(kind: ConnectorKind, ac: boolean): number 
   return ac ? Math.min(d, AC_CABLE_MAX_DIAMETER_M) : d;
 }
 
-export function connectorKindOf(type: string | null | undefined, dc: boolean): ConnectorKind {
-  const t = (type ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (t === 'ctype1' || t === 'type1' || t === 'j1772' || t === 'stype1') return 'type1';
-  if (t === 'ctype2' || t === 'type2' || t === 'stype2') return 'type2';
-  if (t === 'cccs1' || t === 'ccs1' || t === 'combo1') return 'ccs1';
-  if (t === 'cccs2' || t === 'ccs2' || t === 'combo2') return 'ccs2';
-  if (t === 'chademo' || t === 'cg105') return 'chademo';
-  if (t === 'nacs' || t === 'tesla' || t === 'ctesla' || t === 'j3400') return 'nacs';
-  if (t === 'mcs' || t === 'cmcs') return 'mcs';
-  return dc ? 'ccs1' : 'type1';
-}
-
 /** Whether the kind carries DC power (the thicker cable, the DC pin block). */
 export function isDcConnectorKind(kind: ConnectorKind): boolean {
   return (
     kind === 'ccs1' || kind === 'ccs2' || kind === 'chademo' || kind === 'nacs' || kind === 'mcs'
   );
-}
-
-/** A contact opening of a plug face: its center from the face center (x right, y up, looking at the face) and its diameter. */
-export interface ConnectorContact {
-  x: number;
-  y: number;
-  d: number;
-  role: 'power' | 'ground' | 'signal' | 'dc';
 }
 
 /**
@@ -96,32 +89,6 @@ export interface ConnectorSpec {
 // apart and 6.8 mm above the center, CP and PP 21.3 mm apart and 5.6 mm
 // below, PE 10.8 mm below; the connector's socket openings 3.9 mm (power),
 // 3.1 mm (PE) and 1.8 mm (CP, PP), detail K.
-const J1772_CONTACTS: ConnectorContact[] = [
-  { x: -0.00785, y: 0.0068, d: 0.0039, role: 'power' },
-  { x: 0.00785, y: 0.0068, d: 0.0039, role: 'power' },
-  { x: 0, y: -0.0108, d: 0.0031, role: 'ground' },
-  { x: -0.01065, y: -0.0056, d: 0.0018, role: 'signal' },
-  { x: 0.01065, y: -0.0056, d: 0.0018, role: 'signal' },
-];
-// IEC 62196-2 Type 2 (Phoenix Contact EV-T2G3C datasheet p.7): CP and PP
-// small at the top by the flat, N, PE and L1 across the middle, L3 and L2 at
-// the bottom; power and PE pins 6 mm, CP and PP 3 mm (eeNews Europe,
-// secondary). The pitch is not published: drawn to fill the 63 mm insert
-// face as on the drawing.
-const TYPE2_CONTACTS: ConnectorContact[] = [
-  { x: -0.0075, y: 0.0125, d: 0.004, role: 'signal' },
-  { x: 0.0075, y: 0.0125, d: 0.004, role: 'signal' },
-  { x: -0.0155, y: 0, d: 0.007, role: 'power' },
-  { x: 0, y: 0, d: 0.007, role: 'ground' },
-  { x: 0.0155, y: 0, d: 0.007, role: 'power' },
-  { x: -0.009, y: -0.0145, d: 0.007, role: 'power' },
-  { x: 0.009, y: -0.0145, d: 0.007, role: 'power' },
-];
-
-// The CCS1 DC center 42 mm below the AC center (J1772 sheet C-2, p.51).
-const CCS1_DC_Y = -0.042;
-// CCS2: not published; the CCS1 gap between the AC circle and the DC lobe kept.
-const CCS2_DC_Y = -(0.0315 + (0.042 - 0.0219 - 0.017) + 0.017);
 
 export const CONNECTOR_SPECS: Record<ConnectorKind, ConnectorSpec> = {
   // SAE J1772: the 43.8 mm round nose with an 8 mm key tab at the bottom out
@@ -195,11 +162,7 @@ export const CONNECTOR_SPECS: Record<ConnectorKind, ConnectorSpec> = {
     dcBlockHeightM: 0.034,
     dcCenterYM: CCS1_DC_Y,
     neckWidthM: 0.008,
-    contacts: [
-      ...J1772_CONTACTS.filter((c) => c.role !== 'power'),
-      { x: -0.013, y: CCS1_DC_Y, d: 0.009, role: 'dc' },
-      { x: 0.013, y: CCS1_DC_Y, d: 0.009, role: 'dc' },
-    ],
+    contacts: CCS1_CONTACTS,
     headLengthM: 0.09,
     gripLengthM: 0.12,
     gripDiameterM: 0.048,
@@ -226,11 +189,7 @@ export const CONNECTOR_SPECS: Record<ConnectorKind, ConnectorSpec> = {
     dcBlockHeightM: 0.034,
     dcCenterYM: CCS2_DC_Y,
     neckWidthM: 0.008,
-    contacts: [
-      ...TYPE2_CONTACTS.filter((c) => c.role !== 'power'),
-      { x: -0.013, y: CCS2_DC_Y, d: 0.009, role: 'dc' },
-      { x: 0.013, y: CCS2_DC_Y, d: 0.009, role: 'dc' },
-    ],
+    contacts: CCS2_CONTACTS,
     headLengthM: 0.09,
     gripLengthM: 0.12,
     gripDiameterM: 0.048,
