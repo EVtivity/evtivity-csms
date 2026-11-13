@@ -3,8 +3,10 @@
 
 import type { TariffRestrictions } from './tariff-restrictions.js';
 import { timeToMinutes } from './tariff-restrictions.js';
+import type { TariffScope } from './tariff-scope.js';
+import { isUnscopedTariff, tariffScopesConflict } from './tariff-scope.js';
 
-interface TariffForOverlap {
+interface TariffForOverlap extends TariffScope {
   id: string;
   restrictions: TariffRestrictions | null;
   priority: number;
@@ -84,9 +86,17 @@ export function validateNoOverlap(
   newRestrictions: TariffRestrictions | null,
   newPriority: number,
   excludeTariffId?: string,
+  /**
+   * The new tariff's charging type and sites. Two tariffs of one priority
+   * are compared only when their scopes conflict (overlap and neither is more
+   * specific, owner decision D-A): AC never meets DC, and an AC or Selected
+   * Sites tariff wins over a Both or All Sites one instead of conflicting.
+   */
+  newScope: TariffScope = {},
 ): OverlapResult {
   const candidates = existingTariffs.filter(
-    (t) => t.id !== excludeTariffId && t.priority === newPriority,
+    (t) =>
+      t.id !== excludeTariffId && t.priority === newPriority && tariffScopesConflict(t, newScope),
   );
 
   // Priority 0 (default): only one allowed
@@ -96,7 +106,9 @@ export function validateNoOverlap(
       return {
         valid: false,
         conflictingTariffId: conflict.id,
-        message: 'Only one default tariff allowed per group',
+        message: isUnscopedTariff(newScope)
+          ? 'Only one default tariff allowed per group'
+          : 'An unrestricted tariff with an overlapping charging type and sites already exists',
       };
     }
     return { valid: true };
@@ -109,7 +121,9 @@ export function validateNoOverlap(
       return {
         valid: false,
         conflictingTariffId: conflict.id,
-        message: 'Only one holiday tariff allowed per group',
+        message: isUnscopedTariff(newScope)
+          ? 'Only one holiday tariff allowed per group'
+          : 'A holiday tariff with an overlapping charging type and sites already exists',
       };
     }
     return { valid: true };

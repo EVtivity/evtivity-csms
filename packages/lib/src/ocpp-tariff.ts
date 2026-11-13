@@ -12,9 +12,11 @@ import type { TaxBasis } from './price-display.js';
 import type { TariffRestrictions } from './tariff-restrictions.js';
 import { getZonedComponents } from './time-window.js';
 import { compareTariffs } from './tariff-resolver.js';
+import { tariffSpecificity } from './tariff-scope.js';
+import type { TariffScope } from './tariff-scope.js';
 
 /** A tariff as the builder reads it (a `tariffs` row or a price snapshot). */
-export interface OcppTariffSource {
+export interface OcppTariffSource extends TariffScope {
   id: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
@@ -45,6 +47,8 @@ export interface OcppTariffConditions {
   validToDate?: string;
   minEnergy?: number;
   minIdleTime?: number;
+  /** EvseKindEnumType: the element applies only on an AC or a DC EVSE (Authorize, D-D). */
+  evseKind?: 'AC' | 'DC';
 }
 
 /** TariffConditionsFixedType: no energy or time conditions (applied at the start). */
@@ -230,7 +234,12 @@ function resolutionOrder(tariffs: readonly OcppTariffSource[]): OcppTariffSource
   const restricted = tariffs
     .filter((t) => t.restrictions != null && t.priority > 0)
     .sort(compareTariffs);
-  const fallback = tariffs.find((t) => t.isDefault && t.priority === 0);
+  // The unrestricted tariff the resolver falls back to: the most specific
+  // in-scope one (an AC, DC or Selected Sites tariff), else the default. The
+  // caller passes only the tariffs whose scope applies to the session.
+  const fallback = tariffs
+    .filter((t) => t.priority === 0 && (t.isDefault || tariffSpecificity(t) > 0))
+    .sort(compareTariffs)[0];
   return fallback != null ? [...restricted, fallback] : restricted;
 }
 
@@ -251,6 +260,7 @@ function withoutEnergyTime(c: OcppTariffConditions): OcppTariffFixedConditions {
   if (c.dayOfWeek != null) fixed.dayOfWeek = c.dayOfWeek;
   if (c.validFromDate != null) fixed.validFromDate = c.validFromDate;
   if (c.validToDate != null) fixed.validToDate = c.validToDate;
+  if (c.evseKind != null) fixed.evseKind = c.evseKind;
   return fixed;
 }
 
@@ -374,46 +384,127 @@ function contentTariffId(content: Omit<OcppTariff, 'tariffId'>): string {
  * ChangeTransactionTariff when it switches the session's tariff.
  */
 export function buildOcppTariff(input: OcppTariffInput): OcppTariff {
-  const today = getZonedComponents(input.at, input.timezone).isoDate;
-  const holidays = input.holidays.map((h) => h.toISOString().slice(0, 10));
-  const conditionsAllowed = input.support.conditions;
-  const maxElements = input.support.maxElements;
-  const fits = (fields: Omit<OcppTariff, 'tariffId' | 'currency'>): boolean =>
-    maxElements == null || fieldSizes(fields).every((n) => n <= maxElements);
-
+  const ctx = builderContext(input);
   let fields: Omit<OcppTariff, 'tariffId' | 'currency'> | null = null;
-  const ordered = resolutionOrder(input.groupTariffs);
-  const oneTaxRate = new Set(ordered.map((t) => price(t.taxRate))).size <= 1;
-  if (
-    conditionsAllowed &&
-    ordered.length > 1 &&
-    oneTaxRate &&
-    ordered.some((t) => t.id === input.current.id)
-  ) {
-    const elements = ordered.flatMap((tariff): Element[] =>
-      tariff.restrictions != null && tariff.priority > 0
-        ? ocppTariffConditions(tariff.restrictions, holidays, today).map((conditions) => ({
-            tariff,
-            conditions,
-          }))
-        : [{ tariff, conditions: undefined }],
-    );
+  const elements = groupElements(input.current, input.groupTariffs, ctx);
+  if (elements != null) {
     const grouped = tariffFields(elements, input, true);
-    if (fits(grouped)) fields = grouped;
+    if (ctx.fits(grouped)) fields = grouped;
   }
   if (fields == null) {
     const alone = tariffFields(
       [{ tariff: input.current, conditions: undefined }],
       input,
-      conditionsAllowed,
+      ctx.conditionsAllowed,
     );
     // A station that takes one price per field gets the idle price without
     // the grace element (the first idle minutes free cannot be expressed).
-    fields = fits(alone)
+    fields = ctx.fits(alone)
       ? alone
       : tariffFields([{ tariff: input.current, conditions: undefined }], input, false);
   }
+  return withTariffId(input.currency, fields);
+}
 
-  const content = { currency: input.currency, ...fields };
+interface BuilderContext {
+  today: string;
+  holidays: string[];
+  conditionsAllowed: boolean;
+  fits: (fields: Omit<OcppTariff, 'tariffId' | 'currency'>) => boolean;
+}
+
+function builderContext(input: Omit<OcppTariffInput, 'current' | 'groupTariffs'>): BuilderContext {
+  const maxElements = input.support.maxElements;
+  return {
+    today: getZonedComponents(input.at, input.timezone).isoDate,
+    holidays: input.holidays.map((h) => h.toISOString().slice(0, 10)),
+    conditionsAllowed: input.support.conditions,
+    fits: (fields) => maxElements == null || fieldSizes(fields).every((n) => n <= maxElements),
+  };
+}
+
+/**
+ * The conditioned elements of a group in resolution order, or null when the
+ * current tariff must go alone (no conditions, one tariff, several tax
+ * rates, or the current tariff not one of the group's).
+ */
+function groupElements(
+  current: OcppTariffSource,
+  groupTariffs: readonly OcppTariffSource[],
+  ctx: BuilderContext,
+): Element[] | null {
+  const ordered = resolutionOrder(groupTariffs);
+  const oneTaxRate = new Set(ordered.map((t) => price(t.taxRate))).size <= 1;
+  if (
+    !ctx.conditionsAllowed ||
+    ordered.length <= 1 ||
+    !oneTaxRate ||
+    !ordered.some((t) => t.id === current.id)
+  ) {
+    return null;
+  }
+  return ordered.flatMap((tariff): Element[] =>
+    tariff.restrictions != null && tariff.priority > 0
+      ? ocppTariffConditions(tariff.restrictions, ctx.holidays, ctx.today).map((conditions) => ({
+          tariff,
+          conditions,
+        }))
+      : [{ tariff, conditions: undefined }],
+  );
+}
+
+function withTariffId(
+  currency: string,
+  fields: Omit<OcppTariff, 'tariffId' | 'currency'>,
+): OcppTariff {
+  const content = { currency, ...fields };
   return { tariffId: contentTariffId(content), ...content };
+}
+
+/** What a station is priced with for one charging kind (the resolver run with that kind). */
+export interface OcppKindTariff {
+  current: OcppTariffSource;
+  /** The group's tariffs that apply to this kind (split billing), else empty. */
+  groupTariffs: readonly OcppTariffSource[];
+}
+
+/**
+ * The Authorize tariff of a station whose AC and DC EVSEs are priced
+ * differently (owner decision D-D, I08 comes before the EVSE is known). A
+ * station with tariff conditions gets the AC elements with `evseKind: AC`,
+ * the DC elements with `evseKind: DC` and the tariff for an unknown kind
+ * (the Both tariffs) as the unconditioned fallback. Null when the station
+ * takes no conditions, the tariffs have different tax rates, or the elements
+ * exceed TariffCostCtrlr.MaxElements: the AuthorizeResponse then carries no
+ * tariff and the session's tariff follows with ChangeTransactionTariff after
+ * TransactionEvent Started.
+ */
+export function buildOcppKindTariff(
+  input: Omit<OcppTariffInput, 'current' | 'groupTariffs'> & {
+    ac: OcppKindTariff;
+    dc: OcppKindTariff;
+    fallback: OcppTariffSource;
+  },
+): OcppTariff | null {
+  const ctx = builderContext(input);
+  if (!ctx.conditionsAllowed) return null;
+  const kindElements = (kind: OcppKindTariff, evseKind: 'AC' | 'DC'): Element[] => {
+    const elements = groupElements(kind.current, kind.groupTariffs, ctx) ?? [
+      { tariff: kind.current, conditions: undefined },
+    ];
+    return elements.map((e) => ({ tariff: e.tariff, conditions: { ...e.conditions, evseKind } }));
+  };
+  const elements: Element[] = [
+    ...kindElements(input.ac, 'AC'),
+    ...kindElements(input.dc, 'DC'),
+    { tariff: input.fallback, conditions: undefined },
+  ];
+  if (new Set(elements.map((e) => price(e.tariff.taxRate))).size > 1) return null;
+  const fields = tariffFields(
+    elements,
+    { ...input, current: input.fallback, groupTariffs: [] },
+    true,
+  );
+  if (!ctx.fits(fields)) return null;
+  return withTariffId(input.currency, fields);
 }

@@ -3,8 +3,14 @@
 
 import type { TariffRestrictions } from './tariff-restrictions.js';
 import { tariffMatchesNow } from './tariff-restrictions.js';
+import type { TariffContext, TariffScope } from './tariff-scope.js';
+import { tariffAppliesTo, tariffSpecificity } from './tariff-scope.js';
 
-export interface TariffWithRestrictions {
+/**
+ * A tariff as the resolver reads it. `chargingType` and `siteIds` (its
+ * scope, `tariff-scope.ts`) default to Both and All Sites.
+ */
+export interface TariffWithRestrictions extends TariffScope {
   id: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
@@ -30,8 +36,14 @@ export function resolveActiveTariff(
    * local time is used (legacy callers).
    */
   timezone?: string,
+  /**
+   * The charging kind and site the price is for. Only tariffs whose scope
+   * applies are candidates (an unknown kind gets the Both tariffs, an
+   * unknown site the All Sites tariffs). Omitted: kind and site unknown.
+   */
+  context?: TariffContext,
 ): TariffWithRestrictions | null {
-  const sorted = [...tariffs].sort(compareTariffs);
+  const sorted = tariffs.filter((t) => tariffAppliesTo(t, context)).sort(compareTariffs);
 
   for (const tariff of sorted) {
     if (tariff.restrictions == null || tariff.priority === 0) {
@@ -42,25 +54,31 @@ export function resolveActiveTariff(
     }
   }
 
-  // Fall back to the default (priority 0) tariff. The API keeps exactly one
-  // active default per group with tariffs; a group written before that rule
-  // may have none, and the caller then tries the next pricing group.
-  return sorted.find((t) => t.isDefault && t.priority === 0) ?? null;
+  // Priority 0: an unrestricted AC, DC or Selected Sites tariff in scope
+  // (more specific first, owner decision D-A), else the default. The API
+  // keeps exactly one active default per group with tariffs (Both, All
+  // Sites); a group written before that rule may have none, and the caller
+  // then tries the next pricing group.
+  return sorted.find((t) => t.priority === 0 && (t.isDefault || tariffSpecificity(t) > 0)) ?? null;
 }
 
 /**
  * The order the resolver checks tariffs in: priority descending (highest
  * first); among energy-threshold tariffs (priority 50) the highest threshold
- * first, so the highest threshold the session reached wins; then by id, so
- * the result never depends on the order the database returned the rows in.
+ * first, so the highest threshold the session reached wins; then the more
+ * specific scope first (AC or DC before Both, Selected Sites before All
+ * Sites, owner decision D-A); then by id, so the result never depends on
+ * the order the database returned the rows in.
  */
 export function compareTariffs(
-  a: Pick<TariffWithRestrictions, 'id' | 'priority' | 'restrictions'>,
-  b: Pick<TariffWithRestrictions, 'id' | 'priority' | 'restrictions'>,
+  a: Pick<TariffWithRestrictions, 'id' | 'priority' | 'restrictions' | 'chargingType' | 'siteIds'>,
+  b: Pick<TariffWithRestrictions, 'id' | 'priority' | 'restrictions' | 'chargingType' | 'siteIds'>,
 ): number {
   if (a.priority !== b.priority) return b.priority - a.priority;
   const thresholdA = a.restrictions?.energyThresholdKwh ?? 0;
   const thresholdB = b.restrictions?.energyThresholdKwh ?? 0;
   if (thresholdA !== thresholdB) return thresholdB - thresholdA;
+  const specificity = tariffSpecificity(b) - tariffSpecificity(a);
+  if (specificity !== 0) return specificity;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }

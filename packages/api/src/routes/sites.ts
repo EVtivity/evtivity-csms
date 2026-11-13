@@ -1,6 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import {
+  assignToStationOrSite,
+  SITE_LIMITED_GROUP_REPLY,
+  SiteLimitedGroupError,
+} from '../lib/tariff-sites.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
@@ -4014,6 +4019,9 @@ export function siteRoutes(app: FastifyInstance): void {
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.PRICING_GROUP_NOT_FOUND,
           ]),
+          409: errorWith('The pricing group has Selected Sites tariffs', [
+            ERROR_CODES.PRICING_GROUP_HAS_SITE_LIMITED_TARIFFS,
+          ]),
         },
       },
     },
@@ -4046,15 +4054,23 @@ export function siteRoutes(app: FastifyInstance): void {
         .where(eq(pricingGroupSites.siteId, id));
       let record;
       try {
-        [record] = await db
-          .insert(pricingGroupSites)
-          .values({ siteId: id, pricingGroupId: body.pricingGroupId })
-          .onConflictDoUpdate({
-            target: [pricingGroupSites.siteId],
-            set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
-          })
-          .returning();
+        // Under the group's scope lock: a group with Selected Sites tariffs
+        // prices drivers and fleets only (D-B).
+        [record] = await assignToStationOrSite(body.pricingGroupId, (tx) =>
+          tx
+            .insert(pricingGroupSites)
+            .values({ siteId: id, pricingGroupId: body.pricingGroupId })
+            .onConflictDoUpdate({
+              target: [pricingGroupSites.siteId],
+              set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
+            })
+            .returning(),
+        );
       } catch (err) {
+        if (err instanceof SiteLimitedGroupError) {
+          await reply.status(409).send(SITE_LIMITED_GROUP_REPLY);
+          return;
+        }
         // The pre-checks are non-transactional, so the pricing group can be
         // deleted between the check and this INSERT. Map the FK violation
         // to the same 404 the pre-check would have produced.

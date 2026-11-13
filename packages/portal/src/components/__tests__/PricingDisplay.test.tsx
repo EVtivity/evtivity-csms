@@ -158,4 +158,40 @@ describe('PricingDisplay', () => {
     );
     expect(screen.getByText('charger.priceChangesDuringSession')).toBeDefined();
   });
+
+  it('shows the AC and DC prices side by side when they differ', async () => {
+    await i18next.changeLanguage('en');
+    render(
+      <PricingDisplay
+        pricing={{
+          ...pricing,
+          taxRate: null,
+          byChargingKind: [
+            {
+              chargingKind: 'ac',
+              pricePerKwh: '0.30',
+              pricePerMinute: null,
+              pricePerSession: null,
+              idleFeePricePerMinute: null,
+              taxRate: null,
+            },
+            {
+              chargingKind: 'dc',
+              pricePerKwh: '0.60',
+              pricePerMinute: null,
+              pricePerSession: null,
+              idleFeePricePerMinute: null,
+              taxRate: null,
+            },
+          ],
+        }}
+        priceDisplay="net"
+      />,
+    );
+    expect(screen.getByTestId('pricing-by-kind')).toBeDefined();
+    expect(screen.getByText('charger.chargingKindAc')).toBeDefined();
+    expect(screen.getByText('€0.30/charger.unitKwh')).toBeDefined();
+    expect(screen.getByText('€0.60/charger.unitKwh')).toBeDefined();
+    expect(screen.queryByText('€0.49/charger.unitKwh')).toBeNull();
+  });
 });

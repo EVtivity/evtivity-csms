@@ -192,6 +192,7 @@ describe('tariffBoundaryCheckHandler', () => {
         at: expect.any(Date) as Date,
         sessionEnergyKwh: 1.5,
         pricingGroupId: 'pgr_1',
+        chargingKind: null,
       },
       mockClient,
     );

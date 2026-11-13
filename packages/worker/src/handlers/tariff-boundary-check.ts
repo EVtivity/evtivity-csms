@@ -46,6 +46,7 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
         stationUuid: chargingSessions.stationId,
         driverId: chargingSessions.driverId,
         tariffId: chargingSessions.tariffId,
+        chargingKind: chargingSessions.chargingKind,
         // The group the session started in (B7); a session a release before
         // 0340 started has none, so its tariff's group is read.
         pricingGroupId: sql<string | null>`COALESCE(${chargingSessions.pricingGroupId},
@@ -111,6 +112,11 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
           at: now,
           sessionEnergyKwh: energyWh / 1000,
           pricingGroupId: session.pricingGroupId,
+          // Within the session's charging kind (AC and DC tariffs).
+          chargingKind:
+            session.chargingKind === 'ac' || session.chargingKind === 'dc'
+              ? session.chargingKind
+              : null,
         },
         client,
       );

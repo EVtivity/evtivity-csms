@@ -79,6 +79,12 @@ const {
 // -- Mocks --
 
 vi.mock('@evtivity/database', () => ({
+  // AC and DC tariffs: the charging kind readers (tested in the database package).
+  loadStationEvseKinds: vi.fn(() => Promise.resolve(new Map())),
+  startChargingKinds: vi.fn(() => Promise.resolve([null])),
+  loadEvseChargingKind: vi.fn(() => Promise.resolve(null)),
+  resolvableKind: vi.fn(() => null),
+  stationDisplayKind: vi.fn(() => Promise.resolve(null)),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   getSystemTimezone: vi.fn(() => Promise.resolve('America/New_York')),
   getCompanyPriceDisplay: mockGetCompanyPriceDisplay,
@@ -375,7 +381,7 @@ describe('station-message.service', () => {
       expect(mockRenderStationMessage).toHaveBeenCalledWith('faulted', expect.any(Object), 'de');
       // The station screen shows the walk-up price: no driver.
       expect(mockResolveTariff).toHaveBeenCalledWith(
-        { stationUuid: INTERNAL_STATION_ID, driverUuid: null },
+        { stationUuid: INTERNAL_STATION_ID, driverUuid: null, chargingKind: null },
         expect.anything(),
       );
     });

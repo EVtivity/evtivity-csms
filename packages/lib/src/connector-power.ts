@@ -31,6 +31,20 @@ const AC_OR_DC_TYPES: ReadonlySet<string> = new Set(['GBT', 'Tesla', 'NACS']);
 export const AC_MAX_POWER_KW = 22;
 
 /**
+ * True for the plug types whose maximum power decides AC or DC (GB/T, Tesla,
+ * NACS). An operator must give their maximum power (owner decision
+ * 2026-11-13): without it `isDcConnector` reads AC, so a DC charger would be
+ * priced with the AC tariffs. Station-reported connectors are not refused.
+ */
+export function connectorNeedsMaxPower(connectorType: string | null | undefined): boolean {
+  return connectorType != null && AC_OR_DC_TYPES.has(connectorType);
+}
+
+/** The message a write refuses a missing maximum power with (field maxPowerKw). */
+export const CONNECTOR_MAX_POWER_REQUIRED_MESSAGE =
+  'Maximum power is required for NACS, GB/T and Tesla connectors: above 22 kW is DC, 22 kW or less is AC';
+
+/**
  * Connector ratings an operator enters (stations API, site import, CSMS form):
  * maximum power in kW with at most 2 decimals (3.68, 7.4, 11.5) and maximum
  * current in A with at most 1 decimal (31.5), each at least 0.1.
@@ -78,4 +92,27 @@ export function isDcConnector(connector: ConnectorPowerInput): boolean {
  */
 export function stationChargingKind(connectors: readonly ConnectorPowerInput[]): ChargingKind {
   return connectors.some(isDcConnector) ? 'dc' : 'ac';
+}
+
+/**
+ * The charging kind of one EVSE from its connectors (tariff charging types,
+ * owner decision 2026-11-13): `ac` when every connector with a known type is
+ * AC, `dc` when every one is DC, `mixed` when it holds both (for example
+ * Type 2 and CCS2: the connector used decides), null when no connector has a
+ * type. A 1.6 EVSE holds one connector, so it is never mixed.
+ */
+export function evseChargingKind(
+  connectors: readonly ConnectorPowerInput[],
+): ChargingKind | 'mixed' | null {
+  let ac = false;
+  let dc = false;
+  for (const c of connectors) {
+    if (c.connectorType == null || c.connectorType === '') continue;
+    if (isDcConnector(c)) dc = true;
+    else ac = true;
+  }
+  if (ac && dc) return 'mixed';
+  if (dc) return 'dc';
+  if (ac) return 'ac';
+  return null;
 }

@@ -3,9 +3,11 @@
 
 import type { TariffRestrictions } from './tariff-restrictions.js';
 import { derivePriority } from './tariff-restrictions.js';
+import type { TariffScope } from './tariff-scope.js';
+import { isUnscopedTariff } from './tariff-scope.js';
 
 /** A tariff of a pricing group, as the default rule reads it. */
-export interface GroupDefaultTariff {
+export interface GroupDefaultTariff extends TariffScope {
   id: string;
   restrictions: TariffRestrictions | null;
   isDefault: boolean;
@@ -18,7 +20,8 @@ export type GroupDefaultCheck =
       valid: false;
       /**
        * `no_default`: the group has active tariffs but no active default.
-       * `restricted_default`: a tariff with restrictions is marked default.
+       * `restricted_default`: a tariff with restrictions, an AC or DC
+       * charging type, or Selected Sites is marked default.
        * `multiple_defaults`: more than one tariff is marked default.
        */
       reason: 'no_default' | 'restricted_default' | 'multiple_defaults';
@@ -31,6 +34,17 @@ export function isUnrestrictedTariff(restrictions: TariffRestrictions | null): b
 }
 
 /**
+ * True when the tariff can be its group's default: no restrictions, charging
+ * type Both and All Sites (owner decision 2026-11-13: the default covers
+ * every session of the group).
+ */
+export function isDefaultCapableTariff(
+  t: TariffScope & { restrictions: TariffRestrictions | null },
+): boolean {
+  return isUnrestrictedTariff(t.restrictions) && isUnscopedTariff(t);
+}
+
+/**
  * The default rule of a pricing group (owner decision 2026-10-09): a group
  * with active tariffs has exactly one active default tariff, and that tariff
  * has no restrictions, so every time and energy matches a tariff of the
@@ -39,7 +53,7 @@ export function isUnrestrictedTariff(restrictions: TariffRestrictions | null): b
  */
 export function checkGroupDefault(tariffs: GroupDefaultTariff[]): GroupDefaultCheck {
   const defaults = tariffs.filter((t) => t.isDefault);
-  const restricted = defaults.find((t) => !isUnrestrictedTariff(t.restrictions));
+  const restricted = defaults.find((t) => !isDefaultCapableTariff(t));
   if (restricted != null) {
     return { valid: false, reason: 'restricted_default', tariffId: restricted.id };
   }

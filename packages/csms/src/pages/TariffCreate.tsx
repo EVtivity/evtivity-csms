@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { Navigate, useParams, useNavigate } from 'react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
@@ -28,6 +28,7 @@ import {
 } from '@/lib/tariff-restrictions';
 import { useCreatedToast } from '@/components/saved-message';
 import { useHasCompanyWidePermission } from '@/lib/auth';
+import { TariffScopeFields, type TariffScopeValue } from '@/components/pricing/TariffScopeFields';
 
 interface Tariff {
   id: string;
@@ -73,6 +74,15 @@ export function TariffCreate(): React.JSX.Element {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [thresholdKwh, setThresholdKwh] = useState('');
+  const [scope, setScope] = useState<TariffScopeValue>({ chargingType: 'both', siteIds: null });
+
+  // Site Availability only for a driver or fleet group (owner decision D-B).
+  const { data: group } = useQuery({
+    queryKey: ['pricing-groups', id],
+    queryFn: () => api.get<{ siteAvailabilityAllowed?: boolean }>(`/v1/pricing-groups/${id ?? ''}`),
+    enabled: id != null,
+  });
+  const siteAvailabilityAllowed = group?.siteAvailabilityAllowed === true;
 
   const dayLabels = [
     t('pricing.sunday'),
@@ -94,6 +104,8 @@ export function TariffCreate(): React.JSX.Element {
       reservationFeePerMinute?: string;
       taxRate?: string;
       restrictions?: TariffRestrictions | null;
+      chargingType?: TariffScopeValue['chargingType'];
+      siteIds?: string[];
     }) => api.post<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pricing-groups', id ?? ''] });
@@ -128,6 +140,9 @@ export function TariffCreate(): React.JSX.Element {
       if (!Number.isFinite(Number(taxRate))) errors.taxRate = t('validation.invalidNumber');
       else if (Number(taxRate) > 1) errors.taxRate = t('validation.max', { max: 1 });
     }
+    if (scope.siteIds != null && scope.siteIds.length === 0) {
+      errors.siteIds = t('pricing.selectSitesRequired');
+    }
     return errors;
   }
 
@@ -146,7 +161,10 @@ export function TariffCreate(): React.JSX.Element {
       reservationFeePerMinute?: string;
       taxRate?: string;
       restrictions?: TariffRestrictions | null;
-    } = { name };
+      chargingType?: TariffScopeValue['chargingType'];
+      siteIds?: string[];
+    } = { name, chargingType: scope.chargingType };
+    if (scope.siteIds != null) body.siteIds = scope.siteIds;
     if (pricePerKwh.trim() !== '') body.pricePerKwh = pricePerKwh;
     if (pricePerMinute.trim() !== '') body.pricePerMinute = pricePerMinute;
     if (pricePerSession.trim() !== '') body.pricePerSession = pricePerSession;
@@ -304,6 +322,14 @@ export function TariffCreate(): React.JSX.Element {
               <p className="text-xs text-muted-foreground">{t('pricing.taxRateHelper')}</p>
             </div>
 
+            <TariffScopeFields
+              value={scope}
+              onChange={setScope}
+              siteAvailabilityAllowed={siteAvailabilityAllowed}
+              idPrefix="tariff"
+              error={hasSubmitted ? errors.siteIds : undefined}
+            />
+
             <div className="col-span-full border-t pt-4 space-y-4">
               <p className="text-sm font-medium">{t('pricing.restrictions')}</p>
               <div className="space-y-2">
@@ -317,7 +343,11 @@ export function TariffCreate(): React.JSX.Element {
                     if (isRestrictionType(e.target.value)) setRestrictionType(e.target.value);
                   }}
                 >
-                  <option value="default">{t('pricing.noRestrictions')}</option>
+                  <option value="default">
+                    {scope.chargingType === 'both' && scope.siteIds == null
+                      ? t('pricing.noRestrictions')
+                      : t('pricing.noRestrictionsPlain')}
+                  </option>
                   <option value="time">{t('pricing.timeRange')}</option>
                   <option value="dayTime">{t('pricing.dayOfWeek')}</option>
                   <option value="seasonal">{t('pricing.dateRange')}</option>

@@ -98,6 +98,8 @@ vi.mock('../services/cpo-sessions.js', () => ({
 vi.mock('../services/published-tariffs.js', () => ({
   sessionTariffMapping: mocks.sessionTariffMapping,
   renderSnapshotTariff: mocks.renderSnapshotTariff,
+  // A mapping published under its own id (no AC or DC tariffs).
+  sessionPublishedTariffId: (m: { ocpiTariffId: string }) => Promise.resolve(m.ocpiTariffId),
 }));
 vi.mock('../services/cdr-parts.js', () => ({
   sessionCdrParts: mocks.sessionCdrParts,

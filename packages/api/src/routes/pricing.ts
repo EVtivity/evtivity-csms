@@ -9,6 +9,7 @@ import {
   client,
   getPricingHolidays,
   loadStationPricingChain,
+  loadStationEvseKinds,
   pickFromChain,
   resolveGroupTariffs,
   getSystemTimezone,
@@ -31,7 +32,21 @@ import {
   validateNoOverlap,
   isValidTimezone,
   checkGroupDefault,
+  isDefaultCapableTariff,
+  TARIFF_CHARGING_TYPES,
+  chargingKindsOf,
 } from '@evtivity/lib';
+import type { TariffChargingType } from '@evtivity/lib';
+import {
+  groupBlocksSiteAvailability,
+  loadTariffSiteIds,
+  lockPricingGroupScope,
+  tariffViews,
+  tariffWithSites,
+  unknownSiteIds,
+  writeTariffSites,
+} from '../lib/tariff-sites.js';
+import { ocpiIdTooLongForKinds } from '../lib/ocpi-kind-tariff-id.js';
 import type { GroupDefaultTariff } from '@evtivity/lib';
 import type { TariffRestrictions } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -67,6 +82,12 @@ const pricingGroupItem = z
     name: z.string().describe('Pricing group display name'),
     description: z.string().nullable().describe('Pricing group description'),
     isDefault: z.boolean().describe('Whether this is the system fallback pricing group'),
+    siteAvailabilityAllowed: z
+      .boolean()
+      .optional()
+      .describe(
+        'GET /v1/pricing-groups/:id only: whether its tariffs may be limited to selected sites (a driver or fleet group: not the default group, no station or site assignment)',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the pricing group was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the pricing group was last updated'),
   })
@@ -110,6 +131,25 @@ const tariffItem = z
         'Resolution priority (higher wins). Derived from restriction type (10 time, 20 day+time, 30 seasonal, 40 holiday, 50 energy threshold).',
       ),
     isDefault: z.boolean().describe('Whether this is the fallback tariff for the group'),
+    chargingType: z
+      .enum(TARIFF_CHARGING_TYPES)
+      .describe(
+        'Charging type the tariff applies to: ac (EVSEs with AC connectors), dc (EVSEs with DC connectors) or both',
+      ),
+    siteScope: z
+      .enum(['all', 'selected'])
+      .describe('Site availability: all sites, or the selected sites in siteIds'),
+    siteIds: z
+      .array(z.string())
+      .nullable()
+      .describe(
+        'The selected sites of a Selected Sites tariff (null for All Sites). A site-restricted reader sees only its own sites.',
+      ),
+    otherSiteCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Selected sites the reader may not see (always 0 for an all-site reader)'),
     createdAt: z.coerce.date().describe('Timestamp when the tariff was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the tariff was last updated'),
   })
@@ -143,6 +183,10 @@ const scheduleItem = z
       .min(0)
       .describe('Resolution priority (higher wins). Derived from restriction type.'),
     isDefault: z.boolean().describe('Whether this is the fallback tariff for the group'),
+    chargingType: z
+      .enum(TARIFF_CHARGING_TYPES)
+      .describe('Charging type the tariff applies to (ac, dc or both)'),
+    siteScope: z.enum(['all', 'selected']).describe('Site availability (all or selected sites)'),
     isCurrent: z
       .boolean()
       .describe(
@@ -181,6 +225,27 @@ const activeTariffItem = z
     isDefault: z.boolean().describe('Whether this is the fallback tariff for the group'),
     pricingGroupId: z.string().describe('Pricing group identifier this tariff belongs to'),
     pricingGroupName: z.string().describe('Pricing group display name'),
+    chargingType: z
+      .enum(TARIFF_CHARGING_TYPES)
+      .describe('Charging type the tariff applies to (ac, dc or both)'),
+    byChargingKind: z
+      .array(
+        z
+          .object({
+            chargingKind: z.enum(['ac', 'dc']).describe('The EVSE kind this price applies to'),
+            id: z.string().describe('Tariff identifier'),
+            name: z.string().describe('Tariff display name'),
+            pricePerKwh: z.string().nullable().describe('Cost per kWh'),
+            pricePerMinute: z.string().nullable().describe('Cost per active charging minute'),
+            pricePerSession: z.string().nullable().describe('Flat fee charged at session start'),
+            idleFeePricePerMinute: z.string().nullable().describe('Idle fee per minute'),
+            taxRate: z.string().nullable().describe('Decimal tax rate'),
+          })
+          .loose(),
+      )
+      .describe(
+        "The tariff of each EVSE kind the station has (AC, DC), so a station with AC and DC EVSEs shows both prices. The top-level tariff is the station's only kind, or the Both tariff when it has both kinds.",
+      ),
   })
   .loose();
 
@@ -231,6 +296,9 @@ const createGroupBody = z.object({
   isDefault: z.boolean().optional().describe('Whether this is the default pricing group'),
 });
 
+/** The sites of a Selected Sites tariff: 1 to 500 site ids. */
+const siteIdsSchema = z.array(ID_PARAMS.siteId).min(1).max(500);
+
 const createTariffBody = z.object({
   name: z.string().max(255),
   pricePerKwh: nonNegativePrice.optional().describe('Price per kWh as a decimal string'),
@@ -252,6 +320,18 @@ const createTariffBody = z.object({
     .optional()
     .describe('Tariff restrictions (time-of-day, etc.)'),
   isDefault: z.boolean().optional().describe('Whether this is the default tariff for the group'),
+  chargingType: z
+    .enum(TARIFF_CHARGING_TYPES)
+    .default('both')
+    .describe(
+      'Charging type: ac, dc or both (default). An AC or DC tariff applies only on EVSEs of that kind; the default tariff is always both.',
+    ),
+  siteIds: siteIdsSchema
+    .nullable()
+    .optional()
+    .describe(
+      'Site availability: the sites the tariff applies at (Selected Sites), or null or omitted for All Sites. Only on tariffs of driver and fleet pricing groups.',
+    ),
 });
 
 const updateGroupBody = z.object({
@@ -282,16 +362,76 @@ const updateTariffBody = z.object({
     .optional()
     .describe('Tariff restrictions; null to clear'),
   isDefault: z.boolean().optional().describe('Whether this is the default tariff for the group'),
+  chargingType: z.enum(TARIFF_CHARGING_TYPES).optional().describe('Charging type: ac, dc or both'),
+  siteIds: siteIdsSchema.nullable().optional().describe('Selected sites, or null for All Sites'),
 });
 
 const DEFAULT_REQUIRED_MESSAGE =
   'A pricing group with tariffs needs one active default tariff without restrictions';
 
 /** Why the requested isDefault flag breaks the default rule. */
-function defaultFlagMessage(priority: number, isActive: boolean): string {
+function defaultFlagMessage(priority: number, isActive: boolean, scoped: boolean): string {
   if (priority !== 0) return 'A tariff with restrictions cannot be the default tariff';
+  if (scoped) {
+    return 'An AC, DC or Selected Sites tariff cannot be the default tariff (the default is Both at All Sites)';
+  }
   if (!isActive) return 'An inactive tariff cannot be the default tariff';
   return 'An active tariff without restrictions is the default tariff of its group';
+}
+
+const SITE_AVAILABILITY_NOT_ALLOWED = {
+  error:
+    'Site Availability is only for tariffs of driver and fleet pricing groups: this group is assigned to a station or site, or is the default pricing group',
+  code: 'TARIFF_SITE_AVAILABILITY_NOT_ALLOWED',
+} as const;
+
+/**
+ * The scope checks of a tariff write, inside its transaction under the
+ * group's lock (D-B, D-C). Returns the refusal to send, or null.
+ */
+async function scopeRefusal(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  groupId: string,
+  chargingType: TariffChargingType,
+  siteIds: readonly string[] | null,
+): Promise<{ status: 400 | 409; body: Record<string, unknown> } | null> {
+  await lockPricingGroupScope(tx, groupId);
+  if (siteIds != null) {
+    if (await groupBlocksSiteAvailability(tx, groupId)) {
+      return { status: 409, body: SITE_AVAILABILITY_NOT_ALLOWED };
+    }
+    const unknown = await unknownSiteIds(tx, siteIds);
+    if (unknown.length > 0) {
+      return {
+        status: 400,
+        body: {
+          error: 'Unknown site ids',
+          code: 'VALIDATION_ERROR',
+          details: { field: 'siteIds', unknownSiteIds: unknown },
+        },
+      };
+    }
+  }
+  if (chargingType !== 'both') {
+    const tooLong = await ocpiIdTooLongForKinds(tx, groupId);
+    if (tooLong != null) {
+      return {
+        status: 400,
+        body: {
+          error: `The OCPI tariff id ${tooLong} of this group is longer than 33 characters: an AC or DC tariff publishes it as ${tooLong}-AC and ${tooLong}-DC, at most 36 characters`,
+          code: 'VALIDATION_ERROR',
+          details: { field: 'chargingType' },
+        },
+      };
+    }
+  }
+  return null;
+}
+
+class ScopeRefused extends Error {
+  constructor(readonly refusal: { status: 400 | 409; body: Record<string, unknown> }) {
+    super('tariff scope refused');
+  }
 }
 
 async function sendDefaultRequired(reply: FastifyReply, error: string): Promise<void> {
@@ -309,10 +449,24 @@ async function loadGroupDefaultTariffs(
       priority: tariffs.priority,
       isDefault: tariffs.isDefault,
       isActive: tariffs.isActive,
+      chargingType: tariffs.chargingType,
+      siteScope: tariffs.siteScope,
     })
     .from(tariffs)
     .where(eq(tariffs.pricingGroupId, groupId));
-  return rows.map((t) => ({ ...t, restrictions: t.restrictions as TariffRestrictions | null }));
+  const siteMap = await loadTariffSiteIds(
+    db,
+    rows.filter((t) => t.siteScope === 'selected').map((t) => t.id),
+  );
+  return rows.map((t) => ({
+    id: t.id,
+    priority: t.priority,
+    isDefault: t.isDefault,
+    isActive: t.isActive,
+    restrictions: t.restrictions as TariffRestrictions | null,
+    chargingType: t.chargingType as TariffChargingType,
+    siteIds: t.siteScope === 'selected' ? (siteMap.get(t.id) ?? []) : null,
+  }));
 }
 
 export function pricingRoutes(app: FastifyInstance): void {
@@ -362,7 +516,7 @@ export function pricingRoutes(app: FastifyInstance): void {
           .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
         return;
       }
-      return group;
+      return { ...group, siteAvailabilityAllowed: !(await groupBlocksSiteAvailability(db, id)) };
     },
   );
 
@@ -618,12 +772,12 @@ export function pricingRoutes(app: FastifyInstance): void {
         response: { 200: paginatedResponse(tariffItem) },
       },
     },
-    async () => {
+    async (request) => {
       const rows = await db
         .select()
         .from(tariffs)
         .orderBy(desc(tariffs.createdAt), desc(tariffs.id));
-      return { data: rows, total: rows.length };
+      return { data: await tariffViews(request, rows), total: rows.length };
     },
   );
 
@@ -643,11 +797,12 @@ export function pricingRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof groupParams>;
-      return db
+      const rows = await db
         .select()
         .from(tariffs)
         .where(eq(tariffs.pricingGroupId, id))
         .orderBy(desc(tariffs.createdAt), desc(tariffs.id));
+      return tariffViews(request, rows);
     },
   );
 
@@ -678,7 +833,8 @@ export function pricingRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Tariff not found', code: 'TARIFF_NOT_FOUND' });
         return;
       }
-      return tariff;
+      const [view] = await tariffViews(request, [tariff]);
+      return view;
     },
   );
 
@@ -695,10 +851,14 @@ export function pricingRoutes(app: FastifyInstance): void {
         body: zodSchema(createTariffBody),
         response: {
           201: itemResponse(tariffItem),
-          400: errorWith('Invalid restrictions', [ERROR_CODES.INVALID_RESTRICTIONS]),
+          400: errorWith('Invalid restrictions or sites', [
+            ERROR_CODES.INVALID_RESTRICTIONS,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           409: errorWith('Tariff conflict', [
             ERROR_CODES.TARIFF_OVERLAP,
             ERROR_CODES.TARIFF_DEFAULT_REQUIRED,
+            ERROR_CODES.TARIFF_SITE_AVAILABILITY_NOT_ALLOWED,
           ]),
           404: errorWith('Tariff not found, or the user is restricted to some sites', [
             ERROR_CODES.TARIFF_NOT_FOUND,
@@ -725,11 +885,19 @@ export function pricingRoutes(app: FastifyInstance): void {
       }
 
       const priority = derivePriority(restrictions ?? null);
+      const chargingType = body.chargingType;
+      const siteIds = body.siteIds ?? null;
+      const scope = { chargingType, siteIds };
       // The default rule (owner decision 2026-10-09): an active tariff without
-      // restrictions is the group's default, and only it can be.
-      const isDefault = priority === 0 && body.isActive;
+      // restrictions is the group's default, and only it can be. The default
+      // is always Both at All Sites (owner decision 2026-11-13).
+      const isDefault =
+        body.isActive && isDefaultCapableTariff({ restrictions: restrictions ?? null, ...scope });
       if (body.isDefault !== undefined && body.isDefault !== isDefault) {
-        await sendDefaultRequired(reply, defaultFlagMessage(priority, body.isActive));
+        await sendDefaultRequired(
+          reply,
+          defaultFlagMessage(priority, body.isActive, chargingType !== 'both' || siteIds != null),
+        );
         return;
       }
 
@@ -738,9 +906,17 @@ export function pricingRoutes(app: FastifyInstance): void {
       const overlapCheck = validateNoOverlap(
         groupTariffs
           .filter((t) => t.isActive)
-          .map((t) => ({ id: t.id, restrictions: t.restrictions, priority: t.priority })),
+          .map((t) => ({
+            id: t.id,
+            restrictions: t.restrictions,
+            priority: t.priority,
+            chargingType: t.chargingType,
+            siteIds: t.siteIds,
+          })),
         restrictions ?? null,
         priority,
+        undefined,
+        scope,
       );
 
       if (!overlapCheck.valid) {
@@ -756,41 +932,64 @@ export function pricingRoutes(app: FastifyInstance): void {
       // energy the restrictions leave out never bills zero.
       const after: GroupDefaultTariff[] = [
         ...groupTariffs.map((t) => ({ ...t, isDefault: isDefault ? false : t.isDefault })),
-        { id: '', restrictions: restrictions ?? null, isDefault, isActive: body.isActive },
+        {
+          id: '',
+          restrictions: restrictions ?? null,
+          isDefault,
+          isActive: body.isActive,
+          ...scope,
+        },
       ];
       if (!checkGroupDefault(after).valid) {
         await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
         return;
       }
 
-      // The default swap and the insert in one transaction
-      // (uq_tariffs_one_default_per_group).
-      const tariff = await db.transaction(async (tx) => {
-        if (isDefault) {
-          await tx
-            .update(tariffs)
-            .set({ isDefault: false, updatedAt: new Date() })
-            .where(and(eq(tariffs.pricingGroupId, id), eq(tariffs.isDefault, true)));
+      // The scope checks, the default swap, the insert and the sites in one
+      // transaction (uq_tariffs_one_default_per_group), under the group's
+      // scope lock (D-B).
+      let created: (typeof tariffs.$inferSelect & { siteIds: string[] | null }) | undefined;
+      try {
+        created = await db.transaction(async (tx) => {
+          const refusal = await scopeRefusal(tx, id, chargingType, siteIds);
+          if (refusal != null) throw new ScopeRefused(refusal);
+          if (isDefault) {
+            await tx
+              .update(tariffs)
+              .set({ isDefault: false, updatedAt: new Date() })
+              .where(and(eq(tariffs.pricingGroupId, id), eq(tariffs.isDefault, true)));
+          }
+          const [inserted] = await tx
+            .insert(tariffs)
+            .values({
+              pricingGroupId: id,
+              name: body.name,
+              pricePerKwh: body.pricePerKwh,
+              pricePerMinute: body.pricePerMinute,
+              pricePerSession: body.pricePerSession,
+              isActive: body.isActive,
+              idleFeePricePerMinute: body.idleFeePricePerMinute,
+              reservationFeePerMinute: body.reservationFeePerMinute,
+              taxRate: body.taxRate,
+              restrictions: restrictions ?? null,
+              priority,
+              isDefault,
+              chargingType,
+              siteScope: siteIds != null ? 'selected' : 'all',
+            })
+            .returning();
+          if (inserted == null) return undefined;
+          await writeTariffSites(tx, inserted.id, siteIds);
+          return tariffWithSites(inserted, siteIds);
+        });
+      } catch (err) {
+        if (err instanceof ScopeRefused) {
+          await reply.status(err.refusal.status).send(err.refusal.body);
+          return;
         }
-        const [inserted] = await tx
-          .insert(tariffs)
-          .values({
-            pricingGroupId: id,
-            name: body.name,
-            pricePerKwh: body.pricePerKwh,
-            pricePerMinute: body.pricePerMinute,
-            pricePerSession: body.pricePerSession,
-            isActive: body.isActive,
-            idleFeePricePerMinute: body.idleFeePricePerMinute,
-            reservationFeePerMinute: body.reservationFeePerMinute,
-            taxRate: body.taxRate,
-            restrictions: restrictions ?? null,
-            priority,
-            isDefault,
-          })
-          .returning();
-        return inserted;
-      });
+        throw err;
+      }
+      const tariff = created;
       if (tariff != null) {
         await writeAudit(
           { table: tariffAuditLog, idColumn: 'tariff_id' },
@@ -810,7 +1009,9 @@ export function pricingRoutes(app: FastifyInstance): void {
           action: 'tariff.created',
         });
       }
-      await reply.status(201).send(tariff);
+      await reply
+        .status(201)
+        .send(tariff == null ? tariff : (await tariffViews(request, [tariff]))[0]);
     },
   );
 
@@ -827,11 +1028,15 @@ export function pricingRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTariffBody),
         response: {
           200: itemResponse(tariffItem),
-          400: errorWith('Invalid restrictions', [ERROR_CODES.INVALID_RESTRICTIONS]),
+          400: errorWith('Invalid restrictions or sites', [
+            ERROR_CODES.INVALID_RESTRICTIONS,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Tariff not found', [ERROR_CODES.TARIFF_NOT_FOUND]),
           409: errorWith('Tariff conflict', [
             ERROR_CODES.TARIFF_OVERLAP,
             ERROR_CODES.TARIFF_DEFAULT_REQUIRED,
+            ERROR_CODES.TARIFF_SITE_AVAILABILITY_NOT_ALLOWED,
           ]),
         },
       },
@@ -870,28 +1075,46 @@ export function pricingRoutes(app: FastifyInstance): void {
 
       const priority = derivePriority(restrictions);
       const isActive = body.isActive ?? existing.isActive;
+      const groupTariffs = await loadGroupDefaultTariffs(existing.pricingGroupId);
+      const before = groupTariffs.find((t) => t.id === tariffId);
+      const chargingType = body.chargingType ?? (existing.chargingType as TariffChargingType);
+      const siteIds = body.siteIds !== undefined ? body.siteIds : (before?.siteIds ?? null);
+      const scope = { chargingType, siteIds };
       // The default follows the rule only when the edit touches it (activity,
-      // restrictions, the flag); a price edit keeps the flag as it is.
+      // restrictions, charging type, sites, the flag); a price edit keeps the
+      // flag as it is.
       const touchesDefault =
         body.isActive !== undefined ||
         body.restrictions !== undefined ||
-        body.isDefault !== undefined;
-      const isDefault = touchesDefault ? priority === 0 && isActive : existing.isDefault;
+        body.isDefault !== undefined ||
+        body.chargingType !== undefined ||
+        body.siteIds !== undefined;
+      const isDefault = touchesDefault
+        ? isActive && isDefaultCapableTariff({ restrictions, ...scope })
+        : existing.isDefault;
       if (body.isDefault !== undefined && body.isDefault !== isDefault) {
-        await sendDefaultRequired(reply, defaultFlagMessage(priority, isActive));
+        await sendDefaultRequired(
+          reply,
+          defaultFlagMessage(priority, isActive, chargingType !== 'both' || siteIds != null),
+        );
         return;
       }
-
-      const groupTariffs = await loadGroupDefaultTariffs(existing.pricingGroupId);
 
       // Overlap validation
       const overlapCheck = validateNoOverlap(
         groupTariffs
           .filter((t) => t.isActive)
-          .map((t) => ({ id: t.id, restrictions: t.restrictions, priority: t.priority })),
+          .map((t) => ({
+            id: t.id,
+            restrictions: t.restrictions,
+            priority: t.priority,
+            chargingType: t.chargingType,
+            siteIds: t.siteIds,
+          })),
         restrictions,
         priority,
         tariffId,
+        scope,
       );
 
       if (!overlapCheck.valid) {
@@ -907,7 +1130,7 @@ export function pricingRoutes(app: FastifyInstance): void {
       if (touchesDefault) {
         const after: GroupDefaultTariff[] = groupTariffs.map((t) =>
           t.id === tariffId
-            ? { id: t.id, restrictions, isDefault, isActive }
+            ? { id: t.id, restrictions, isDefault, isActive, ...scope }
             : { ...t, isDefault: takesDefault ? false : t.isDefault },
         );
         if (!checkGroupDefault(after).valid) {
@@ -936,29 +1159,57 @@ export function pricingRoutes(app: FastifyInstance): void {
       if (isDefault !== existing.isDefault) {
         updateData['isDefault'] = isDefault;
       }
+      if (body.chargingType !== undefined) updateData['chargingType'] = body.chargingType;
+      if (body.siteIds !== undefined) {
+        updateData['siteScope'] = body.siteIds != null ? 'selected' : 'all';
+      }
+      const beforeRow = tariffWithSites(existing, before?.siteIds);
 
-      // The default swap and the update in one transaction
-      // (uq_tariffs_one_default_per_group).
-      const updated = await db.transaction(async (tx) => {
-        if (takesDefault) {
-          await tx
-            .update(tariffs)
-            .set({ isDefault: false, updatedAt: new Date() })
-            .where(
-              and(
-                eq(tariffs.pricingGroupId, existing.pricingGroupId),
-                eq(tariffs.isDefault, true),
-                ne(tariffs.id, tariffId),
-              ),
+      // The scope checks, the default swap, the update and the sites in one
+      // transaction (uq_tariffs_one_default_per_group), under the group's
+      // scope lock (D-B). Only a changed scope is checked, so a price edit
+      // of a tariff in a group written before still saves.
+      const scopeChanged = body.chargingType !== undefined || body.siteIds !== undefined;
+      let updated: (typeof tariffs.$inferSelect & { siteIds: string[] | null }) | undefined;
+      try {
+        updated = await db.transaction(async (tx) => {
+          if (scopeChanged) {
+            const refusal = await scopeRefusal(
+              tx,
+              existing.pricingGroupId,
+              chargingType,
+              body.siteIds !== undefined ? siteIds : null,
             );
+            if (refusal != null) throw new ScopeRefused(refusal);
+          }
+          if (takesDefault) {
+            await tx
+              .update(tariffs)
+              .set({ isDefault: false, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(tariffs.pricingGroupId, existing.pricingGroupId),
+                  eq(tariffs.isDefault, true),
+                  ne(tariffs.id, tariffId),
+                ),
+              );
+          }
+          const [row] = await tx
+            .update(tariffs)
+            .set(updateData)
+            .where(eq(tariffs.id, tariffId))
+            .returning();
+          if (row == null) return undefined;
+          if (body.siteIds !== undefined) await writeTariffSites(tx, tariffId, siteIds);
+          return tariffWithSites(row, siteIds);
+        });
+      } catch (err) {
+        if (err instanceof ScopeRefused) {
+          await reply.status(err.refusal.status).send(err.refusal.body);
+          return;
         }
-        const [row] = await tx
-          .update(tariffs)
-          .set(updateData)
-          .where(eq(tariffs.id, tariffId))
-          .returning();
-        return row;
-      });
+        throw err;
+      }
       await writeAudit(
         { table: tariffAuditLog, idColumn: 'tariff_id' },
         {
@@ -966,7 +1217,7 @@ export function pricingRoutes(app: FastifyInstance): void {
           entityIdSnapshot: tariffId,
           action: 'updated',
           ...getAuditActor(request),
-          before: existing,
+          before: beforeRow,
           after: updated,
         },
         db,
@@ -977,7 +1228,7 @@ export function pricingRoutes(app: FastifyInstance): void {
         tariffId,
         action: 'tariff.updated',
       });
-      return updated;
+      return updated == null ? updated : (await tariffViews(request, [updated]))[0];
     },
   );
 
@@ -1131,6 +1382,8 @@ export function pricingRoutes(app: FastifyInstance): void {
           restrictions: t.restrictions,
           priority: t.priority,
           isDefault: t.isDefault,
+          chargingType: t.chargingType,
+          siteScope: t.siteIds != null ? ('selected' as const) : ('all' as const),
           isCurrent: currentTariff?.id === t.id,
         }))
         .sort((a, b) => b.priority - a.priority);
@@ -1187,7 +1440,14 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const picked = pickFromChain(chain, { at: new Date() }, await getPricingHolidays(client));
+      // AC or DC: a station whose EVSEs are all of one kind is priced with
+      // that kind; a station with both shows the tariff of each kind, and the
+      // Both tariff on top (what an unknown kind pays).
+      const kinds = chargingKindsOf([...(await loadStationEvseKinds(client, id)).values()]);
+      const holidays = await getPricingHolidays(client);
+      const at = new Date();
+      const topKind = kinds.length === 1 ? (kinds[0] ?? null) : null;
+      const picked = pickFromChain(chain, { at, chargingKind: topKind }, holidays);
       if (picked == null) {
         await reply
           .status(404)
@@ -1196,12 +1456,31 @@ export function pricingRoutes(app: FastifyInstance): void {
       }
       const { pricing, tariff: current } = picked;
 
+      const byChargingKind = kinds.flatMap((kind) => {
+        const forKind = pickFromChain(chain, { at, chargingKind: kind }, holidays);
+        if (forKind == null) return [];
+        const t = forKind.tariff;
+        return [
+          {
+            chargingKind: kind,
+            id: t.id,
+            name: t.name,
+            pricePerKwh: t.pricePerKwh,
+            pricePerMinute: t.pricePerMinute,
+            pricePerSession: t.pricePerSession,
+            idleFeePricePerMinute: t.idleFeePricePerMinute,
+            taxRate: t.taxRate,
+          },
+        ];
+      });
+
       const { name, ...tariff } = current;
       return {
         ...tariff,
         name,
         pricingGroupId: pricing.group.id,
         pricingGroupName: pricing.group.name,
+        byChargingKind,
       };
     },
   );

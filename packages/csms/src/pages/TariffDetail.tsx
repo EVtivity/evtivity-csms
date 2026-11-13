@@ -1,6 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import {
+  TariffScopeFields,
+  TariffSitesSummary,
+  useChargingTypeLabel,
+  type TariffScopeValue,
+} from '@/components/pricing/TariffScopeFields';
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -55,6 +61,9 @@ interface Tariff {
   restrictions: TariffRestrictions | null;
   priority: number;
   isDefault: boolean;
+  chargingType?: TariffScopeValue['chargingType'];
+  siteIds?: string[] | null;
+  otherSiteCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -93,6 +102,15 @@ export function TariffDetail(): React.JSX.Element {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [thresholdKwh, setThresholdKwh] = useState('');
+  const [scope, setScope] = useState<TariffScopeValue>({ chargingType: 'both', siteIds: null });
+  const chargingTypeLabel = useChargingTypeLabel();
+
+  // Site Availability only for a driver or fleet group (owner decision D-B).
+  const { data: group } = useQuery({
+    queryKey: ['pricing-groups', id],
+    queryFn: () => api.get<{ siteAvailabilityAllowed?: boolean }>(`/v1/pricing-groups/${id ?? ''}`),
+    enabled: id != null,
+  });
 
   const dayLabels = [
     t('pricing.sunday'),
@@ -121,6 +139,8 @@ export function TariffDetail(): React.JSX.Element {
       taxRate?: string | null;
       isActive?: boolean;
       restrictions?: TariffRestrictions | null;
+      chargingType?: TariffScopeValue['chargingType'];
+      siteIds?: string[] | null;
     }) => api.patch<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs/${tariffId ?? ''}`, body),
     onSuccess: () => {
       savedToast();
@@ -156,6 +176,7 @@ export function TariffDetail(): React.JSX.Element {
     setReservationFeePerMinute(tariff.reservationFeePerMinute ?? '');
     setTaxRate(tariff.taxRate ?? '');
     setIsActive(tariff.isActive);
+    setScope({ chargingType: tariff.chargingType ?? 'both', siteIds: tariff.siteIds ?? null });
 
     const type = deriveRestrictionType(tariff.restrictions);
     setRestrictionType(type);
@@ -214,6 +235,9 @@ export function TariffDetail(): React.JSX.Element {
       if (!Number.isFinite(Number(taxRate))) errors.taxRate = t('validation.invalidNumber');
       else if (Number(taxRate) > 1) errors.taxRate = t('validation.max', { max: 1 });
     }
+    if (scope.siteIds != null && scope.siteIds.length === 0) {
+      errors.siteIds = t('pricing.selectSitesRequired');
+    }
     return errors;
   }
 
@@ -243,6 +267,12 @@ export function TariffDetail(): React.JSX.Element {
       taxRate: taxRate.trim() !== '' ? taxRate : null,
       isActive,
       restrictions,
+      // A site-restricted reader sees only part of the sites and cannot save
+      // (pricing writes are all-site); the sites are sent only when changed.
+      chargingType: scope.chargingType,
+      ...(JSON.stringify(scope.siteIds) !== JSON.stringify(tariff?.siteIds ?? null)
+        ? { siteIds: scope.siteIds }
+        : {}),
     });
   }
 
@@ -444,6 +474,16 @@ export function TariffDetail(): React.JSX.Element {
                 <p className="text-xs text-muted-foreground">{t('pricing.taxRateHelper')}</p>
               </div>
 
+              <TariffScopeFields
+                value={scope}
+                onChange={setScope}
+                siteAvailabilityAllowed={
+                  group?.siteAvailabilityAllowed === true || tariff.siteIds != null
+                }
+                idPrefix="edit"
+                error={hasSubmitted ? validationErrors.siteIds : undefined}
+              />
+
               <div className="col-span-full border-t pt-4 space-y-4">
                 <p className="text-sm font-medium">{t('pricing.restrictions')}</p>
                 <div className="space-y-2">
@@ -457,7 +497,11 @@ export function TariffDetail(): React.JSX.Element {
                       if (isRestrictionType(e.target.value)) setRestrictionType(e.target.value);
                     }}
                   >
-                    <option value="default">{t('pricing.noRestrictions')}</option>
+                    <option value="default">
+                      {scope.chargingType === 'both' && scope.siteIds == null
+                        ? t('pricing.noRestrictions')
+                        : t('pricing.noRestrictionsPlain')}
+                    </option>
                     <option value="time">{t('pricing.timeRange')}</option>
                     <option value="dayTime">{t('pricing.dayOfWeek')}</option>
                     <option value="seasonal">{t('pricing.dateRange')}</option>
@@ -624,7 +668,9 @@ export function TariffDetail(): React.JSX.Element {
               <div>
                 <dt className="text-muted-foreground">{t('pricing.tariffType')}</dt>
                 <dd className="font-medium flex items-center gap-2">
-                  {formatRestrictionSummary(tariff.restrictions, restrictionLabels)}
+                  {tariff.restrictions == null && !tariff.isDefault
+                    ? t('pricing.noRestrictionsPlain')
+                    : formatRestrictionSummary(tariff.restrictions, restrictionLabels)}
                   {tariff.isDefault && (
                     <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
                   )}
@@ -633,6 +679,19 @@ export function TariffDetail(): React.JSX.Element {
               <div>
                 <dt className="text-muted-foreground">{t('pricing.priority')}</dt>
                 <dd className="font-medium">{tariff.priority}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('pricing.chargingType')}</dt>
+                <dd className="font-medium">{chargingTypeLabel(tariff.chargingType)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('pricing.siteAvailability')}</dt>
+                <dd className="font-medium">
+                  <TariffSitesSummary
+                    siteIds={tariff.siteIds}
+                    otherSiteCount={tariff.otherSiteCount}
+                  />
+                </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">

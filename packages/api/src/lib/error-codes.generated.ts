@@ -275,6 +275,7 @@ export const ERROR_CODES = {
   PREPAID_BALANCE_CONFLICT: 'PREPAID_BALANCE_CONFLICT',
   PRICING_ASSIGNMENT_NOT_FOUND: 'PRICING_ASSIGNMENT_NOT_FOUND',
   PRICING_GROUP_DEFAULT_EXISTS: 'PRICING_GROUP_DEFAULT_EXISTS',
+  PRICING_GROUP_HAS_SITE_LIMITED_TARIFFS: 'PRICING_GROUP_HAS_SITE_LIMITED_TARIFFS',
   PRICING_GROUP_NOT_FOUND: 'PRICING_GROUP_NOT_FOUND',
   PRICING_GROUP_TARIFFS_IN_USE: 'PRICING_GROUP_TARIFFS_IN_USE',
   PRICING_NOT_FOUND: 'PRICING_NOT_FOUND',
@@ -385,6 +386,7 @@ export const ERROR_CODES = {
   TARIFF_IN_USE: 'TARIFF_IN_USE',
   TARIFF_NOT_FOUND: 'TARIFF_NOT_FOUND',
   TARIFF_OVERLAP: 'TARIFF_OVERLAP',
+  TARIFF_SITE_AVAILABILITY_NOT_ALLOWED: 'TARIFF_SITE_AVAILABILITY_NOT_ALLOWED',
   TEMPLATE_NOT_FOUND: 'TEMPLATE_NOT_FOUND',
   TERMINAL_TRANSACTION_NOT_FOUND: 'TERMINAL_TRANSACTION_NOT_FOUND',
   TERMINAL_TRANSACTION_STATE: 'TERMINAL_TRANSACTION_STATE',
@@ -684,6 +686,7 @@ export type ErrorCode =
   | 'PREPAID_BALANCE_CONFLICT'
   | 'PRICING_ASSIGNMENT_NOT_FOUND'
   | 'PRICING_GROUP_DEFAULT_EXISTS'
+  | 'PRICING_GROUP_HAS_SITE_LIMITED_TARIFFS'
   | 'PRICING_GROUP_NOT_FOUND'
   | 'PRICING_GROUP_TARIFFS_IN_USE'
   | 'PRICING_NOT_FOUND'
@@ -794,6 +797,7 @@ export type ErrorCode =
   | 'TARIFF_IN_USE'
   | 'TARIFF_NOT_FOUND'
   | 'TARIFF_OVERLAP'
+  | 'TARIFF_SITE_AVAILABILITY_NOT_ALLOWED'
   | 'TEMPLATE_NOT_FOUND'
   | 'TERMINAL_TRANSACTION_NOT_FOUND'
   | 'TERMINAL_TRANSACTION_STATE'
@@ -1140,6 +1144,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'The prepaid balance changed since you opened the form, for example after a session. Reload the token and enter the balance again.',
   PRICING_ASSIGNMENT_NOT_FOUND: 'No pricing group is assigned to this entity',
   PRICING_GROUP_DEFAULT_EXISTS: 'Another pricing group is already the default',
+  PRICING_GROUP_HAS_SITE_LIMITED_TARIFFS:
+    'This pricing group has tariffs limited to selected sites and cannot be assigned to a station or site',
   PRICING_GROUP_NOT_FOUND: 'Pricing group not found',
   PRICING_GROUP_TARIFFS_IN_USE: 'Pricing group has tariffs referenced by charging sessions',
   PRICING_NOT_FOUND: 'No pricing found',
@@ -1267,6 +1273,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TARIFF_IN_USE: 'Tariff is referenced by charging sessions and cannot be deleted',
   TARIFF_NOT_FOUND: 'Tariff not found',
   TARIFF_OVERLAP: 'Tariff overlaps with an existing tariff',
+  TARIFF_SITE_AVAILABILITY_NOT_ALLOWED:
+    'Site Availability is only for tariffs of driver and fleet pricing groups',
   TEMPLATE_NOT_FOUND: 'Template not found',
   TERMINAL_TRANSACTION_NOT_FOUND: 'Terminal payment not found',
   TERMINAL_TRANSACTION_STATE: 'The terminal payment cannot do this in its current state',

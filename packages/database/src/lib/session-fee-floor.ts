@@ -5,6 +5,7 @@ import type postgres from 'postgres';
 import { grossUnitPrice, taxRateFraction } from '@evtivity/lib';
 import type { TaxBasis } from '@evtivity/lib';
 import { loadStationPricingChain, resolveStationTariff } from './tariff-resolution.js';
+import { startChargingKinds } from './charging-kind.js';
 import { getCompanyTaxBasis } from './system-settings.js';
 
 /**
@@ -31,9 +32,16 @@ export async function sessionFeeGrossCents(
   q: { stationUuid: string; driverUuid: string | null; at?: Date },
   sql: postgres.Sql,
 ): Promise<number> {
-  const tariff = await resolveStationTariff(q, sql);
-  if (tariff == null) return 0;
-  return grossFeeCents(tariff.pricePerSession, tariff.taxRate, await getCompanyTaxBasis());
+  // The highest fee among the kinds a start at the station may be priced at
+  // (AC and DC tariffs): a hold covers whichever EVSE the guest uses.
+  const basis = await getCompanyTaxBasis();
+  let max = 0;
+  for (const chargingKind of await startChargingKinds(sql, { stationUuid: q.stationUuid })) {
+    const tariff = await resolveStationTariff({ ...q, chargingKind }, sql);
+    if (tariff == null) continue;
+    max = Math.max(max, grossFeeCents(tariff.pricePerSession, tariff.taxRate, basis));
+  }
+  return max;
 }
 
 /**

@@ -44,6 +44,20 @@ export interface PricingInfo {
   priceChangesDuringSession?: boolean;
   /** Split billing can move a free start to a paid tariff (needs a payment method). */
   paidTariffAhead?: boolean;
+  /**
+   * The AC and DC prices of a station with AC and DC EVSEs whose prices
+   * differ (AC and DC tariffs), shown side by side. Empty or absent otherwise.
+   */
+  byChargingKind?: ChargingKindPrice[];
+}
+
+export interface ChargingKindPrice {
+  chargingKind: 'ac' | 'dc';
+  pricePerKwh: string | null;
+  pricePerMinute: string | null;
+  pricePerSession: string | null;
+  idleFeePricePerMinute: string | null;
+  taxRate: string | null;
 }
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
@@ -149,6 +163,29 @@ export function PricingDisplay({
         ? `${formatPrice(perMin)}/${t('charger.unitMin')}`
         : formatFee(perSession);
 
+  // AC and DC side by side: each kind's main price in its own tax rate.
+  const kindPrices = (pricing.byChargingKind ?? []).map((k) => {
+    const rate = k.taxRate != null ? Number(k.taxRate) : 0;
+    const shown = (price: number): number =>
+      priceForDisplay(price, rate, priceDisplay, resolveTaxBasis(pricing.taxBasis));
+    const kwh = Number(k.pricePerKwh ?? 0);
+    const min = Number(k.pricePerMinute ?? 0);
+    const fee = Number(k.pricePerSession ?? 0);
+    const main =
+      kwh > 0
+        ? `${formatUnitPrice(shown(kwh), pricing.currency)}/${t('charger.unitKwh')}`
+        : min > 0
+          ? `${formatUnitPrice(shown(min), pricing.currency)}/${t('charger.unitMin')}`
+          : fee > 0
+            ? formatFlatPrice(shown(fee), pricing.currency)
+            : t('charger.pricingFree');
+    return {
+      kind: k.chargingKind,
+      label: t(k.chargingKind === 'ac' ? 'charger.chargingKindAc' : 'charger.chargingKindDc'),
+      main,
+    };
+  });
+
   const breakdownLines: string[] = [];
   if (perKwh > 0) breakdownLines.push(`${formatPrice(perKwh)} ${t('charger.perKwh')}`);
   if (perMin > 0) breakdownLines.push(`${formatPrice(perMin)} ${t('charger.perMin')}`);
@@ -164,20 +201,31 @@ export function PricingDisplay({
 
   return (
     <div className="space-y-2">
-      <button
-        type="button"
-        className="flex items-center justify-center gap-2 w-full"
-        onClick={() => {
-          setExpanded((prev) => !prev);
-        }}
-      >
-        <span className="text-base font-semibold text-link">{primaryPrice}</span>
-        {expanded ? (
-          <Minus className="h-4 w-4 text-muted-foreground" />
-        ) : (
-          <Plus className="h-4 w-4 text-muted-foreground" />
-        )}
-      </button>
+      {kindPrices.length > 1 ? (
+        <div className="flex justify-center gap-6" data-testid="pricing-by-kind">
+          {kindPrices.map((k) => (
+            <div key={k.kind} className="text-center">
+              <p className="text-xs text-muted-foreground">{k.label}</p>
+              <p className="text-base font-semibold">{k.main}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="flex items-center justify-center gap-2 w-full"
+          onClick={() => {
+            setExpanded((prev) => !prev);
+          }}
+        >
+          <span className="text-base font-semibold text-link">{primaryPrice}</span>
+          {expanded ? (
+            <Minus className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <Plus className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+      )}
       {taxNote != null && <p className="text-center text-xs text-muted-foreground">{taxNote}</p>}
       {restrictionLabel != null && (
         <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">

@@ -13,6 +13,12 @@ import {
   openFirstTariffSegment,
   repriceSessionForDriver,
   resolveStationTariff,
+  stampSessionChargingKind,
+  stationHasSeveralKinds,
+  sendSessionTariffChange,
+  loadEvseChargingKind,
+  resolvableKind,
+  repriceSessionForChargingKind,
   priceSessionAt,
   loadSessionPricing,
   storeFinalCost,
@@ -834,9 +840,14 @@ export class TransactionProjector {
       // its own start (finding B5).
       const tariffDriverUuid = driverUuid;
       const tariffAt = eventTimeAtMostNow(timestamp);
+      // The charging kind from the session's EVSE (or the named connector of
+      // a mixed EVSE); unknown resolves the Both tariffs only (D-E).
+      const chargingKind = await tx.attempt.memo('started:charging-kind', () =>
+        stampSessionChargingKind(this.deps.sql, sessionId),
+      );
       const tariff = await tx.attempt.memo('started:tariff', () =>
         resolveStationTariff(
-          { stationUuid, driverUuid: tariffDriverUuid, at: tariffAt },
+          { stationUuid, driverUuid: tariffDriverUuid, at: tariffAt, chargingKind },
           this.deps.sql,
         ),
       );
@@ -856,6 +867,19 @@ export class TransactionProjector {
               { err, sessionId, transactionId },
               'First tariff segment insert interrupted; continuing to the payment gate',
             );
+          }
+        });
+        // A station with AC and DC EVSEs got the Authorize tariff before the
+        // EVSE was known (evseKind elements, or none when it takes no
+        // conditions, D-D): it now gets the session's own tariff (I11).
+        // Fail-open inside; billing follows the snapshot.
+        await tx.attempt.once('started:kind-tariff', async () => {
+          if (await stationHasSeveralKinds(this.deps.sql, stationUuid)) {
+            await sendSessionTariffChange(this.deps.sql, this.deps.pubsub, {
+              sessionId,
+              at: tariffAt,
+              energyWh: 0,
+            });
           }
         });
       }
@@ -1741,6 +1765,59 @@ export class TransactionProjector {
     });
   }
 
+  /**
+   * Owner decision D-E: a session on a mixed EVSE started with no connector
+   * named was priced from the Both tariffs. The first event that names the
+   * connector stores it, and the session is re-priced from its start at that
+   * connector's kind (repriceSessionForChargingKind, under the session row
+   * lock). A station with local cost then gets the session's tariff (I11).
+   */
+  private async applyNamedConnector(
+    sessionId: string,
+    stationUuid: string,
+    connectorId: number,
+  ): Promise<void> {
+    const [row] = await this.deps.sql`
+      UPDATE charging_sessions cs
+      SET connector_id = COALESCE(cs.connector_id, (
+        SELECT c.id FROM connectors c
+        WHERE c.evse_id = cs.evse_id AND c.connector_id = ${connectorId}
+        LIMIT 1
+      ))
+      WHERE cs.id = ${sessionId} AND cs.status = 'active' AND cs.charging_kind IS NULL
+        AND cs.evse_id IS NOT NULL
+      RETURNING cs.evse_id, cs.connector_id, cs.energy_delivered_wh
+    `;
+    if (row == null || row.connector_id == null) return;
+    const kind = resolvableKind(
+      await loadEvseChargingKind(this.deps.sql, row.evse_id as string, row.connector_id as string),
+    );
+    if (kind == null) return;
+    const repriced = await repriceSessionForChargingKind(this.deps.sql, {
+      sessionId,
+      stationUuid,
+      chargingKind: kind,
+      basis: await getCompanyTaxBasis(),
+    });
+    if (!repriced) return;
+    // The kind's tariff may be paid where the Both tariff was free: the next
+    // meter reading runs the payment gate on the open segment (B3), a no-op
+    // when it is free or the session already holds.
+    await this.deps.sql`
+      UPDATE charging_sessions SET payment_gate_due_at = now()
+      WHERE id = ${sessionId} AND status = 'active' AND payment_gate_due_at IS NULL
+    `;
+    this.deps.logger.info(
+      { sessionId, chargingKind: kind },
+      'Priced the session at the kind of the connector its mixed EVSE named',
+    );
+    await sendSessionTariffChange(this.deps.sql, this.deps.pubsub, {
+      sessionId,
+      at: new Date(),
+      energyWh: Number(row.energy_delivered_wh ?? 0),
+    });
+  }
+
   private async projectUpdated(tx: TransactionEventContext): Promise<void> {
     const {
       event,
@@ -1772,6 +1849,15 @@ export class TransactionProjector {
       const gateFailure = sessionActive
         ? await this.linkFirstPresentedToken(tx, sessionId, 'updated')
         : null;
+      // A mixed EVSE (AC and DC connectors) that names the connector after
+      // the start: the session is priced at that connector's kind from its
+      // start (D-E). Nothing changes once the kind is known.
+      if (sessionActive && typeof payload.connectorId === 'number') {
+        const connectorId = payload.connectorId;
+        await tx.attempt.once('updated:charging-kind', () =>
+          this.applyNamedConnector(sessionId, stationUuid, connectorId),
+        );
+      }
 
       await tx.attempt.once('updated:transaction-event', async () => {
         try {

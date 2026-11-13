@@ -91,7 +91,11 @@ vi.mock('@evtivity/database', () => ({
 const { publishOcpiTariffPush } = vi.hoisted(() => ({
   publishOcpiTariffPush: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../lib/ocpi-tariff-push.js', () => ({ publishOcpiTariffPush }));
+vi.mock('../lib/ocpi-tariff-push.js', async (importOriginal) => ({
+  groupMappingTargets: (await importOriginal<typeof import('../lib/ocpi-tariff-push.js')>())
+    .groupMappingTargets,
+  publishOcpiTariffPush,
+}));
 vi.mock('../lib/site-access.js', () => ({ requireAllSiteAccess: vi.fn().mockResolvedValue(true) }));
 
 vi.mock('drizzle-orm', () => ({
@@ -248,7 +252,11 @@ describe('OCPI tariff mapping routes, uncovered paths', () => {
         pricingGroupId: GROUP_ID,
       });
       expect(publishOcpiTariffPush).toHaveBeenCalledWith({
-        targets: [{ partnerId: null, ocpiTariffId: 'T-9' }],
+        targets: [
+          { partnerId: null, ocpiTariffId: 'T-9' },
+          { partnerId: null, ocpiTariffId: 'T-9-AC' },
+          { partnerId: null, ocpiTariffId: 'T-9-DC' },
+        ],
       });
     });
   });
@@ -271,7 +279,11 @@ describe('OCPI tariff mapping routes, uncovered paths', () => {
       });
       // id and partner scope unchanged: only the current target is pushed
       expect(publishOcpiTariffPush).toHaveBeenCalledWith({
-        targets: [{ partnerId: null, ocpiTariffId: 'T-1' }],
+        targets: [
+          { partnerId: null, ocpiTariffId: 'T-1' },
+          { partnerId: null, ocpiTariffId: 'T-1-AC' },
+          { partnerId: null, ocpiTariffId: 'T-1-DC' },
+        ],
       });
     });
 
@@ -308,6 +320,8 @@ describe('OCPI tariff mapping routes, uncovered paths', () => {
         targets: [
           { partnerId: PARTNER_ID, ocpiTariffId: 'T-1' },
           { partnerId: null, ocpiTariffId: 'T-1' },
+          { partnerId: null, ocpiTariffId: 'T-1-AC' },
+          { partnerId: null, ocpiTariffId: 'T-1-DC' },
         ],
       });
     });

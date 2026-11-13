@@ -50,6 +50,12 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', async () => ({
+  // AC and DC tariffs: the charging kind readers (tested in the database package).
+  loadStationEvseKinds: vi.fn(() => Promise.resolve(new Map())),
+  startChargingKinds: vi.fn(() => Promise.resolve([null])),
+  loadEvseChargingKind: vi.fn(() => Promise.resolve(null)),
+  resolvableKind: vi.fn(() => null),
+  stationDisplayKind: vi.fn(() => Promise.resolve(null)),
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   getGuestVelocityLimits: vi.fn(async () => ({ startsPerIpPerHour: 30, declinesPerIpPerHour: 5 })),
   writeAudit: vi.fn(() => Promise.resolve()),
@@ -436,6 +442,7 @@ describe('Portal guest routes - handler logic', () => {
         restrictions: null,
         priority: 0,
         isDefault: true,
+        chargingType: 'both',
         pricingGroup: { id: 'pgr_1', name: 'Group', source: 'station' },
         timezone: 'UTC',
       });
@@ -563,7 +570,13 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.json().sessionToken).toBeDefined();
       // A guest has no driver and no reservation; the site's free vend comes first.
       expect(vi.mocked(isStationChargingFree)).toHaveBeenCalledWith(
-        { stationUuid: 'sta_000000000001', driverUuid: null, reserved: false, freeVend: false },
+        {
+          stationUuid: 'sta_000000000001',
+          driverUuid: null,
+          reserved: false,
+          freeVend: false,
+          chargingKinds: [null],
+        },
         expect.anything(),
       );
       expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(

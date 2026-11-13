@@ -78,6 +78,14 @@ vi.mock('../services/published-tariffs.js', () => ({
   partnerTariffMappings: mocks.partnerTariffMappings,
   renderTariffMapping: mocks.renderTariffMapping,
   mappingsForPricingChange: mocks.mappingsForPricingChange,
+  // One id per mapping (no AC or DC tariffs; the per-kind ids are covered
+  // in published-tariffs and 90-published-tariffs).
+  mappingPushIds: (m: { ocpiTariffId: string }) => [m.ocpiTariffId],
+  findPublishedTariff: async (partnerId: string, ocpiTariffId: string) => {
+    const rows = (await mocks.partnerTariffMappings(partnerId)) as Array<{ ocpiTariffId: string }>;
+    const mapping = rows.find((m) => m.ocpiTariffId === ocpiTariffId);
+    return mapping != null ? { mapping, kind: null } : null;
+  },
 }));
 vi.mock('../services/location-render.js', () => ({
   loadSiteLocation: mocks.loadSiteLocation,

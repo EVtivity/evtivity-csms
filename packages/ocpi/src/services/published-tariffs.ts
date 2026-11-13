@@ -19,8 +19,8 @@ import {
   getCompanyTaxBasis,
   getIdlingGracePeriodMinutes,
 } from '@evtivity/database';
-import { OCPI_TARIFF_SETTING_KEYS } from '@evtivity/lib';
-import type { TariffRestrictions } from '@evtivity/lib';
+import { OCPI_TARIFF_SETTING_KEYS, ocpiKindTariffId, tariffAppliesTo } from '@evtivity/lib';
+import type { ChargingKind, TariffRestrictions } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 import { transformTariff } from '../transformers/tariff.transformer.js';
 import type { TariffSource } from '../transformers/tariff.transformer.js';
@@ -94,6 +94,83 @@ export async function mappingsForPricingChange(change: {
   }
   const query = db.select(mappingColumns).from(ocpiTariffMappings);
   return conditions.length > 0 ? query.where(or(...conditions)) : query;
+}
+
+/** An OCPI tariff id a mapping publishes, and the charging kind it holds (null: every kind). */
+export interface PublishedTariffId {
+  id: string;
+  kind: ChargingKind | null;
+}
+
+/**
+ * The OCPI tariff ids a mapping publishes (owner decision D-C, 2026-11-13):
+ * a pricing group whose active tariffs differ by charging type is published
+ * as `<id>-AC` (its AC and Both tariffs) and `<id>-DC` (its DC and Both
+ * tariffs); every other mapping as its own id.
+ */
+export async function mappingPublishedIds(mapping: TariffMappingRow): Promise<PublishedTariffId[]> {
+  if (mapping.pricingGroupId == null) return [{ id: mapping.ocpiTariffId, kind: null }];
+  const rows = await db
+    .select({ chargingType: tariffs.chargingType, isActive: tariffs.isActive })
+    .from(tariffs)
+    .where(eq(tariffs.pricingGroupId, mapping.pricingGroupId));
+  if (!rows.some((r) => r.isActive && r.chargingType !== 'both')) {
+    return [{ id: mapping.ocpiTariffId, kind: null }];
+  }
+  return [
+    { id: ocpiKindTariffId(mapping.ocpiTariffId, 'ac'), kind: 'ac' },
+    { id: ocpiKindTariffId(mapping.ocpiTariffId, 'dc'), kind: 'dc' },
+  ];
+}
+
+/**
+ * Every id a push of a mapping must refresh: its own id and, for a pricing
+ * group, the per-kind ids, so a group that starts or stops differing by
+ * charging type deletes the ids it no longer publishes.
+ */
+export function mappingPushIds(mapping: TariffMappingRow): string[] {
+  if (mapping.pricingGroupId == null) return [mapping.ocpiTariffId];
+  return [
+    mapping.ocpiTariffId,
+    ocpiKindTariffId(mapping.ocpiTariffId, 'ac'),
+    ocpiKindTariffId(mapping.ocpiTariffId, 'dc'),
+  ];
+}
+
+/** The mapping a partner's published OCPI tariff id comes from, with its kind. */
+export async function findPublishedTariff(
+  partnerId: string,
+  ocpiTariffId: string,
+): Promise<{ mapping: TariffMappingRow; kind: ChargingKind | null } | null> {
+  for (const mapping of await partnerTariffMappings(partnerId)) {
+    const published = (await mappingPublishedIds(mapping)).find((p) => p.id === ocpiTariffId);
+    if (published != null) return { mapping, kind: published.kind };
+  }
+  return null;
+}
+
+/**
+ * The OCPI id a CDR names a session tariff under: the mapping's own id, or
+ * for a pricing group published per kind (D-C) the id of the tariff's kind,
+ * and for a Both tariff the session's kind (AC when not known: the Both
+ * tariffs are part of both per-kind tariffs).
+ */
+export async function sessionPublishedTariffId(
+  mapping: TariffMappingRow,
+  tariffId: string,
+  sessionKind: string | null,
+): Promise<string> {
+  const ids = await mappingPublishedIds(mapping);
+  if (ids.length === 1) return ids[0]?.id ?? mapping.ocpiTariffId;
+  const [row] = await db
+    .select({ chargingType: tariffs.chargingType })
+    .from(tariffs)
+    .where(eq(tariffs.id, tariffId))
+    .limit(1);
+  const type = row?.chargingType;
+  const kind: ChargingKind =
+    type === 'ac' || type === 'dc' ? type : sessionKind === 'dc' ? 'dc' : 'ac';
+  return ids.find((i) => i.kind === kind)?.id ?? mapping.ocpiTariffId;
 }
 
 /** The mapping that publishes a session's tariff to a partner, if any. */
@@ -172,6 +249,8 @@ export async function renderTariffMapping(
   mapping: TariffMappingRow,
   version: OcpiVersion,
   now: Date = new Date(),
+  /** The per-kind tariff of a group that differs by charging type (D-C). */
+  published: PublishedTariffId = { id: mapping.ocpiTariffId, kind: null },
 ): Promise<PublishedTariff | null> {
   const columns = {
     id: tariffs.id,
@@ -185,10 +264,19 @@ export async function renderTariffMapping(
     priority: tariffs.priority,
     isDefault: tariffs.isDefault,
     isActive: tariffs.isActive,
+    chargingType: tariffs.chargingType,
+    siteScope: tariffs.siteScope,
     updatedAt: tariffs.updatedAt,
   };
 
-  let rows: Array<Omit<TariffSource, 'restrictions'> & { restrictions: unknown; updatedAt: Date }>;
+  let rows: Array<
+    Omit<TariffSource, 'restrictions'> & {
+      restrictions: unknown;
+      updatedAt: Date;
+      chargingType: string;
+      siteScope: string;
+    }
+  >;
   const updated: Date[] = [mapping.updatedAt];
   if (mapping.tariffId != null) {
     rows = await db.select(columns).from(tariffs).where(eq(tariffs.id, mapping.tariffId));
@@ -212,10 +300,27 @@ export async function renderTariffMapping(
   }
   updated.push(...rows.map((r) => r.updatedAt));
 
-  const sources: TariffSource[] = rows.map((r) => ({
-    ...r,
-    restrictions: r.restrictions as TariffRestrictions | null,
-  }));
+  // A Selected Sites tariff prices drivers and fleets of the CSMS only, never
+  // a roaming session, so it is not published. A per-kind tariff (D-C) holds
+  // the tariffs of its kind and the Both tariffs.
+  const sources: TariffSource[] = rows
+    .filter(
+      (r) =>
+        r.siteScope !== 'selected' &&
+        (mapping.pricingGroupId == null ||
+          tariffAppliesTo(
+            {
+              chargingType:
+                r.chargingType === 'ac' || r.chargingType === 'dc' ? r.chargingType : 'both',
+            },
+            { chargingKind: published.kind },
+          )),
+    )
+    .map((r) => ({
+      ...r,
+      restrictions: r.restrictions as TariffRestrictions | null,
+    }));
+  if (sources.length === 0) return null;
   const applyRestrictions = mapping.pricingGroupId != null;
 
   let holidays: string[] = [];
@@ -242,7 +347,7 @@ export async function renderTariffMapping(
       graceMinutes: await getIdlingGracePeriodMinutes(),
       countryCode: config.OCPI_COUNTRY_CODE,
       partyId: config.OCPI_PARTY_ID,
-      ocpiTariffId: mapping.ocpiTariffId,
+      ocpiTariffId: published.id,
       lastUpdated: latest(updated),
     },
     version,
@@ -256,7 +361,15 @@ export async function renderPartnerTariffs(
   now: Date = new Date(),
 ): Promise<PublishedTariff[]> {
   const mappings = await partnerTariffMappings(partnerId);
-  const rendered = await Promise.all(mappings.map((m) => renderTariffMapping(m, version, now)));
+  const rendered = (
+    await Promise.all(
+      mappings.map(async (m) =>
+        Promise.all(
+          (await mappingPublishedIds(m)).map((p) => renderTariffMapping(m, version, now, p)),
+        ),
+      ),
+    )
+  ).flat();
   return rendered
     .filter((t): t is PublishedTariff => t != null)
     .sort((a, b) => b.last_updated.localeCompare(a.last_updated) || a.id.localeCompare(b.id));

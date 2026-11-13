@@ -123,6 +123,7 @@ export {
   closeSegmentsAt,
   segmentsAt,
   switchTariffSegment,
+  repriceSessionForChargingKind,
   repriceSessionForDriver,
 } from './lib/session-pricing.js';
 export type { SessionPricingRow, TariffPriceSnapshot } from './lib/session-pricing.js';
@@ -163,7 +164,16 @@ export {
   getPricingHolidays,
   clearTariffResolutionCache,
   resolveDriverPricingSource,
+  tariffsInScope,
 } from './lib/tariff-resolution.js';
+export {
+  loadEvseChargingKind,
+  loadStationEvseKinds,
+  resolvableKind,
+  stampSessionChargingKind,
+  startChargingKinds,
+  stationDisplayKind,
+} from './lib/charging-kind.js';
 export {
   ACCOUNT_BILLING_MIN_VERSION,
   MEMBER_INVOICE_MIN_VERSION,
@@ -494,8 +504,10 @@ export {
 export type { RecaptchaConfig, MfaConfig, MfaConfigReading } from './lib/security-settings.js';
 export { isSplitBillingEnabled, clearPricingSettingsCache } from './lib/pricing-settings.js';
 export {
+  buildStationAuthorizeTariff,
   buildStationOcppTariff,
   sendSessionTariffChange,
+  stationHasSeveralKinds,
   stationTariffCapabilities,
 } from './lib/ocpp-session-tariff.js';
 export type {

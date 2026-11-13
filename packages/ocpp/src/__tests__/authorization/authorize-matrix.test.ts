@@ -196,7 +196,7 @@ vi.mock('@evtivity/database', () => ({
   isSiteFreeVendEnabledByStation: () => setting('freeVend', h.state.freeVend),
   // The station tariff builder over the resolved tariff, with the lib mapping
   // (no split billing, 5 idle grace minutes, conditions supported).
-  buildStationOcppTariff: async (
+  buildStationAuthorizeTariff: async (
     sql: unknown,
     q: { stationUuid: string; driverUuid: string | null },
   ): Promise<unknown> => {

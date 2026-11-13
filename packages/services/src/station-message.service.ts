@@ -24,6 +24,7 @@ import {
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
   resolveStationTariff,
+  stationDisplayKind,
   isOperatorStation,
 } from '@evtivity/database';
 import {
@@ -384,7 +385,14 @@ export async function pushAllStationMessages(
     getCompanyCurrency(),
     getCompanyPriceDisplay(),
     getCompanyTaxBasis(),
-    resolveStationTariff({ stationUuid: internalStationId, driverUuid: null }, client),
+    // The station's only charging kind, else the Both tariffs (AC and DC
+    // tariffs): an idle screen does not know the EVSE yet.
+    stationDisplayKind(client, internalStationId).then((chargingKind) =>
+      resolveStationTariff(
+        { stationUuid: internalStationId, driverUuid: null, chargingKind },
+        client,
+      ),
+    ),
   ]);
 
   // Prices at the point of sale follow company.priceDisplay: gross adds the

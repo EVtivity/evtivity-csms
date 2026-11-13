@@ -81,3 +81,49 @@ ALTER TABLE "support_cases" ADD CONSTRAINT "support_cases_resolution_source_chec
 ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "serial_number" text;
 --> statement-breakpoint
 ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "ip_address" text;
+--> statement-breakpoint
+-- AC and DC tariffs and site availability (beta.5, GitHub discussion 64,
+-- owner decisions 2026-11-13). Every existing tariff becomes Both at All
+-- Sites, so its pricing is unchanged. A Selected Sites tariff lists its sites
+-- in tariff_sites (a deleted site leaves the list; a tariff with no site left
+-- stays Selected and matches nowhere).
+ALTER TABLE "tariffs" ADD COLUMN IF NOT EXISTS "charging_type" varchar(4) NOT NULL DEFAULT 'both';
+--> statement-breakpoint
+ALTER TABLE "tariffs" DROP CONSTRAINT IF EXISTS "tariffs_charging_type_check";
+--> statement-breakpoint
+ALTER TABLE "tariffs" ADD CONSTRAINT "tariffs_charging_type_check"
+  CHECK ("charging_type" IN ('ac', 'dc', 'both'));
+--> statement-breakpoint
+ALTER TABLE "tariffs" ADD COLUMN IF NOT EXISTS "site_scope" varchar(8) NOT NULL DEFAULT 'all';
+--> statement-breakpoint
+ALTER TABLE "tariffs" DROP CONSTRAINT IF EXISTS "tariffs_site_scope_check";
+--> statement-breakpoint
+ALTER TABLE "tariffs" ADD CONSTRAINT "tariffs_site_scope_check"
+  CHECK ("site_scope" IN ('all', 'selected'));
+--> statement-breakpoint
+-- The default of a group is always Both at All Sites.
+ALTER TABLE "tariffs" DROP CONSTRAINT IF EXISTS "tariffs_default_unscoped_check";
+--> statement-breakpoint
+ALTER TABLE "tariffs" ADD CONSTRAINT "tariffs_default_unscoped_check"
+  CHECK (NOT "is_default" OR ("charging_type" = 'both' AND "site_scope" = 'all'));
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "tariff_sites" (
+  "tariff_id" text NOT NULL REFERENCES "tariffs"("id") ON DELETE CASCADE,
+  "site_id" text NOT NULL REFERENCES "sites"("id") ON DELETE CASCADE,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY ("tariff_id", "site_id")
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_tariff_sites_site_id" ON "tariff_sites" ("site_id");
+--> statement-breakpoint
+-- The charging kind a session is priced for (ac, dc; null: not known, a
+-- mixed EVSE with no connector named, or a session from before beta.5).
+ALTER TABLE "charging_sessions" ADD COLUMN IF NOT EXISTS "charging_kind" varchar(2);
+--> statement-breakpoint
+ALTER TABLE "charging_sessions" DROP CONSTRAINT IF EXISTS "charging_sessions_charging_kind_check";
+--> statement-breakpoint
+ALTER TABLE "charging_sessions" ADD CONSTRAINT "charging_sessions_charging_kind_check"
+  CHECK ("charging_kind" IS NULL OR "charging_kind" IN ('ac', 'dc')) NOT VALID;
+--> statement-breakpoint
+-- Validated apart (SHARE UPDATE EXCLUSIVE): the new column is null on every row.
+ALTER TABLE "charging_sessions" VALIDATE CONSTRAINT "charging_sessions_charging_kind_check";

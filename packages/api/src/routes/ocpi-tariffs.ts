@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { OCPI_KIND_TARIFF_BASE_ID_MAX } from '@evtivity/lib';
+import { groupHasChargingTypeTariffs } from '../lib/ocpi-kind-tariff-id.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, sql, and, isNull } from 'drizzle-orm';
@@ -30,7 +32,7 @@ import {
   itemResponse,
   errorWith,
 } from '../lib/response-schemas.js';
-import { publishOcpiTariffPush } from '../lib/ocpi-tariff-push.js';
+import { groupMappingTargets, publishOcpiTariffPush } from '../lib/ocpi-tariff-push.js';
 import type { OcpiTariffPushTarget } from '../lib/ocpi-tariff-push.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -301,6 +303,16 @@ async function ocpiTariffIdTaken(
 }
 
 const OCPI_TARIFF_ID_TAKEN = 'This OCPI tariff id is already published to this partner';
+const OCPI_KIND_ID_TOO_LONG = `A pricing group with AC or DC tariffs is published as <id>-AC and <id>-DC, so its OCPI tariff id holds at most ${String(OCPI_KIND_TARIFF_BASE_ID_MAX)} characters`;
+
+/** D-C: a group with AC or DC tariffs needs an OCPI id of at most 33 characters. */
+async function kindIdTooLong(
+  pricingGroupId: string | null,
+  ocpiTariffId: string,
+): Promise<boolean> {
+  if (pricingGroupId == null || ocpiTariffId.length <= OCPI_KIND_TARIFF_BASE_ID_MAX) return false;
+  return groupHasChargingTypeTariffs(db, pricingGroupId);
+}
 const SOURCE_REQUIRED = 'Select exactly one internal tariff or pricing group';
 
 /** Postgres unique violation (a concurrent mapping with the same id won the race). */
@@ -426,6 +438,12 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         return;
       }
       if (!(await checkReferences(reply, { tariffId, pricingGroupId, partnerId }))) return;
+      if (await kindIdTooLong(pricingGroupId, body.ocpiTariffId)) {
+        await sendValidationError(reply, OCPI_KIND_ID_TOO_LONG, {
+          ocpiTariffId: OCPI_KIND_ID_TOO_LONG,
+        });
+        return;
+      }
       if (await ocpiTariffIdTaken(body.ocpiTariffId, partnerId)) {
         await sendValidationError(reply, OCPI_TARIFF_ID_TAKEN, {
           ocpiTariffId: OCPI_TARIFF_ID_TAKEN,
@@ -449,7 +467,10 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await publishOcpiTariffPush({ targets: [{ partnerId, ocpiTariffId: body.ocpiTariffId }] });
+      const created = { partnerId, ocpiTariffId: body.ocpiTariffId };
+      await publishOcpiTariffPush({
+        targets: pricingGroupId != null ? groupMappingTargets(created) : [created],
+      });
       await writeTariffMappingAudit(request, null, {
         id: createdId,
         ocpiTariffId: body.ocpiTariffId,
@@ -529,6 +550,12 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       ) {
         return;
       }
+      if (await kindIdTooLong(pricingGroupId, ocpiTariffId)) {
+        await sendValidationError(reply, OCPI_KIND_ID_TOO_LONG, {
+          ocpiTariffId: OCPI_KIND_ID_TOO_LONG,
+        });
+        return;
+      }
       if (await ocpiTariffIdTaken(ocpiTariffId, partnerId, id)) {
         await sendValidationError(reply, OCPI_TARIFF_ID_TAKEN, {
           ocpiTariffId: OCPI_TARIFF_ID_TAKEN,
@@ -552,11 +579,30 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       // Push the new tariff, and resync the old id and partner scope: a
       // partner that no longer gets this id has it deleted, or gets the
       // mapping for every partner it falls back to.
-      const targets: OcpiTariffPushTarget[] = [{ partnerId, ocpiTariffId }];
-      if (existing.partnerId !== partnerId || existing.ocpiTariffId !== ocpiTariffId) {
-        targets.push({ partnerId: existing.partnerId, ocpiTariffId: existing.ocpiTariffId });
+      // A pricing group mapping also pushes its per-kind ids (D-C).
+      const withKinds = (t: OcpiTariffPushTarget, group: boolean): OcpiTariffPushTarget[] =>
+        group ? groupMappingTargets(t) : [t];
+      const targets: OcpiTariffPushTarget[] = withKinds(
+        { partnerId, ocpiTariffId },
+        pricingGroupId != null,
+      );
+      if (
+        existing.partnerId !== partnerId ||
+        existing.ocpiTariffId !== ocpiTariffId ||
+        existing.pricingGroupId !== pricingGroupId
+      ) {
+        targets.push(
+          ...withKinds(
+            { partnerId: existing.partnerId, ocpiTariffId: existing.ocpiTariffId },
+            existing.pricingGroupId != null,
+          ),
+        );
       }
-      await publishOcpiTariffPush({ targets });
+      // Each (partner, id) once.
+      const unique = [
+        ...new Map(targets.map((t) => [`${t.partnerId ?? ''}|${t.ocpiTariffId}`, t])).values(),
+      ];
+      await publishOcpiTariffPush({ targets: unique });
       await writeTariffMappingAudit(
         request,
         {
@@ -613,8 +659,9 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const removed = { partnerId: deleted.partnerId, ocpiTariffId: deleted.ocpiTariffId };
       await publishOcpiTariffPush({
-        targets: [{ partnerId: deleted.partnerId, ocpiTariffId: deleted.ocpiTariffId }],
+        targets: deleted.pricingGroupId != null ? groupMappingTargets(removed) : [removed],
       });
       await writeTariffMappingAudit(request, { id, ...deleted }, null);
       return { success: true };

@@ -9,6 +9,8 @@ import type { EventBus, DomainEvent, PubSubClient, ConnectionRegistry } from '@e
 // the values are always JSON-serializable at runtime, so we widen via this helper.
 type JSONValue = Parameters<postgres.Sql['json']>[0];
 const asJson = (v: unknown): JSONValue => v as JSONValue;
+const sessionChargingKind = (v: unknown): 'ac' | 'dc' | null =>
+  v === 'ac' || v === 'dc' ? v : null;
 import {
   client,
   isSplitBillingEnabled,
@@ -1710,6 +1712,7 @@ export function registerProjections(
               'mv:active-sessions',
               () => sql`
           SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.token_id,
+                 cs.charging_kind,
                  COALESCE(cs.pricing_group_id,
                    (SELECT t.pricing_group_id FROM tariffs t WHERE t.id = cs.tariff_id)
                  ) AS pricing_group_id,
@@ -1759,6 +1762,9 @@ export function registerProjections(
               at: switchAt,
               sessionEnergyKwh: energyWh / 1000,
               pricingGroupId: session.pricing_group_id as string | null,
+              // Within the session's charging kind: a DC session never moves
+              // onto an AC tariff.
+              chargingKind: sessionChargingKind(session.charging_kind),
             },
             sql,
           );

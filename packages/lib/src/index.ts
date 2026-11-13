@@ -94,8 +94,9 @@ export {
   OCPP_VERSION_MISMATCH,
 } from './ocpp-command-publish.js';
 export type { OcppCommand } from './ocpp-command-publish.js';
-export { buildOcppTariff, ocppTariffConditions } from './ocpp-tariff.js';
+export { buildOcppKindTariff, buildOcppTariff, ocppTariffConditions } from './ocpp-tariff.js';
 export type {
+  OcppKindTariff,
   OcppTariff,
   OcppTariffConditions,
   OcppTariffInput,
@@ -439,7 +440,11 @@ export {
 export type { TariffRestrictions } from './tariff-restrictions.js';
 
 export { validateNoOverlap } from './tariff-overlap.js';
-export { checkGroupDefault, isUnrestrictedTariff } from './tariff-default.js';
+export {
+  checkGroupDefault,
+  isDefaultCapableTariff,
+  isUnrestrictedTariff,
+} from './tariff-default.js';
 export type { GroupDefaultTariff, GroupDefaultCheck } from './tariff-default.js';
 
 export { resolveActiveTariff, compareTariffs } from './tariff-resolver.js';
@@ -957,7 +962,31 @@ export {
   CONNECTOR_RATING_MIN,
   CONNECTOR_TYPES,
   hasAtMostDecimals,
+  CONNECTOR_MAX_POWER_REQUIRED_MESSAGE,
+  connectorNeedsMaxPower,
+  evseChargingKind,
   isDcConnector,
   stationChargingKind,
 } from './connector-power.js';
+export {
+  TARIFF_CHARGING_TYPES,
+  TARIFF_SITE_SCOPES,
+  chargingKindsOf,
+  hasChargingTypeTariffs,
+  ocpiKindTariffId,
+  OCPI_KIND_TARIFF_BASE_ID_MAX,
+  isSiteLimited,
+  isUnscopedTariff,
+  tariffAppliesTo,
+  tariffScopeDominates,
+  tariffScopesConflict,
+  tariffScopesOverlap,
+  tariffSpecificity,
+} from './tariff-scope.js';
+export type {
+  TariffChargingType,
+  TariffContext,
+  TariffScope,
+  TariffSiteScope,
+} from './tariff-scope.js';
 export type { ConnectorPowerInput, ConnectorType } from './connector-power.js';

@@ -603,3 +603,71 @@ export function priceTimeline(input: OracleTimelineInput): OracleResult {
     ceilingCents: input.ceilingCents ?? null,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Tariff choice by charging kind and site (owner decisions 2026-11-13, D-A,
+// D-E). Restated here without the resolver: the tariffs whose scope applies
+// and whose restrictions match form a set; the highest priority level wins,
+// then the highest energy threshold, and inside that level the tariff that is
+// at least as specific as every other one on both axes (AC or DC over Both,
+// Selected Sites over All Sites). A valid group has exactly one such tariff
+// (the overlap check refuses incomparable pairs); the oracle returns null
+// for a level without one, which the property test reports.
+// ---------------------------------------------------------------------------
+
+export interface OracleScopedTariff {
+  id: string;
+  priority: number;
+  /** Energy threshold of a priority 50 tariff, else 0. */
+  threshold: number;
+  /** True when its time, day, date, holiday or energy restriction matches (or it has none). */
+  restrictionMatches: boolean;
+  /** Unrestricted (priority 0) tariffs: true for the group default. */
+  isDefault: boolean;
+  chargingType: 'ac' | 'dc' | 'both';
+  /** Null: every site. */
+  siteIds: string[] | null;
+}
+
+export interface OracleTariffContext {
+  chargingKind: 'ac' | 'dc' | null;
+  siteId: string | null;
+}
+
+function oracleScopeApplies(t: OracleScopedTariff, ctx: OracleTariffContext): boolean {
+  const kindOk =
+    t.chargingType === 'both' || (ctx.chargingKind !== null && t.chargingType === ctx.chargingKind);
+  const siteOk = t.siteIds === null || (ctx.siteId !== null && t.siteIds.indexOf(ctx.siteId) >= 0);
+  return kindOk && siteOk;
+}
+
+function oracleAtLeastAsSpecific(a: OracleScopedTariff, b: OracleScopedTariff): boolean {
+  const typeOk = a.chargingType === b.chargingType || b.chargingType === 'both';
+  const siteOk = (a.siteIds === null) === (b.siteIds === null) || b.siteIds === null;
+  return typeOk && siteOk;
+}
+
+/** The id of the tariff that applies, or null (no tariff, or an ambiguous level). */
+export function pickScopedTariffOracle(
+  tariffs: readonly OracleScopedTariff[],
+  ctx: OracleTariffContext,
+): string | null {
+  const live = tariffs.filter(
+    (t) =>
+      oracleScopeApplies(t, ctx) &&
+      (t.priority > 0
+        ? t.restrictionMatches
+        : t.isDefault || t.chargingType !== 'both' || t.siteIds !== null),
+  );
+  if (live.length === 0) return null;
+  let top = live[0] as OracleScopedTariff;
+  for (const t of live) {
+    if (t.priority > top.priority || (t.priority === top.priority && t.threshold > top.threshold)) {
+      top = t;
+    }
+  }
+  const level = live.filter((t) => t.priority === top.priority && t.threshold === top.threshold);
+  const winners = level.filter((w) => level.every((o) => oracleAtLeastAsSpecific(w, o)));
+  if (winners.length !== 1) return null;
+  return (winners[0] as OracleScopedTariff).id;
+}

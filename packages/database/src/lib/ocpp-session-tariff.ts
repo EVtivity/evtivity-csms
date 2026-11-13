@@ -9,16 +9,26 @@
 // (tariff boundary job).
 
 import type postgres from 'postgres';
-import { buildOcppTariff, createLogger, isOcpp21, publishOcppCommand } from '@evtivity/lib';
-import type { OcppTariff, OcppTariffStationSupport, PubSubClient } from '@evtivity/lib';
+import {
+  buildOcppKindTariff,
+  buildOcppTariff,
+  chargingKindsOf,
+  createLogger,
+  isOcpp21,
+  publishOcppCommand,
+} from '@evtivity/lib';
+import type {
+  ChargingKind,
+  OcppTariff,
+  OcppTariffStationSupport,
+  PubSubClient,
+} from '@evtivity/lib';
+import { loadStationEvseKinds } from './charging-kind.js';
 import { getIdlingGracePeriodMinutes } from './idling-setting.js';
 import { isSplitBillingEnabled } from './pricing-settings.js';
 import { getCompanyCurrency, getCompanyTaxBasis } from './system-settings.js';
-import {
-  getPricingHolidays,
-  resolveGroupTariffs,
-  resolveStationTariff,
-} from './tariff-resolution.js';
+import { getPricingHolidays, resolveStationPricing } from './tariff-resolution.js';
+import type { GroupTariff, StationTariff } from './tariff-resolution.js';
 
 const logger = createLogger('ocpp-session-tariff');
 
@@ -76,6 +86,8 @@ export interface StationTariffQuery {
   at?: Date;
   /** The session's energy so far, for an energy-threshold tariff (default 0). */
   sessionEnergyKwh?: number;
+  /** The session's charging kind; null or omitted: not known (the Both tariffs). */
+  chargingKind?: ChargingKind | null;
   /** The station's capabilities, when the caller read them already. */
   capabilities?: StationTariffCapabilities;
 }
@@ -93,16 +105,47 @@ export async function buildStationOcppTariff(
   q: StationTariffQuery,
 ): Promise<OcppTariff | null> {
   const at = q.at ?? new Date();
-  const current = await resolveStationTariff(
+  const [priced, env] = await Promise.all([
+    resolveKind(sql, q, at, q.chargingKind ?? null),
+    tariffEnvironment(sql, q),
+  ]);
+  if (priced == null) return null;
+  return buildOcppTariff({
+    current: priced.current,
+    groupTariffs: env.splitBilling ? priced.groupTariffs : [],
+    graceMinutes: env.graceMinutes,
+    holidays: env.holidays,
+    at,
+    // The site's timezone, else system.timezone (resolved with the tariff, B22).
+    timezone: priced.current.timezone,
+    currency: env.currency,
+    taxBasis: env.taxBasis,
+    support: env.capabilities,
+  });
+}
+
+async function resolveKind(
+  sql: postgres.Sql,
+  q: StationTariffQuery,
+  at: Date,
+  chargingKind: ChargingKind | null,
+): Promise<{ current: StationTariff; groupTariffs: GroupTariff[] } | null> {
+  const resolved = await resolveStationPricing(
     {
       stationUuid: q.stationUuid,
       driverUuid: q.driverUuid,
       at,
+      chargingKind,
       ...(q.sessionEnergyKwh != null ? { sessionEnergyKwh: q.sessionEnergyKwh } : {}),
     },
     sql,
   );
-  if (current == null) return null;
+  return resolved == null
+    ? null
+    : { current: resolved.tariff, groupTariffs: resolved.groupTariffs };
+}
+
+async function tariffEnvironment(sql: postgres.Sql, q: StationTariffQuery) {
   const [capabilities, splitBilling, graceMinutes, holidays, currency, taxBasis] =
     await Promise.all([
       q.capabilities ?? stationTariffCapabilities(sql, q.stationUuid),
@@ -112,22 +155,70 @@ export async function buildStationOcppTariff(
       getCompanyCurrency(),
       getCompanyTaxBasis(),
     ]);
-  // The site's timezone, else system.timezone (resolved with the tariff, B22).
-  const timezone = current.timezone;
-  const groupTariffs = splitBilling
-    ? (await resolveGroupTariffs(current.pricingGroup.id, { at, timezone }, sql)).tariffs
-    : [];
-  return buildOcppTariff({
-    current,
-    groupTariffs,
-    graceMinutes,
-    holidays,
+  return { capabilities, splitBilling, graceMinutes, holidays, currency, taxBasis };
+}
+
+/**
+ * The AuthorizeResponse tariff (I08), before the EVSE is known. A station
+ * whose EVSEs are all AC or all DC gets the tariff of that kind. A station
+ * with AC and DC EVSEs (or a mixed EVSE) whose AC and DC tariffs differ
+ * (owner decision D-D) gets AC and DC elements with `evseKind` and the Both
+ * tariff as the fallback when it supports conditions; otherwise null (no
+ * tariff in AuthorizeResponse), and the session's tariff follows with
+ * ChangeTransactionTariff after TransactionEvent Started
+ * (sendStartedTariffChange).
+ */
+export async function buildStationAuthorizeTariff(
+  sql: postgres.Sql,
+  q: Omit<StationTariffQuery, 'chargingKind' | 'sessionEnergyKwh'>,
+): Promise<OcppTariff | null> {
+  const kinds = chargingKindsOf([...(await loadStationEvseKinds(sql, q.stationUuid)).values()]);
+  if (kinds.length < 2) {
+    return buildStationOcppTariff(sql, { ...q, chargingKind: kinds[0] ?? null });
+  }
+  const at = q.at ?? new Date();
+  const [ac, dc, both, env] = await Promise.all([
+    resolveKind(sql, q, at, 'ac'),
+    resolveKind(sql, q, at, 'dc'),
+    resolveKind(sql, q, at, null),
+    tariffEnvironment(sql, q),
+  ]);
+  if (ac == null || dc == null || both == null) return null;
+  const common = {
+    graceMinutes: env.graceMinutes,
+    holidays: env.holidays,
     at,
-    timezone,
-    currency,
-    taxBasis,
-    support: capabilities,
+    timezone: both.current.timezone,
+    currency: env.currency,
+    taxBasis: env.taxBasis,
+    support: env.capabilities,
+  };
+  const forKind = (k: { current: StationTariff; groupTariffs: GroupTariff[] }) => ({
+    current: k.current,
+    groupTariffs: env.splitBilling ? k.groupTariffs : [],
   });
+  const acTariff = buildOcppTariff({ ...common, ...forKind(ac) });
+  const dcTariff = buildOcppTariff({ ...common, ...forKind(dc) });
+  if (acTariff.tariffId === dcTariff.tariffId) return acTariff;
+  return buildOcppKindTariff({
+    ...common,
+    ac: forKind(ac),
+    dc: forKind(dc),
+    fallback: both.current,
+  });
+}
+
+/**
+ * True when the station has AC and DC EVSEs (or a mixed one): its Authorize
+ * tariff could not name the session's kind, so the session's own tariff goes
+ * with ChangeTransactionTariff after Started.
+ */
+export async function stationHasSeveralKinds(
+  sql: postgres.Sql,
+  stationUuid: string,
+): Promise<boolean> {
+  const kinds = chargingKindsOf([...(await loadStationEvseKinds(sql, stationUuid)).values()]);
+  return kinds.length > 1;
 }
 
 export type TariffChangeOutcome = 'sent' | 'unchanged' | 'skipped' | 'failed';
@@ -154,6 +245,7 @@ export async function sendSessionTariffChange(
         transaction_id: string | null;
         station_uuid: string;
         driver_id: string | null;
+        charging_kind: string | null;
         station_tariff_id: string | null;
         status: string;
         ocpp_id: string;
@@ -161,7 +253,7 @@ export async function sendSessionTariffChange(
         is_online: boolean | null;
       }>
     >`
-      SELECT cs.transaction_id, cs.station_id AS station_uuid, cs.driver_id,
+      SELECT cs.transaction_id, cs.station_id AS station_uuid, cs.driver_id, cs.charging_kind,
              cs.station_tariff_id, cs.status, st.station_id AS ocpp_id,
              st.ocpp_protocol, st.is_online
       FROM charging_sessions cs
@@ -184,6 +276,10 @@ export async function sendSessionTariffChange(
       driverUuid: session.driver_id,
       at: q.at,
       sessionEnergyKwh: q.energyWh / 1000,
+      chargingKind:
+        session.charging_kind === 'ac' || session.charging_kind === 'dc'
+          ? session.charging_kind
+          : null,
       capabilities,
     });
     if (tariff == null) return 'skipped';

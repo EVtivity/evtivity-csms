@@ -21,6 +21,7 @@ import {
   getStationMessagePricingFormat,
   isStationMessageEnabled,
   resolveStationTariff,
+  stationDisplayKind,
 } from '@evtivity/database';
 import {
   buildStationPriceContext,
@@ -158,9 +159,16 @@ async function idleTariffs(
     .from(pricingGroupStations)
     .where(inArray(pricingGroupStations.stationId, [...stationIds]));
   const groupOf = new Map(groupRows.map((r) => [r.stationId, r.groupId]));
+  // The charging kind is part of the key: a station's idle screen shows its
+  // only kind's tariff, else the Both tariffs (AC and DC tariffs).
+  const kindOf = new Map(
+    await Promise.all(
+      stationIds.map(async (id) => [id, await stationDisplayKind(client, id)] as const),
+    ),
+  );
   const byKey = new Map<string, string[]>();
   for (const id of stationIds) {
-    const key = groupOf.get(id) ?? '';
+    const key = `${groupOf.get(id) ?? ''}|${kindOf.get(id) ?? ''}`;
     const list = byKey.get(key) ?? [];
     list.push(id);
     byKey.set(key, list);
@@ -171,7 +179,10 @@ async function idleTariffs(
       if (first == null) return;
       let tariff: StationTariff = null;
       try {
-        tariff = await resolveStationTariff({ stationUuid: first, driverUuid: null }, client);
+        tariff = await resolveStationTariff(
+          { stationUuid: first, driverUuid: null, chargingKind: kindOf.get(first) ?? null },
+          client,
+        );
       } catch (err: unknown) {
         log.warn(
           { err, stationId: first },

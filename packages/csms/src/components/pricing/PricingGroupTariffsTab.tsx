@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { TariffSitesSummary, useChargingTypeLabel } from './TariffScopeFields';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -40,6 +41,9 @@ interface Tariff {
   restrictions: TariffRestrictions | null;
   priority: number;
   isDefault: boolean;
+  chargingType?: 'ac' | 'dc' | 'both';
+  siteIds?: string[] | null;
+  otherSiteCount?: number;
   createdAt: string;
 }
 
@@ -51,6 +55,7 @@ export function PricingGroupTariffsTab({
   groupId,
 }: PricingGroupTariffsTabProps): React.JSX.Element {
   const navigate = useNavigate();
+  const chargingTypeLabel = useChargingTypeLabel();
   const { t } = useTranslation();
   // Pricing writes are company-wide: the API answers 404 to a site-restricted user.
   const canWrite = useHasCompanyWidePermission('pricing:write');
@@ -98,6 +103,8 @@ export function PricingGroupTariffsTab({
               <TableRow>
                 <TableHead>{t('pricing.tariffName')}</TableHead>
                 <TableHead>{t('pricing.tariffType')}</TableHead>
+                <TableHead>{t('pricing.chargingType')}</TableHead>
+                <TableHead>{t('pricing.siteAvailability')}</TableHead>
                 <TableHead>{t('pricing.perKwh', { context: taxBasis })}</TableHead>
                 <TableHead>{t('pricing.perMin', { context: taxBasis })}</TableHead>
                 <TableHead>{t('pricing.perSession', { context: taxBasis })}</TableHead>
@@ -121,11 +128,20 @@ export function PricingGroupTariffsTab({
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {formatRestrictionSummary(tariff.restrictions, restrictionLabels)}
+                      {tariff.restrictions == null && !tariff.isDefault
+                        ? t('pricing.noRestrictionsPlain')
+                        : formatRestrictionSummary(tariff.restrictions, restrictionLabels)}
                       {tariff.isDefault && (
                         <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
                       )}
                     </div>
+                  </TableCell>
+                  <TableCell>{chargingTypeLabel(tariff.chargingType)}</TableCell>
+                  <TableCell className="text-sm">
+                    <TariffSitesSummary
+                      siteIds={tariff.siteIds}
+                      otherSiteCount={tariff.otherSiteCount}
+                    />
                   </TableCell>
                   <TableCell>{formatDecimal(tariff.pricePerKwh)}</TableCell>
                   <TableCell>{formatDecimal(tariff.pricePerMinute)}</TableCell>

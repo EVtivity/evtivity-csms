@@ -2,8 +2,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
-import { DEFAULT_TIMEZONE, isTariffFree, resolveActiveTariff } from '@evtivity/lib';
-import type { TariffRestrictions, TariffWithRestrictions } from '@evtivity/lib';
+import {
+  DEFAULT_TIMEZONE,
+  isTariffFree,
+  resolveActiveTariff,
+  tariffAppliesTo,
+} from '@evtivity/lib';
+import type {
+  ChargingKind,
+  TariffChargingType,
+  TariffRestrictions,
+  TariffWithRestrictions,
+} from '@evtivity/lib';
 import type { TariffPriceSnapshot } from './session-pricing.js';
 import { isSplitBillingEnabled } from './pricing-settings.js';
 
@@ -18,10 +28,12 @@ import { isSplitBillingEnabled } from './pricing-settings.js';
  * @evtivity/database in production), like session-pricing.
  *
  * Group order: driver > fleet (oldest membership) > station > site > default.
- * Within a group, the active tariff whose restrictions match at the given
- * time in the site's timezone wins, else the group's default tariff
- * (resolveActiveTariff in @evtivity/lib). A group without a tariff that
- * applies passes to the next group.
+ * Within a group, only the tariffs whose charging type and sites apply are
+ * candidates (the session's kind, the station's site; an unknown kind gets
+ * the Both tariffs). The candidate whose restrictions match at the given
+ * time in the site's timezone wins, the more specific first at one priority,
+ * else the group's default tariff (resolveActiveTariff in @evtivity/lib). A
+ * group without a tariff that applies passes to the next group.
  */
 
 /**
@@ -36,8 +48,15 @@ export interface ResolvedPricingGroup {
   source: PricingGroupSource;
 }
 
-/** An active tariff of a pricing group, with its display name. */
-export type GroupTariff = TariffWithRestrictions & { name: string };
+/**
+ * An active tariff of a pricing group, with its display name, its charging
+ * type and its sites (null: All Sites).
+ */
+export type GroupTariff = TariffWithRestrictions & {
+  name: string;
+  chargingType: TariffChargingType;
+  siteIds: string[] | null;
+};
 
 /** The tariff that applies to a driver at a station at a time. */
 export interface StationTariff extends TariffPriceSnapshot {
@@ -45,6 +64,7 @@ export interface StationTariff extends TariffPriceSnapshot {
   restrictions: TariffRestrictions | null;
   priority: number;
   isDefault: boolean;
+  chargingType: TariffChargingType;
   pricingGroup: ResolvedPricingGroup;
   /**
    * Timezone the restrictions were evaluated in: the site's, or the
@@ -61,6 +81,8 @@ export interface StationTariff extends TariffPriceSnapshot {
 export interface StationPricing {
   group: ResolvedPricingGroup;
   timezone: string;
+  /** The station's site (Selected Sites tariffs match only there), null without one. */
+  siteId: string | null;
   tariffs: GroupTariff[];
 }
 
@@ -74,6 +96,12 @@ export interface TariffQuery {
    * restrictions. Default 0.
    */
   sessionEnergyKwh?: number;
+  /**
+   * The session's charging kind: the EVSE's kind, or on a mixed EVSE the kind
+   * of the connector used. Null or omitted: not known, only the Both tariffs
+   * apply (owner decision D-E).
+   */
+  chargingKind?: ChargingKind | null;
   /**
    * Resolve only within this pricing group (the group a running session
    * snapshotted at its start, charging_sessions.pricing_group_id).
@@ -94,6 +122,7 @@ interface PricingRow {
   group_name: string;
   group_priority: number;
   timezone: string;
+  station_site_id: string | null;
   id: string | null;
   name: string | null;
   price_per_kwh: string | null;
@@ -105,6 +134,13 @@ interface PricingRow {
   restrictions: TariffRestrictions | null;
   priority: number | null;
   is_default: boolean | null;
+  charging_type: string | null;
+  site_scope: string | null;
+  site_ids: string[] | null;
+}
+
+function chargingTypeOf(value: string | null): TariffChargingType {
+  return value === 'ac' || value === 'dc' ? value : 'both';
 }
 
 function toGroupTariff(r: {
@@ -119,6 +155,9 @@ function toGroupTariff(r: {
   restrictions: TariffRestrictions | null;
   priority: number | null;
   is_default: boolean | null;
+  charging_type: string | null;
+  site_scope: string | null;
+  site_ids: string[] | null;
 }): GroupTariff {
   return {
     id: r.id,
@@ -132,6 +171,8 @@ function toGroupTariff(r: {
     restrictions: r.restrictions ?? null,
     priority: r.priority ?? 0,
     isDefault: r.is_default === true,
+    chargingType: chargingTypeOf(r.charging_type),
+    siteIds: r.site_scope === 'selected' ? [...(r.site_ids ?? [])].sort() : null,
   };
 }
 
@@ -195,13 +236,15 @@ export async function loadStationPricingChain(
     )
     SELECT pg.id AS group_id, pg.name AS group_name, c.priority AS group_priority,
            COALESCE(tz.timezone, sys_tz.timezone, ${DEFAULT_TIMEZONE}) AS timezone,
+           tz.site_id AS station_site_id,
            t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
            t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
-           t.restrictions, t.priority, t.is_default
+           t.restrictions, t.priority, t.is_default, t.charging_type, t.site_scope,
+           (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids
     FROM chain c
     JOIN pricing_groups pg ON pg.id = c.id
     LEFT JOIN LATERAL (
-      SELECT s.timezone
+      SELECT s.timezone, cs.site_id
       FROM charging_stations cs
       LEFT JOIN sites s ON s.id = cs.site_id
       WHERE cs.id = ${q.stationUuid}
@@ -235,6 +278,7 @@ function groupRows(rows: PricingRow[]): StationPricing[] {
           source: SOURCES[r.group_priority] ?? 'default',
         },
         timezone: r.timezone,
+        siteId: r.station_site_id,
         tariffs: [],
       };
       chain.push(entry);
@@ -272,12 +316,14 @@ export async function loadGroupPricingAtStation(
   const rows = await sql<PricingRow[]>`
     SELECT pg.id AS group_id, pg.name AS group_name, 0 AS group_priority,
            COALESCE(tz.timezone, sys_tz.timezone, ${DEFAULT_TIMEZONE}) AS timezone,
+           tz.site_id AS station_site_id,
            t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
            t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
-           t.restrictions, t.priority, t.is_default
+           t.restrictions, t.priority, t.is_default, t.charging_type, t.site_scope,
+           (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids
     FROM pricing_groups pg
     LEFT JOIN LATERAL (
-      SELECT s.timezone
+      SELECT s.timezone, cs.site_id
       FROM charging_stations cs
       LEFT JOIN sites s ON s.id = cs.site_id
       WHERE cs.id = ${stationUuid}
@@ -300,13 +346,19 @@ export async function loadGroupPricingAtStation(
 /** The first group of `chain` with a tariff that applies, and that tariff. */
 export function pickFromChain(
   chain: StationPricing[],
-  opts: { at: Date; sessionEnergyKwh?: number },
+  opts: { at: Date; sessionEnergyKwh?: number; chargingKind?: ChargingKind | null },
   holidays: Date[],
 ): { pricing: StationPricing; tariff: GroupTariff } | null {
   for (const pricing of chain) {
     const tariff = pickTariff(
       pricing.tariffs,
-      { at: opts.at, timezone: pricing.timezone, sessionEnergyKwh: opts.sessionEnergyKwh ?? 0 },
+      {
+        at: opts.at,
+        timezone: pricing.timezone,
+        sessionEnergyKwh: opts.sessionEnergyKwh ?? 0,
+        chargingKind: opts.chargingKind ?? null,
+        siteId: pricing.siteId,
+      },
       holidays,
     );
     if (tariff != null) return { pricing, tariff };
@@ -327,6 +379,7 @@ function toStationTariff(pricing: StationPricing, match: GroupTariff): StationTa
     restrictions: match.restrictions,
     priority: match.priority,
     isDefault: match.isDefault,
+    chargingType: match.chargingType,
     pricingGroup: pricing.group,
     timezone: pricing.timezone,
   };
@@ -353,9 +406,9 @@ export async function resolveStationTariff(
 }
 
 /**
- * resolveStationTariff with every active tariff of the group it resolved in
- * (the portal pricing page tells the driver whether the price can change
- * during the session).
+ * resolveStationTariff with the active tariffs of the group it resolved in
+ * that apply to the query's kind and the station's site (the portal pricing
+ * page tells the driver whether the price can change during the session).
  */
 export async function resolveStationPricing(
   q: TariffQuery,
@@ -365,8 +418,18 @@ export async function resolveStationPricing(
   if (resolved == null) return null;
   return {
     tariff: toStationTariff(resolved.pricing, resolved.tariff),
-    groupTariffs: resolved.pricing.tariffs,
+    groupTariffs: tariffsInScope(resolved.pricing, q.chargingKind ?? null),
   };
+}
+
+/** The tariffs of a group that apply to a kind at the station's site. */
+export function tariffsInScope(
+  pricing: StationPricing,
+  chargingKind: ChargingKind | null,
+): GroupTariff[] {
+  return pricing.tariffs.filter((t) =>
+    tariffAppliesTo(t, { chargingKind, siteId: pricing.siteId }),
+  );
 }
 
 /** resolveStationTariff with the group it resolved in. */
@@ -385,7 +448,11 @@ async function resolveWithPricing(
   const holidays = await getPricingHolidays(sql);
   return pickFromChain(
     chain,
-    { at: q.at ?? new Date(), sessionEnergyKwh: q.sessionEnergyKwh ?? 0 },
+    {
+      at: q.at ?? new Date(),
+      sessionEnergyKwh: q.sessionEnergyKwh ?? 0,
+      chargingKind: q.chargingKind ?? null,
+    },
     holidays,
   );
 }
@@ -397,7 +464,13 @@ async function resolveWithPricing(
  */
 export async function resolveGroupTariffs(
   groupId: string,
-  opts: { at: Date; timezone?: string | null; sessionEnergyKwh?: number },
+  opts: {
+    at: Date;
+    timezone?: string | null;
+    sessionEnergyKwh?: number;
+    chargingKind?: ChargingKind | null;
+    siteId?: string | null;
+  },
   sql: postgres.Sql,
 ): Promise<{ tariffs: GroupTariff[]; current: GroupTariff | null }> {
   const rows = await sql<
@@ -413,13 +486,17 @@ export async function resolveGroupTariffs(
       restrictions: TariffRestrictions | null;
       priority: number | null;
       is_default: boolean | null;
+      charging_type: string | null;
+      site_scope: string | null;
+      site_ids: string[] | null;
     }>
   >`
-    SELECT id, name, price_per_kwh, price_per_minute, price_per_session,
-           idle_fee_price_per_minute, reservation_fee_per_minute, tax_rate,
-           restrictions, priority, is_default
-    FROM tariffs
-    WHERE pricing_group_id = ${groupId} AND is_active = true
+    SELECT t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
+           t.restrictions, t.priority, t.is_default, t.charging_type, t.site_scope,
+           (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids
+    FROM tariffs t
+    WHERE t.pricing_group_id = ${groupId} AND t.is_active = true
   `;
   const tariffs = rows.map(toGroupTariff);
   return { tariffs, current: pickTariff(tariffs, opts, await getPricingHolidays(sql)) };
@@ -428,7 +505,15 @@ export async function resolveGroupTariffs(
 /** The tariff of `tariffs` that applies at `opts.at`. */
 export function pickTariff(
   tariffs: GroupTariff[],
-  opts: { at: Date; timezone?: string | null; sessionEnergyKwh?: number },
+  opts: {
+    at: Date;
+    timezone?: string | null;
+    sessionEnergyKwh?: number;
+    /** Omitted or null: kind not known, only Both tariffs apply. */
+    chargingKind?: ChargingKind | null;
+    /** Omitted or null: no site, only All Sites tariffs apply. */
+    siteId?: string | null;
+  },
   holidays: Date[],
 ): GroupTariff | null {
   if (tariffs.length === 0) return null;
@@ -438,6 +523,7 @@ export function pickTariff(
     holidays,
     opts.sessionEnergyKwh ?? 0,
     opts.timezone ?? undefined,
+    { chargingKind: opts.chargingKind ?? null, siteId: opts.siteId ?? null },
   );
   return current == null ? null : (tariffs.find((t) => t.id === current.id) ?? null);
 }
@@ -456,14 +542,28 @@ export function pickTariff(
  * tariffs are checked without it.
  */
 export async function isStationChargingFree(
-  q: TariffQuery & { reserved: boolean; freeVend: boolean },
+  q: TariffQuery & {
+    reserved: boolean;
+    freeVend: boolean;
+    /**
+     * Every charging kind the session may be priced at (AC and DC tariffs):
+     * one for an AC-only or DC-only EVSE, null plus AC and DC for a mixed
+     * EVSE whose connector is not named yet (it is re-priced once named,
+     * D-E). Default: `[q.chargingKind ?? null]`. Free only when free for each.
+     */
+    chargingKinds?: readonly (ChargingKind | null)[];
+  },
   sql: postgres.Sql,
 ): Promise<boolean> {
   if (q.freeVend) return true;
-  const resolved = await resolveWithPricing(q, sql);
-  if (!isTariffFree(resolved?.tariff ?? null, { reserved: q.reserved })) return false;
-  if (resolved == null || !(await isSplitBillingEnabled())) return true;
-  return !hasPaidTariff(resolved.pricing.tariffs);
+  const kinds = q.chargingKinds ?? [q.chargingKind ?? null];
+  for (const chargingKind of kinds) {
+    const resolved = await resolveWithPricing({ ...q, chargingKind }, sql);
+    if (!isTariffFree(resolved?.tariff ?? null, { reserved: q.reserved })) return false;
+    if (resolved == null || !(await isSplitBillingEnabled())) continue;
+    if (hasPaidTariff(tariffsInScope(resolved.pricing, chargingKind))) return false;
+  }
+  return true;
 }
 
 /** True when any of the tariffs has a price above zero (holding fee aside). */
@@ -491,16 +591,38 @@ export async function sessionGroupHasPaidTariff(
       idle_fee_price_per_minute: string | null;
       reservation_fee_per_minute: string | null;
       tax_rate: string | null;
+      charging_type: string | null;
+      site_scope: string | null;
+      site_ids: string[] | null;
+      charging_kind: string | null;
+      site_id: string | null;
     }>
   >`
     SELECT t.id, t.price_per_kwh, t.price_per_minute, t.price_per_session,
-           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
+           t.charging_type, t.site_scope,
+           (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids,
+           cs.charging_kind, cs.site_id
     FROM charging_sessions cs
     JOIN tariffs t ON t.pricing_group_id = cs.pricing_group_id AND t.is_active = true
     WHERE cs.id = ${sessionId}
   `;
+  // Only the tariffs the session can move to: its kind and its site. A
+  // session whose kind is not known yet (a mixed EVSE) can move to the AC
+  // or the DC tariffs once its connector is named (D-E).
+  const reachable = rows.filter((r) => {
+    const scope = {
+      chargingType: chargingTypeOf(r.charging_type),
+      siteIds: r.site_scope === 'selected' ? (r.site_ids ?? []) : null,
+    };
+    const kind = r.charging_kind === 'ac' || r.charging_kind === 'dc' ? r.charging_kind : null;
+    const kinds: Array<ChargingKind | null> = kind != null ? [kind] : [null, 'ac', 'dc'];
+    return kinds.some((chargingKind) =>
+      tariffAppliesTo(scope, { chargingKind, siteId: r.site_id }),
+    );
+  });
   return hasPaidTariff(
-    rows.map((r) => ({
+    reachable.map((r) => ({
       id: r.id,
       pricePerKwh: r.price_per_kwh,
       pricePerMinute: r.price_per_minute,

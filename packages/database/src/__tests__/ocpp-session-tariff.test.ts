@@ -6,16 +6,14 @@ import type postgres from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
 
 const h = vi.hoisted(() => ({
-  resolveStationTariff: vi.fn(),
-  resolveGroupTariffs: vi.fn(),
+  resolveStationPricing: vi.fn(),
   getPricingHolidays: vi.fn(),
   isSplitBillingEnabled: vi.fn(),
   getIdlingGracePeriodMinutes: vi.fn(),
 }));
 
 vi.mock('../lib/tariff-resolution.js', () => ({
-  resolveStationTariff: h.resolveStationTariff,
-  resolveGroupTariffs: h.resolveGroupTariffs,
+  resolveStationPricing: h.resolveStationPricing,
   getPricingHolidays: h.getPricingHolidays,
 }));
 vi.mock('../lib/pricing-settings.js', () => ({ isSplitBillingEnabled: h.isSplitBillingEnabled }));
@@ -27,8 +25,12 @@ vi.mock('../lib/system-settings.js', () => ({
   getCompanyTaxBasis: () => Promise.resolve('net'),
 }));
 
-const { buildStationOcppTariff, sendSessionTariffChange, stationTariffCapabilities } =
-  await import('../lib/ocpp-session-tariff.js');
+const {
+  buildStationAuthorizeTariff,
+  buildStationOcppTariff,
+  sendSessionTariffChange,
+  stationTariffCapabilities,
+} = await import('../lib/ocpp-session-tariff.js');
 
 /** A tagged-template sql mock answering by the first matching query fragment. */
 function makeSql(answers: Array<[string, Record<string, unknown>[]]> = []): {
@@ -82,8 +84,7 @@ const caps = (rows: Array<[string, string]>): Array<[string, Record<string, unkn
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.resolveStationTariff.mockResolvedValue(RESOLVED);
-  h.resolveGroupTariffs.mockResolvedValue({ tariffs: [DEFAULT, PEAK], current: DEFAULT });
+  h.resolveStationPricing.mockResolvedValue({ tariff: RESOLVED, groupTariffs: [DEFAULT, PEAK] });
   h.getPricingHolidays.mockResolvedValue([]);
   h.isSplitBillingEnabled.mockResolvedValue(false);
   h.getIdlingGracePeriodMinutes.mockResolvedValue(5);
@@ -121,7 +122,6 @@ describe('buildStationOcppTariff', () => {
     const tariff = await buildStationOcppTariff(sql, { stationUuid: 'sta_1', driverUuid: 'drv_1' });
     expect(tariff?.currency).toBe('EUR');
     expect(tariff?.energy?.prices).toEqual([{ priceKwh: 0.3 }]);
-    expect(h.resolveGroupTariffs).not.toHaveBeenCalled();
   });
 
   it("adds the group's tariffs as conditions with split billing", async () => {
@@ -133,9 +133,8 @@ describe('buildStationOcppTariff', () => {
       driverUuid: 'drv_1',
       at,
     });
-    expect(h.resolveGroupTariffs).toHaveBeenCalledWith(
-      'pgr_1',
-      { at, timezone: 'America/Los_Angeles' },
+    expect(h.resolveStationPricing).toHaveBeenCalledWith(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', at, chargingKind: null },
       sql,
     );
     expect(tariff?.energy?.prices).toEqual([
@@ -145,11 +144,108 @@ describe('buildStationOcppTariff', () => {
   });
 
   it('is null when no tariff applies', async () => {
-    h.resolveStationTariff.mockResolvedValue(null);
+    h.resolveStationPricing.mockResolvedValue(null);
     const { sql } = makeSql();
     expect(await buildStationOcppTariff(sql, { stationUuid: 'sta_1', driverUuid: null })).toBe(
       null,
     );
+  });
+});
+
+describe('buildStationAuthorizeTariff (D-D)', () => {
+  const AC = {
+    ...DEFAULT,
+    id: 'trf_ac',
+    pricePerKwh: '0.25',
+    isDefault: false,
+    chargingType: 'ac',
+  };
+  const DC = {
+    ...DEFAULT,
+    id: 'trf_dc',
+    pricePerKwh: '0.60',
+    isDefault: false,
+    chargingType: 'dc',
+  };
+  const evses = (kinds: Array<[string, string]>): Array<[string, Record<string, unknown>[]]> => [
+    [
+      'FROM evses e',
+      kinds.map(([evse, type], i) => ({
+        evse_id: evse,
+        id: `con_${String(i)}`,
+        connector_type: type,
+        max_power_kw: type === 'Type2' ? '22' : '150',
+      })),
+    ],
+  ];
+  const byKind = (kind: unknown) =>
+    Promise.resolve({
+      tariff: { ...RESOLVED, ...(kind === 'ac' ? AC : kind === 'dc' ? DC : DEFAULT) },
+      groupTariffs: [],
+    });
+
+  it('prices an all-DC station with the DC tariff alone', async () => {
+    h.resolveStationPricing.mockImplementation((q: { chargingKind: unknown }) =>
+      byKind(q.chargingKind),
+    );
+    const { sql } = makeSql(evses([['evs_1', 'CCS2']]));
+    const tariff = await buildStationAuthorizeTariff(sql, {
+      stationUuid: 'sta_1',
+      driverUuid: null,
+    });
+    expect(tariff?.energy?.prices).toEqual([{ priceKwh: 0.6 }]);
+  });
+
+  it('sends evseKind elements for a station with AC and DC EVSEs', async () => {
+    h.resolveStationPricing.mockImplementation((q: { chargingKind: unknown }) =>
+      byKind(q.chargingKind),
+    );
+    const { sql } = makeSql(
+      evses([
+        ['evs_1', 'CCS2'],
+        ['evs_2', 'Type2'],
+      ]),
+    );
+    const tariff = await buildStationAuthorizeTariff(sql, {
+      stationUuid: 'sta_1',
+      driverUuid: null,
+    });
+    expect(tariff?.energy?.prices).toEqual([
+      { priceKwh: 0.25, conditions: { evseKind: 'AC' } },
+      { priceKwh: 0.6, conditions: { evseKind: 'DC' } },
+      { priceKwh: 0.3 },
+    ]);
+  });
+
+  it('sends no tariff to a station without conditions when AC and DC differ', async () => {
+    h.resolveStationPricing.mockImplementation((q: { chargingKind: unknown }) =>
+      byKind(q.chargingKind),
+    );
+    const { sql } = makeSql([
+      ...evses([
+        ['evs_1', 'CCS2'],
+        ['evs_2', 'Type2'],
+      ]),
+      ...caps([['ConditionsSupported', 'false']]),
+    ]);
+    expect(
+      await buildStationAuthorizeTariff(sql, { stationUuid: 'sta_1', driverUuid: null }),
+    ).toBeNull();
+  });
+
+  it('sends one plain tariff when AC and DC resolve the same', async () => {
+    const { sql } = makeSql([
+      ...evses([
+        ['evs_1', 'CCS2'],
+        ['evs_2', 'Type2'],
+      ]),
+      ...caps([['ConditionsSupported', 'false']]),
+    ]);
+    const tariff = await buildStationAuthorizeTariff(sql, {
+      stationUuid: 'sta_1',
+      driverUuid: null,
+    });
+    expect(tariff?.energy?.prices).toEqual([{ priceKwh: 0.3 }]);
   });
 });
 
@@ -158,6 +254,7 @@ describe('sendSessionTariffChange', () => {
     transaction_id: 'tx-1',
     station_uuid: 'sta_1',
     driver_id: 'drv_1',
+    charging_kind: 'dc',
     station_tariff_id: 'evt-old',
     status: 'active',
     ocpp_id: 'CS-1',
@@ -176,8 +273,8 @@ describe('sendSessionTariffChange', () => {
     expect(
       await sendSessionTariffChange(sql, pubsub, { sessionId: 'ses_1', at, energyWh: 2500 }),
     ).toBe('sent');
-    expect(h.resolveStationTariff).toHaveBeenCalledWith(
-      { stationUuid: 'sta_1', driverUuid: 'drv_1', at, sessionEnergyKwh: 2.5 },
+    expect(h.resolveStationPricing).toHaveBeenCalledWith(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', at, chargingKind: 'dc', sessionEnergyKwh: 2.5 },
       sql,
     );
     expect(publish).toHaveBeenCalledTimes(1);

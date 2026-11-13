@@ -113,6 +113,10 @@ export const chargingSessions = pgTable(
     // Split billing switches resolve only within it, so an assignment or fleet
     // membership change applies to the next session. A snapshot (no FK).
     pricingGroupId: text('pricing_group_id'),
+    // The charging kind ('ac', 'dc') the session is priced for (migration
+    // 0490): the EVSE's kind, or on a mixed EVSE the kind of the connector
+    // the station named. Null: not known (Both tariffs only).
+    chargingKind: varchar('charging_kind', { length: 2 }),
     // Set by the worker's tariff boundary job when it moved the session from a
     // free to a paid tariff segment; the OCPP projection runs the payment gate
     // on the next reading and clears it (migration 0340).

@@ -37,7 +37,8 @@ import { deletedSiteLocation, loadSiteLocation, withTariffIds } from './location
 import type { DeletedSiteSnapshot } from './location-render.js';
 import {
   mappingsForPricingChange,
-  partnerTariffMappings,
+  findPublishedTariff,
+  mappingPushIds,
   renderTariffMapping,
 } from './published-tariffs.js';
 
@@ -575,12 +576,17 @@ async function syncPartnerTariff(job: TariffPushJob): Promise<void> {
     const target = await partnerTarget(partnerId, 'tariffs');
     if (target == null) return;
 
-    const mapping = (await partnerTariffMappings(partnerId)).find(
-      (m) => m.ocpiTariffId === ocpiTariffId,
-    );
+    // The mapping this id comes from: its own id, or a per-kind id of a
+    // pricing group that differs by charging type (D-C).
+    const found = await findPublishedTariff(partnerId, ocpiTariffId);
     const tariff =
-      mapping != null
-        ? await renderTariffMapping(mapping, resolvePartnerVersion(target.version))
+      found != null
+        ? await renderTariffMapping(
+            found.mapping,
+            resolvePartnerVersion(target.version),
+            new Date(),
+            { id: ocpiTariffId, kind: found.kind },
+          )
         : null;
 
     const client = createOcpiClient(target.token, target);
@@ -611,7 +617,9 @@ async function fanOutTariff(sink: PushJobSink, notification: PushNotification): 
         tariffId: notification.tariffId ?? null,
         pricingGroupId: notification.pricingGroupId ?? null,
       })
-    ).map((m) => ({ partnerId: m.partnerId, ocpiTariffId: m.ocpiTariffId }));
+    ).flatMap((m) =>
+      mappingPushIds(m).map((ocpiTariffId) => ({ partnerId: m.partnerId, ocpiTariffId })),
+    );
   if (targets.length === 0) return;
   logger.info({ targets: targets.length }, 'Pushing tariff update');
 

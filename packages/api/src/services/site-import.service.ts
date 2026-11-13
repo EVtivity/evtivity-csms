@@ -25,7 +25,12 @@ import {
   stationAuditLog,
   siteLoadManagement,
 } from '@evtivity/database';
-import { CONNECTOR_TYPES, csvEscape } from '@evtivity/lib';
+import {
+  CONNECTOR_MAX_POWER_REQUIRED_MESSAGE,
+  CONNECTOR_TYPES,
+  connectorNeedsMaxPower,
+  csvEscape,
+} from '@evtivity/lib';
 import { sendAvailabilityCommand } from '@evtivity/services/availability-command';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import {
@@ -227,6 +232,15 @@ export async function importSitesCsv(
 
     if (row.connectorType && !VALID_CONNECTOR_TYPES.includes(row.connectorType)) {
       result.errors.push(`Row ${String(i + 1)}: invalid connectorType "${row.connectorType}"`);
+      continue;
+    }
+
+    // A NACS, GB/T or Tesla connector needs its maximum power: it decides AC
+    // or DC, and so the tariffs that price it (owner decision 2026-11-13).
+    if (connectorNeedsMaxPower(row.connectorType) && row.maxPowerKw == null) {
+      result.errors.push(
+        `Row ${String(i + 1)}: maxPowerKw: ${CONNECTOR_MAX_POWER_REQUIRED_MESSAGE}`,
+      );
       continue;
     }
 

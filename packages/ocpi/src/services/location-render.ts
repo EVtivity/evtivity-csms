@@ -5,6 +5,7 @@
 // stations, EVSEs, connectors, maintenance coverage. Tariff ids are per
 // partner and added by the caller (`withTariffIds`).
 
+import type { ConnectorTariffIds } from './connector-tariffs.js';
 import { and, eq, gte, inArray, lte, ne } from 'drizzle-orm';
 import {
   db,
@@ -269,7 +270,7 @@ export function deletedSiteLocation(
 /** The location input with each EVSE's connector tariff ids (by station). */
 export function withTariffIds(
   input: LocationTransformInput,
-  tariffIds: ReadonlyMap<string, string[]>,
+  tariffIds: ReadonlyMap<string, ConnectorTariffIds>,
 ): LocationTransformInput {
   return {
     ...input,

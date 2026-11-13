@@ -1,6 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import {
+  assignToStationOrSite,
+  SITE_LIMITED_GROUP_REPLY,
+  SiteLimitedGroupError,
+} from '../lib/tariff-sites.js';
 import { randomUUID, X509Certificate } from 'node:crypto';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -217,6 +222,8 @@ import {
   DATA_PLANS,
   DATA_PLAN_SOURCES,
   escapeLikePattern,
+  CONNECTOR_MAX_POWER_REQUIRED_MESSAGE,
+  connectorNeedsMaxPower,
 } from '@evtivity/lib';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import {
@@ -2750,6 +2757,22 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A NACS, GB/T or Tesla connector needs its maximum power: it decides
+      // AC or DC, and so the tariffs that price it (owner decision 2026-11-13).
+      for (const c of body.connectors) {
+        const stored = existingConnectors.find((e) => e.connectorId === c.connectorId);
+        const type = c.connectorType ?? stored?.connectorType ?? null;
+        const power = c.maxPowerKw ?? stored?.maxPowerKw ?? null;
+        if (connectorNeedsMaxPower(type) && power == null) {
+          await reply.status(400).send({
+            error: CONNECTOR_MAX_POWER_REQUIRED_MESSAGE,
+            code: 'VALIDATION_ERROR',
+            details: { field: 'maxPowerKw', connectorId: c.connectorId },
+          });
+          return;
+        }
+      }
+
       // Single transaction so a mid-loop failure rolls back everything.
       await db.transaction(async (tx) => {
         for (const c of body.connectors) {
@@ -5022,6 +5045,9 @@ export function stationRoutes(app: FastifyInstance): void {
             ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.PRICING_GROUP_NOT_FOUND,
           ]),
+          409: errorWith('The pricing group has Selected Sites tariffs', [
+            ERROR_CODES.PRICING_GROUP_HAS_SITE_LIMITED_TARIFFS,
+          ]),
         },
       },
     },
@@ -5045,15 +5071,23 @@ export function stationRoutes(app: FastifyInstance): void {
         .where(eq(pricingGroupStations.stationId, id));
       let record;
       try {
-        [record] = await db
-          .insert(pricingGroupStations)
-          .values({ stationId: id, pricingGroupId: body.pricingGroupId })
-          .onConflictDoUpdate({
-            target: [pricingGroupStations.stationId],
-            set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
-          })
-          .returning();
+        // Under the group's scope lock: a group with Selected Sites tariffs
+        // prices drivers and fleets only (D-B).
+        [record] = await assignToStationOrSite(body.pricingGroupId, (tx) =>
+          tx
+            .insert(pricingGroupStations)
+            .values({ stationId: id, pricingGroupId: body.pricingGroupId })
+            .onConflictDoUpdate({
+              target: [pricingGroupStations.stationId],
+              set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
+            })
+            .returning(),
+        );
       } catch (err) {
+        if (err instanceof SiteLimitedGroupError) {
+          await reply.status(409).send(SITE_LIMITED_GROUP_REPLY);
+          return;
+        }
         // The pre-check is non-transactional, so the pricing group can be
         // deleted between the lookup and this INSERT. Map the FK violation
         // back to 404 instead of leaking a 500.

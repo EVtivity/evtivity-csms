@@ -272,6 +272,7 @@ describe('resolveStationTariff', () => {
       restrictions: { timeRange: { startTime: '20:00', endTime: '08:00' } },
       priority: 10,
       isDefault: false,
+      chargingType: 'both',
       pricingGroup: { id: 'pgr_1', name: 'Members', source: 'driver' },
       timezone: 'America/New_York',
     });
@@ -487,5 +488,58 @@ describe('getPricingHolidays', () => {
     clearTariffResolutionCache();
     await getPricingHolidays(sql);
     expect(calls).toHaveLength(3);
+  });
+});
+
+describe('charging type and site availability (owner decisions 2026-11-13)', () => {
+  const AC = {
+    ...DEFAULT_TARIFF,
+    id: 'trf_ac',
+    name: 'AC',
+    price_per_kwh: '0.30',
+    is_default: false,
+    charging_type: 'ac',
+    site_scope: 'all',
+  };
+  const DC = { ...AC, id: 'trf_dc', name: 'DC', price_per_kwh: '0.60', charging_type: 'dc' };
+  const SITE_A = {
+    ...DEFAULT_TARIFF,
+    id: 'trf_site_a',
+    name: 'Site A',
+    price_per_kwh: '0.20',
+    is_default: false,
+    site_scope: 'selected',
+    site_ids: ['sit_a'],
+  };
+  const rows = (siteId: string | null) =>
+    pricingRows([DEFAULT_TARIFF, AC, DC, SITE_A], { ...GROUP, station_site_id: siteId });
+
+  it('resolves the tariff of the session kind, and the default for an unknown kind', async () => {
+    const { sql } = makeSql([['WITH driver_group', rows('sit_b')]]);
+    const q = { stationUuid: 'sta_1', driverUuid: null };
+    expect((await resolveStationTariff({ ...q, chargingKind: 'ac' }, sql))?.id).toBe('trf_ac');
+    expect((await resolveStationTariff({ ...q, chargingKind: 'dc' }, sql))?.id).toBe('trf_dc');
+    expect((await resolveStationTariff(q, sql))?.id).toBe('trf_default');
+  });
+
+  it('applies a Selected Sites tariff only at its site', async () => {
+    const atA = makeSql([['WITH driver_group', rows('sit_a')]]);
+    expect(
+      (await resolveStationTariff({ stationUuid: 'sta_1', driverUuid: null }, atA.sql))?.id,
+    ).toBe('trf_site_a');
+    const noSite = makeSql([['WITH driver_group', rows(null)]]);
+    expect(
+      (await resolveStationTariff({ stationUuid: 'sta_1', driverUuid: null }, noSite.sql))?.id,
+    ).toBe('trf_default');
+  });
+
+  it('lists only the group tariffs in scope with the resolved one', async () => {
+    const { sql } = makeSql([['WITH driver_group', rows('sit_b')]]);
+    const resolved = await resolveStationPricing(
+      { stationUuid: 'sta_1', driverUuid: null, chargingKind: 'dc' },
+      sql,
+    );
+    expect(resolved?.tariff.chargingType).toBe('dc');
+    expect(resolved?.groupTariffs.map((t) => t.id).sort()).toEqual(['trf_dc', 'trf_default']);
   });
 });

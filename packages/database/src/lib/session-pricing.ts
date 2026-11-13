@@ -12,6 +12,7 @@
 import type postgres from 'postgres';
 import { chargedCostBreakdown, priceSessionCost, resolveTaxBasis } from '@evtivity/lib';
 import type {
+  ChargingKind,
   SessionCostBreakdown,
   SessionSegmentInput,
   TariffInput,
@@ -411,61 +412,136 @@ export async function repriceSessionForDriver(
   return sql.begin(async (tx) => {
     const txSql = tx as unknown as postgres.Sql;
     const [session] = await txSql`
-      SELECT started_at, tariff_id, tax_basis FROM charging_sessions
+      SELECT started_at, tariff_id, tax_basis, charging_kind FROM charging_sessions
       WHERE id = ${params.sessionId}
       FOR UPDATE
     `;
     if (session == null) return false;
-    const startedAt = new Date(session.started_at as string | Date);
-    const tariff = await resolveStationTariff(
-      { stationUuid: params.stationUuid, driverUuid: params.driverUuid, at: startedAt },
-      txSql,
-    );
-    if (tariff == null || tariff.id === (session.tariff_id as string | null)) return false;
-    // The tax basis stays the one stamped at Started.
-    const basis = (session.tax_basis as TaxBasis | null) ?? params.basis;
-    await snapshotSessionTariff(txSql, params.sessionId, tariff, basis);
-    const segments = await txSql`
-      SELECT id, started_at, energy_wh_start FROM session_tariff_segments
-      WHERE session_id = ${params.sessionId}
-      ORDER BY started_at, id
-    `;
-    if (segments.length === 0) {
-      await insertSegment(txSql, params.sessionId, tariff, startedAt.toISOString(), 0);
-      return true;
-    }
-    for (const [index, segment] of segments.entries()) {
-      const segmentTariff =
-        index === 0
-          ? tariff
-          : await resolveStationTariff(
-              {
-                stationUuid: params.stationUuid,
-                driverUuid: params.driverUuid,
-                at: new Date(segment.started_at as string | Date),
-                sessionEnergyKwh: Number(segment.energy_wh_start ?? 0) / 1000,
-                // The later segments resolve within the driver's group, as
-                // the split billing switches do from now on.
-                pricingGroupId: tariff.pricingGroup.id,
-              },
-              txSql,
-            );
-      if (segmentTariff == null) continue;
-      await txSql`
-        UPDATE session_tariff_segments
-        SET tariff_id = ${segmentTariff.id},
-            price_snapshot = true,
-            price_per_kwh = ${segmentTariff.pricePerKwh},
-            price_per_minute = ${segmentTariff.pricePerMinute},
-            price_per_session = ${segmentTariff.pricePerSession},
-            idle_fee_price_per_minute = ${segmentTariff.idleFeePricePerMinute},
-            reservation_fee_per_minute = ${segmentTariff.reservationFeePerMinute},
-            tax_rate = ${segmentTariff.taxRate}
-        WHERE id = ${segment.id as number}
-      `;
-    }
-    return true;
+    return repriceLocked(txSql, params, {
+      startedAt: new Date(session.started_at as string | Date),
+      tariffId: session.tariff_id as string | null,
+      taxBasis: session.tax_basis as TaxBasis | null,
+      chargingKind: kindOf(session.charging_kind),
+    });
   });
+}
+
+function kindOf(value: unknown): ChargingKind | null {
+  return value === 'ac' || value === 'dc' ? value : null;
+}
+
+/**
+ * Prices a session at its charging kind once a mixed EVSE names the
+ * connector after the start (owner decision D-E, 2026-11-13): until then the
+ * session was priced from the Both tariffs only. Stores the kind (only while
+ * it is null) and re-prices the snapshot and every segment from the start,
+ * as repriceSessionForDriver does: no segment is closed or opened, and
+ * nothing changes when the kind's tariff is the one the session has. One
+ * transaction under the session row lock. Returns whether the snapshot was
+ * replaced.
+ */
+export async function repriceSessionForChargingKind(
+  sql: postgres.Sql,
+  params: { sessionId: string; stationUuid: string; chargingKind: ChargingKind; basis: TaxBasis },
+): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    const txSql = tx as unknown as postgres.Sql;
+    const [session] = await txSql`
+      SELECT started_at, tariff_id, tax_basis, charging_kind, driver_id, status
+      FROM charging_sessions
+      WHERE id = ${params.sessionId}
+      FOR UPDATE
+    `;
+    if (session == null || session.status !== 'active') return false;
+    if (kindOf(session.charging_kind) != null) return false;
+    await txSql`
+      UPDATE charging_sessions SET charging_kind = ${params.chargingKind}
+      WHERE id = ${params.sessionId}
+    `;
+    return repriceLocked(
+      txSql,
+      {
+        sessionId: params.sessionId,
+        stationUuid: params.stationUuid,
+        driverUuid: (session.driver_id as string | null) ?? null,
+        basis: params.basis,
+      },
+      {
+        startedAt: new Date(session.started_at as string | Date),
+        tariffId: session.tariff_id as string | null,
+        taxBasis: session.tax_basis as TaxBasis | null,
+        chargingKind: params.chargingKind,
+      },
+    );
+  });
+}
+
+/** The re-price of a locked session from its start (driver link or charging kind). */
+async function repriceLocked(
+  txSql: postgres.Sql,
+  params: { sessionId: string; stationUuid: string; driverUuid: string | null; basis: TaxBasis },
+  session: {
+    startedAt: Date;
+    tariffId: string | null;
+    taxBasis: TaxBasis | null;
+    chargingKind: ChargingKind | null;
+  },
+): Promise<boolean> {
+  const startedAt = session.startedAt;
+  const tariff = await resolveStationTariff(
+    {
+      stationUuid: params.stationUuid,
+      driverUuid: params.driverUuid,
+      at: startedAt,
+      chargingKind: session.chargingKind,
+    },
+    txSql,
+  );
+  if (tariff == null || tariff.id === session.tariffId) return false;
+  // The tax basis stays the one stamped at Started.
+  const basis = session.taxBasis ?? params.basis;
+  await snapshotSessionTariff(txSql, params.sessionId, tariff, basis);
+  const segments = await txSql`
+    SELECT id, started_at, energy_wh_start FROM session_tariff_segments
+    WHERE session_id = ${params.sessionId}
+    ORDER BY started_at, id
+  `;
+  if (segments.length === 0) {
+    await insertSegment(txSql, params.sessionId, tariff, startedAt.toISOString(), 0);
+    return true;
+  }
+  for (const [index, segment] of segments.entries()) {
+    const segmentTariff =
+      index === 0
+        ? tariff
+        : await resolveStationTariff(
+            {
+              stationUuid: params.stationUuid,
+              driverUuid: params.driverUuid,
+              at: new Date(segment.started_at as string | Date),
+              sessionEnergyKwh: Number(segment.energy_wh_start ?? 0) / 1000,
+              chargingKind: session.chargingKind,
+              // The later segments resolve within the new group, as the
+              // split billing switches do from now on.
+              pricingGroupId: tariff.pricingGroup.id,
+            },
+            txSql,
+          );
+    if (segmentTariff == null) continue;
+    await txSql`
+      UPDATE session_tariff_segments
+      SET tariff_id = ${segmentTariff.id},
+          price_snapshot = true,
+          price_per_kwh = ${segmentTariff.pricePerKwh},
+          price_per_minute = ${segmentTariff.pricePerMinute},
+          price_per_session = ${segmentTariff.pricePerSession},
+          idle_fee_price_per_minute = ${segmentTariff.idleFeePricePerMinute},
+          reservation_fee_per_minute = ${segmentTariff.reservationFeePerMinute},
+          tax_rate = ${segmentTariff.taxRate}
+      WHERE id = ${segment.id as number}
+    `;
+  }
+  return true;
 }
 
 /**

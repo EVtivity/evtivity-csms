@@ -313,6 +313,13 @@ vi.mock('@evtivity/database', async () => ({
   markSitePlanStale: (...args: unknown[]) => mockMarkSitePlanStale(...args) as unknown,
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
+  // AC and DC tariffs: the real session kind stamp on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../../database/src/lib/charging-kind.js',
+  )),
+  stationHasSeveralKinds: vi.fn(() => Promise.resolve(false)),
+  repriceSessionForChargingKind: vi.fn(() => Promise.resolve(false)),
+  sendSessionTariffChange: vi.fn(() => Promise.resolve('skipped')),
   // The real OCPI token owner checks (one statement each), on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../../database/src/lib/ocpi-token-startable.js',

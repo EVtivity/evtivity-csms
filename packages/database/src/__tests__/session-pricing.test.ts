@@ -23,6 +23,7 @@ const {
   segmentsAt,
   eventTimeAtMostNow,
   switchTariffSegment,
+  repriceSessionForChargingKind,
   repriceSessionForDriver,
   zeroCostBreakdown,
   faultUnbilledSession,
@@ -870,7 +871,12 @@ describe('repriceSessionForDriver', () => {
     // segment's start and energy.
     expect(resolveTariffMock).toHaveBeenNthCalledWith(
       1,
-      { stationUuid: 'sta_1', driverUuid: 'drv_1', at: new Date('2026-06-04T00:00:00Z') },
+      {
+        stationUuid: 'sta_1',
+        driverUuid: 'drv_1',
+        at: new Date('2026-06-04T00:00:00Z'),
+        chargingKind: null,
+      },
       sql,
     );
     expect(resolveTariffMock).toHaveBeenNthCalledWith(
@@ -880,6 +886,7 @@ describe('repriceSessionForDriver', () => {
         driverUuid: 'drv_1',
         at: new Date('2026-06-04T01:00:00Z'),
         sessionEnergyKwh: 4,
+        chargingKind: null,
         // Later segments resolve within the driver's group (B7).
         pricingGroupId: 'pgr_fleet',
       },
@@ -930,5 +937,80 @@ describe('repriceSessionForDriver', () => {
       '2026-06-04T00:00:00.000Z',
       0,
     ]);
+  });
+});
+
+describe('repriceSessionForChargingKind (D-E)', () => {
+  const dcTariff = {
+    id: 'trf_dc',
+    pricePerKwh: '0.60',
+    pricePerMinute: null,
+    pricePerSession: null,
+    idleFeePricePerMinute: null,
+    reservationFeePerMinute: null,
+    taxRate: null,
+    pricingGroup: { id: 'pgr_1', name: 'Members', source: 'station' },
+  };
+  const params = { sessionId: 'ses_1', stationUuid: 'sta_1', chargingKind: 'dc', basis: 'net' };
+  const locked = (row: Record<string, unknown>): [string, Record<string, unknown>[]] => [
+    'FOR UPDATE',
+    [
+      {
+        started_at: '2026-06-04T00:00:00Z',
+        tariff_id: 'trf_default',
+        tax_basis: 'net',
+        charging_kind: null,
+        driver_id: null,
+        status: 'active',
+        ...row,
+      },
+    ],
+  ];
+
+  beforeEach(() => {
+    resolveTariffMock.mockReset();
+  });
+
+  it('stores the kind and re-prices the session from its start at that kind', async () => {
+    const { sql, calls } = makeSql([
+      locked({}),
+      [
+        'SELECT id, started_at, energy_wh_start FROM session_tariff_segments',
+        [{ id: 1, started_at: '2026-06-04T00:00:00Z', energy_wh_start: 0 }],
+      ],
+    ]);
+    resolveTariffMock.mockResolvedValueOnce(dcTariff);
+    expect(await repriceSessionForChargingKind(sql, params as never)).toBe(true);
+    expect(resolveTariffMock).toHaveBeenCalledWith(
+      {
+        stationUuid: 'sta_1',
+        driverUuid: null,
+        at: new Date('2026-06-04T00:00:00Z'),
+        chargingKind: 'dc',
+      },
+      sql,
+    );
+    expect(calls.some((c) => c.text.includes('SET charging_kind ='))).toBe(true);
+    expect(
+      calls.some(
+        (c) => c.text.includes('UPDATE session_tariff_segments') && c.values.includes('trf_dc'),
+      ),
+    ).toBe(true);
+  });
+
+  it('changes nothing once the kind is known or the session ended', async () => {
+    for (const row of [{ charging_kind: 'ac' }, { status: 'completed' }]) {
+      const { sql, calls } = makeSql([locked(row)]);
+      expect(await repriceSessionForChargingKind(sql, params as never)).toBe(false);
+      expect(resolveTariffMock).not.toHaveBeenCalled();
+      expect(calls.some((c) => c.text.includes('SET charging_kind ='))).toBe(false);
+    }
+  });
+
+  it('keeps the snapshot when the kind resolves the tariff the session has', async () => {
+    const { sql, calls } = makeSql([locked({ tariff_id: 'trf_dc' })]);
+    resolveTariffMock.mockResolvedValueOnce(dcTariff);
+    expect(await repriceSessionForChargingKind(sql, params as never)).toBe(false);
+    expect(calls.some((c) => c.text.includes('SET tariff_id ='))).toBe(false);
   });
 });

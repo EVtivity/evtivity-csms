@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { chargingKindsOf } from '@evtivity/lib/tariff-scope';
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -23,6 +24,8 @@ import {
   isSplitBillingEnabled,
   hasPaidTariff,
   writeCsmsSessionAudit,
+  loadStationEvseKinds,
+  startChargingKinds,
 } from '@evtivity/database';
 import { decryptString, notificationMoney, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
@@ -618,6 +621,35 @@ const portalPricingInfo = z
       .describe(
         'True when split billing is on and the pricing group has a paid tariff: a session that starts on a free tariff can become paid, so the start needs a payment method like a paid tariff',
       ),
+    chargingKind: z
+      .enum(['ac', 'dc'])
+      .nullable()
+      .optional()
+      .describe(
+        "The charging kind the prices above are for: the kind of every EVSE of the station, or null when the station has AC and DC EVSEs (the prices above are then the Both tariff's)",
+      ),
+    byChargingKind: z
+      .array(
+        z
+          .object({
+            chargingKind: z.enum(['ac', 'dc']).describe('The EVSE kind (AC or DC) of these prices'),
+            pricePerKwh: z.string().nullable().describe('Energy price per kWh'),
+            pricePerMinute: z.string().nullable().describe('Time price per minute while charging'),
+            pricePerSession: z.string().nullable().describe('Flat session fee'),
+            idleFeePricePerMinute: z.string().nullable().describe('Idle fee per minute'),
+            reservationFeePerMinute: z
+              .string()
+              .nullable()
+              .describe('Reservation holding fee per minute'),
+            taxRate: z.string().nullable().describe('Sales tax rate as a decimal'),
+            restrictions: z.unknown().nullable().describe('Restrictions of the resolved tariff'),
+          })
+          .loose(),
+      )
+      .optional()
+      .describe(
+        'The AC and DC prices of a station with AC and DC EVSEs whose prices differ, to show side by side (AC and DC tariffs). Empty otherwise',
+      ),
   })
   .loose();
 
@@ -937,16 +969,54 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
 
       // The resolver billing uses (the whole group chain), so the driver is
-      // shown the tariff the session is charged at.
+      // shown the tariff the session is charged at. A station whose EVSEs
+      // are all AC or all DC is priced at that kind; one with both shows the
+      // AC and DC prices side by side when they differ (byChargingKind), and
+      // the Both tariff on top.
+      const kinds = chargingKindsOf([...(await loadStationEvseKinds(client, station.id)).values()]);
+      const topKind = kinds.length === 1 ? (kinds[0] ?? null) : null;
       const resolved = await resolveStationPricing(
-        { stationUuid: station.id, driverUuid: driverId },
+        { stationUuid: station.id, driverUuid: driverId, chargingKind: topKind },
         client,
       );
       if (resolved == null) {
         await reply.status(404).send({ error: 'No pricing found', code: 'PRICING_NOT_FOUND' });
         return;
       }
-      const { tariff, groupTariffs } = resolved;
+      const { tariff } = resolved;
+      const perKind =
+        kinds.length > 1
+          ? await Promise.all(
+              kinds.map(async (kind) => ({
+                kind,
+                resolved: await resolveStationPricing(
+                  { stationUuid: station.id, driverUuid: driverId, chargingKind: kind },
+                  client,
+                ),
+              })),
+            )
+          : [];
+      const groupTariffs = [resolved, ...perKind.map((k) => k.resolved)].flatMap(
+        (r) => r?.groupTariffs ?? [],
+      );
+      const byChargingKind = perKind.flatMap(({ kind, resolved: r }) =>
+        r == null
+          ? []
+          : [
+              {
+                chargingKind: kind,
+                pricePerKwh: r.tariff.pricePerKwh,
+                pricePerMinute: r.tariff.pricePerMinute,
+                pricePerSession: r.tariff.pricePerSession,
+                idleFeePricePerMinute: r.tariff.idleFeePricePerMinute,
+                reservationFeePerMinute: r.tariff.reservationFeePerMinute,
+                taxRate: r.tariff.taxRate,
+                restrictions: r.tariff.restrictions ?? null,
+              },
+            ],
+      );
+      const kindPricesDiffer =
+        new Set(byChargingKind.map((k) => JSON.stringify({ ...k, chargingKind: null }))).size > 1;
       const splitBilling = await isSplitBillingEnabled();
       const priceChangesDuringSession = splitBilling && groupTariffs.some((t) => t.priority > 0);
       // The start decides free or paid like isStationChargingFree (B3).
@@ -967,6 +1037,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         timezone: tariff.timezone,
         priceChangesDuringSession,
         paidTariffAhead,
+        chargingKind: topKind,
+        byChargingKind: kindPricesDiffer ? byChargingKind : [],
       };
     },
   );
@@ -2309,6 +2381,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             driverUuid: driverId,
             reserved: activeReservation?.driverId === driverId,
             freeVend,
+            // The EVSE's charging kind (AC and DC tariffs); a mixed EVSE
+            // counts every kind it may be priced at.
+            chargingKinds: await startChargingKinds(client, {
+              stationUuid: station.id,
+              evseUuid: evse.id,
+            }),
           },
           client,
         );

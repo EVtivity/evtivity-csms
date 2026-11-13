@@ -89,7 +89,11 @@ const { publishOcpiTariffPush, allSiteUser } = vi.hoisted(() => ({
   publishOcpiTariffPush: vi.fn(),
   allSiteUser: { value: true },
 }));
-vi.mock('../lib/ocpi-tariff-push.js', () => ({ publishOcpiTariffPush }));
+vi.mock('../lib/ocpi-tariff-push.js', async (importOriginal) => ({
+  groupMappingTargets: (await importOriginal<typeof import('../lib/ocpi-tariff-push.js')>())
+    .groupMappingTargets,
+  publishOcpiTariffPush,
+}));
 vi.mock('../lib/site-access.js', () => ({
   requireAllSiteAccess: vi.fn(
     async (
@@ -330,7 +334,11 @@ describe('OCPI tariff mapping routes', () => {
       expect(res.statusCode).toBe(201);
       expect(res.json()).toMatchObject({ pricingGroupId: 'pgr_000000000001', tariffId: null });
       expect(publishOcpiTariffPush).toHaveBeenCalledWith({
-        targets: [{ partnerId: null, ocpiTariffId: 'TARIFF-001' }],
+        targets: [
+          { partnerId: null, ocpiTariffId: 'TARIFF-001' },
+          { partnerId: null, ocpiTariffId: 'TARIFF-001-AC' },
+          { partnerId: null, ocpiTariffId: 'TARIFF-001-DC' },
+        ],
       });
       // One row on the pricing group the mapping names, none for a null partner.
       expect(writeAuditMock).toHaveBeenCalledTimes(1);
@@ -451,6 +459,8 @@ describe('OCPI tariff mapping routes', () => {
       expect(publishOcpiTariffPush).toHaveBeenCalledWith({
         targets: [
           { partnerId: null, ocpiTariffId: 'NEW-1' },
+          { partnerId: null, ocpiTariffId: 'NEW-1-AC' },
+          { partnerId: null, ocpiTariffId: 'NEW-1-DC' },
           { partnerId: null, ocpiTariffId: 'OLD-1' },
         ],
       });

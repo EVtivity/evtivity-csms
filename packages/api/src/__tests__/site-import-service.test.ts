@@ -302,6 +302,14 @@ describe('importSitesCsv', () => {
     expect(result.errors[0]).toContain('InvalidType');
   });
 
+  it('refuses a NACS, GB/T or Tesla connector without maxPowerKw (it decides AC or DC)', async () => {
+    for (const connectorType of ['NACS', 'GBT', 'Tesla']) {
+      const result = await importSitesCsv([{ siteName: 'Site A', connectorType }], false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('maxPowerKw');
+    }
+  });
+
   it('validates evseId without stationId', async () => {
     const result = await importSitesCsv([{ siteName: 'Site A', evseId: 1 }], false);
 

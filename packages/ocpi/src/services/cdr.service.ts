@@ -25,7 +25,11 @@ import { taxTotals } from '@evtivity/lib/price-display';
 import { idleMinutesAt, ocpiCdrCost } from './session-cost-split.js';
 import { cpoSessionLink, partnerToken, sessionPlace } from './cpo-sessions.js';
 import type { CpoSessionLink } from './cpo-sessions.js';
-import { renderSnapshotTariff, sessionTariffMapping } from './published-tariffs.js';
+import {
+  renderSnapshotTariff,
+  sessionPublishedTariffId,
+  sessionTariffMapping,
+} from './published-tariffs.js';
 import { partTimes, sessionCdrParts } from './cdr-parts.js';
 import { cdrChargingPeriods } from '../lib/charging-periods.js';
 import type { PublishedTariff } from './published-tariffs.js';
@@ -104,13 +108,18 @@ export async function buildSessionCdr(
       partTariffIds.push(undefined);
       continue;
     }
-    const key = `${mapping.ocpiTariffId}|${JSON.stringify({ ...part.prices, id: '' })}`;
+    // A pricing group published per charging kind names the kind's id (D-C).
+    const baseId = await sessionPublishedTariffId(
+      mapping,
+      part.tariffId as string,
+      session.chargingKind ?? null,
+    );
+    const key = `${baseId}|${JSON.stringify({ ...part.prices, id: '' })}`;
     let ocpiTariffId = byContent.get(key);
     if (ocpiTariffId == null) {
-      const n = (perMapping.get(mapping.ocpiTariffId) ?? 0) + 1;
-      perMapping.set(mapping.ocpiTariffId, n);
-      ocpiTariffId =
-        n === 1 ? mapping.ocpiTariffId : `${mapping.ocpiTariffId.slice(0, 32)}-${String(n)}`;
+      const n = (perMapping.get(baseId) ?? 0) + 1;
+      perMapping.set(baseId, n);
+      ocpiTariffId = n === 1 ? baseId : `${baseId.slice(0, 32)}-${String(n)}`;
       byContent.set(key, ocpiTariffId);
       tariffs.push(
         await renderSnapshotTariff(

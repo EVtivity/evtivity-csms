@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { buildStationOcppTariff, client } from '@evtivity/database';
+import { buildStationAuthorizeTariff, client } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
@@ -188,7 +188,9 @@ async function resolveDriverTariff(
   }
   if (stationUuid == null) return undefined;
 
-  const tariff = await buildStationOcppTariff(client, { stationUuid, driverUuid: driverId });
+  // Before the EVSE is known: AC and DC elements with evseKind on a station
+  // with both kinds, or no tariff when it cannot take them (D-D).
+  const tariff = await buildStationAuthorizeTariff(client, { stationUuid, driverUuid: driverId });
   if (tariff == null) {
     logger.debug({ stationId, driverId }, 'No tariff found for driver');
     return undefined;

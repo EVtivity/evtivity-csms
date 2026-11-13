@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type { ConnectorTariffIds } from '../../services/connector-tariffs.js';
 import type { FastifyInstance } from 'fastify';
 import { eq, and, gte, lte, sql, isNotNull, isNull, desc, ne } from 'drizzle-orm';
 import {
@@ -138,8 +139,8 @@ async function getPublishedLocations(
 
 function withEvseTariffIds<T extends EvseRow>(
   evse: T,
-  tariffIds: string[] | undefined,
-): T & { tariffIds?: string[] } {
+  tariffIds: ConnectorTariffIds | undefined,
+): T & { tariffIds?: ConnectorTariffIds } {
   return tariffIds != null ? { ...evse, tariffIds } : evse;
 }
 
@@ -280,7 +281,7 @@ async function stationTariffIds(
   partnerId: string,
   stationDbId: string,
   siteId: string,
-): Promise<string[] | undefined> {
+): Promise<ConnectorTariffIds | undefined> {
   const [site] = await db
     .select({ freeVendEnabled: sites.freeVendEnabled })
     .from(sites)

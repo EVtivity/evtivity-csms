@@ -6,6 +6,7 @@ import { client } from '../config.js';
 import { getReservationSettings } from './reservation-setting.js';
 import { getCompanyTaxBasis } from './system-settings.js';
 import { resolveStationTariff } from './tariff-resolution.js';
+import { stationDisplayKind } from './charging-kind.js';
 
 const logger = createLogger('reservation-fee-terms');
 
@@ -62,7 +63,16 @@ async function currentTerms(q: {
   driverUuid: string | null;
 }): Promise<ReservationFeeTerms> {
   const [tariff, basis, settings, freeVend] = await Promise.all([
-    resolveStationTariff({ stationUuid: q.stationUuid, driverUuid: q.driverUuid }, client),
+    // A reservation holds a station before the EVSE kind is known: the
+    // station's only kind, else the Both tariffs (AC and DC tariffs).
+    resolveStationTariff(
+      {
+        stationUuid: q.stationUuid,
+        driverUuid: q.driverUuid,
+        chargingKind: await stationDisplayKind(client, q.stationUuid),
+      },
+      client,
+    ),
     getCompanyTaxBasis(),
     getReservationSettings(),
     isStationFreeVend(q.stationUuid),

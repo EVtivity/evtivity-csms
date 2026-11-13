@@ -19,6 +19,12 @@ vi.mock('@evtivity/database', () => {
       Promise.resolve(mocks.rows()).then(resolve, reject),
   };
   return {
+    // AC and DC tariffs: the charging kind readers (tested in the database package).
+    loadStationEvseKinds: vi.fn(() => Promise.resolve(new Map())),
+    startChargingKinds: vi.fn(() => Promise.resolve([null])),
+    loadEvseChargingKind: vi.fn(() => Promise.resolve(null)),
+    resolvableKind: vi.fn(() => null),
+    stationDisplayKind: vi.fn(() => Promise.resolve(null)),
     db: { select: () => chain },
     client: {},
     users: { id: 'id', language: 'language' },

@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { isDcConnector } from '@evtivity/lib';
 import type {
   OcpiLocation,
   OcpiEVSE,
@@ -66,7 +67,7 @@ export interface EvseRow {
   removed?: boolean;
   /** OCPI tariff ids for the connectors of this EVSE, for the partner the
    *  location is rendered for (`connectorTariffIds`). Omitted when none. */
-  tariffIds?: string[];
+  tariffIds?: ConnectorTariffIds;
   /** Name of the unit (physical charger box) of the EVSE, sent as its
    *  `physical_reference`. Omitted or null when the EVSE has no unit. */
   unitName?: string | null;
@@ -191,11 +192,30 @@ function inferVoltageAndAmperage(
   return { voltage, amperage };
 }
 
+/**
+ * The OCPI tariff ids of a station's connectors (owner decision D-C): one
+ * list for every connector, or one per charging kind (`ac`, `dc`) when the
+ * station's pricing differs by charging type, which each connector picks by
+ * its kind (`isDcConnector`, the rule billing uses).
+ */
+export type ConnectorTariffIds = string[] | { ac: string[]; dc: string[] };
+
+/** The tariff ids of one connector from its station's ids. */
+export function connectorTariffIdsFor(
+  ids: ConnectorTariffIds | undefined,
+  connector: { connectorType: string | null; maxPowerKw: string | number | null },
+): string[] | undefined {
+  if (ids == null || Array.isArray(ids)) return ids;
+  return isDcConnector(connector) ? ids.dc : ids.ac;
+}
+
 function transformConnector(
   connector: ConnectorRow,
   version: OcpiVersion,
-  tariffIds?: string[],
+  stationTariffIds?: ConnectorTariffIds,
 ): OcpiConnector {
+  // Per kind when the station's pricing differs by charging type (D-C).
+  const tariffIds = connectorTariffIdsFor(stationTariffIds, connector);
   const ocpiType = mapConnectorType(connector.connectorType);
   const format = inferConnectorFormat(connector.connectorType);
   const powerType = inferPowerType(connector.connectorType);
@@ -385,7 +405,7 @@ export function transformEvseStandalone(
 export function transformConnectorStandalone(
   connector: ConnectorRow,
   version: OcpiVersion,
-  tariffIds?: string[],
+  tariffIds?: ConnectorTariffIds,
 ): OcpiConnector {
   return transformConnector(connector, version, tariffIds);
 }

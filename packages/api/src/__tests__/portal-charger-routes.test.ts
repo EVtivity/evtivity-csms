@@ -71,6 +71,12 @@ vi.mock('../lib/portal-units.js', async (importOriginal) => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // AC and DC tariffs: the charging kind readers (tested in the database package).
+  loadStationEvseKinds: vi.fn(() => Promise.resolve(new Map())),
+  startChargingKinds: vi.fn(() => Promise.resolve([null])),
+  loadEvseChargingKind: vi.fn(() => Promise.resolve(null)),
+  resolvableKind: vi.fn(() => null),
+  stationDisplayKind: vi.fn(() => Promise.resolve(null)),
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   writeAudit: vi.fn(() => Promise.resolve()),
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
@@ -623,7 +629,7 @@ describe('Portal charger routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(resolveStationPricing).toHaveBeenCalledWith(
-        { stationUuid: VALID_STATION_ID, driverUuid: DRIVER_ID },
+        { stationUuid: VALID_STATION_ID, driverUuid: DRIVER_ID, chargingKind: null },
         expect.anything(),
       );
     });
@@ -642,6 +648,8 @@ describe('Portal charger routes - handler logic', () => {
         restrictions: null,
         priority: 0,
         isDefault: true,
+        chargingType: 'both' as const,
+        siteIds: null,
         pricingGroup: { id: 'pgr_1', name: 'Group', source: 'station' as const },
         timezone: 'Europe/Berlin',
       };
@@ -941,7 +949,13 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
       // No reservation held by this driver: the reservation fee does not count.
       expect(vi.mocked(isStationChargingFree)).toHaveBeenCalledWith(
-        { stationUuid: VALID_STATION_ID, driverUuid: DRIVER_ID, reserved: false, freeVend: false },
+        {
+          stationUuid: VALID_STATION_ID,
+          driverUuid: DRIVER_ID,
+          reserved: false,
+          freeVend: false,
+          chargingKinds: [null],
+        },
         expect.anything(),
       );
     });

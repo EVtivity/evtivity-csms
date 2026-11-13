@@ -15,6 +15,9 @@ import {
   isStationLevelUnavailable,
   isStationChargingFree,
   resolveStationTariff,
+  loadEvseChargingKind,
+  resolvableKind,
+  startChargingKinds,
 } from '@evtivity/database';
 import { isTariffFree, isUiLanguage, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import {
@@ -727,8 +730,14 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       // gate and bills $0 regardless of what tariff is configured. The guest
       // checkout must treat it as free so the UI doesn't ask for a card and
       // the start endpoint doesn't try to pre-auth.
+      // The EVSE's charging kind (AC and DC tariffs); a mixed EVSE is
+      // priced from the Both tariffs until its connector is named (D-E).
       const tariff = await resolveStationTariff(
-        { stationUuid: station.id, driverUuid: null },
+        {
+          stationUuid: station.id,
+          driverUuid: null,
+          chargingKind: resolvableKind(await loadEvseChargingKind(client, evse.id)),
+        },
         client,
       );
       const isFree = station.freeVendEnabled === true || isTariffFree(tariff);
@@ -1057,6 +1066,10 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           driverUuid: null,
           reserved: false,
           freeVend: siteFreeVend?.freeVendEnabled === true,
+          chargingKinds: await startChargingKinds(client, {
+            stationUuid: station.id,
+            evseUuid: evse.id,
+          }),
         },
         client,
       );

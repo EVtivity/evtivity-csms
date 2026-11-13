@@ -18,7 +18,7 @@ let whereQueue: Array<unknown[] | Error>;
 const insertValuesFn = vi.fn().mockResolvedValue(undefined);
 // The TariffType the shared builder (@evtivity/database ocpp-session-tariff)
 // returns; its mapping is tested in @evtivity/lib ocpp-tariff.test.ts.
-const buildStationOcppTariffMock = vi.fn();
+const buildStationAuthorizeTariffMock = vi.fn();
 const clientMock = vi.fn(() => Promise.resolve([{ id: 'sta_cs001' }]));
 
 function nextResult(): PromiseLike<unknown[]> & { limit: () => Promise<unknown[]> } {
@@ -75,7 +75,8 @@ vi.mock('@evtivity/database', () => ({
   },
   isRoamingEnabled: isRoamingEnabledMock,
   isSiteFreeVendEnabledByStation: isSiteFreeVendEnabledByStationMock,
-  buildStationOcppTariff: (...args: unknown[]) => buildStationOcppTariffMock(...args) as unknown,
+  buildStationAuthorizeTariff: (...args: unknown[]) =>
+    buildStationAuthorizeTariffMock(...args) as unknown,
 }));
 
 const validateContractCertificateMock = vi.fn();
@@ -154,7 +155,7 @@ beforeEach(() => {
   isRoamingEnabledMock.mockResolvedValue(false);
   isSiteFreeVendEnabledByStationMock.mockResolvedValue(false);
   insertValuesFn.mockResolvedValue(undefined);
-  buildStationOcppTariffMock.mockResolvedValue(null);
+  buildStationAuthorizeTariffMock.mockResolvedValue(null);
 });
 
 describe('v2_1 Authorize handler', () => {
@@ -478,13 +479,13 @@ describe('v2_1 Authorize handler', () => {
       [{ id: 'dtk_8', driverId: 'drv_8', isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    buildStationOcppTariffMock.mockResolvedValue(builtTariff);
+    buildStationAuthorizeTariffMock.mockResolvedValue(builtTariff);
     const { ctx } = makeCtx({ idToken: { idToken: 'tariff-rfid', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
     expect(response['tariff']).toEqual(builtTariff);
     // Resolved like session pricing: the station's internal id and the token's driver.
-    expect(buildStationOcppTariffMock).toHaveBeenCalledWith(clientMock, {
+    expect(buildStationAuthorizeTariffMock).toHaveBeenCalledWith(clientMock, {
       stationUuid: 'sta_cs001',
       driverUuid: 'drv_8',
     });
@@ -495,7 +496,7 @@ describe('v2_1 Authorize handler', () => {
       [{ id: 'dtk_9', driverId: 'drv_9', isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    buildStationOcppTariffMock.mockResolvedValue(builtTariff);
+    buildStationAuthorizeTariffMock.mockResolvedValue(builtTariff);
     const { ctx } = makeCtx(
       { idToken: { idToken: 'tariff-rfid-201', type: 'ISO14443' } },
       'ocpp2.0.1',
@@ -504,7 +505,7 @@ describe('v2_1 Authorize handler', () => {
 
     expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
     expect(response['tariff']).toBeUndefined();
-    expect(buildStationOcppTariffMock).not.toHaveBeenCalled();
+    expect(buildStationAuthorizeTariffMock).not.toHaveBeenCalled();
     await vi.waitFor(() => {
       expect(insertValuesFn).toHaveBeenCalledWith(
         expect.objectContaining({ ocppVersion: 'ocpp2.0.1' }),
@@ -522,7 +523,7 @@ describe('v2_1 Authorize handler', () => {
     await handleAuthorize(ctx);
 
     expect(clientMock).not.toHaveBeenCalled();
-    expect(buildStationOcppTariffMock).toHaveBeenCalledWith(clientMock, {
+    expect(buildStationAuthorizeTariffMock).toHaveBeenCalledWith(clientMock, {
       stationUuid: 'sta_known',
       driverUuid: 'drv_s',
     });
@@ -533,12 +534,12 @@ describe('v2_1 Authorize handler', () => {
       [{ id: 'dtk_nd', driverId: null, isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    buildStationOcppTariffMock.mockResolvedValue(builtTariff);
+    buildStationAuthorizeTariffMock.mockResolvedValue(builtTariff);
     const { ctx } = makeCtx({ idToken: { idToken: 'tariff-nd', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
     expect(response['tariff']).toEqual(builtTariff);
-    expect(buildStationOcppTariffMock).toHaveBeenCalledWith(clientMock, {
+    expect(buildStationAuthorizeTariffMock).toHaveBeenCalledWith(clientMock, {
       stationUuid: 'sta_cs001',
       driverUuid: null,
     });
@@ -560,7 +561,7 @@ describe('v2_1 Authorize handler', () => {
       [{ id: 'dtk_10', driverId: 'drv_10', isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    buildStationOcppTariffMock.mockRejectedValue(new Error('tariff query failed'));
+    buildStationAuthorizeTariffMock.mockRejectedValue(new Error('tariff query failed'));
     const { ctx } = makeCtx({ idToken: { idToken: 'tariff-err', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
@@ -577,7 +578,7 @@ describe('v2_1 Authorize handler', () => {
 
       expect(response).toEqual({ idTokenInfo: { status: 'Accepted' } });
       // free-vend short-circuit returns before any tariff resolution
-      expect(buildStationOcppTariffMock).not.toHaveBeenCalled();
+      expect(buildStationAuthorizeTariffMock).not.toHaveBeenCalled();
     });
 
     it('accepts free-vend when the matched token row has a null driverId', async () => {

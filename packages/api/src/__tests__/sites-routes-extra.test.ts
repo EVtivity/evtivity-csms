@@ -64,6 +64,21 @@ function makeChain() {
 }
 
 // The AI insights scope reads the database; these tests cover the routes only.
+// The station and site pricing assignment runs on the mocked db (the scope
+// lock and the Selected Sites check are covered in tariff-sites.test.ts).
+vi.mock('../lib/tariff-sites.js', async () => {
+  const { db } = await import('@evtivity/database');
+  class SiteLimitedGroupError extends Error {}
+  return {
+    SiteLimitedGroupError,
+    SITE_LIMITED_GROUP_REPLY: {
+      error: 'site limited',
+      code: 'PRICING_GROUP_HAS_SITE_LIMITED_TARIFFS',
+    },
+    assignToStationOrSite: (_groupId: string, run: (tx: unknown) => unknown) => run(db),
+  };
+});
+
 vi.mock('../services/ai-insight-scope.service.js', () => ({
   initialSiteAiInsightsSelected: vi.fn().mockResolvedValue(true),
   isOutsideAiInsightScope: () => false,

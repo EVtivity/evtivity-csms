@@ -11,6 +11,10 @@ const m = vi.hoisted(() => ({
   client: vi.fn(),
 }));
 
+vi.mock('../lib/charging-kind.js', () => ({
+  // A station of one kind or none: the Both tariffs (tested in charging-kind).
+  stationDisplayKind: vi.fn(() => Promise.resolve(null)),
+}));
 vi.mock('../config.js', () => ({ client: m.client }));
 vi.mock('../lib/tariff-resolution.js', () => ({ resolveStationTariff: m.resolveStationTariff }));
 vi.mock('../lib/system-settings.js', () => ({ getCompanyTaxBasis: m.getCompanyTaxBasis }));
@@ -71,7 +75,7 @@ describe('snapshotReservationFeeTerms', () => {
       feeCancellationCents: 300,
     });
     expect(m.resolveStationTariff).toHaveBeenCalledWith(
-      { stationUuid: 'sta_1', driverUuid: 'drv_1' },
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', chargingKind: null },
       m.client,
     );
   });
@@ -146,7 +150,7 @@ describe('resolveReservationFeeTerms', () => {
       cancellationFeeCents: 300,
     });
     expect(m.resolveStationTariff).toHaveBeenCalledWith(
-      { stationUuid: 'sta_1', driverUuid: 'drv_1' },
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', chargingKind: null },
       m.client,
     );
   });

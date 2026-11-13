@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { MaxPowerKindHint } from '@/components/station/MaxPowerKindHint';
 import { useState } from 'react';
 import { Trash2, Info } from 'lucide-react';
 import { ConnectorStatusBadge } from '@/components/ConnectorStatusBadge';
@@ -847,6 +848,7 @@ export function ConnectorStatus({
                   setNewEvseConnector((prev) => ({ ...prev, maxPowerKw: value }));
                 }}
               />
+              <MaxPowerKindHint connectorType={newEvseConnector.connectorType} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="new-evse-conn-current" className="leading-6">
@@ -948,6 +950,7 @@ export function ConnectorStatus({
                   setNewConnector((prev) => ({ ...prev, maxPowerKw: value }));
                 }}
               />
+              <MaxPowerKindHint connectorType={newConnector.connectorType} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="add-conn-current" className="leading-6">
@@ -1031,6 +1034,7 @@ export function ConnectorStatus({
                         );
                       }}
                     />
+                    <MaxPowerKindHint connectorType={c.connectorType} />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor={`edit-current-${String(i)}`} className="leading-6">

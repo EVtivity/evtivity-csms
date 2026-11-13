@@ -38,6 +38,9 @@
     "./connector-power": {
       "import": "./src/connector-power.ts"
     },
+    "./tariff-scope": {
+      "import": "./src/tariff-scope.ts"
+    },
     "./site-layout": {
       "import": "./src/site-layout.ts"
     },

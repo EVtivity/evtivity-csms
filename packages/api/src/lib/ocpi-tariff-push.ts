@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { isRoamingEnabled } from '@evtivity/database';
-import { createLogger, OCPI_TARIFF_SETTING_KEYS } from '@evtivity/lib';
+import {
+  createLogger,
+  OCPI_KIND_TARIFF_BASE_ID_MAX,
+  OCPI_TARIFF_SETTING_KEYS,
+  ocpiKindTariffId,
+} from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 const logger = createLogger('ocpi-tariff-push');
@@ -11,6 +16,21 @@ const logger = createLogger('ocpi-tariff-push');
 export interface OcpiTariffPushTarget {
   partnerId: string | null;
   ocpiTariffId: string;
+}
+
+/**
+ * The push targets of a pricing group mapping: its own id and the per-kind
+ * ids (`<id>-AC`, `<id>-DC`, owner decision D-C), so a group that publishes
+ * per charging kind, or stops doing so, gets every id it publishes pushed and
+ * every id it no longer publishes deleted at the partner.
+ */
+export function groupMappingTargets(target: OcpiTariffPushTarget): OcpiTariffPushTarget[] {
+  if (target.ocpiTariffId.length > OCPI_KIND_TARIFF_BASE_ID_MAX) return [target];
+  return [
+    target,
+    { ...target, ocpiTariffId: ocpiKindTariffId(target.ocpiTariffId, 'ac') },
+    { ...target, ocpiTariffId: ocpiKindTariffId(target.ocpiTariffId, 'dc') },
+  ];
 }
 
 /**

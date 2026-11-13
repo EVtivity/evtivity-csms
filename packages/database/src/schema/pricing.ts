@@ -15,6 +15,7 @@ import {
   index,
   unique,
   uniqueIndex,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
@@ -58,6 +59,10 @@ export const tariffs = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     priority: integer('priority').notNull().default(0),
     isDefault: boolean('is_default').notNull().default(false),
+    // AC, DC or both (migration 0490, CHECK tariffs_charging_type_check).
+    chargingType: varchar('charging_type', { length: 4 }).notNull().default('both'),
+    // all or selected (tariff_sites lists the sites; CHECK tariffs_site_scope_check).
+    siteScope: varchar('site_scope', { length: 8 }).notNull().default('all'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -67,6 +72,25 @@ export const tariffs = pgTable(
   // is declared in raw SQL and lives outside this file. Do not add a second
   // index here for the same column or generate would treat them as duplicates.
   (table) => [index('idx_tariffs_group_active').on(table.pricingGroupId, table.isActive)],
+);
+
+// The sites of a Selected Sites tariff (migration 0490). Written only by the
+// tariff routes, in the tariff's transaction.
+export const tariffSites = pgTable(
+  'tariff_sites',
+  {
+    tariffId: text('tariff_id')
+      .notNull()
+      .references(() => tariffs.id, { onDelete: 'cascade' }),
+    siteId: text('site_id')
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.tariffId, table.siteId] }),
+    index('idx_tariff_sites_site_id').on(table.siteId),
+  ],
 );
 
 export const pricingGroupStations = pgTable(
