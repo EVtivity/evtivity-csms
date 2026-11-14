@@ -340,6 +340,7 @@
     "pricingFree": "무료",
     "chargingKindAc": "AC",
     "chargingKindDc": "DC",
+    "priceDetailsToggle": "AC 및 DC 요금 세부 정보 보기",
     "freeVendBadge": "이 사이트에서 무료 충전",
     "freeVendDescription": "이 사이트의 운영자가 무료 충전 모드를 활성화했습니다 - 요금이 부과되지 않습니다.",
     "restrictionHolidays": "공휴일 요금",
@@ -382,7 +383,8 @@
     "reserved": "예약됨",
     "connectorReserved": "커넥터가 예약되어 있습니다",
     "maintenanceTitle": "사이트 유지보수 중",
-    "maintenanceUntil": "재개 예상 시간: {{time}}"
+    "maintenanceUntil": "재개 예상 시간: {{time}}",
+    "offlineNotice": "이 충전소는 오프라인 상태입니다. 다시 연결될 때까지 충전을 시작할 수 없습니다."
   },
   "chargerSearch": {
     "title": "충전 시작",
@@ -405,7 +407,11 @@
     "available": "이용 가능",
     "enableLocation": "근처 충전소를 보려면 위치 서비스를 활성화하세요.",
     "enableLocationButton": "위치 활성화",
-    "nearbyError": "근처 충전소를 불러오지 못했습니다."
+    "nearbyError": "근처 충전소를 불러오지 못했습니다.",
+    "noResults": "충전소를 찾을 수 없습니다",
+    "searchError": "충전소를 검색하지 못했습니다.",
+    "evseCount_one": "포트 {{count}}개",
+    "evseCount_other": "포트 {{count}}개"
   },
   "guest": {
     "checkoutTitle": "비회원 결제",
@@ -644,7 +650,8 @@
       }
     },
     "linkedSessionFallback": "충전 세션",
-    "linkedStationFallback": "충전기"
+    "linkedStationFallback": "충전기",
+    "defaultSubject": "{{station}} 문제"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "계정이 비활성화되었습니다",
@@ -921,6 +928,7 @@
     "STREAM_LIMIT_REACHED": "이 기기에서 열린 실시간 충전소 업데이트가 너무 많습니다. 다른 탭을 닫고 다시 시도하세요.",
     "SUPPORT_AI_NOT_CONFIGURED": "지원 AI가 구성되지 않았습니다",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "이 문의는 자동 답변에 대한 피드백을 기다리고 있지 않습니다",
+    "SUPPORT_CASE_CHANGED": "문의를 연 후 상태가 변경되었습니다. 문의를 다시 불러온 후 다시 시도하세요.",
     "SUPPORT_CASE_NOT_FOUND": "문의를 찾을 수 없습니다",
     "SUPPORT_DISABLED": "지원이 사용 중지되었습니다",
     "TARIFF_IN_USE": "요금이 충전 세션에서 참조되고 있어 삭제할 수 없습니다",
@@ -1291,14 +1299,15 @@
   "location": {
     "title": "위치 상세",
     "chargers": "충전기 {{count}}대",
-    "available": "{{count}}대 이용 가능",
     "hoursOfOperation": "운영 시간",
     "getDirections": "길찾기",
     "noImages": "이미지가 없습니다",
     "contactInfo": "연락처",
     "loading": "위치 로딩 중...",
     "stations": "충전소",
-    "noStations": "이 위치에 충전소가 없습니다."
+    "noStations": "이 위치에 충전소가 없습니다.",
+    "available_one": "{{count}}대 이용 가능",
+    "available_other": "{{count}}대 이용 가능"
   },
   "stationDetail": {
     "selectConnector": "충전을 시작할 포트를 선택하세요",

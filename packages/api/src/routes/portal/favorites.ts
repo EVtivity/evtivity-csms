@@ -279,13 +279,20 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A second add that raced past the check above (a double click) hits
+      // the unique index and answers like the check, never a 500.
       const [row] = await db
         .insert(driverFavoriteStations)
         .values({ driverId, stationId: station.id, unitId: unitId ?? null })
+        .onConflictDoNothing()
         .returning({ id: driverFavoriteStations.id });
+      if (row == null) {
+        await reply.status(409).send({ error: 'Already favorited', code: 'ALREADY_FAVORITED' });
+        return;
+      }
 
       void reply.status(201);
-      return { id: row?.id ?? 0 };
+      return { id: row.id };
     },
   );
 

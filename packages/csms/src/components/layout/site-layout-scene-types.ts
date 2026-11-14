@@ -327,8 +327,11 @@ export interface SiteScene {
   viewDistance: () => number;
   /** Turns the view to a station (keeps the camera's angle and distance). */
   focus: (stationId: string) => void;
-  /** Where a driver avatar floats: above the car of a charging station, else above the charger. */
-  avatarPoint: (stationId: string) => ScreenPoint | null;
+  /**
+   * Where a driver avatar floats: above the car of a charging station, else
+   * above the charger; with `stall`, above that stall's vehicle (null without one).
+   */
+  avatarPoint: (stationId: string, stall?: number) => ScreenPoint | null;
   /**
    * Fit to View. `toggle`: the Fit to View button; on a narrow stage it
    * alternates the densest part of a wide site and the whole site.
@@ -375,6 +378,11 @@ export interface StationObject {
   labelZ: number;
   /** Above the middle of the car roof (station frame), or null without a car. */
   avatarAnchor: THREE.Vector3 | null;
+  /**
+   * Above the roof of each stall's vehicle (station frame) on a charger that
+   * serves two or more stalls, by stall; empty for one vehicle.
+   */
+  stallAvatarAnchors: (THREE.Vector3 | null)[];
   /** The virtual status sign (a sprite facing the camera), or null. */
   virtualSign: THREE.Sprite | null;
   /** Custom site: the rotation handle in front of the spots (shown on the selected station in Edit Layout). */

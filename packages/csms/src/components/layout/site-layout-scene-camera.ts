@@ -170,9 +170,17 @@ export function installCamera(scn: CameraCtx): void {
   }
   scn.labelPoint = labelPoint;
 
-  function avatarPoint(stationId: string): ScreenPoint | null {
+  function avatarPoint(stationId: string, stall?: number): ScreenPoint | null {
     const obj = scn.objects.get(stationId);
     if (obj == null) return null;
+    if (stall != null) {
+      // Above one stall's vehicle of a charger serving two or more stalls.
+      const anchor = obj.stallAvatarAnchors[stall];
+      if (anchor == null) return null;
+      const at = anchor.clone();
+      obj.group.localToWorld(at);
+      return project(at);
+    }
     // Above the car roof while charging (the car parks nose to the charger), else above the charger.
     const v =
       obj.avatarAnchor != null

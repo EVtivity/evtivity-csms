@@ -86,6 +86,9 @@
     "./testing/pricing-oracle": {
       "import": "./src/testing/pricing-oracle.ts"
     },
+    "./testing/tailwind-contrast": {
+      "import": "./src/testing/tailwind-contrast.ts"
+    },
     "./payment-helpers": {
       "import": "./src/payment-helpers.ts"
     },

@@ -89,13 +89,13 @@ function mapConnectorStandard(
 
 function inferPowerType(connectorType: string | null): 'DC' | 'AC_3_PHASE' {
   if (connectorType == null) return 'AC_3_PHASE';
-  const dcTypes = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'Tesla', 'NACS']);
+  const dcTypes = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'cGBT-DC', 'Tesla', 'NACS']);
   return dcTypes.has(connectorType) ? 'DC' : 'AC_3_PHASE';
 }
 
 function inferConnectorFormat(connectorType: string | null): 'CABLE' | 'SOCKET' {
   if (connectorType == null) return 'CABLE';
-  const dcTypes = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'Tesla', 'NACS']);
+  const dcTypes = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'cGBT-DC', 'Tesla', 'NACS']);
   return dcTypes.has(connectorType) ? 'CABLE' : 'SOCKET';
 }
 

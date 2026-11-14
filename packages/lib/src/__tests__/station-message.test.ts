@@ -379,6 +379,39 @@ const TARIFF = {
 };
 
 describe('buildStationPriceContext', () => {
+  it('names AC and DC in every price when a station has both kinds at different prices', () => {
+    const ctx = buildStationPriceContext({
+      tariff: TARIFF,
+      byKind: {
+        ac: TARIFF,
+        dc: { ...TARIFF, pricePerKwh: '0.55', pricePerMinute: null },
+      },
+      priceDisplay: 'net',
+      taxBasis: 'net',
+      pricingFormat: 'compact',
+      currency: 'USD',
+      language: 'en',
+    });
+    expect(ctx.pricingDisplay).toMatch(/^AC: \$0\.30\/kWh.* \| DC: \$0\.55\/kWh/);
+    expect(ctx.energyPrice).toBe('AC $0.30 / DC $0.55');
+    expect(ctx.timePrice).toBe('AC $0.02 / DC -');
+    expect(ctx.taxRatePercent).toBe('19');
+  });
+
+  it('drops the tax note when the AC and DC tax rates differ', () => {
+    const ctx = buildStationPriceContext({
+      tariff: TARIFF,
+      byKind: { ac: TARIFF, dc: { ...TARIFF, taxRate: '0.07' } },
+      priceDisplay: 'gross',
+      taxBasis: 'net',
+      pricingFormat: 'compact',
+      currency: 'USD',
+      language: 'en',
+    });
+    expect(ctx.taxRatePercent).toBe('');
+    expect(ctx.pricesIncludeTax).toBe(false);
+  });
+
   it('shows net prices with an excl. tax note for net display', () => {
     const ctx = buildStationPriceContext({
       tariff: TARIFF,

@@ -265,6 +265,8 @@ describe('station model', () => {
     if (second == null || obj.avatarAnchor == null) throw new Error('no anchor');
     expect(obj.avatarAnchor.x).toBeGreaterThan(second.minX - 0.5);
     expect(obj.avatarAnchor.x).toBeLessThan(second.maxX + 0.5);
+    // Each bay's bus has its own avatar anchor.
+    expect(obj.stallAvatarAnchors.map((a) => a != null)).toEqual([true, true]);
   });
 
   it('parks a car in each spot of a two-port curb post, the avatar over the session car', () => {
@@ -286,5 +288,9 @@ describe('station model', () => {
     expect(obj.avatarAnchor).not.toBeNull();
     // The left spot's car (EVSE 1) is on the left of the post.
     expect(obj.avatarAnchor?.x ?? 0).toBeLessThan(0);
+    // A driver avatar over each spot's car: EVSE 2's on the right.
+    expect(obj.stallAvatarAnchors).toHaveLength(2);
+    expect(obj.stallAvatarAnchors[0]?.x ?? 0).toBeLessThan(0);
+    expect(obj.stallAvatarAnchors[1]?.x ?? 0).toBeGreaterThan(0);
   });
 });

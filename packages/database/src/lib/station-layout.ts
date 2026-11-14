@@ -170,9 +170,14 @@ const OUTER_STATION_ID = {
 } as const;
 type OuterStation = keyof typeof OUTER_STATION_ID;
 
-/** The EVSEs of a station, counted in the station read (its spots on a custom site). */
+/**
+ * The in-service EVSEs of a station, counted in the station read (its spots on
+ * a custom site; a new station's EVSEs count before it reports connectors). The
+ * CSMS counts the same (`layoutStationFreeSpots`).
+ */
 const evseCountOf = (outer: OuterStation) =>
-  sql<number>`(SELECT count(*)::int FROM evses e WHERE e.station_id = ${OUTER_STATION_ID[outer]})`;
+  sql<number>`(SELECT count(*)::int FROM evses e WHERE e.station_id = ${OUTER_STATION_ID[outer]}
+    AND e.retired_at IS NULL)`;
 
 /**
  * The layout kind of each station (`layoutStationKind`: AC or DC, its depot
@@ -805,7 +810,9 @@ export async function refitStationRun(
   }));
   const bay = positionToBay(point);
   const run = spanSpots(bay, span, settings);
-  const held = heldSpots(slots, settings);
+  // The access aisle is left out: placed without this station, the accessible
+  // space could land on its own spots; it moves to the run's end instead.
+  const held = heldSpots(slots, settings, false);
   const fits =
     !bayInLayout(bay, settings) ||
     (run != null && run.every((b) => !held.has(`${String(b.col)}:${String(b.row)}`)));

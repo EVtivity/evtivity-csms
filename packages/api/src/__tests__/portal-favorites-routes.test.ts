@@ -28,6 +28,7 @@ function makeChain() {
     'returning',
     'set',
     'onConflictDoUpdate',
+    'onConflictDoNothing',
     'delete',
     'insert',
     'update',
@@ -303,6 +304,19 @@ describe('Portal favorite routes', () => {
       // First DB call: find station -> found
       // Second DB call: check duplicate -> found
       setupDbResults([{ id: STATION_UUID }], [{ id: 99 }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/favorites',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { stationId: STATION_OCPP_ID },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('ALREADY_FAVORITED');
+    });
+
+    it('answers 409 for a second add that raced past the duplicate check', async () => {
+      // The insert hits the unique index and returns no row.
+      setupDbResults([{ id: STATION_UUID }], [], []);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/favorites',

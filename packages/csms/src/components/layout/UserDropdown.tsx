@@ -21,6 +21,7 @@ import { SpeedDial } from '@/components/SpeedDial';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useAppearanceSave } from '@/hooks/use-appearance-save';
 import { UI_THEME_LABEL_KEY } from '@/lib/theme';
 import type { UserMe } from '@/pages/Profile';
 import { cn } from '@/lib/utils';
@@ -56,6 +57,7 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
   const uiTheme = useAuth((s) => s.uiTheme);
   const user = useAuth((s) => s.user);
   const navigate = useNavigate();
+  const saveAppearance = useAppearanceSave();
   // The own avatar, from the query the Profile page reads and refreshes after a change.
   const { data: me } = useQuery({
     queryKey: ['users', 'me'],
@@ -118,7 +120,7 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
             icon: theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />,
             label: t('nav.theme'),
             onClick: () => {
-              void setTheme(theme === 'light' ? 'dark' : 'light');
+              saveAppearance(setTheme(theme === 'light' ? 'dark' : 'light'));
             },
           },
           {
@@ -167,7 +169,7 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
                 label: t(UI_THEME_LABEL_KEY[id]),
                 selected: uiTheme === id,
                 onClick: () => {
-                  void setUiTheme(id);
+                  saveAppearance(setUiTheme(id));
                 },
               };
             }),

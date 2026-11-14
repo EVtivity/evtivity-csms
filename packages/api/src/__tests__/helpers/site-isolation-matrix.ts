@@ -146,6 +146,11 @@ export interface MatrixWorld {
 type UrlFn = (f: SiteFixture, w: MatrixWorld) => string;
 type BodyFn = (f: SiteFixture, w: MatrixWorld) => unknown;
 
+/** What a control setup may create, from the integration test's helpers. */
+export interface ControlSetupTools {
+  extraStation(siteId: string, label: string): Promise<{ id: string; ocpp: string }>;
+}
+
 /**
  * The positive control of a write. Scoped: an admin of site A on A's resource
  * (`url(w.A)`, `body(w.A)`). Company: the all-site admin. Default: any 2xx.
@@ -161,6 +166,11 @@ export interface ControlSpec {
   body?: BodyFn;
   /** Runs later in the control phase (deletes run last, deepest path first). */
   order?: number;
+  /**
+   * Creates the rows the control needs itself, before its request, so it
+   * passes whether or not earlier controls ran (a filtered run).
+   */
+  setup?: (f: SiteFixture, w: MatrixWorld, tools: ControlSetupTools) => Promise<void>;
 }
 
 /**
@@ -387,6 +397,8 @@ export const SITE_ISOLATION_COMMAND_VARIANTS: MatrixEntry[] = [
 export const SITE_ISOLATION_LIST_VARIANTS: MatrixEntry[] = [
   l('/sims?stationId', 'sims:read', (f) => `/sims?stationId=${f.station}`),
   l('/sims?search', 'sims:read', () => `/sims?search=${encodeURIComponent('SIM B')}`),
+  // The site name read of the tariff site picker: naming site B's id lists nothing of B.
+  l('/sites?ids', 'sites:read', (f) => `/sites?ids=${f.site}`),
   // A's SIM history holds rows naming B's station (the SIM sat there, a
   // network reset there): an A user sees A's SIM history without them.
   l('/audit/sim/:entityId', 'audit:read', (_f, w) => `/audit/sim/${w.A.sim}`),
@@ -1840,6 +1852,13 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'SITE_NOT_FOUND',
     {
       body: (f) => ({ stationIds: [f.station] }),
+      control: {
+        // The event covers every station of the site, and the last one cannot
+        // be removed: give the site a second station first.
+        setup: async (f, _w, tools) => {
+          await tools.extraStation(f.site, 'MNT-REMOVE');
+        },
+      },
     },
   ),
   s(

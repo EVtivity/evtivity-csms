@@ -12,6 +12,7 @@ import {
   applyUiTheme,
   resolveInitialTheme,
   resolveInitialUiTheme,
+  writeStored,
   type Theme,
   type UiTheme,
 } from './theme';
@@ -419,25 +420,46 @@ export const useAuth = create<AuthState>((set, get) => ({
     }
   },
 
+  // A failed save puts the previous choice back and rejects, so the caller can say so.
   setTheme: async (theme: Theme) => {
-    localStorage.setItem('theme', theme);
-    applyTheme(theme);
-    set({ theme });
+    const previous = get().theme;
+    const show = (value: Theme): void => {
+      writeStored('theme', value);
+      applyTheme(value);
+      set({ theme: value });
+    };
+    show(theme);
     const user = get().user;
     if (user != null) {
       set({ user: { ...user, themePreference: theme } });
-      await api.patch('/v1/users/me', { themePreference: theme });
+      try {
+        await api.patch('/v1/users/me', { themePreference: theme });
+      } catch (err) {
+        show(previous);
+        set({ user: { ...user, themePreference: previous } });
+        throw err;
+      }
     }
   },
 
   setUiTheme: async (uiTheme: UiTheme) => {
-    localStorage.setItem('ui_theme', uiTheme);
-    applyUiTheme(uiTheme);
-    set({ uiTheme });
+    const previous = get().uiTheme;
+    const show = (value: UiTheme): void => {
+      writeStored('ui_theme', value);
+      applyUiTheme(value);
+      set({ uiTheme: value });
+    };
+    show(uiTheme);
     const user = get().user;
     if (user != null) {
       set({ user: { ...user, uiTheme } });
-      await api.patch('/v1/users/me', { uiTheme });
+      try {
+        await api.patch('/v1/users/me', { uiTheme });
+      } catch (err) {
+        show(previous);
+        set({ user: { ...user, uiTheme: previous } });
+        throw err;
+      }
     }
   },
 

@@ -60,12 +60,42 @@ export function PortCard({
     .map(({ c }) => c);
   const isCharging = ['charging', 'discharging'].includes(status);
   const isIdleState = ['suspended_ev', 'suspended_evse', 'idle'].includes(status);
+  // A selectable card is a button for keyboard and screen reader users:
+  // Tab reaches it, Enter or Space selects it, and its pressed state is
+  // announced (WCAG 2.1.1, 4.1.2). A card that cannot be picked stays
+  // focusable but announces itself as disabled.
+  const selectable = onSelect != null;
+  const activate = (): void => {
+    if (available) onSelect?.();
+  };
+  const name = [
+    t('stationDetail.connectorPort', { id: evseId }),
+    t(`status.${status}`),
+    ...lines.map((c) => typeLabel(c.connectorType)),
+  ].join(', ');
 
   return (
     <Card
       data-testid={testId}
+      {...(selectable
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            'aria-pressed': selected,
+            'aria-disabled': !available,
+            'aria-label': name,
+            onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                activate();
+              }
+            },
+          }
+        : {})}
       className={cn(
         'transition-all',
+        selectable &&
+          'outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background',
         available
           ? onSelect == null
             ? ''
@@ -76,9 +106,7 @@ export function PortCard({
         isCharging && 'ring-2 ring-success animate-pulse',
         isIdleState && 'ring-2 ring-warning animate-pulse',
       )}
-      onClick={() => {
-        if (available) onSelect?.();
-      }}
+      onClick={activate}
     >
       <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between">

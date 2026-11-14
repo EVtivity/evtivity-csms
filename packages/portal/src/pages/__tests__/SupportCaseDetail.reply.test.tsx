@@ -143,4 +143,26 @@ describe('support case reply box', () => {
       });
     });
   });
+
+  it('posts once for a quick double Enter while the send is pending', async () => {
+    getMock.mockResolvedValue(supportCase());
+    let resolvePost: (value: unknown) => void = () => undefined;
+    postMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePost = resolve;
+        }),
+    );
+    renderPage();
+    const field = await screen.findByLabelText('supportCases.messagePlaceholder');
+    fireEvent.change(field, { target: { value: 'Still not working' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledTimes(1);
+    });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(postMock).toHaveBeenCalledTimes(1);
+    resolvePost({ id: 9 });
+  });
 });

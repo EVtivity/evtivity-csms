@@ -20,9 +20,11 @@ import {
   getStationMessageBrandLine,
   getStationMessagePricingFormat,
   isStationMessageEnabled,
-  resolveStationTariff,
-  stationDisplayKind,
+  loadStationEvseKinds,
+  resolveStationDisplayPricing,
 } from '@evtivity/database';
+import type { StationDisplayPricing } from '@evtivity/database';
+import { chargingKindsOf } from '@evtivity/lib/tariff-scope';
 import {
   buildStationPriceContext,
   DEFAULT_STATION_MESSAGE_LANGUAGE,
@@ -137,19 +139,17 @@ export async function viewerScreenLanguage(userId: string): Promise<StationMessa
   return isStationMessageLanguage(language) ? language : DEFAULT_STATION_MESSAGE_LANGUAGE;
 }
 
-type StationTariff = Awaited<ReturnType<typeof resolveStationTariff>>;
-
 /**
- * The tariff each station shows on its idle screen. Stations of one site
- * differ only by a station-level pricing group, so the tariff is resolved
- * once per group (and once for the stations without one). Fail-open: a
- * failed resolution shows no prices.
+ * The prices each station shows on its idle screen. Stations of one site
+ * differ only by a station-level pricing group and their charging kinds, so
+ * the prices are resolved once per group and kinds. Fail-open: a failed
+ * resolution shows no prices.
  */
 async function idleTariffs(
   stationIds: readonly string[],
   log: ServiceLogger,
-): Promise<Map<string, StationTariff>> {
-  const result = new Map<string, StationTariff>();
+): Promise<Map<string, StationDisplayPricing>> {
+  const result = new Map<string, StationDisplayPricing>();
   if (stationIds.length === 0) return result;
   const groupRows = await db
     .select({
@@ -159,16 +159,20 @@ async function idleTariffs(
     .from(pricingGroupStations)
     .where(inArray(pricingGroupStations.stationId, [...stationIds]));
   const groupOf = new Map(groupRows.map((r) => [r.stationId, r.groupId]));
-  // The charging kind is part of the key: a station's idle screen shows its
-  // only kind's tariff, else the Both tariffs (AC and DC tariffs).
-  const kindOf = new Map(
+  // The charging kinds are part of the key: a station's idle screen shows its
+  // only kind's price, the price AC and DC agree on, else both (AC and DC
+  // tariffs).
+  const kindsOf = new Map(
     await Promise.all(
-      stationIds.map(async (id) => [id, await stationDisplayKind(client, id)] as const),
+      stationIds.map(
+        async (id) =>
+          [id, chargingKindsOf([...(await loadStationEvseKinds(client, id)).values()])] as const,
+      ),
     ),
   );
   const byKey = new Map<string, string[]>();
   for (const id of stationIds) {
-    const key = `${groupOf.get(id) ?? ''}|${kindOf.get(id) ?? ''}`;
+    const key = `${groupOf.get(id) ?? ''}|${(kindsOf.get(id) ?? []).join(',')}`;
     const list = byKey.get(key) ?? [];
     list.push(id);
     byKey.set(key, list);
@@ -177,19 +181,16 @@ async function idleTariffs(
     [...byKey.values()].map(async (ids) => {
       const first = ids[0];
       if (first == null) return;
-      let tariff: StationTariff = null;
+      let pricing: StationDisplayPricing = { tariff: null, byKind: null };
       try {
-        tariff = await resolveStationTariff(
-          { stationUuid: first, driverUuid: null, chargingKind: kindOf.get(first) ?? null },
-          client,
-        );
+        pricing = await resolveStationDisplayPricing(client, first);
       } catch (err: unknown) {
         log.warn(
           { err, stationId: first },
           'Screen message tariff lookup failed, showing no prices',
         );
       }
-      for (const id of ids) result.set(id, tariff);
+      for (const id of ids) result.set(id, pricing);
     }),
   );
   return result;
@@ -275,7 +276,8 @@ export async function resolveLayoutScreenMessages(
         Object.assign(
           ctx,
           buildStationPriceContext({
-            tariff: tariffs.get(station.id) ?? null,
+            tariff: tariffs.get(station.id)?.tariff ?? null,
+            byKind: tariffs.get(station.id)?.byKind ?? null,
             priceDisplay,
             taxBasis,
             pricingFormat,

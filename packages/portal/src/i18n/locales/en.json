@@ -340,6 +340,7 @@
     "pricingFree": "Free",
     "chargingKindAc": "AC",
     "chargingKindDc": "DC",
+    "priceDetailsToggle": "Show AC and DC price details",
     "freeVendBadge": "Free charging at this site",
     "freeVendDescription": "The site operator has enabled free vend mode - no charges apply.",
     "restrictionHolidays": "Holiday rate",
@@ -382,7 +383,8 @@
     "reserved": "Reserved",
     "connectorReserved": "Connector is reserved",
     "maintenanceTitle": "Site Under Maintenance",
-    "maintenanceUntil": "Expected to resume around {{time}}"
+    "maintenanceUntil": "Expected to resume around {{time}}",
+    "offlineNotice": "This station is offline. Charging cannot start until it reconnects."
   },
   "chargerSearch": {
     "title": "Start Charging",
@@ -405,7 +407,11 @@
     "available": "available",
     "enableLocation": "Enable location services to see nearby stations.",
     "enableLocationButton": "Enable Location",
-    "nearbyError": "Failed to load nearby stations."
+    "nearbyError": "Failed to load nearby stations.",
+    "noResults": "No stations found",
+    "searchError": "Failed to search stations.",
+    "evseCount_one": "{{count}} port",
+    "evseCount_other": "{{count}} ports"
   },
   "guest": {
     "checkoutTitle": "Guest Checkout",
@@ -644,7 +650,8 @@
       }
     },
     "linkedSessionFallback": "Charging session",
-    "linkedStationFallback": "Charging station"
+    "linkedStationFallback": "Charging station",
+    "defaultSubject": "Issue at {{station}}"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Account deactivated",
@@ -921,6 +928,7 @@
     "STREAM_LIMIT_REACHED": "Too many live station updates are open from this device. Close other tabs and try again.",
     "SUPPORT_AI_NOT_CONFIGURED": "Support AI is not configured",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "This support case is not waiting for feedback on an automatic answer",
+    "SUPPORT_CASE_CHANGED": "The case status changed since you opened it. Reload the case and try again.",
     "SUPPORT_CASE_NOT_FOUND": "Support case not found",
     "SUPPORT_DISABLED": "Support is disabled",
     "TARIFF_IN_USE": "Tariff is referenced by charging sessions and cannot be deleted",
@@ -1292,14 +1300,15 @@
   "location": {
     "title": "Location Details",
     "chargers": "{{count}} chargers",
-    "available": "{{count}} available",
     "stations": "Stations",
     "noStations": "No stations at this location.",
     "hoursOfOperation": "Hours of Operation",
     "getDirections": "Get Directions",
     "noImages": "No images available",
     "contactInfo": "Contact",
-    "loading": "Loading location..."
+    "loading": "Loading location...",
+    "available_one": "{{count}} available",
+    "available_other": "{{count}} available"
   },
   "stationDetail": {
     "selectConnector": "Select a port to start charging",

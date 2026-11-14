@@ -82,6 +82,20 @@ ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "serial_number" text;
 --> statement-breakpoint
 ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "ip_address" text;
 --> statement-breakpoint
+-- When a unit's name, the one field partners see, last changed (beta.5): an
+-- admin-only change (serial number, IP address, order) leaves it alone, so
+-- the OCPI EVSE last_updated moves only with the name. Existing rows start at
+-- their updated_at, once, when the column is added.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'station_units' AND column_name = 'name_updated_at'
+  ) THEN
+    ALTER TABLE "station_units" ADD COLUMN "name_updated_at" timestamp with time zone NOT NULL DEFAULT now();
+    UPDATE "station_units" SET "name_updated_at" = "updated_at";
+  END IF;
+END $$;
+--> statement-breakpoint
 -- AC and DC tariffs and site availability (beta.5, GitHub discussion 64,
 -- owner decisions 2026-11-13). Every existing tariff becomes Both at All
 -- Sites, so its pricing is unchanged. A Selected Sites tariff lists its sites
@@ -120,10 +134,17 @@ CREATE INDEX IF NOT EXISTS "idx_tariff_sites_site_id" ON "tariff_sites" ("site_i
 -- mixed EVSE with no connector named, or a session from before beta.5).
 ALTER TABLE "charging_sessions" ADD COLUMN IF NOT EXISTS "charging_kind" varchar(2);
 --> statement-breakpoint
-ALTER TABLE "charging_sessions" DROP CONSTRAINT IF EXISTS "charging_sessions_charging_kind_check";
---> statement-breakpoint
-ALTER TABLE "charging_sessions" ADD CONSTRAINT "charging_sessions_charging_kind_check"
-  CHECK ("charging_kind" IS NULL OR "charging_kind" IN ('ac', 'dc')) NOT VALID;
---> statement-breakpoint
--- Validated apart (SHARE UPDATE EXCLUSIVE): the new column is null on every row.
-ALTER TABLE "charging_sessions" VALIDATE CONSTRAINT "charging_sessions_charging_kind_check";
+-- Added NOT VALID (no table scan under this file's ACCESS EXCLUSIVE lock) and
+-- only when missing, so a rerun keeps a constraint that is already validated.
+-- 0491_release_0_1_52_validate.sql validates it outside a transaction.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'charging_sessions_charging_kind_check'
+      AND conrelid = 'charging_sessions'::regclass
+  ) THEN
+    ALTER TABLE "charging_sessions" ADD CONSTRAINT "charging_sessions_charging_kind_check"
+      CHECK ("charging_kind" IS NULL OR "charging_kind" IN ('ac', 'dc')) NOT VALID;
+  END IF;
+END $$;

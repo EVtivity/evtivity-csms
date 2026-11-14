@@ -27,6 +27,7 @@ import {
   extraUnitChargerCount,
   loadStationDriverUnits,
   locationChargers,
+  type StationDriverUnits,
 } from '../lib/portal-units.js';
 
 beforeEach(() => {
@@ -153,6 +154,79 @@ describe('expandToDriverChargers', () => {
       availableCount: 0,
       connectors: [{ connectorType: 'CCS2' }],
     });
+  });
+
+  // Three stations of 8 boxes each (GitHub discussion 59) in a page of 20 rows.
+  const boxStation = (uuid: string): [string, StationDriverUnits] => [
+    uuid,
+    {
+      units: Array.from({ length: 8 }, (_, i) => ({
+        id: `${uuid}_u${String(i)}`,
+        name: `Box ${String(i + 1)}`,
+        sortOrder: i,
+      })),
+      evses: Array.from({ length: 16 }, (_, i) => ({
+        evseId: i + 1,
+        unitId: `${uuid}_u${String(Math.floor(i / 2))}`,
+        available: true,
+      })),
+    },
+  ];
+  const stationRow = (uuid: string): StationRow => ({
+    stationUuid: uuid,
+    evseCount: 16,
+    availableCount: 16,
+    connectors: [],
+    name: uuid,
+  });
+  type StationRow = {
+    stationUuid: string;
+    evseCount: number;
+    availableCount: number;
+    connectors: typeof connectors;
+    name: string;
+  };
+
+  it('returns only whole stations within the row limit, never part of a station', () => {
+    const unitData = new Map([boxStation('sta_a'), boxStation('sta_b'), boxStation('sta_c')]);
+    const rows = ['sta_a', 'sta_b', 'sta_c', 'sta_plain'].map(stationRow);
+    const out = expandToDriverChargers(rows, unitData, (r) => ({ name: r.name }), 20);
+    expect(out).toHaveLength(16);
+    expect(out.filter((r) => r.name === 'sta_a')).toHaveLength(8);
+    expect(out.filter((r) => r.name === 'sta_b')).toHaveLength(8);
+    expect(out.some((r) => r.name === 'sta_c' || r.name === 'sta_plain')).toBe(false);
+  });
+
+  it('keeps the first station whole even when it alone passes the limit', () => {
+    const unitData = new Map([boxStation('sta_a')]);
+    const out = expandToDriverChargers(
+      [stationRow('sta_a')],
+      unitData,
+      (r) => ({ name: r.name }),
+      3,
+    );
+    expect(out).toHaveLength(8);
+  });
+
+  it('keeps a station with units but no EVSE in service as one row, like a station without units', () => {
+    const unitData = new Map<string, StationDriverUnits>([
+      ['sta_empty', { units: [{ id: 'unt_1', name: 'Box 1', sortOrder: 0 }], evses: [] }],
+    ]);
+    const out = expandToDriverChargers(
+      [{ ...stationRow('sta_empty'), evseCount: 0, availableCount: 0 }],
+      unitData,
+      (r) => ({ name: r.name }),
+    );
+    expect(out).toEqual([
+      {
+        name: 'sta_empty',
+        evseCount: 0,
+        availableCount: 0,
+        connectors: [],
+        unitId: null,
+        unitName: null,
+      },
+    ]);
   });
 });
 

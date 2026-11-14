@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { useBackToParent } from '@/hooks/use-back-to-parent';
 import { useTranslation } from 'react-i18next';
@@ -109,10 +109,22 @@ export function SupportCaseDetail(): React.JSX.Element {
     },
   });
 
+  // One send at a time: a quick double Enter (or Enter while a slow send is
+  // pending) must not post the message twice. The ref closes the gap before
+  // the mutation's pending state reaches the next render.
+  const sendingRef = useRef(false);
   function handleSendMessage(e: React.SyntheticEvent): void {
     e.preventDefault();
-    if (messageBody.trim() === '') return;
-    messageMutation.mutate({ body: messageBody });
+    if (sendingRef.current || messageMutation.isPending || messageBody.trim() === '') return;
+    sendingRef.current = true;
+    messageMutation.mutate(
+      { body: messageBody },
+      {
+        onSettled: () => {
+          sendingRef.current = false;
+        },
+      },
+    );
   }
 
   async function handleDownload(attachment: Attachment): Promise<void> {

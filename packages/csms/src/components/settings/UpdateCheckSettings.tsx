@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +9,8 @@ import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { useSavedToast } from '@/components/saved-message';
+import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 const KEY = 'system.updateCheckEnabled';
 
@@ -27,17 +28,23 @@ interface Props {
 export function UpdateCheckSettings({ settings, canWrite }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const savedToast = useSavedToast();
   const queryClient = useQueryClient();
-  const [enabled, setEnabled] = useState(true);
-
-  useEffect(() => {
-    setEnabled(settings?.[KEY] !== false);
-  }, [settings]);
+  // A settings reload replaces the shown value only while no save is pending.
+  const [values, setValues, takeNextLoad] = useLoadedValues({
+    enabled: settings?.[KEY] !== false,
+  });
+  const enabled = values.enabled;
+  const setEnabled = (value: boolean): void => {
+    setValues({ enabled: value });
+  };
 
   const mutation = useMutation({
     mutationFn: (value: boolean) => api.put(`/v1/settings/${KEY}`, { value }),
-    onSuccess: () => {
+    onSuccess: (_data, value) => {
+      takeNextLoad({ enabled: value });
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      savedToast();
     },
     onError: (err, value) => {
       setEnabled(!value);

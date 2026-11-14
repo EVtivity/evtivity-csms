@@ -42,6 +42,15 @@ describe('isDcConnector', () => {
     expect(isDcConnector({ connectorType: 'Panel', maxPowerKw: 350 })).toBe(false);
   });
 
+  it('treats DC-only types a station reports in OCPP spelling as DC without a power', () => {
+    for (const type of ['cGBT-DC', 'cLECCS', 'cChaoJi', 'cUltraChaoJi', 'cCCS2', 'cG105']) {
+      expect(isDcConnector({ connectorType: type, maxPowerKw: null })).toBe(true);
+    }
+    expect(isDcConnector({ connectorType: 'cGBT-AC', maxPowerKw: null })).toBe(false);
+    expect(isDcConnector({ connectorType: 'cNACS', maxPowerKw: 150 })).toBe(true);
+    expect(isDcConnector({ connectorType: 'cNACS', maxPowerKw: 11 })).toBe(false);
+  });
+
   it('treats unknown and missing types as AC', () => {
     expect(isDcConnector({ connectorType: null, maxPowerKw: 350 })).toBe(false);
     expect(isDcConnector({ connectorType: 'Schuko', maxPowerKw: 350 })).toBe(false);

@@ -77,4 +77,19 @@ describe('buildDerivedStatusSubquery', () => {
     expect(existsClause).toContain("'charging'");
     expect(existsClause).toContain("'reserved'");
   });
+
+  it('gives a station-level install or outage before a faulted connector, like the status', () => {
+    const { sql } = db
+      .select({ reason: buildStatusReasonSubquery(chargingStations.id) })
+      .from(chargingStations)
+      .toSQL();
+    const installing = sql.indexOf("THEN 'firmware_installing'");
+    const unavailable = sql.indexOf("THEN 'station_unavailable'");
+    const inUse = sql.indexOf("WHEN r3.reason = 'connector_faulted' AND EXISTS");
+    expect(installing).toBeGreaterThan(-1);
+    expect(unavailable).toBeGreaterThan(-1);
+    expect(installing).toBeLessThan(inUse);
+    expect(unavailable).toBeLessThan(inUse);
+    expect(sql).toContain('s3.firmware_state, s3.reported_status');
+  });
 });

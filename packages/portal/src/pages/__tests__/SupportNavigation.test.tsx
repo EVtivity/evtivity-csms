@@ -159,4 +159,11 @@ describe('support navigation', () => {
     await back();
     expect(await screen.findByText('home page')).toBeTruthy();
   });
+
+  it('lists each case as a link Tab reaches, to the case page', async () => {
+    renderAt('/support');
+    const rows = await screen.findAllByTestId('support-case-row');
+    expect(rows.map((r) => r.tagName)).toEqual(['A', 'A']);
+    expect(rows.map((r) => r.getAttribute('href'))).toEqual(['/support/c1', '/support/c2']);
+  });
 });

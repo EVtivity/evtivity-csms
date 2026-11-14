@@ -181,7 +181,9 @@ export function SiteDetail(): React.JSX.Element {
       api.get<{ data: Station[]; total: number }>(
         `/v1/sites/${id ?? ''}/stations?page=${String(stationsPage)}&limit=${String(stationsLimit)}${stationsSortQuery === '' ? '' : `&${stationsSortQuery}`}`,
       ),
-    enabled: id != null,
+    // The tabs that show it: the Stations and Sessions lists share the URL sort, so
+    // a hidden list never refetches when the other one is sorted.
+    enabled: id != null && (shownTab === 'stations' || shownTab === 'qr-codes'),
   });
   const stations = stationsResponse?.data;
   const stationsTotalPages = Math.max(1, Math.ceil((stationsResponse?.total ?? 0) / stationsLimit));
@@ -192,7 +194,7 @@ export function SiteDetail(): React.JSX.Element {
       api.get<{ data: { id: string; stationId: string }[]; total: number }>(
         `/v1/sites/${id ?? ''}/stations?limit=100`,
       ),
-    enabled: id != null,
+    enabled: id != null && shownTab === 'sessions',
   });
 
   const sessionsLimit = 10;
@@ -231,7 +233,7 @@ export function SiteDetail(): React.JSX.Element {
       api.get<{ data: Session[]; total: number }>(
         `/v1/sites/${id ?? ''}/sessions?${sessionsQueryParams.toString()}`,
       ),
-    enabled: id != null,
+    enabled: id != null && shownTab === 'sessions',
   });
   const sessionsData = sessionsResponse?.data;
   const sessionsTotalPages = Math.max(1, Math.ceil((sessionsResponse?.total ?? 0) / sessionsLimit));

@@ -159,7 +159,9 @@ const OCPP_STATUS_MAP: Record<string, string> = {
 // OCPP 2.1 ConnectorType variable values (Connector component) to the
 // canonical UI labels used in connectors.connector_type. Values not in this
 // map are passed through unchanged so vendor-specific plug names remain
-// visible to operators on the connectors tab and stations list.
+// visible to operators on the connectors tab and stations list. cGBT-DC
+// passes through: `GBT` without a maximum power reads AC (isDcConnector), so
+// mapping it would price a GB/T DC charger with the AC tariffs.
 const OCPP_CONNECTOR_TYPE_MAP: Record<string, string> = {
   cCCS1: 'CCS1',
   cCCS2: 'CCS2',
@@ -169,7 +171,6 @@ const OCPP_CONNECTOR_TYPE_MAP: Record<string, string> = {
   'cG105-2019': 'CHAdeMO',
   cTesla: 'NACS',
   'cGBT-AC': 'GBT',
-  'cGBT-DC': 'GBT',
 };
 
 function mapOcppConnectorType(value: string): string {

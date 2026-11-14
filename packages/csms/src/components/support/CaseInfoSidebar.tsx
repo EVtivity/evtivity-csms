@@ -18,7 +18,7 @@ import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { getErrorMessage } from '@/lib/error-message';
 import { SavedMessage } from '@/components/saved-message';
-import { api } from '@/lib/api';
+import { api, getApiErrorCode } from '@/lib/api';
 
 interface Attachment {
   id: number;
@@ -120,6 +120,12 @@ export function CaseInfoSidebar({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['support-cases', caseDetail.id] });
       void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
+    },
+    onError: (err) => {
+      // The driver closed or reopened the case meanwhile: load its current status.
+      if (getApiErrorCode(err) === 'SUPPORT_CASE_CHANGED') {
+        void queryClient.invalidateQueries({ queryKey: ['support-cases', caseDetail.id] });
+      }
     },
   });
 

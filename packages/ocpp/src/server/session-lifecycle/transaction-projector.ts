@@ -19,6 +19,7 @@ import {
   loadEvseChargingKind,
   resolvableKind,
   repriceSessionForChargingKind,
+  isSplitBillingEnabled,
   priceSessionAt,
   loadSessionPricing,
   storeFinalCost,
@@ -1798,6 +1799,7 @@ export class TransactionProjector {
       stationUuid,
       chargingKind: kind,
       basis: await getCompanyTaxBasis(),
+      splitBilling: await isSplitBillingEnabled(),
     });
     if (!repriced) return;
     // The kind's tariff may be paid where the Both tariff was free: the next

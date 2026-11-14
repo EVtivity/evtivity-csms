@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronRight, Plug } from 'lucide-react';
 import { PortCard, PortGrid } from '@/components/PortCard';
 import { chargerUnitQuery } from '@/lib/station-units';
+import { portDisplayStatus } from '@/lib/connector-status';
 import { evseDisplayStatus } from '@evtivity/lib/evse-status';
 
 // One charger of the location page, for every case: a station without units,
@@ -85,7 +86,7 @@ export function LocationChargerRow({
       evseId,
       connectors,
       available,
-      status: !available && status === 'available' ? 'unavailable' : status,
+      status: portDisplayStatus(status, available),
     };
   });
   return (

@@ -512,6 +512,7 @@ const stationUnitSummarySelect = {
           SELECT coalesce(array_agg(DISTINCT cu.connector_type), '{}')
           FROM evses eu JOIN connectors cu ON cu.evse_id = eu.id
           WHERE eu.unit_id = su.id AND cu.connector_type IS NOT NULL
+            AND eu.retired_at IS NULL AND cu.retired_at IS NULL
         )
       ) ORDER BY su.sort_order, su.name
     )
@@ -525,6 +526,7 @@ const stationUnitSummarySelect = {
       FROM evses en JOIN connectors cn ON cn.evse_id = en.id
       WHERE en.station_id = ${chargingStations.id} AND en.unit_id IS NULL
         AND cn.connector_type IS NOT NULL
+        AND en.retired_at IS NULL AND cn.retired_at IS NULL
     ), '{}') END
   )`,
 };

@@ -189,6 +189,8 @@ export function installStationModel(scn: StationModelCtx): void {
     // Where a driver avatar floats: above the middle of the car roof, measured
     // on the model in the station's own frame (before the group moves or merges).
     let avatarAnchor: THREE.Vector3 | null = null;
+    // Each stall's vehicle of a charger serving two or more stalls, by stall.
+    const stallAvatarAnchors: (THREE.Vector3 | null)[] = [];
     const curbside = scn.layout.lot.siteType === 'curbside' && isSpot(s.bay, scn.layout.lot);
     // A DC dispenser's cable length (a two-EVSE dispenser's 6 m, `dcDispenserCableOf`).
     const cableM = dcDispenserCableOf(s);
@@ -270,6 +272,7 @@ export function installStationModel(scn: StationModelCtx): void {
             cableFlow: s.stallFlows?.[i] ?? true,
           };
           const anchor = scn.placeLargeSpotProp(g, own, t, rect, s.charger ?? 'standard', palette);
+          stallAvatarAnchors[i] = anchor ?? null;
           if (anchor != null && (avatarAnchor == null || i === s.pluggedSlot?.evse)) {
             avatarAnchor = anchor;
           }
@@ -313,7 +316,9 @@ export function installStationModel(scn: StationModelCtx): void {
             }),
           );
           // The driver avatar floats over the station session's car (`pluggedSlot`).
-          if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = roofAnchor(car);
+          const anchor = roofAnchor(car);
+          stallAvatarAnchors[i] = anchor;
+          if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = anchor;
           return;
         }
         const connector = s.stallPlugged?.[i] ?? 0;
@@ -350,7 +355,9 @@ export function installStationModel(scn: StationModelCtx): void {
             ...(mouth != null ? { mouth } : {}),
           }),
         );
-        if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = roofAnchor(car);
+        const anchor = roofAnchor(car);
+        stallAvatarAnchors[i] = anchor;
+        if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = anchor;
       });
     } else if (s.stallCars != null && curbside && s.curbPair === true) {
       // A two-port curb post on the line between its two parallel spots (owner decision
@@ -373,7 +380,9 @@ export function installStationModel(scn: StationModelCtx): void {
             curbSpot: spot,
           }),
         );
-        if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = roofAnchor(car);
+        const anchor = roofAnchor(car);
+        stallAvatarAnchors[i] = anchor;
+        if (avatarAnchor == null || i === s.pluggedSlot?.evse) avatarAnchor = anchor;
       });
     } else if (s.prop === 'car') {
       // The car's own port decides: a car with a rear port backs in (at a wall
@@ -475,6 +484,7 @@ export function installStationModel(scn: StationModelCtx): void {
       top,
       labelZ,
       avatarAnchor,
+      stallAvatarAnchors,
       virtualSign,
       handle: rotateHandle,
       station: s,

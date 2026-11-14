@@ -23,8 +23,7 @@ import {
   getSystemTimezone,
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
-  resolveStationTariff,
-  stationDisplayKind,
+  resolveStationDisplayPricing,
   isOperatorStation,
 } from '@evtivity/database';
 import {
@@ -377,7 +376,7 @@ export async function pushAllStationMessages(
     currency,
     priceDisplay,
     taxBasis,
-    tariff,
+    displayPricing,
   ] = await Promise.all([
     getCompanySettings(),
     getStationMessagePricingFormat(),
@@ -385,14 +384,9 @@ export async function pushAllStationMessages(
     getCompanyCurrency(),
     getCompanyPriceDisplay(),
     getCompanyTaxBasis(),
-    // The station's only charging kind, else the Both tariffs (AC and DC
-    // tariffs): an idle screen does not know the EVSE yet.
-    stationDisplayKind(client, internalStationId).then((chargingKind) =>
-      resolveStationTariff(
-        { stationUuid: internalStationId, driverUuid: null, chargingKind },
-        client,
-      ),
-    ),
+    // An idle screen does not know the EVSE yet: the station's only kind, the
+    // price AC and DC agree on, else both (AC and DC tariffs).
+    resolveStationDisplayPricing(client, internalStationId),
   ]);
 
   // Prices at the point of sale follow company.priceDisplay: gross adds the
@@ -403,7 +397,8 @@ export async function pushAllStationMessages(
     stationOcppId,
     supportPhone,
     ...buildStationPriceContext({
-      tariff,
+      tariff: displayPricing.tariff,
+      byKind: displayPricing.byKind,
       priceDisplay,
       taxBasis,
       pricingFormat,

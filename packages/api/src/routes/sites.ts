@@ -1079,6 +1079,11 @@ const siteSessionItem = z
 const layoutConnector = z
   .object({
     connectorId: z.number().describe('OCPP connector ID within the EVSE'),
+    retired: z
+      .boolean()
+      .describe(
+        'Whether the connector is retired (out of service). The layout counts only in-service connectors of in-service EVSEs for a charger kind and its ports, as the placement does',
+      ),
     connectorType: z
       .string()
       .nullable()
@@ -1551,6 +1556,13 @@ const replayResponse = z
   .loose();
 
 const sitesListQuery = paginationQuery.extend({
+  ids: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}(,[A-Za-z0-9_-]{1,64}){0,99}$/)
+    .optional()
+    .describe(
+      "Comma-separated site IDs, at most 100: lists only these sites, still within the caller's sites (an ID outside them is left out)",
+    ),
   city: z.string().optional().describe('Filter by city'),
   state: z.string().optional().describe('Filter by state'),
   loadManagement: z.enum(['true', 'false']).optional().describe('Filter by load management status'),
@@ -1593,7 +1605,7 @@ export function siteRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const query = request.query as z.infer<typeof sitesListQuery>;
-      const { page, limit, search, city, state, loadManagement, aiInsights } = query;
+      const { page, limit, search, ids, city, state, loadManagement, aiInsights } = query;
       const offset = (page - 1) * limit;
 
       const { userId } = request.user as JwtPayload;
@@ -1606,6 +1618,10 @@ export function siteRoutes(app: FastifyInstance): void {
 
       if (siteIds != null) {
         conditions.push(inArray(sites.id, siteIds));
+      }
+
+      if (ids != null) {
+        conditions.push(inArray(sites.id, [...new Set(ids.split(','))]));
       }
 
       if (search) {
@@ -3355,6 +3371,7 @@ export function siteRoutes(app: FastifyInstance): void {
             connectorType: connectors.connectorType,
             maxPowerKw: connectors.maxPowerKw,
             status: connectors.status,
+            retiredAt: connectors.retiredAt,
           })
           .from(connectors)
           .innerJoin(evses, eq(connectors.evseId, evses.id))
@@ -3561,6 +3578,7 @@ export function siteRoutes(app: FastifyInstance): void {
                 const session = activeSessionsByConnector.get(conn.id);
                 return {
                   connectorId: conn.connectorId,
+                  retired: conn.retiredAt != null,
                   connectorType: conn.connectorType,
                   maxPowerKw: conn.maxPowerKw,
                   status: conn.status,

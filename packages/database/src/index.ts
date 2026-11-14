@@ -172,8 +172,11 @@ export {
   resolvableKind,
   stampSessionChargingKind,
   startChargingKinds,
+  evseStartKinds,
   stationDisplayKind,
 } from './lib/charging-kind.js';
+export { resolveStationDisplayPricing } from './lib/station-display-pricing.js';
+export type { StationDisplayPricing } from './lib/station-display-pricing.js';
 export {
   ACCOUNT_BILLING_MIN_VERSION,
   MEMBER_INVOICE_MIN_VERSION,
@@ -888,6 +891,7 @@ export type {
   StationUnitView,
   UnitSnapshot,
   UnitDetailsInput,
+  UnitField,
   UnitWriteFailure,
   UnitWriteResult,
 } from './lib/station-units.js';

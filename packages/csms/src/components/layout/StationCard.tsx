@@ -27,6 +27,8 @@ let globalDragCounter = 0;
 
 interface ConnectorData {
   connectorId: number;
+  /** The connector is retired (out of service); absent in older replies. */
+  retired?: boolean | undefined;
   connectorType: string | null;
   maxPowerKw: number | null;
   status: string;

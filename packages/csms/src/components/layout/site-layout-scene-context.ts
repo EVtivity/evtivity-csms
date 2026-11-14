@@ -303,7 +303,7 @@ export interface SceneCtx {
   updateFog: () => void;
   resize: () => void;
   labelPoint: (stationId: string) => ScreenPoint | null;
-  avatarPoint: (stationId: string) => ScreenPoint | null;
+  avatarPoint: (stationId: string, stall?: number) => ScreenPoint | null;
   virtualSignPoint: (stationId: string) => ScreenPoint | null;
   evsePlatePoint: (stationId: string, index: number) => ScreenPoint | null;
   unitPlatePoint: (stationId: string) => ScreenPoint | null;

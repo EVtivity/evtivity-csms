@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { fromParent } from '@/hooks/use-back-to-parent';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -11,6 +11,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import { ACTIVATABLE_FOCUS_CLASS } from '@/lib/activatable';
 import { useDriverTimezone } from '@/lib/timezone';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
@@ -89,27 +90,30 @@ export function SupportCases(): React.JSX.Element {
       )}
 
       {cases.map((c) => (
-        <Card
+        // A link, so Tab reaches each case and Enter opens it.
+        <Link
           key={c.id}
-          className="cursor-pointer"
-          onClick={() => {
-            void navigate(`/support/${c.id}`, fromParent('/support'));
-          }}
+          to={`/support/${c.id}`}
+          {...fromParent('/support')}
+          className={`block rounded-lg ${ACTIVATABLE_FOCUS_CLASS}`}
+          data-testid="support-case-row"
         >
-          <CardContent className="p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">{c.caseNumber}</span>
-              <Badge variant={statusVariant(c.status)}>
-                {t(`supportCases.statuses.${c.status}`)}
-              </Badge>
-            </div>
-            <p className="font-medium text-sm truncate">{c.subject}</p>
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{t(`supportCases.categories.${c.category}`)}</span>
-              <span>{formatDate(c.updatedAt, timezone)}</span>
-            </div>
-          </CardContent>
-        </Card>
+          <Card className="cursor-pointer">
+            <CardContent className="p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">{c.caseNumber}</span>
+                <Badge variant={statusVariant(c.status)}>
+                  {t(`supportCases.statuses.${c.status}`)}
+                </Badge>
+              </div>
+              <p className="font-medium text-sm truncate">{c.subject}</p>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{t(`supportCases.categories.${c.category}`)}</span>
+                <span>{formatDate(c.updatedAt, timezone)}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       ))}
     </div>
   );

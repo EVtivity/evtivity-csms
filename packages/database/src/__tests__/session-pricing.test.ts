@@ -7,7 +7,14 @@ import type postgres from 'postgres';
 const graceMock = vi.fn();
 vi.mock('../lib/idling-setting.js', () => ({ getIdlingGracePeriodMinutes: graceMock }));
 const resolveTariffMock = vi.fn();
-vi.mock('../lib/tariff-resolution.js', () => ({ resolveStationTariff: resolveTariffMock }));
+const loadGroupPricingMock = vi.fn();
+const pickTariffMock = vi.fn();
+vi.mock('../lib/tariff-resolution.js', () => ({
+  resolveStationTariff: resolveTariffMock,
+  loadGroupPricingAtStation: loadGroupPricingMock,
+  pickTariff: pickTariffMock,
+  getPricingHolidays: () => Promise.resolve([]),
+}));
 
 const {
   loadSessionPricing,
@@ -854,7 +861,7 @@ describe('repriceSessionForDriver', () => {
     const { sql, calls } = makeSql([
       lockedSession,
       [
-        'SELECT id, started_at, energy_wh_start FROM session_tariff_segments',
+        'ORDER BY started_at, id',
         [
           { id: 1, started_at: '2026-06-04T00:00:00Z', energy_wh_start: 0 },
           { id: 2, started_at: '2026-06-04T01:00:00Z', energy_wh_start: 4000 },
@@ -975,7 +982,7 @@ describe('repriceSessionForChargingKind (D-E)', () => {
     const { sql, calls } = makeSql([
       locked({}),
       [
-        'SELECT id, started_at, energy_wh_start FROM session_tariff_segments',
+        'ORDER BY started_at, id',
         [{ id: 1, started_at: '2026-06-04T00:00:00Z', energy_wh_start: 0 }],
       ],
     ]);
@@ -1005,6 +1012,92 @@ describe('repriceSessionForChargingKind (D-E)', () => {
       expect(resolveTariffMock).not.toHaveBeenCalled();
       expect(calls.some((c) => c.text.includes('SET charging_kind ='))).toBe(false);
     }
+  });
+
+  it('re-prices a later segment at the named kind when the start tariff is unchanged', async () => {
+    const { sql, calls } = makeSql([
+      locked({ pricing_group_id: 'pgr_1' }),
+      [
+        'ORDER BY started_at, id',
+        [
+          {
+            id: 1,
+            tariff_id: 'trf_default',
+            started_at: '2026-06-04T00:00:00Z',
+            energy_wh_start: 0,
+          },
+          {
+            id: 2,
+            tariff_id: 'trf_both_peak',
+            started_at: '2026-06-04T18:00:00Z',
+            energy_wh_start: 9000,
+          },
+        ],
+      ],
+    ]);
+    resolveTariffMock
+      .mockResolvedValueOnce({ ...dcTariff, id: 'trf_default' })
+      .mockResolvedValueOnce(dcTariff);
+    expect(await repriceSessionForChargingKind(sql, params as never)).toBe(true);
+    // The session's own group, not the chain read now (an assignment change
+    // applies to the next session).
+    for (const [query] of resolveTariffMock.mock.calls) {
+      expect(query).toMatchObject({ pricingGroupId: 'pgr_1', chargingKind: 'dc' });
+    }
+    expect(
+      calls.some(
+        (c) => c.text.includes('UPDATE charging_sessions') && c.text.includes('tariff_id ='),
+      ),
+    ).toBe(false);
+    const segmentUpdates = calls.filter((c) => c.text.includes('UPDATE session_tariff_segments'));
+    expect(segmentUpdates).toHaveLength(1);
+    expect(segmentUpdates[0]?.values).toContain('trf_dc');
+    expect(segmentUpdates[0]?.values).toContain(2);
+  });
+
+  it('opens the segment of a kind tariff window that began during the open segment', async () => {
+    const peak = { ...dcTariff, id: 'trf_dc_peak' };
+    const { sql, calls } = makeSql([
+      ['SET ended_at', [{ id: 1 }]],
+      [
+        'AND ended_at IS NULL',
+        [
+          {
+            id: 1,
+            tariff_id: 'trf_default',
+            started_at: '2026-06-04T17:00:00Z',
+            energy_wh_start: 0,
+          },
+        ],
+      ],
+      [
+        'FROM meter_values',
+        [{ register_wh: '12000', meter_start: 2000, energy_delivered_wh: 15000 }],
+      ],
+      locked({ pricing_group_id: 'pgr_1', started_at: '2026-06-04T17:00:00Z' }),
+    ]);
+    resolveTariffMock.mockResolvedValueOnce({ ...dcTariff, id: 'trf_default' });
+    loadGroupPricingMock.mockResolvedValueOnce({
+      group: { id: 'pgr_1' },
+      timezone: 'UTC',
+      siteId: null,
+      tariffs: [peak],
+    });
+    pickTariffMock.mockImplementation((_t: unknown, opts: { at: Date }) =>
+      opts.at.getTime() >= Date.parse('2026-06-04T18:00:00Z') ? peak : null,
+    );
+    expect(
+      await repriceSessionForChargingKind(sql, {
+        ...params,
+        splitBilling: true,
+        at: new Date('2026-06-04T18:30:00Z'),
+      } as never),
+    ).toBe(true);
+    const insert = calls.find((c) => c.text.includes('INSERT INTO session_tariff_segments'));
+    expect(insert?.values).toContain('trf_dc_peak');
+    expect(insert?.values).toContain('2026-06-04T18:00:00.000Z');
+    // The session energy at the boundary: 12000 Wh register minus the 2000 Wh meter start.
+    expect(insert?.values).toContain(10000);
   });
 
   it('keeps the snapshot when the kind resolves the tariff the session has', async () => {

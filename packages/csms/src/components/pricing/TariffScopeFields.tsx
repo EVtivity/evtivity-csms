@@ -6,12 +6,14 @@
 // only for a group that may limit tariffs to sites (a driver or fleet group);
 // otherwise a note says why it is missing.
 
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { TariffChargingType } from '@evtivity/lib/tariff-scope';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { SearchInput } from '@/components/search-input';
 import { api } from '@/lib/api';
 
 export interface TariffScopeValue {
@@ -23,6 +25,38 @@ export interface TariffScopeValue {
 interface Site {
   id: string;
   name: string;
+}
+
+/** How many sites the picker lists for a search (the sites a tariff names show apart). */
+const SITE_SEARCH_LIMIT = 50;
+
+/** How many sites one name read asks for (the API's page size). */
+const SITE_NAME_BATCH = 100;
+
+/**
+ * The names of the given sites, read by their ids in batches of 100
+ * (`GET /v1/sites?ids=`), so a company with more sites than one list page
+ * still names every selected site, with one request per batch.
+ */
+function useSiteNames(siteIds: readonly string[]): Map<string, string> {
+  const unique = [...new Set(siteIds)].sort();
+  const batches: string[][] = [];
+  for (let i = 0; i < unique.length; i += SITE_NAME_BATCH) {
+    batches.push(unique.slice(i, i + SITE_NAME_BATCH));
+  }
+  const results = useQueries({
+    queries: batches.map((ids) => ({
+      queryKey: ['site-names', ids],
+      queryFn: () =>
+        api.get<{ data: Site[] }>(
+          `/v1/sites?ids=${ids.map(encodeURIComponent).join(',')}&limit=${String(SITE_NAME_BATCH)}`,
+        ),
+      staleTime: 60_000,
+    })),
+  });
+  const names = new Map<string, string>();
+  for (const r of results) for (const site of r.data?.data ?? []) names.set(site.id, site.name);
+  return names;
 }
 
 function isChargingType(value: string): value is TariffChargingType {
@@ -52,14 +86,10 @@ export function TariffSitesSummary({
   otherSiteCount?: number | undefined;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const { data: sitesData } = useQuery({
-    queryKey: ['sites-for-select'],
-    queryFn: () => api.get<{ data: Site[] }>('/v1/sites?limit=100'),
-    enabled: siteIds != null && siteIds.length > 0,
-  });
+  const siteNames = useSiteNames(siteIds ?? []);
   if (siteIds == null) return <>{t('pricing.allSites')}</>;
   if (siteIds.length === 0 && otherSiteCount === 0) return <>{t('pricing.noSitesSelected')}</>;
-  const names = siteIds.map((id) => sitesData?.data.find((s) => s.id === id)?.name ?? id);
+  const names = siteIds.map((id) => siteNames.get(id) ?? t('common.unnamedSite'));
   const others = otherSiteCount > 0 ? t('pricing.otherSites', { count: otherSiteCount }) : null;
   return <>{[...names, ...(others != null ? [others] : [])].join(', ')}</>;
 }
@@ -80,12 +110,23 @@ export function TariffScopeFields({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const selected = value.siteIds != null;
+  const [search, setSearch] = useState('');
   const { data: sitesData } = useQuery({
-    queryKey: ['sites-for-select'],
-    queryFn: () => api.get<{ data: Site[] }>('/v1/sites?limit=100'),
+    queryKey: ['sites-for-select', search],
+    queryFn: () =>
+      api.get<{ data: Site[] }>(
+        `/v1/sites?limit=${String(SITE_SEARCH_LIMIT)}&search=${encodeURIComponent(search)}`,
+      ),
     enabled: siteAvailabilityAllowed && selected,
   });
-  const sites = sitesData?.data ?? [];
+  const pickedIds = value.siteIds ?? [];
+  const pickedNames = useSiteNames(siteAvailabilityAllowed ? pickedIds : []);
+  // The selected sites first (also those past the search results), then the
+  // sites the search found.
+  const sites: Site[] = [
+    ...pickedIds.map((id) => ({ id, name: pickedNames.get(id) ?? t('common.unnamedSite') })),
+    ...(sitesData?.data ?? []).filter((site) => !pickedIds.includes(site.id)),
+  ];
 
   return (
     <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
@@ -124,6 +165,20 @@ export function TariffScopeFields({
               <option value="selected">{t('pricing.selectedSites')}</option>
             </Select>
             <p className="text-xs text-muted-foreground">{t('pricing.siteAvailabilityHelper')}</p>
+            {selected && (
+              <>
+                <Label htmlFor={`${idPrefix}-site-search`} className="sr-only">
+                  {t('sites.search')}
+                </Label>
+                <SearchInput
+                  id={`${idPrefix}-site-search`}
+                  value={search}
+                  onDebouncedChange={setSearch}
+                  placeholder={t('sites.searchPlaceholder')}
+                  className="max-w-none"
+                />
+              </>
+            )}
             {selected && (
               <div
                 className={`max-h-48 overflow-y-auto rounded-md border p-3 space-y-2 ${

@@ -123,6 +123,8 @@ vi.mock('@evtivity/database', () => ({
   pricingAssignmentAuditLog: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),
   resolveGroupTariffs: vi.fn(() => Promise.resolve({ tariffs: [], current: null })),
+  pickTariff: vi.fn(() => null),
+  getPricingHolidays: vi.fn(() => Promise.resolve([])),
   getSystemTimezone: vi.fn(() => Promise.resolve('Europe/Berlin')),
   isRoamingEnabled: vi.fn(() => Promise.resolve(false)),
 }));
@@ -561,7 +563,8 @@ describe('Pricing routes', () => {
       // Q1: existing tariffs for overlap check (empty = no overlap)
       // Q2: unset other defaults (isDefault=true because priority=0)
       // Q3: insert tariff
-      setupDbResults([], [], [created]);
+      // The group tariffs again, read under the scope lock in the transaction.
+      setupDbResults([], [], [], [created]);
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
@@ -601,7 +604,8 @@ describe('Pricing routes', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       };
       // Q1: the group tariffs, Q2: unset defaults, Q3: insert (in the transaction)
-      setupDbResults([], [], [created]);
+      // The group tariffs again, read under the scope lock in the transaction.
+      setupDbResults([], [], [], [created]);
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
@@ -636,7 +640,8 @@ describe('Pricing routes', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       };
       // Q1: existing tariffs, Q2: unset defaults, Q3: insert
-      setupDbResults([], [], [created]);
+      // The group tariffs again, read under the scope lock in the transaction.
+      setupDbResults([], [], [], [created]);
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
@@ -936,7 +941,7 @@ describe('Pricing routes', () => {
       };
       const updated = { ...existing, name: 'New Rate' };
       // Q1: select existing, Q2: existing tariffs for overlap, Q3: update and return
-      setupDbResults([existing], [], [updated]);
+      setupDbResults([existing], [], [], [updated]);
       const res = await app.inject({
         method: 'PATCH',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs/${VALID_TARIFF_ID}`,
@@ -999,7 +1004,7 @@ describe('Pricing routes', () => {
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-01T00:00:00Z',
       };
-      setupDbResults([existing], [], [{ ...existing, pricePerKwh: null }]);
+      setupDbResults([existing], [], [], [{ ...existing, pricePerKwh: null }]);
       const res = await app.inject({
         method: 'PATCH',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs/${VALID_TARIFF_ID}`,

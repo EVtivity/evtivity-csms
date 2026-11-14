@@ -117,20 +117,30 @@ export function stationTaxNoteContext(
   };
 }
 
+/** The tariff prices a station screen shows. */
+export interface StationPriceTariff {
+  pricePerKwh: string | number | null;
+  pricePerMinute: string | number | null;
+  pricePerSession: string | number | null;
+  idleFeePricePerMinute: string | number | null;
+  taxRate: string | number | null;
+}
+
 /**
  * Price variables for the Available screen: the tariff's prices as the
  * company shows them (company.priceDisplay), each through formatUnitPrice in
  * the company currency and the display language, plus the tax note variables.
  * A null tariff gives empty prices and no tax note.
+ *
+ * With `byKind` (a station with AC and DC EVSEs whose AC and DC prices
+ * differ), every price variable names both kinds ("AC: ... | DC: ..." for
+ * the summary, "AC 0,30 € / DC 0,60 €" for a single price), and the tax note
+ * shows only when both kinds have the same tax rate.
  */
 export function buildStationPriceContext(input: {
-  tariff: {
-    pricePerKwh: string | number | null;
-    pricePerMinute: string | number | null;
-    pricePerSession: string | number | null;
-    idleFeePricePerMinute: string | number | null;
-    taxRate: string | number | null;
-  } | null;
+  tariff: StationPriceTariff | null;
+  /** The AC and DC tariffs of a station whose AC and DC prices differ. */
+  byKind?: { ac: StationPriceTariff; dc: StationPriceTariff } | null;
   priceDisplay: PriceDisplay;
   /** The tax basis the tariff prices are entered in (company.taxBasis). */
   taxBasis: TaxBasis;
@@ -138,6 +148,23 @@ export function buildStationPriceContext(input: {
   currency: string;
   language: StationMessageLanguage;
 }): StationPriceContext {
+  const { byKind } = input;
+  if (byKind != null) {
+    const ac = buildStationPriceContext({ ...input, tariff: byKind.ac, byKind: null });
+    const dc = buildStationPriceContext({ ...input, tariff: byKind.dc, byKind: null });
+    const both = (a: string, d: string): string =>
+      a === '' && d === '' ? '' : `AC ${a === '' ? '-' : a} / DC ${d === '' ? '-' : d}`;
+    const sameTax = ac.taxRatePercent === dc.taxRatePercent;
+    return {
+      pricingDisplay: `AC: ${ac.pricingDisplay} | DC: ${dc.pricingDisplay}`,
+      energyPrice: both(ac.energyPrice, dc.energyPrice),
+      timePrice: both(ac.timePrice, dc.timePrice),
+      sessionFee: both(ac.sessionFee, dc.sessionFee),
+      idleFee: both(ac.idleFee, dc.idleFee),
+      taxRatePercent: sameTax ? ac.taxRatePercent : '',
+      pricesIncludeTax: sameTax && ac.pricesIncludeTax,
+    };
+  }
   const { tariff, priceDisplay, currency, language } = input;
   if (tariff == null) {
     return {

@@ -147,8 +147,28 @@ describe('unit spans', () => {
     expect(unitChargerSpotCount({ charging: 'ac', ports: 2 }, office)).toBe(2);
     expect(unitChargerSpotCount({ charging: 'dc', ports: 2 }, office)).toBe(1);
     const street = { ...settings, siteType: 'curbside' as const };
-    expect(unitChargerSpotCount({ charging: 'ac', ports: 2 }, street)).toBe(1);
-    // A street gives each unit its own curb post (owner decision 2026-11-12).
+    // A two-EVSE unit at a street is a two-port curb post over two spots, at a
+    // depot a plug-in bus unit a dual-outlet charger over two bays (owner
+    // decision 2026-11-13); a pantograph or truck unit keeps one bay or lane.
+    expect(unitChargerSpotCount({ charging: 'ac', ports: 2 }, street)).toBe(2);
+    expect(unitChargerSpotCount({ charging: 'ac', ports: 1 }, street)).toBe(1);
+    const depotShape = { ...settings, siteType: 'depot' as const, busBays: 6, truckLanes: 2 };
+    expect(unitChargerSpotCount({ charging: 'dc', ports: 2 }, depotShape, { depot: 'bus' })).toBe(
+      2,
+    );
+    expect(
+      unitChargerSpotCount({ charging: 'dc', ports: 2 }, depotShape, {
+        depot: 'bus',
+        overhead: true,
+      }),
+    ).toBe(1);
+    expect(unitChargerSpotCount({ charging: 'dc', ports: 2 }, depotShape, { depot: 'truck' })).toBe(
+      1,
+    );
+    expect(unitChargerSpotCount({ charging: 'dc', ports: 1 }, depotShape, { depot: 'bus' })).toBe(
+      1,
+    );
+    // A street gives each unit its own curb post or pair of spots.
     expect(
       stationSpanCount(
         {
@@ -161,7 +181,7 @@ describe('unit spans', () => {
         },
         street,
       ),
-    ).toBe(2);
+    ).toBe(4);
   });
 
   it('places a station whose units mix AC and DC in the DC group', () => {
@@ -248,7 +268,7 @@ describe('a station without units is unchanged', () => {
 });
 
 describe('custom site unit spots', () => {
-  it('gives one car spot per unit EVSE, two per charger at most, up to 16', () => {
+  it('gives one car spot per unit EVSE, two per charger at most, up to 128', () => {
     const kind = kindOf({ units: boxes, evses: evses16 });
     expect(stationFreeSpotCount(16, kind)).toBe(16);
     expect(freeSpotRects(stationFreeSpotCount(16, kind))).toHaveLength(16);
@@ -260,8 +280,11 @@ describe('custom site unit spots', () => {
         ],
       }),
     ).toBe(3);
-    const many = Array.from({ length: 12 }, () => ({ charging: 'ac' as const, ports: 2 }));
-    expect(stationFreeSpotCount(24, { units: many })).toBe(FREE_LAYOUT.maxUnitSpots);
+    const twelve = Array.from({ length: 12 }, () => ({ charging: 'ac' as const, ports: 2 }));
+    expect(stationFreeSpotCount(24, { units: twelve })).toBe(24);
+    const many = Array.from({ length: 70 }, () => ({ charging: 'ac' as const, ports: 2 }));
+    expect(stationFreeSpotCount(140, { units: many })).toBe(FREE_LAYOUT.maxUnitSpots);
+    expect(FREE_LAYOUT.maxUnitSpots).toBe(128);
   });
 });
 
@@ -348,17 +371,18 @@ describe('units at a depot and on a street (owner decision 2026-11-12)', () => {
       ports: 16,
       units: Array.from({ length: 8 }, () => ({ charging: 'ac' as const, ports: 2 })),
     };
+    // Each two-EVSE box is a two-port curb post over two spots (owner decision 2026-11-13).
     const counts = layoutStationCountsOfKinds([kind]);
-    expect(counts.curbSpots).toBe(8);
+    expect(counts.curbSpots).toBe(16);
     const street = effectiveLayoutSettings(
       { siteType: 'curbside', spotsPerRow: 10, rows: 2, facingDeg: 0, transformers: [] },
       [],
       counts,
     );
-    expect(street.chargersLeft).toBe(8);
-    expect(stationSpanCount(kind, street)).toBe(8);
+    expect(street.chargersLeft).toBe(16);
+    expect(stationSpanCount(kind, street)).toBe(16);
     const slot = firstFreeSlotFor([], street, kind);
-    expect(positionToBay(slot).col + 8).toBeLessThanOrEqual(street.chargersLeft ?? 0);
+    expect(positionToBay(slot).col + 16).toBeLessThanOrEqual(street.chargersLeft ?? 0);
     // A street without units keeps its split over both curbs.
     const plain = effectiveLayoutSettings(
       { siteType: 'curbside', spotsPerRow: 10, rows: 2, facingDeg: 0, transformers: [] },

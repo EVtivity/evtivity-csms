@@ -70,15 +70,39 @@ export interface ConnectorPowerInput {
 }
 
 /**
+ * The DC-only OCPP 2.1 ConnectorEnumType values a station may report, compared
+ * lowercase without separators: CCS1, CCS2, CHAdeMO (cG105), ChaoJi,
+ * Ultra-ChaoJi, the DC GB/T coupler (cGBT-DC) and LECCS.
+ */
+const REPORTED_DC_KEYS: ReadonlySet<string> = new Set([
+  'cccs1',
+  'cccs2',
+  'cg105',
+  'cg1052019',
+  'cchaoji',
+  'cultrachaoji',
+  'cgbtdc',
+  'cleccs',
+]);
+/** Reported AC and DC couplers whose maximum power decides (Tesla, NACS). */
+const REPORTED_AC_OR_DC_KEYS: ReadonlySet<string> = new Set(['ctesla', 'cnacs']);
+
+function reportedKey(type: string): string {
+  return type.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
  * A connector is DC when its type is CCS1, CCS2 or CHAdeMO, or GBT, Tesla or
  * NACS with a maximum power above 22 kW. The heavy vehicle couplers (MCS,
- * cMCS, OppCharge, Pan, any case) are DC. Type1, Type2, unknown and missing
- * types are AC.
+ * cMCS, OppCharge, Pan, any case) and the DC-only types a station reports in
+ * OCPP spelling (cGBT-DC, cLECCS, cChaoJi, cUltraChaoJi) are DC. Type1, Type2,
+ * unknown and missing types are AC.
  */
 export function isDcConnector(connector: ConnectorPowerInput): boolean {
   const type = connector.connectorType ?? '';
-  if (DC_TYPES.has(type) || HEAVY_DC_TYPE.test(type)) return true;
-  if (!AC_OR_DC_TYPES.has(type)) return false;
+  const key = reportedKey(type);
+  if (DC_TYPES.has(type) || HEAVY_DC_TYPE.test(type) || REPORTED_DC_KEYS.has(key)) return true;
+  if (!AC_OR_DC_TYPES.has(type) && !REPORTED_AC_OR_DC_KEYS.has(key)) return false;
   const power =
     typeof connector.maxPowerKw === 'string'
       ? Number(connector.maxPowerKw)

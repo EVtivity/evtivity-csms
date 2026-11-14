@@ -334,6 +334,7 @@ describe('updateSupportCase', () => {
     expect(closeSet['closedAt']).toBeInstanceOf(Date);
     expect(closeSet).not.toHaveProperty('resolutionSource');
 
+    h.fake.queue('update:support_cases', [caseRow({ status: 'in_progress' })]);
     await svc.updateSupportCase({
       existing: caseRow({ status: 'resolved' }),
       status: 'in_progress',
@@ -397,6 +398,51 @@ describe('updateSupportCase', () => {
     expect(
       (h.fake.find('insert', 'support_case_messages')[0]!.values as { body: string }[])[0]!.body,
     ).toBe('Assigned to');
+  });
+});
+
+describe('updateSupportCase status guard', () => {
+  it('writes the status only while the case still has the status the operator read', async () => {
+    h.fake.queue('update:support_cases', [caseRow({ status: 'in_progress' })]);
+    await svc.updateSupportCase({
+      existing: caseRow({ status: 'open' }),
+      status: 'in_progress',
+      userId: 'usr_1',
+      actor: operator,
+    });
+    const update = h.fake.find('update', 'support_cases')[0]!;
+    expect(await sqlParams(opArgs(update, 'where')?.[0])).toEqual(
+      expect.arrayContaining(['cas_1', 'open']),
+    );
+  });
+
+  it('refuses a status change when the driver closed or reopened the case meanwhile', async () => {
+    // No row matches: the stored status is no longer the one the operator read.
+    await expect(
+      svc.updateSupportCase({
+        existing: caseRow({ status: 'open' }),
+        status: 'in_progress',
+        addSessionIds: ['ses_3'],
+        userId: 'usr_1',
+        actor: operator,
+      }),
+    ).rejects.toBeInstanceOf(svc.SupportCaseStatusChangedError);
+    expect(h.fake.find('insert', 'support_case_sessions')).toHaveLength(0);
+    expect(h.fake.find('insert', 'support_case_messages')).toHaveLength(0);
+    expect(h.audits).toHaveLength(0);
+    expect(h.events).toHaveLength(0);
+  });
+
+  it('does not guard a change that leaves the status alone', async () => {
+    await svc.updateSupportCase({
+      existing: caseRow({ status: 'open' }),
+      priority: 'high',
+      userId: 'usr_1',
+      actor: operator,
+    });
+    const update = h.fake.find('update', 'support_cases')[0]!;
+    expect(await sqlParams(opArgs(update, 'where')?.[0])).not.toContain('open');
+    expect(h.audits.map((a) => a['action'])).toEqual(['priority_changed']);
   });
 });
 
@@ -539,7 +585,7 @@ describe('addDriverMessage', () => {
   ] as const)(
     'reopens a %s case (resolved by %s) before the reply, by compare-and-set',
     async (status, resolutionSource) => {
-      h.fake.queue('update:support_cases', [{ id: 'cas_1' }]);
+      h.fake.queue('select:support_cases', [{ status, resolutionSource }]);
       h.fake.queue('insert:support_case_messages', [{ id: 51 }]);
       h.fake.queue('insert:support_case_messages', [{ id: 52 }]);
       const msg = await svc.addDriverMessage({
@@ -556,7 +602,10 @@ describe('addDriverMessage', () => {
         closedAt: null,
         resolutionSource: null,
       });
-      // The condition is the status the reply read (compare-and-set, P5).
+      // The status is read under the row lock, and the update is conditioned on it.
+      const lock = h.fake.find('select', 'support_cases')[0]!;
+      expect(lock.inTx).toBe(true);
+      expect(opArgs(lock, 'for')?.[0]).toBe('update');
       expect(await sqlParams(opArgs(update, 'where')?.[0])).toEqual(
         expect.arrayContaining(['cas_1', status]),
       );
@@ -584,18 +633,41 @@ describe('addDriverMessage', () => {
     },
   );
 
-  it('writes no reopen message or audit when an operator changed the case meanwhile', async () => {
+  it('writes no reopen message or audit when an operator reopened the case meanwhile', async () => {
+    h.fake.queue('select:support_cases', [{ status: 'in_progress', resolutionSource: null }]);
     await svc.addDriverMessage({
       supportCase: caseRow({ status: 'resolved', resolutionSource: 'ai' }),
       driverId: 'drv_1',
       body: 'Still broken',
     });
+    expect(h.fake.find('update', 'support_cases')).toHaveLength(0);
     expect(h.audits.map((a) => a['action'])).toEqual(['message_added']);
     expect(h.fake.find('insert', 'support_case_audit_log')).toHaveLength(0);
     expect(h.fake.find('insert', 'support_case_messages')).toHaveLength(1);
   });
 
+  it('reopens a case an operator resolved or closed after the reply read it', async () => {
+    h.fake.queue('select:support_cases', [{ status: 'closed', resolutionSource: 'operator' }]);
+    h.fake.queue('insert:support_case_messages', [{ id: 61 }]);
+    h.fake.queue('insert:support_case_messages', [{ id: 62 }]);
+    await svc.addDriverMessage({
+      supportCase: caseRow({ status: 'open' }),
+      driverId: 'drv_1',
+      body: 'Still broken',
+    });
+    const update = h.fake.find('update', 'support_cases')[0]!;
+    expect(update.set).toMatchObject({ status: 'open', closedAt: null });
+    expect(await sqlParams(opArgs(update, 'where')?.[0])).toEqual(
+      expect.arrayContaining(['cas_1', 'closed']),
+    );
+    expect(h.fake.find('insert', 'support_case_audit_log')[0]!.values).toMatchObject({
+      before: { redacted: { status: 'closed', resolutionSource: 'operator' } },
+    });
+    expect(h.events[0]).toEqual(['supportCase.updated', 'cas_1', 'drv_1']);
+  });
+
   it('escalates a case the AI still handles; operators get the new case notice', async () => {
+    h.fake.queue('select:support_cases', [{ status: 'ai_assist', resolutionSource: null }]);
     h.fake.queue('select:support_cases', [{ aiState: 'awaiting_feedback' }]);
     h.fake.queue('update:support_cases', [caseRow({ status: 'open', aiState: 'escalated' })]);
     await svc.addDriverMessage({

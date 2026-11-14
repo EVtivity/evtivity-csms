@@ -49,35 +49,51 @@ export function layoutStationIdOf(viewId: string): string {
 }
 
 /** The unit chargers of a layout station (null without units, `stationUnitChargers`). */
+/**
+ * The EVSEs the server's placement counts (`readStationLayoutKinds`): in
+ * service, each with only its in-service connectors, and at least one.
+ */
+export function inServiceLayoutEvses(evses: LayoutStation['evses']): LayoutStation['evses'] {
+  return evses.flatMap((e) => {
+    if (e.retired === true) return [];
+    const connectors = e.connectors.filter((c) => c.retired !== true);
+    return connectors.length > 0 ? [{ ...e, connectors }] : [];
+  });
+}
+
 export function layoutUnitChargers(
   station: Pick<LayoutStation, 'units' | 'evses'>,
 ): UnitCharger[] | null {
-  // In-service EVSEs with a connector only, as the server's placement counts
-  // them (`readStationLayoutKinds`): a retired EVSE draws on no unit charger.
+  // A retired EVSE or connector draws on no unit charger.
   return stationUnitChargers({
     units: station.units ?? [],
-    evses: station.evses.filter((e) => e.retired !== true && e.connectors.length > 0),
+    evses: inServiceLayoutEvses(station.evses),
   });
 }
 
 /**
  * The layout kind of a station as the API reads it (`readStationLayoutKinds`):
- * AC or DC, its depot spot, its EVSEs and, for a station with units, the kind
- * of each unit charger.
+ * AC or DC, its depot spot, its in-service EVSEs and, for a station with
+ * units, the kind of each unit charger.
  */
 export function layoutKindOfStation(
   station: Pick<LayoutStation, 'units' | 'evses'>,
 ): LayoutStationKind {
+  const evses = inServiceLayoutEvses(station.evses);
   return layoutStationKind(
-    station.evses.flatMap((e) => e.connectors),
-    station.evses.length,
+    evses.flatMap((e) => e.connectors),
+    evses.length || 1,
     unitChargerKinds(layoutUnitChargers(station)),
   );
 }
 
 /** The car spots a station gets on a custom site (`stationFreeSpotCount`). */
 export function layoutStationFreeSpots(station: Pick<LayoutStation, 'units' | 'evses'>): number {
-  return stationFreeSpotCount(station.evses.length, layoutKindOfStation(station));
+  // In-service EVSEs, with or without a connector yet, as the server's station read counts.
+  return stationFreeSpotCount(
+    station.evses.filter((e) => e.retired !== true).length,
+    layoutKindOfStation(station),
+  );
 }
 
 // Connector statuses of a plug in use (the API's station summary,
@@ -187,7 +203,7 @@ export function expandUnitStations(
   return stations.flatMap((station) => {
     const chargers = layoutUnitChargers(station);
     if (chargers == null) return [station];
-    const spans = unitChargerSpans(chargers, settings);
+    const spans = unitChargerSpans(chargers, settings, layoutKindOfStation(station));
     const bay = positionToBay({ x: station.positionX, y: station.positionY });
     const unitOf = new Map((station.units ?? []).map((u) => [u.id, u]));
     // The box number: the unit's place in the station's unit order (the API sends them in it).

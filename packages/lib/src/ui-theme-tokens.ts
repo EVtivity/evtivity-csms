@@ -32,13 +32,16 @@ export const UI_COLOR_TOKENS = [
   'accent-foreground',
   'destructive',
   'destructive-foreground',
+  'destructive-text',
   'success',
   'success-foreground',
+  'success-text',
   'warning',
   'warning-foreground',
   'warning-text',
   'info',
   'info-foreground',
+  'info-text',
   'border',
   'input',
   'control',
@@ -92,7 +95,9 @@ const DEFAULT_LIGHT: UiTokenSet = {
   secondary: '210 40% 96.1%',
   'secondary-foreground': '222.2 47.4% 11.2%',
   muted: '210 40% 96.1%',
-  'muted-foreground': '215.4 16.3% 46.9%',
+  // Muted text stays at AA on the 10 percent tone tints of Alert too (4.6:1 on the
+  // destructive tint over the page, the lowest).
+  'muted-foreground': '215.4 16.3% 42%',
   accent: '210 40% 96.1%',
   'accent-foreground': '222.2 47.4% 11.2%',
   // Tone colors serve as text on card and background and as fills under light
@@ -100,8 +105,12 @@ const DEFAULT_LIGHT: UiTokenSet = {
   // card 4.9:1 to 5:1, on background and light text on the fill 4.6:1 to 4.7:1.
   destructive: '0 84.2% 48%',
   'destructive-foreground': '210 40% 98%',
+  // Alert text and icons on the 10 percent tone tint: at least 4.5:1 over card and
+  // background, a little deeper than the tone (the tint lowers the contrast).
+  'destructive-text': '0 84.2% 44%',
   success: '160 84% 27.5%',
   'success-foreground': '210 40% 98%',
+  'success-text': '160 84% 25.5%',
   // Warning splits into a fill and a text color (owner decision 2026-11-12):
   // the fill stays a bright amber under dark text (9.3:1), and warning text and
   // icons on card and background use the deep amber `warning-text` (5.5:1 on
@@ -111,6 +120,7 @@ const DEFAULT_LIGHT: UiTokenSet = {
   'warning-text': '26 90% 35%',
   info: '189 94.5% 29%',
   'info-foreground': '210 40% 98%',
+  'info-text': '189 94.5% 27%',
   border: '214.3 31.8% 91.4%',
   // Form control and button boundaries: 3.3:1 on card, 3.2:1 on background (WCAG 1.4.11).
   input: '215 16% 57%',
@@ -145,8 +155,11 @@ const DEFAULT_DARK: UiTokenSet = {
   // Dark text on the tone fills (WCAG AA, owner decision 2026-11-11): 5.3:1 on
   // destructive and info, 10.3:1 on success, 9.3:1 on warning.
   'destructive-foreground': '222.2 84% 4.9%',
+  // Alert text on the 10 percent tone tint, lighter than the tone: at least 4.5:1.
+  'destructive-text': '0 84.2% 64%',
   success: '160 84% 45%',
   'success-foreground': '222.2 84% 4.9%',
+  'success-text': '160 84% 45%',
   // The bright amber fill, and the same amber as text: 8.1:1 on card, 9.3:1 on background.
   warning: '37.7 92.1% 50%',
   'warning-foreground': '222.2 84% 4.9%',
@@ -154,12 +167,14 @@ const DEFAULT_DARK: UiTokenSet = {
   // Info text on card 4.6:1.
   info: '189 94.5% 34%',
   'info-foreground': '222.2 84% 4.9%',
+  'info-text': '189 94.5% 37%',
   border: '217.2 32.6% 17.5%',
   // Form control and button boundaries: 3.4:1 on card, 3.9:1 on background (WCAG 1.4.11).
   input: '215 20% 45%',
   control: '215 20% 45%',
   'on-tone': '222.2 84% 4.9%',
-  ring: '224.3 76.3% 48%',
+  // The focus ring is the primary fill: 3.5:1 on card, 3.9:1 on background (WCAG 1.4.11).
+  ring: '217 91% 50%',
   ...DEFAULT_SHAPE,
 };
 
@@ -182,13 +197,16 @@ const SOFT_LIGHT: UiTokenSet = {
   border: '214.3 31.8% 94.5%',
   destructive: '0 72% 46%',
   'destructive-foreground': '0 0% 100%',
+  'destructive-text': '0 72% 45%',
   success: '160 84% 26%',
   'success-foreground': '0 0% 100%',
+  'success-text': '160 84% 25.5%',
   warning: '37.7 92.1% 50%',
   'warning-foreground': '222.2 84% 4.9%',
   'warning-text': '26 90% 35%',
   info: '192 90% 30%',
   'info-foreground': '0 0% 100%',
+  'info-text': '192 90% 29%',
   'on-tone': '0 0% 100%',
 };
 
@@ -203,6 +221,7 @@ const SOFT_DARK: UiTokenSet = {
   'warning-text': '37.7 92.1% 50%',
   info: '189 94.5% 43%',
   'info-foreground': '222.2 84% 4.9%',
+  'info-text': '189 94.5% 43%',
 };
 
 // High Contrast: neutral surfaces with no hue tint, black or white text at
@@ -235,14 +254,17 @@ const HIGH_CONTRAST_LIGHT: UiTokenSet = {
   'accent-foreground': '0 0% 0%',
   destructive: '0 85% 30%',
   'destructive-foreground': '0 0% 100%',
+  'destructive-text': '0 85% 30%',
   success: '160 90% 18%',
   'success-foreground': '0 0% 100%',
+  'success-text': '160 90% 18%',
   // Bright amber fill under black text (9.8:1), deep amber warning text (9.4:1).
   warning: '37.7 92.1% 50%',
   'warning-foreground': '0 0% 0%',
   'warning-text': '30 95% 22%',
   info: '200 95% 22%',
   'info-foreground': '0 0% 100%',
+  'info-text': '200 95% 22%',
   border: '0 0% 35%',
   input: '0 0% 20%',
   control: '0 0% 20%',
@@ -270,13 +292,16 @@ const HIGH_CONTRAST_DARK: UiTokenSet = {
   'accent-foreground': '0 0% 100%',
   destructive: '0 90% 72%',
   'destructive-foreground': '0 0% 0%',
+  'destructive-text': '0 90% 72%',
   success: '155 70% 55%',
   'success-foreground': '0 0% 0%',
+  'success-text': '155 70% 55%',
   warning: '40 95% 60%',
   'warning-foreground': '0 0% 0%',
   'warning-text': '40 95% 60%',
   info: '190 90% 62%',
   'info-foreground': '0 0% 0%',
+  'info-text': '190 90% 62%',
   border: '0 0% 70%',
   input: '0 0% 80%',
   control: '0 0% 80%',
@@ -407,6 +432,12 @@ export const UI_CONTRAST_PAIRS: readonly {
   { fg: 'warning-text', bg: 'card', kind: 'text' },
   { fg: 'warning-text', bg: 'background', kind: 'text' },
   { fg: 'info', bg: 'card', kind: 'text' },
+  { fg: 'destructive-text', bg: 'card', kind: 'text' },
+  { fg: 'destructive-text', bg: 'background', kind: 'text' },
+  { fg: 'success-text', bg: 'card', kind: 'text' },
+  { fg: 'success-text', bg: 'background', kind: 'text' },
+  { fg: 'info-text', bg: 'card', kind: 'text' },
+  { fg: 'info-text', bg: 'background', kind: 'text' },
   { fg: 'destructive-foreground', bg: 'destructive', kind: 'text' },
   { fg: 'success-foreground', bg: 'success', kind: 'text' },
   { fg: 'warning-foreground', bg: 'warning', kind: 'text' },
@@ -417,7 +448,27 @@ export const UI_CONTRAST_PAIRS: readonly {
   { fg: 'input', bg: 'card', kind: 'boundary' },
   { fg: 'input', bg: 'background', kind: 'boundary' },
   { fg: 'control', bg: 'card', kind: 'boundary' },
+  { fg: 'ring', bg: 'card', kind: 'boundary' },
+  { fg: 'ring', bg: 'background', kind: 'boundary' },
 ];
+
+/**
+ * Text on the 10 percent tone tints of Alert (`bg-<tone>/10` over the card or
+ * the page): the tone's text color and muted text must both reach AA 4.5:1.
+ */
+export const UI_TINT_TEXT_PAIRS: readonly { fg: UiColorToken; tone: UiColorToken }[] = [
+  { fg: 'destructive-text', tone: 'destructive' },
+  { fg: 'success-text', tone: 'success' },
+  { fg: 'info-text', tone: 'info' },
+  { fg: 'warning-text', tone: 'warning' },
+  { fg: 'muted-foreground', tone: 'destructive' },
+  { fg: 'muted-foreground', tone: 'success' },
+  { fg: 'muted-foreground', tone: 'info' },
+  { fg: 'muted-foreground', tone: 'warning' },
+];
+
+/** The alpha of the tone tint behind Alert text. */
+export const UI_TINT_ALPHA = 0.1;
 
 /** The ratio a pair must reach in a theme. */
 export function requiredContrast(theme: UiTheme, kind: ContrastKind): number {

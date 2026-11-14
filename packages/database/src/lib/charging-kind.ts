@@ -122,6 +122,12 @@ export async function stampSessionChargingKind(
     : null;
 }
 
+/** The kinds a start on an EVSE of `kind` may be priced at (startChargingKinds for one EVSE). */
+export function evseStartKinds(kind: ChargingKind | 'mixed' | null): Array<ChargingKind | null> {
+  if (kind === 'ac' || kind === 'dc') return [kind];
+  return kind === 'mixed' ? [null, 'ac', 'dc'] : [null];
+}
+
 /**
  * The charging kinds a start on the EVSE may be priced at, for the free or
  * paid decision before the session exists: AC or DC for an AC-only or
@@ -134,9 +140,7 @@ export async function startChargingKinds(
   q: { stationUuid: string; evseUuid?: string | null },
 ): Promise<Array<ChargingKind | null>> {
   if (q.evseUuid != null) {
-    const kind = await loadEvseChargingKind(sql, q.evseUuid);
-    if (kind === 'ac' || kind === 'dc') return [kind];
-    return kind === 'mixed' ? [null, 'ac', 'dc'] : [null];
+    return evseStartKinds(await loadEvseChargingKind(sql, q.evseUuid));
   }
   const kinds = new Set<ChargingKind | null>([null]);
   for (const kind of (await loadStationEvseKinds(sql, q.stationUuid)).values()) {
@@ -150,15 +154,18 @@ export async function startChargingKinds(
 }
 
 /**
- * The kind a station-level price is shown for: the kind of every EVSE of the
- * station, or null (the Both tariffs) when it has AC and DC EVSEs, a mixed
- * EVSE, or no EVSE with a typed connector.
+ * The kind a station-level price is shown for: the kind of every EVSE with a
+ * typed connector, or null (the Both tariffs) when it has AC and DC EVSEs, a
+ * mixed EVSE, or no EVSE with a typed connector. An EVSE without a typed
+ * connector does not count against the others.
  */
 export async function stationDisplayKind(
   sql: postgres.Sql,
   stationUuid: string,
 ): Promise<ChargingKind | null> {
-  const kinds = [...(await loadStationEvseKinds(sql, stationUuid)).values()];
+  const kinds = [...(await loadStationEvseKinds(sql, stationUuid)).values()].filter(
+    (k) => k != null,
+  );
   if (kinds.length === 0 || kinds.some((k) => k !== kinds[0])) return null;
   return resolvableKind(kinds[0] ?? null);
 }

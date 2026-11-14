@@ -342,6 +342,14 @@ export interface UpdateSupportCaseInput {
   log?: WarnLogger;
 }
 
+/** The case's status changed after the operator read it; nothing was written. */
+export class SupportCaseStatusChangedError extends Error {
+  constructor(readonly caseId: string) {
+    super(`Support case ${caseId} changed status since it was read`);
+    this.name = 'SupportCaseStatusChangedError';
+  }
+}
+
 /**
  * The operator PATCH: field changes with one system message and one audit row
  * each, session link changes, the driver notice on resolve. An operator who
@@ -395,6 +403,20 @@ export async function updateSupportCase(
     }
   }
 
+  // A status change applies only while the case still has the status the
+  // operator saw: a driver close or reopen in between wins, and the operator
+  // reloads the case (409) instead of overwriting it with a stale history.
+  const [updated] = await db
+    .update(supportCases)
+    .set(updates)
+    .where(
+      statusChanged
+        ? and(eq(supportCases.id, id), eq(supportCases.status, existing.status))
+        : eq(supportCases.id, id),
+    )
+    .returning();
+  if (updated == null && statusChanged) throw new SupportCaseStatusChangedError(id);
+
   if (input.addSessionIds != null && input.addSessionIds.length > 0) {
     await db
       .insert(supportCaseSessions)
@@ -411,12 +433,6 @@ export async function updateSupportCase(
         ),
       );
   }
-
-  const [updated] = await db
-    .update(supportCases)
-    .set(updates)
-    .where(eq(supportCases.id, id))
-    .returning();
 
   // One round-trip for up to four field changes in one PATCH.
   if (systemMessages.length > 0) {
@@ -806,41 +822,45 @@ export async function addDriverMessage(input: {
   const { supportCase, driverId } = input;
   const actor: SupportCaseActor = { actor: 'driver', actorDriverId: driverId };
   // A resolved or closed case reopens when the driver writes (owner decision
-  // 2026-11-13; before, only a case the automatic answer resolved did), by
-  // compare-and-set from the status read, so an operator's later status
-  // change is never overwritten (P5). The reopen and its system message
-  // come before the reply, so the thread reads in order.
-  if (supportCase.status === 'resolved' || supportCase.status === 'closed') {
-    const reopened = await db.transaction(async (tx) => {
-      const [row] = await tx
-        .update(supportCases)
-        .set({
-          status: 'open',
-          resolvedAt: null,
-          closedAt: null,
-          resolutionSource: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(eq(supportCases.id, supportCase.id), eq(supportCases.status, supportCase.status)),
-        )
-        .returning({ id: supportCases.id });
-      if (row == null) return false;
-      await tx.insert(supportCaseMessages).values({
-        caseId: supportCase.id,
-        senderType: 'system',
-        senderId: driverId,
-        body: DRIVER_REOPENED_MESSAGE,
-        isInternal: false,
-      });
-      await auditInTransaction(tx, supportCase.id, 'status_changed', actor, {
-        before: { status: supportCase.status, resolutionSource: supportCase.resolutionSource },
-        after: { status: 'open', resolutionSource: null, reason: 'driver_replied' },
-      });
-      return true;
+  // 2026-11-13; before, only a case the automatic answer resolved did). The
+  // status is read again under the row lock, not taken from the route's
+  // read: a case an operator resolved or closed after that read still
+  // reopens, and one an operator moved elsewhere keeps its status (P5). The
+  // reopen and its system message come before the reply, so the thread reads
+  // in order.
+  const reopened = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ status: supportCases.status, resolutionSource: supportCases.resolutionSource })
+      .from(supportCases)
+      .where(eq(supportCases.id, supportCase.id))
+      .for('update');
+    if (current == null || (current.status !== 'resolved' && current.status !== 'closed')) {
+      return false;
+    }
+    await tx
+      .update(supportCases)
+      .set({
+        status: 'open',
+        resolvedAt: null,
+        closedAt: null,
+        resolutionSource: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(supportCases.id, supportCase.id), eq(supportCases.status, current.status)));
+    await tx.insert(supportCaseMessages).values({
+      caseId: supportCase.id,
+      senderType: 'system',
+      senderId: driverId,
+      body: DRIVER_REOPENED_MESSAGE,
+      isInternal: false,
     });
-    if (reopened) void notifySupportCaseEvent('supportCase.updated', supportCase.id, driverId);
-  }
+    await auditInTransaction(tx, supportCase.id, 'status_changed', actor, {
+      before: { status: current.status, resolutionSource: current.resolutionSource },
+      after: { status: 'open', resolutionSource: null, reason: 'driver_replied' },
+    });
+    return true;
+  });
+  if (reopened) void notifySupportCaseEvent('supportCase.updated', supportCase.id, driverId);
 
   const [message] = await db
     .insert(supportCaseMessages)

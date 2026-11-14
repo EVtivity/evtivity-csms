@@ -181,8 +181,8 @@ export function SessionPaymentTab({
       <TabPanel title={title ?? t('sessions.payment')}>
         {payment == null ? (
           <div className="space-y-4">
-            <EmptyState>{t('sessions.noPayment')}</EmptyState>
             {noPaymentReason != null && <SessionNoPaymentReason {...noPaymentReason} />}
+            <EmptyState>{t('sessions.noPayment')}</EmptyState>
           </div>
         ) : (
           <div className="space-y-4">

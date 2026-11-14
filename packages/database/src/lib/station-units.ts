@@ -57,6 +57,9 @@ export type UnitWriteFailure =
   | 'limit'
   | 'other_station';
 
+/** The unit fields an update can change. */
+export type UnitField = 'name' | 'sortOrder' | 'serialNumber' | 'ipAddress';
+
 export type UnitWriteResult<T> =
   | {
       ok: true;
@@ -64,6 +67,13 @@ export type UnitWriteResult<T> =
       changed: boolean;
       before: UnitSnapshot | null;
       after: UnitSnapshot | null;
+      /** The fields an update changed (an update only). */
+      fields?: UnitField[];
+      /**
+       * The units EVSEs left for a new unit (a create only), each as it was
+       * before and as it is after the move, so the audit names them too.
+       */
+      left?: { before: UnitSnapshot; after: UnitSnapshot }[];
     }
   | { ok: false; reason: UnitWriteFailure };
 
@@ -157,9 +167,10 @@ export async function createStationUnit(
     if (n >= STATION_UNITS_MAX) return { ok: false, reason: 'limit' };
     if (await nameTaken(tx, stationUuid, name, null)) return { ok: false, reason: 'name_in_use' };
     const evseIds = [...new Set(input.evseIds ?? [])];
+    let previousUnits: StationUnitRow[] = [];
     if (evseIds.length > 0) {
       const found = await tx
-        .select({ id: evses.id, stationId: evses.stationId })
+        .select({ id: evses.id, stationId: evses.stationId, unitId: evses.unitId })
         .from(evses)
         .where(inArray(evses.id, evseIds))
         .for('update');
@@ -167,7 +178,18 @@ export async function createStationUnit(
       if (found.some((e) => e.stationId !== stationUuid)) {
         return { ok: false, reason: 'other_station' };
       }
+      const previousIds = [
+        ...new Set(found.map((e) => e.unitId).filter((id): id is string => id != null)),
+      ];
+      if (previousIds.length > 0) {
+        previousUnits = await tx
+          .select()
+          .from(stationUnits)
+          .where(inArray(stationUnits.id, previousIds))
+          .orderBy(asc(stationUnits.sortOrder), asc(stationUnits.name));
+      }
     }
+    const leftBefore = await Promise.all(previousUnits.map((u) => snapshot(tx, u)));
     const [unit] = await tx
       .insert(stationUnits)
       .values({
@@ -185,7 +207,20 @@ export async function createStationUnit(
         .set({ unitId: unit.id, updatedAt: new Date() })
         .where(and(inArray(evses.id, evseIds), eq(evses.stationId, stationUuid)));
     }
-    return { ok: true, value: unit, changed: true, before: null, after: await snapshot(tx, unit) };
+    const left = await Promise.all(
+      previousUnits.map(async (u, i) => ({
+        before: leftBefore[i] as UnitSnapshot,
+        after: await snapshot(tx, u),
+      })),
+    );
+    return {
+      ok: true,
+      value: unit,
+      changed: true,
+      before: null,
+      after: await snapshot(tx, unit),
+      left,
+    };
   });
 }
 
@@ -210,15 +245,23 @@ export async function updateStationUnit(
     const ipChanged = input.ipAddress !== undefined && input.ipAddress !== unit.ipAddress;
     const before = await snapshot(tx, unit);
     if (!nameChanged && !orderChanged && !serialChanged && !ipChanged) {
-      return { ok: true, value: unit, changed: false, before, after: before };
+      return { ok: true, value: unit, changed: false, before, after: before, fields: [] };
     }
+    const fields: UnitField[] = [
+      ...(nameChanged ? (['name'] as const) : []),
+      ...(orderChanged ? (['sortOrder'] as const) : []),
+      ...(serialChanged ? (['serialNumber'] as const) : []),
+      ...(ipChanged ? (['ipAddress'] as const) : []),
+    ];
     if (nameChanged && (await nameTaken(tx, stationUuid, name, unit.id))) {
       return { ok: false, reason: 'name_in_use' };
     }
     const [updated] = await tx
       .update(stationUnits)
       .set({
-        ...(nameChanged ? { name } : {}),
+        // Partners see the name only (OCPI physical_reference), so only a
+        // rename moves the time their EVSE last_updated reads.
+        ...(nameChanged ? { name, nameUpdatedAt: new Date() } : {}),
         ...(orderChanged ? { sortOrder: input.sortOrder } : {}),
         ...(serialChanged ? { serialNumber: input.serialNumber ?? null } : {}),
         ...(ipChanged ? { ipAddress: input.ipAddress ?? null } : {}),
@@ -231,6 +274,7 @@ export async function updateStationUnit(
       ok: true,
       value: updated,
       changed: true,
+      fields,
       before,
       after: {
         ...before,
@@ -291,8 +335,9 @@ export async function setEvseUnit(
     let target: StationUnitRow | null = null;
     if (unitId != null) {
       const [unit] = await tx.select().from(stationUnits).where(eq(stationUnits.id, unitId));
-      if (unit == null) return { ok: false, reason: 'not_found' };
-      if (unit.stationId !== stationUuid) return { ok: false, reason: 'other_station' };
+      // A unit of another station answers like an unknown one, so a
+      // caller learns nothing about units outside its station.
+      if (unit == null || unit.stationId !== stationUuid) return { ok: false, reason: 'not_found' };
       target = unit;
     }
     const previous =

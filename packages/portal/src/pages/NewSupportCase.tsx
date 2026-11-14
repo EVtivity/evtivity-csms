@@ -7,6 +7,7 @@ import { isVisitStart, useBackToParent } from '@/hooks/use-back-to-parent';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/PageHeader';
 import { Input } from '@/components/ui/input';
@@ -51,7 +52,9 @@ export function NewSupportCase(): React.JSX.Element {
       .join(', ') || t('supportCases.linkedSessionFallback');
 
   const [category, setCategory] = useState<string>('general_inquiry');
-  const [subject, setSubject] = useState(stationName != null ? `Issue at ${stationName}` : '');
+  const [subject, setSubject] = useState(
+    stationName != null ? t('supportCases.defaultSubject', { station: stationName }) : '',
+  );
   const [description, setDescription] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
   // The AI consent choice of this request, with the notice version the driver
@@ -237,8 +240,10 @@ export function NewSupportCase(): React.JSX.Element {
           </p>
         )}
 
-        <Button type="submit" className="w-full" disabled={createMutation.isPending}>
-          {createMutation.isPending ? t('common.creating') : t('supportCases.submitCase')}
+        <Button type="submit" className="relative w-full" disabled={createMutation.isPending}>
+          <ButtonPendingLabel pending={createMutation.isPending}>
+            {t('supportCases.submitCase')}
+          </ButtonPendingLabel>
         </Button>
       </form>
     </div>

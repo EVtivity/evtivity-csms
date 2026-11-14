@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { useSavedToast } from '@/components/saved-message';
 
 interface Site {
   id: string;
@@ -24,6 +25,7 @@ export interface SiteAutochargeTabProps {
 export function SiteAutochargeTab({ site, siteId }: SiteAutochargeTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const savedToast = useSavedToast();
   // Read-only without sites:write, which the API requires for the change.
   const canWrite = useHasPermission('sites:write');
 
@@ -32,6 +34,7 @@ export function SiteAutochargeTab({ site, siteId }: SiteAutochargeTabProps): Rea
       api.patch(`/v1/sites/${siteId}`, { autochargeEnabled: value }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sites'] });
+      savedToast();
     },
   });
 

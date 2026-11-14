@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { useSavedToast } from '@/components/saved-message';
 
 interface Site {
   id: string;
@@ -37,9 +38,15 @@ function gramsPerKwh(factor: CarbonFactor): number {
 export function SiteCarbonRegionTab({ site, siteId }: SiteCarbonRegionTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const savedToast = useSavedToast();
   const canWrite = useHasPermission('sites:write');
 
-  const { data: carbonFactors } = useQuery({
+  const {
+    data: carbonFactors,
+    isLoading: factorsLoading,
+    isError: factorsError,
+    refetch: refetchFactors,
+  } = useQuery({
     queryKey: ['carbon-factors'],
     queryFn: () => api.get<CarbonFactor[]>('/v1/carbon/factors'),
   });
@@ -49,6 +56,7 @@ export function SiteCarbonRegionTab({ site, siteId }: SiteCarbonRegionTabProps):
       api.put(`/v1/sites/${siteId}/carbon-region`, { regionCode }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sites'] });
+      savedToast();
     },
   });
 
@@ -69,6 +77,13 @@ export function SiteCarbonRegionTab({ site, siteId }: SiteCarbonRegionTabProps):
         title={t('sites.carbonRegion')}
         description={t('sites.carbonRegionDescription')}
         bodyClassName="space-y-4"
+        // The region list names the stored region: without it the select would show
+        // No Carbon Region for a site that has one.
+        isLoading={factorsLoading}
+        isError={factorsError}
+        onRetry={() => {
+          void refetchFactors();
+        }}
       >
         <div className="flex items-center gap-4">
           <Select

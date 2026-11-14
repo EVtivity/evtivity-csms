@@ -340,6 +340,7 @@
     "pricingFree": "Kostenlos",
     "chargingKindAc": "AC",
     "chargingKindDc": "DC",
+    "priceDetailsToggle": "AC- und DC-Preisdetails anzeigen",
     "freeVendBadge": "Kostenloses Laden an diesem Standort",
     "freeVendDescription": "Der Standortbetreiber hat den Free-Vend-Modus aktiviert - es fallen keine Gebühren an.",
     "restrictionHolidays": "Feiertagstarif",
@@ -382,7 +383,8 @@
     "reserved": "Reserviert",
     "connectorReserved": "Anschluss ist reserviert",
     "maintenanceTitle": "Standort in Wartung",
-    "maintenanceUntil": "Voraussichtliche Wiederaufnahme: {{time}}"
+    "maintenanceUntil": "Voraussichtliche Wiederaufnahme: {{time}}",
+    "offlineNotice": "Diese Station ist offline. Das Laden kann erst starten, wenn sie wieder verbunden ist."
   },
   "chargerSearch": {
     "title": "Ladevorgang starten",
@@ -405,7 +407,11 @@
     "available": "verfügbar",
     "enableLocation": "Aktiviere die Standortdienste, um Stationen in der Nähe zu sehen.",
     "enableLocationButton": "Standort aktivieren",
-    "nearbyError": "Stationen in der Nähe konnten nicht geladen werden."
+    "nearbyError": "Stationen in der Nähe konnten nicht geladen werden.",
+    "noResults": "Keine Stationen gefunden",
+    "searchError": "Die Stationssuche ist fehlgeschlagen.",
+    "evseCount_one": "{{count}} Anschluss",
+    "evseCount_other": "{{count}} Anschlüsse"
   },
   "guest": {
     "checkoutTitle": "Gast-Bezahlung",
@@ -644,7 +650,8 @@
       }
     },
     "linkedSessionFallback": "Ladevorgang",
-    "linkedStationFallback": "Ladestation"
+    "linkedStationFallback": "Ladestation",
+    "defaultSubject": "Problem an {{station}}"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Konto deaktiviert",
@@ -921,6 +928,7 @@
     "STREAM_LIMIT_REACHED": "Von diesem Gerät sind zu viele Live-Aktualisierungen von Ladestationen geöffnet. Schließe andere Tabs und versuche es erneut.",
     "SUPPORT_AI_NOT_CONFIGURED": "Support-AI ist nicht konfiguriert",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Dieser Supportfall wartet nicht auf eine Rückmeldung zu einer automatischen Antwort",
+    "SUPPORT_CASE_CHANGED": "Der Status des Falls hat sich geändert, seit Sie ihn geöffnet haben. Laden Sie den Fall neu und versuchen Sie es erneut.",
     "SUPPORT_CASE_NOT_FOUND": "Supportfall nicht gefunden",
     "SUPPORT_DISABLED": "Support ist deaktiviert",
     "TARIFF_IN_USE": "Tarif wird von Ladevorgängen referenziert und kann nicht gelöscht werden",
@@ -1292,14 +1300,15 @@
   "location": {
     "title": "Standortdetails",
     "chargers": "{{count}} Ladestationen",
-    "available": "{{count}} verfügbar",
     "hoursOfOperation": "Öffnungszeiten",
     "getDirections": "Route anzeigen",
     "noImages": "Keine Bilder verfügbar",
     "contactInfo": "Kontakt",
     "loading": "Standort wird geladen...",
     "stations": "Stationen",
-    "noStations": "Keine Stationen an diesem Standort."
+    "noStations": "Keine Stationen an diesem Standort.",
+    "available_one": "{{count}} verfügbar",
+    "available_other": "{{count}} verfügbar"
   },
   "stationDetail": {
     "selectConnector": "Wähle einen Anschluss, um den Ladevorgang zu starten",

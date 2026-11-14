@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isStartable,
+  portDisplayStatus,
   isEvseSelectable,
   connectorStatusVariant,
   connectorStatusClassName,
@@ -133,5 +134,17 @@ describe('connectorStatusClassName', () => {
 
   it('always uses the secondary badge variant', () => {
     expect(connectorStatusVariant()).toBe('secondary');
+  });
+});
+
+describe('portDisplayStatus', () => {
+  it('shows a port that reports Available but cannot start as Unavailable', () => {
+    expect(portDisplayStatus('available', false)).toBe('unavailable');
+  });
+
+  it('keeps the reported status otherwise', () => {
+    expect(portDisplayStatus('available', true)).toBe('available');
+    expect(portDisplayStatus('charging', false)).toBe('charging');
+    expect(portDisplayStatus('faulted', false)).toBe('faulted');
   });
 });

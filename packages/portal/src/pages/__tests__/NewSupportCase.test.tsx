@@ -236,3 +236,32 @@ describe('NewSupportCase linked session', () => {
     expect(line.textContent).toBe('supportCases.linkedSession: supportCases.linkedSessionFallback');
   });
 });
+
+describe('NewSupportCase subject and submit', () => {
+  it('fills the subject from the translated default for a linked station', async () => {
+    features(false);
+    renderPage('/support/new?stationId=sta_1&stationName=CS-0001');
+    const subject = await screen.findByLabelText<HTMLInputElement>('supportCases.subject');
+    expect(subject.value).toBe('supportCases.defaultSubject');
+  });
+
+  it('keeps the submit label and shows the spinner while the case is created', async () => {
+    features(false);
+    postMock.mockImplementation(() => new Promise(() => undefined));
+    renderPage();
+    await screen.findByLabelText('supportCases.subject');
+    fillAndSubmit();
+    await waitFor(() => {
+      expect(screen.getByTestId('button-pending-spinner')).toBeTruthy();
+    });
+    expect(screen.queryByText('common.creating')).toBeNull();
+  });
+
+  it('has the default subject in all six locales with the station variable', () => {
+    for (const locale of [en, de, es, ko, zh, zhTW]) {
+      const value = (locale as { supportCases: { defaultSubject?: string } }).supportCases
+        .defaultSubject;
+      expect(value).toContain('{{station}}');
+    }
+  });
+});

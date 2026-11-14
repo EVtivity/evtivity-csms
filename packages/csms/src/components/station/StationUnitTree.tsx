@@ -18,7 +18,6 @@ import {
   StationUnitRemoveEvseDialog,
   type UnitNameDraft,
 } from './station-unit-actions';
-import { STATION_UNASSIGNED_CARD_ID, STATION_UNIT_TREE_ID } from './StationUnassignedEvsesNotice';
 
 interface TreeEvse {
   evseId: number;
@@ -37,7 +36,7 @@ interface StationUnitTreeProps<E extends TreeEvse> {
 
 const GRID = 'grid grid-cols-1 md:grid-cols-2 gap-4';
 // The EVSE card style, so a unit card reads as the card of one charger box.
-const CARD = 'rounded-lg border p-4 space-y-3 scroll-mt-4';
+const CARD = 'rounded-lg border p-4 space-y-3';
 const HEADER = 'flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b';
 
 /**
@@ -72,17 +71,19 @@ export function StationUnitTree<E extends TreeEvse>({
       .flatMap((e) => e.connectors.filter((c) => c.retiredAt == null).map((c) => c.status));
     return <StationStatusBadge status={unitStatus(statuses, station)} size="sm" />;
   };
-  const count = (n: number): React.JSX.Element => (
-    <span className="text-sm text-muted-foreground">
-      {t('stationUnits.evseCount', { count: n })}
-    </span>
-  );
+  // Counts the EVSEs in service; retired ones still show (to restore them)
+  // but are named apart, as the driver views and the dashboard leave them out.
+  const count = (group: E[]): React.JSX.Element => {
+    const retired = group.filter((e) => e.retiredAt != null).length;
+    return (
+      <span className="text-sm text-muted-foreground">
+        {t('stationUnits.evseCount', { count: group.length - retired })}
+        {retired > 0 && ` · ${t('stationUnits.retiredCount', { count: retired })}`}
+      </span>
+    );
+  };
   return (
-    <div
-      id={STATION_UNIT_TREE_ID}
-      className="space-y-4 scroll-mt-4"
-      data-testid="station-unit-tree"
-    >
+    <div className="space-y-4" data-testid="station-unit-tree">
       {grouped.units.map(({ unit, evses: unitEvses }) => (
         <section
           key={unit.id}
@@ -94,7 +95,7 @@ export function StationUnitTree<E extends TreeEvse>({
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-medium">{unit.name}</h3>
               {badge(unitEvses)}
-              {count(unitEvses.length)}
+              {count(unitEvses)}
               {unit.serialNumber != null && (
                 <span className="text-xs text-muted-foreground">
                   {t('stationUnits.serialNumberValue', { value: unit.serialNumber })}
@@ -151,7 +152,6 @@ export function StationUnitTree<E extends TreeEvse>({
       ))}
       {grouped.unassigned.length > 0 && (
         <section
-          id={STATION_UNASSIGNED_CARD_ID}
           className={CARD}
           data-testid="station-unit-unassigned"
           aria-label={t('stationUnits.evsesWithoutUnit')}
@@ -159,7 +159,7 @@ export function StationUnitTree<E extends TreeEvse>({
           <div className={HEADER}>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-medium">{t('stationUnits.evsesWithoutUnit')}</h3>
-              {count(grouped.unassigned.length)}
+              {count(grouped.unassigned)}
             </div>
           </div>
           <div className={GRID}>{grouped.unassigned.map(renderEvse)}</div>

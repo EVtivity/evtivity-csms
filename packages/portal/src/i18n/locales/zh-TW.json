@@ -340,6 +340,7 @@
     "pricingFree": "免費",
     "chargingKindAc": "交流",
     "chargingKindDc": "直流",
+    "priceDetailsToggle": "顯示交流和直流價格詳情",
     "freeVendBadge": "本充電站免費充電",
     "freeVendDescription": "充電站營運商已啟用免費充電模式 - 無須付費。",
     "restrictionHolidays": "節假日費率",
@@ -382,7 +383,8 @@
     "reserved": "已預約",
     "connectorReserved": "連接器已被預約",
     "maintenanceTitle": "充電站維護中",
-    "maintenanceUntil": "預計恢復時間: {{time}}"
+    "maintenanceUntil": "預計恢復時間: {{time}}",
+    "offlineNotice": "此充電樁目前離線。重新連線之前無法開始充電。"
   },
   "chargerSearch": {
     "title": "開始充電",
@@ -405,7 +407,11 @@
     "available": "可用",
     "enableLocation": "啟用位置服務以查看附近的充電樁。",
     "enableLocationButton": "啟用位置",
-    "nearbyError": "載入附近充電樁失敗。"
+    "nearbyError": "載入附近充電樁失敗。",
+    "noResults": "找不到充電樁",
+    "searchError": "搜尋充電樁失敗。",
+    "evseCount_one": "{{count}} 個充電埠",
+    "evseCount_other": "{{count}} 個充電埠"
   },
   "guest": {
     "checkoutTitle": "訪客結帳",
@@ -644,7 +650,8 @@
       }
     },
     "linkedSessionFallback": "充電工作階段",
-    "linkedStationFallback": "充電樁"
+    "linkedStationFallback": "充電樁",
+    "defaultSubject": "{{station}} 的問題"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "帳號已停用",
@@ -921,6 +928,7 @@
     "STREAM_LIMIT_REACHED": "此裝置開啟的充電樁即時更新過多。請關閉其他分頁後再試一次。",
     "SUPPORT_AI_NOT_CONFIGURED": "尚未設定客服 AI",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "此客服案件未在等待對自動回覆的意見回饋",
+    "SUPPORT_CASE_CHANGED": "自您開啟此案件後，其狀態已變更。請重新載入案件後再試一次。",
     "SUPPORT_CASE_NOT_FOUND": "找不到客服案件",
     "SUPPORT_DISABLED": "客服功能已停用",
     "TARIFF_IN_USE": "費率正被充電工作階段使用中，無法刪除",
@@ -1291,14 +1299,15 @@
   "location": {
     "title": "位置詳細資料",
     "chargers": "{{count}} 個充電樁",
-    "available": "{{count}} 個可用",
     "hoursOfOperation": "營業時間",
     "getDirections": "取得路線",
     "noImages": "尚無圖片",
     "contactInfo": "聯絡方式",
     "loading": "載入位置中...",
     "stations": "充電樁",
-    "noStations": "此位置沒有充電樁。"
+    "noStations": "此位置沒有充電樁。",
+    "available_one": "{{count}} 個可用",
+    "available_other": "{{count}} 個可用"
   },
   "stationDetail": {
     "selectConnector": "選擇充電埠以開始充電",

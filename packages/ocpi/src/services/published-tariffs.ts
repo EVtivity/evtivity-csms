@@ -270,7 +270,7 @@ export async function renderTariffMapping(
   };
 
   let rows: Array<
-    Omit<TariffSource, 'restrictions'> & {
+    Omit<TariffSource, 'restrictions' | 'chargingType'> & {
       restrictions: unknown;
       updatedAt: Date;
       chargingType: string;
@@ -318,6 +318,7 @@ export async function renderTariffMapping(
     )
     .map((r) => ({
       ...r,
+      chargingType: r.chargingType === 'ac' || r.chargingType === 'dc' ? r.chargingType : 'both',
       restrictions: r.restrictions as TariffRestrictions | null,
     }));
   if (sources.length === 0) return null;

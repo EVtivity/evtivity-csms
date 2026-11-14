@@ -113,16 +113,34 @@ describe('DateInput', () => {
     const year = within(dialog).getByLabelText<HTMLSelectElement>('common.datePicker.year');
     expect([month.value, year.value]).toEqual(['12', '2025']);
     fireEvent.change(year, { target: { value: '2027' } });
+    month.focus();
     fireEvent.change(month, { target: { value: '2' } });
-    expect(within(dialog).getByRole('button', { name: /February 28, 2027/ })).toBe(
-      document.activeElement,
-    );
-    fireEvent.keyDown(document.activeElement as Element, { key: 'ArrowRight' });
+    // A month change keeps the focus on the control that made it.
+    expect(document.activeElement).toBe(month);
+    const feb28 = within(dialog).getByRole('button', { name: /February 28, 2027/ });
+    fireEvent.keyDown(feb28, { key: 'ArrowRight' });
     expect(within(dialog).getByRole('button', { name: /March 1, 2027/ })).toBe(
       document.activeElement,
     );
     fireEvent.keyDown(document.activeElement as Element, { key: 'PageDown' });
     expect([month.value, year.value]).toEqual(['4', '2027']);
+  });
+
+  it('keeps the focus on Next Month, so a second Enter does not pick a day', () => {
+    const onValue = vi.fn();
+    render(<Harness initial="2026-01-15" onValue={onValue} />);
+    const dialog = openCalendar();
+    const nextButton = within(dialog).getByRole('button', { name: 'common.datePicker.nextMonth' });
+    nextButton.focus();
+    fireEvent.click(nextButton);
+    expect(document.activeElement).toBe(nextButton);
+    fireEvent.click(nextButton);
+    expect(document.activeElement).toBe(nextButton);
+    expect(within(dialog).getByLabelText<HTMLSelectElement>('common.datePicker.month').value).toBe(
+      '3',
+    );
+    expect(onValue).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'common.datePicker.title' })).toBeTruthy();
   });
 
   it('offers only days inside min and max', () => {

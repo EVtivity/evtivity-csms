@@ -45,6 +45,7 @@ import {
   markSupportCaseRead,
   recordSupportCaseAttachmentAdded,
   recordSupportCaseRefund,
+  SupportCaseStatusChangedError,
   updateSupportCase,
 } from '@evtivity/services/support-case.service';
 import {
@@ -1056,6 +1057,9 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             ERROR_CODES.SESSION_NOT_FOUND,
             ERROR_CODES.USER_NOT_FOUND,
           ]),
+          409: errorWith('The case status changed since it was read', [
+            ERROR_CODES.SUPPORT_CASE_CHANGED,
+          ]),
         },
       },
     },
@@ -1112,22 +1116,31 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      return updateSupportCase({
-        existing,
-        status: body.status,
-        priority: body.priority,
-        category: body.category,
-        assignedTo: body.assignedTo,
-        assigneeName:
-          assignee != null
-            ? `${assignee.firstName ?? ''} ${assignee.lastName ?? ''}`.trim()
-            : undefined,
-        addSessionIds: body.addSessionIds,
-        removeSessionIds: body.removeSessionIds,
-        userId,
-        actor: getAuditActor(request),
-        log: request.log,
-      });
+      try {
+        return await updateSupportCase({
+          existing,
+          status: body.status,
+          priority: body.priority,
+          category: body.category,
+          assignedTo: body.assignedTo,
+          assigneeName:
+            assignee != null
+              ? `${assignee.firstName ?? ''} ${assignee.lastName ?? ''}`.trim()
+              : undefined,
+          addSessionIds: body.addSessionIds,
+          removeSessionIds: body.removeSessionIds,
+          userId,
+          actor: getAuditActor(request),
+          log: request.log,
+        });
+      } catch (err: unknown) {
+        if (!(err instanceof SupportCaseStatusChangedError)) throw err;
+        await reply.status(409).send({
+          error: 'The case status changed since it was read. Reload the case.',
+          code: 'SUPPORT_CASE_CHANGED',
+        });
+        return;
+      }
     },
   );
 

@@ -101,7 +101,7 @@ describe('SiteCarbonRegionTab', () => {
       'carbon-region',
       <SiteCarbonRegionTab site={{ id: 's1', carbonRegionCode: 'US-CA' }} siteId="s1" />,
     );
-    expect(screen.getByLabelText('sites.carbonRegion')).toHaveProperty('disabled', true);
+    expect(await screen.findByLabelText('sites.carbonRegion')).toHaveProperty('disabled', true);
     expect(await screen.findByText(/sites.carbonIntensity: 200 g/)).toBeTruthy();
   });
 

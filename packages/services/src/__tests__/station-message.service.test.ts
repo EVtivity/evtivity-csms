@@ -63,7 +63,9 @@ const {
   mockPublish,
   mockSubscribe,
   mockIsOperatorStation,
+  mockDisplayPricing,
 } = vi.hoisted(() => ({
+  mockDisplayPricing: vi.fn(),
   mockIsOperatorStation: vi.fn(() => 'OPERATOR_STATION'),
   mockGetStationMessageBrandLine: vi.fn(),
   mockIsStationMessageEnabled: vi.fn(),
@@ -151,6 +153,7 @@ vi.mock('@evtivity/database', () => ({
   isStationMessageEnabled: mockIsStationMessageEnabled,
   getStationMessagePricingFormat: mockGetStationMessagePricingFormat,
   resolveStationTariff: mockResolveTariff,
+  resolveStationDisplayPricing: mockDisplayPricing,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -250,6 +253,11 @@ describe('station-message.service', () => {
     mockIsStationMessageEnabled.mockResolvedValue(true);
     mockGetStationMessagePricingFormat.mockResolvedValue('compact');
     mockResolveTariff.mockResolvedValue(TARIFF);
+    // The display pricing of a station of one kind: the tariff resolved for it.
+    mockDisplayPricing.mockImplementation(async (sql: unknown, stationUuid: string) => ({
+      tariff: await mockResolveTariff({ stationUuid, driverUuid: null, chargingKind: null }, sql),
+      byKind: null,
+    }));
     mockGetStationMessageLanguage.mockResolvedValue('en');
     mockGetStationMessageBrandLine.mockResolvedValue('');
     mockGetCompanyPriceDisplay.mockResolvedValue('net');
@@ -380,9 +388,30 @@ describe('station-message.service', () => {
       );
       expect(mockRenderStationMessage).toHaveBeenCalledWith('faulted', expect.any(Object), 'de');
       // The station screen shows the walk-up price: no driver.
-      expect(mockResolveTariff).toHaveBeenCalledWith(
-        { stationUuid: INTERNAL_STATION_ID, driverUuid: null, chargingKind: null },
-        expect.anything(),
+      expect(mockDisplayPricing).toHaveBeenCalledWith(expect.anything(), INTERNAL_STATION_ID);
+    });
+
+    it('shows the AC and DC prices of a station with AC and DC EVSEs whose prices differ', async () => {
+      mockDisplayPricing.mockResolvedValueOnce({
+        tariff: TARIFF,
+        byKind: {
+          ac: { ...TARIFF, pricePerKwh: '0.30', pricePerMinute: null, taxRate: '0.19' },
+          dc: { ...TARIFF, pricePerKwh: '0.60', pricePerMinute: null, taxRate: '0.07' },
+        },
+      });
+      setupDbResults([STATION_ROW], [], [], [], [], [], [], []);
+
+      await pushAllStationMessages(STATION_OCPP_ID, INTERNAL_STATION_ID, 'ocpp2.1', mockLogger);
+
+      expect(mockRenderStationMessage).toHaveBeenCalledWith(
+        'available',
+        expect.objectContaining({
+          pricingDisplay: 'AC: €0.30/kWh | DC: €0.60/kWh',
+          energyPrice: 'AC €0.30 / DC €0.60',
+          // The kinds differ in tax rate, so no single tax note.
+          taxRatePercent: '',
+        }),
+        'en',
       );
     });
 

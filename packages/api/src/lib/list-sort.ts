@@ -53,9 +53,18 @@ export function sortablePersonName(firstName: AnyColumn | SQL, lastName: AnyColu
   return sql`nullif(trim(concat_ws(' ', ${firstName}, ${lastName})), '')`;
 }
 
+function isColumnList(
+  value: ListSortExpression | readonly ListSortExpression[],
+): value is readonly ListSortExpression[] {
+  return Array.isArray(value);
+}
+
 interface ListSortOptions {
-  /** The primary key of the listed rows: the last ORDER BY term of every sorted request. */
-  tieBreaker: ListSortExpression;
+  /**
+   * The primary key of the listed rows: the last ORDER BY term of every sorted request.
+   * A key of several columns lists them, each sorted in the chosen direction.
+   */
+  tieBreaker: ListSortExpression | readonly ListSortExpression[];
   /** The order of a request without a sort key (the list's order before sorting existed). */
   defaultOrder: SQL[];
 }
@@ -96,12 +105,20 @@ export function defineListSort<const K extends string>(
       }
       const expression = columns[key as K];
       const direction = params.order === 'desc' ? sql.raw('desc') : sql.raw('asc');
+      // Tagged templates only (no sql.join): route tests mock drizzle-orm's sql tag.
+      const [first, ...rest] = isColumnList(options.tieBreaker)
+        ? options.tieBreaker
+        : [options.tieBreaker];
+      const tieBreaker = rest.reduce<SQL>(
+        (order, column) => sql`${order}, ${column} ${direction}`,
+        sql`${first} ${direction}`,
+      );
       // A NOT NULL column has no nulls to place: leaving NULLS LAST out lets a plain index
       // serve the descending sort too (a backward scan reads DESC NULLS FIRST).
       if (isNotNullColumn(expression)) {
-        return [sql`${expression} ${direction}`, sql`${options.tieBreaker} ${direction}`];
+        return [sql`${expression} ${direction}`, tieBreaker];
       }
-      return [sql`${expression} ${direction} nulls last`, sql`${options.tieBreaker} ${direction}`];
+      return [sql`${expression} ${direction} nulls last`, tieBreaker];
     },
   };
 }

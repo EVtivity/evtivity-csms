@@ -17,6 +17,7 @@ describe('station units schema', () => {
         'id',
         'ip_address',
         'name',
+        'name_updated_at',
         'serial_number',
         'sort_order',
         'station_id',
@@ -26,6 +27,8 @@ describe('station units schema', () => {
     for (const name of ['serial_number', 'ip_address']) {
       expect(cfg.columns.find((c) => c.name === name)?.notNull).toBe(false);
     }
+    // When the name, the one field partners see, last changed.
+    expect(cfg.columns.find((c) => c.name === 'name_updated_at')?.notNull).toBe(true);
     expect(cfg.uniqueConstraints.map((u) => u.name)).toContain('uq_station_units_id_station');
   });
 

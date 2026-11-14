@@ -24,7 +24,6 @@ vi.mock('@evtivity/database', () => {
     startChargingKinds: vi.fn(() => Promise.resolve([null])),
     loadEvseChargingKind: vi.fn(() => Promise.resolve(null)),
     resolvableKind: vi.fn(() => null),
-    stationDisplayKind: vi.fn(() => Promise.resolve(null)),
     db: { select: () => chain },
     client: {},
     users: { id: 'id', language: 'language' },
@@ -37,7 +36,7 @@ vi.mock('@evtivity/database', () => {
     getStationMessageBrandLine: () => Promise.resolve(''),
     getStationMessagePricingFormat: () => Promise.resolve('compact'),
     isStationMessageEnabled: mocks.enabled,
-    resolveStationTariff: mocks.tariff,
+    resolveStationDisplayPricing: mocks.tariff,
   };
 });
 
@@ -77,7 +76,7 @@ beforeEach(() => {
   mocks.render.mockImplementation((state: string, ctx: { stationOcppId: string }) =>
     Promise.resolve(`${state} ${ctx.stationOcppId}`),
   );
-  mocks.tariff.mockResolvedValue(null);
+  mocks.tariff.mockResolvedValue({ tariff: null, byKind: null });
   mocks.rows.mockReturnValue([]);
 });
 
@@ -244,6 +243,27 @@ describe('resolveLayoutScreenMessages', () => {
     expect(mocks.render.mock.calls.filter((c) => c[0] === 'unavailable')).toHaveLength(1);
     expect(result.get('a')?.text).toBe('Unavailable');
     expect(result.get('b')?.text).toBe('Unavailable');
+  });
+
+  it('shows AC and DC prices on the idle screen of a station whose kinds differ', async () => {
+    const tariff = (pricePerKwh: string) => ({
+      pricePerKwh,
+      pricePerMinute: null,
+      pricePerSession: null,
+      idleFeePricePerMinute: null,
+      taxRate: '0',
+    });
+    mocks.tariff.mockResolvedValue({
+      tariff: tariff('0.30'),
+      byKind: { ac: tariff('0.30'), dc: tariff('0.55') },
+    });
+    await resolveLayoutScreenMessages([station()], opts);
+    const ctx = mocks.render.mock.calls[0]?.[1] as {
+      pricingDisplay?: string;
+      energyPrice?: string;
+    };
+    expect(ctx.pricingDisplay).toMatch(/^AC: .*\| DC: /);
+    expect(ctx.energyPrice).toBe('AC $0.30 / DC $0.55');
   });
 
   it('fills the charging values from the session the viewer may read', async () => {

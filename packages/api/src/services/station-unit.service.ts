@@ -24,6 +24,7 @@ import {
   writeAudit,
   type StationUnitView,
   type UnitDetailsInput,
+  type UnitField,
   type UnitSnapshot,
   type UnitWriteResult,
 } from '@evtivity/database';
@@ -178,9 +179,15 @@ async function refitLayout(stationUuid: string, ctx: UnitContext): Promise<void>
   }
 }
 
-async function afterChange(
+interface UnitChange {
+  before: UnitSnapshot | null;
+  after: UnitSnapshot | null;
+  notes: string;
+}
+
+async function writeUnitAudit(
   stationUuid: string,
-  change: { before: UnitSnapshot | null; after: UnitSnapshot | null; notes: string },
+  change: UnitChange,
   ctx: UnitContext,
 ): Promise<void> {
   await writeAudit(
@@ -197,14 +204,50 @@ async function afterChange(
     db,
     ctx.log,
   );
-  await refitLayout(stationUuid, ctx);
+}
+
+/**
+ * The history rows of one change (the unit, then any unit EVSEs left), the
+ * layout refit and the announcement. `adminOnly`: a change drivers and
+ * partners never see (serial number, IP address, order), which tells only
+ * the dashboards and needs no refit.
+ */
+async function afterChange(
+  stationUuid: string,
+  changes: UnitChange[],
+  ctx: UnitContext,
+  adminOnly = false,
+): Promise<void> {
+  for (const change of changes) await writeUnitAudit(stationUuid, change, ctx);
+  if (!adminOnly) await refitLayout(stationUuid, ctx);
   let siteId: string | null = null;
   try {
     siteId = await stationSite(stationUuid);
   } catch (err: unknown) {
     ctx.log.warn({ err, stationId: stationUuid }, 'Station site read after a unit change failed');
   }
-  await publishStationStatusChanged({ id: stationUuid, siteId }, ctx.log);
+  await publishStationStatusChanged({ id: stationUuid, siteId }, ctx.log, {
+    dashboardsOnly: adminOnly,
+  });
+}
+
+function evseList(numbers: readonly number[]): string {
+  const sorted = [...numbers].sort((a, b) => a - b).map(String);
+  if (sorted.length <= 1) return sorted.join('');
+  return `${sorted.slice(0, -1).join(', ')} and ${sorted[sorted.length - 1] ?? ''}`;
+}
+
+/** The history note of an update, naming every field it changed. */
+export function unitUpdateNote(fields: readonly UnitField[]): string {
+  const parts: string[] = [];
+  if (fields.includes('name')) parts.push('renamed');
+  if (fields.includes('serialNumber') || fields.includes('ipAddress')) {
+    parts.push('details changed');
+  }
+  if (fields.includes('sortOrder')) parts.push('moved in the order');
+  if (parts.length === 0) return 'Unit changed';
+  const last = parts.pop() ?? '';
+  return `Unit ${parts.length > 0 ? `${parts.join(', ')} and ${last}` : last}`;
 }
 
 export async function listUnits(stationUuid: string): Promise<StationUnitView[]> {
@@ -248,7 +291,16 @@ export async function createUnit(
   const result = unwrap(
     await createStationUnit(stationUuid, { name: input.name, evseIds: rowIds, ...details }),
   );
-  await afterChange(stationUuid, { before: null, after: result.after, notes: 'Unit created' }, ctx);
+  const changes: UnitChange[] = [{ before: null, after: result.after, notes: 'Unit created' }];
+  for (const left of result.left ?? []) {
+    const moved = left.before.evseIds.filter((n) => !left.after.evseIds.includes(n));
+    changes.push({
+      before: left.before,
+      after: left.after,
+      notes: `EVSE ${evseList(moved)} moved to unit ${result.value.name}`,
+    });
+  }
+  await afterChange(stationUuid, changes, ctx);
   return readUnit(stationUuid, result.value.id);
 }
 
@@ -274,22 +326,12 @@ export async function updateUnit(
     }),
   );
   if (result.changed) {
-    const renamed = result.before?.name !== result.after?.name;
-    const detailsChanged =
-      result.before?.serialNumber !== result.after?.serialNumber ||
-      result.before?.ipAddress !== result.after?.ipAddress;
+    const fields = result.fields ?? [];
     await afterChange(
       stationUuid,
-      {
-        before: result.before,
-        after: result.after,
-        notes: renamed
-          ? 'Unit renamed'
-          : detailsChanged
-            ? 'Unit details changed'
-            : 'Unit moved in the order',
-      },
+      [{ before: result.before, after: result.after, notes: unitUpdateNote(fields) }],
       ctx,
+      !fields.includes('name'),
     );
   }
   return readUnit(stationUuid, unitId);
@@ -304,7 +346,7 @@ export async function deleteUnit(
   const result = unwrap(await deleteStationUnit(stationUuid, unitId));
   await afterChange(
     stationUuid,
-    { before: result.before, after: null, notes: 'Unit deleted' },
+    [{ before: result.before, after: null, notes: 'Unit deleted' }],
     ctx,
   );
 }
@@ -328,14 +370,16 @@ export async function assignEvseUnit(
   if (result.changed) {
     await afterChange(
       stationUuid,
-      {
-        before: result.before,
-        after: result.after,
-        notes:
-          unitId == null
-            ? `EVSE ${String(evseNumber)} removed from its unit`
-            : `EVSE ${String(evseNumber)} moved to a unit`,
-      },
+      [
+        {
+          before: result.before,
+          after: result.after,
+          notes:
+            unitId == null
+              ? `EVSE ${String(evseNumber)} removed from its unit`
+              : `EVSE ${String(evseNumber)} moved to a unit`,
+        },
+      ],
       ctx,
     );
   }

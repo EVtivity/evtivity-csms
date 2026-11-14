@@ -23,6 +23,9 @@ vi.mock('../theme', () => ({
   adoptUiTheme: (value: unknown) => value ?? 'default',
   resolveInitialTheme: () => 'light',
   resolveInitialUiTheme: () => 'default',
+  writeStored: (key: string, value: string) => {
+    localStorage.setItem(key, value);
+  },
 }));
 
 import {

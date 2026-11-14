@@ -162,6 +162,60 @@ function auditActor(ctx: DemoFeatureContext) {
   };
 }
 
+/**
+ * A 1.6 station seeded before its connectors were numbered by EVSE kept
+ * connector 1 on EVSE `e`, and the status it reported for connector `e`
+ * auto-created a second row. While the seeded row still holds 1, it takes
+ * number `e` and the twin's status, the twin's sessions and reservations move
+ * to it and the twin goes, in one transaction, audited on the station. A
+ * rerun finds the row numbered and changes nothing.
+ */
+async function renumberEarlierConnector(
+  sql: postgres.Sql,
+  station: { id: string; stationId: string },
+  n: string,
+  e: number,
+  ctx: DemoFeatureContext,
+): Promise<void> {
+  const seededId = `con_demolayout${n}${String(e)}`;
+  const evseId = `evs_demolayout${n}${String(e)}`;
+  const renumbered = await sql.begin(async (tx) => {
+    const [row] = await tx`
+      SELECT id FROM connectors WHERE id = ${seededId} AND connector_id = 1 FOR UPDATE`;
+    if (row == null) return false;
+    const twins = await tx<{ id: string; status: string }[]>`
+      SELECT id, status::text AS status FROM connectors
+      WHERE evse_id = ${evseId} AND connector_id = ${e} AND id <> ${seededId} FOR UPDATE`;
+    const twinIds = twins.map((t) => t.id);
+    if (twinIds.length > 0) {
+      await tx`UPDATE charging_sessions SET connector_id = ${seededId}
+        WHERE connector_id IN ${tx(twinIds)}`;
+      await tx`UPDATE reservations SET connector_id = ${seededId}
+        WHERE connector_id IN ${tx(twinIds)}`;
+      await tx`DELETE FROM connectors WHERE id IN ${tx(twinIds)}`;
+    }
+    const status = twins[0]?.status;
+    await tx`
+      UPDATE connectors SET connector_id = ${e}, updated_at = now()
+        ${status != null ? tx`, status = ${status}::connector_status` : tx``}
+      WHERE id = ${seededId}`;
+    return true;
+  });
+  if (!renumbered) return;
+  await writeAudit(
+    { table: stationAuditLog, idColumn: 'station_id' },
+    {
+      entityId: station.id,
+      entityIdSnapshot: station.stationId,
+      action: 'updated',
+      ...auditActor(ctx),
+      before: { evseId: e, connectorId: 1 },
+      after: { evseId: e, connectorId: e },
+      notes: 'Site layout demo: OCPP 1.6 connector numbered by its EVSE',
+    },
+  );
+}
+
 async function seedSite(
   sql: postgres.Sql,
   site: LayoutDemoSite,
@@ -386,6 +440,9 @@ async function seedSite(
           ${connector.amps})
         ON CONFLICT DO NOTHING
       `;
+      if (station.ocppProtocol === 'ocpp1.6' && e >= 2) {
+        await renumberEarlierConnector(sql, station, n, e, ctx);
+      }
       // A second cable on the EVSE (a rerun adds it to a station seeded before).
       for (const c of extra) {
         await sql`

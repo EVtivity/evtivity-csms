@@ -870,6 +870,7 @@ describe('Site routes - extra coverage', () => {
           status: 'occupied',
           isPluggedIn: true,
           energyDeliveredWh: 1234.5,
+          retired: false,
         },
         {
           connectorId: 2,
@@ -878,6 +879,7 @@ describe('Site routes - extra coverage', () => {
           status: 'available',
           isPluggedIn: false,
           energyDeliveredWh: null,
+          retired: false,
         },
       ]);
     });

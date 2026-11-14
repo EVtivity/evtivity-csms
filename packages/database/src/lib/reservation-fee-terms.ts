@@ -6,7 +6,7 @@ import { client } from '../config.js';
 import { getReservationSettings } from './reservation-setting.js';
 import { getCompanyTaxBasis } from './system-settings.js';
 import { resolveStationTariff } from './tariff-resolution.js';
-import { stationDisplayKind } from './charging-kind.js';
+import { loadEvseChargingKind, resolvableKind, stationDisplayKind } from './charging-kind.js';
 
 const logger = createLogger('reservation-fee-terms');
 
@@ -61,16 +61,17 @@ async function isStationFreeVend(stationUuid: string): Promise<boolean> {
 async function currentTerms(q: {
   stationUuid: string;
   driverUuid: string | null;
+  evseUuid?: string | null;
 }): Promise<ReservationFeeTerms> {
+  // The reserved EVSE's kind (a mixed EVSE: the Both tariffs); a hold of the
+  // whole station takes the station's only kind, else the Both tariffs.
+  const chargingKind =
+    q.evseUuid != null
+      ? resolvableKind(await loadEvseChargingKind(client, q.evseUuid))
+      : await stationDisplayKind(client, q.stationUuid);
   const [tariff, basis, settings, freeVend] = await Promise.all([
-    // A reservation holds a station before the EVSE kind is known: the
-    // station's only kind, else the Both tariffs (AC and DC tariffs).
     resolveStationTariff(
-      {
-        stationUuid: q.stationUuid,
-        driverUuid: q.driverUuid,
-        chargingKind: await stationDisplayKind(client, q.stationUuid),
-      },
+      { stationUuid: q.stationUuid, driverUuid: q.driverUuid, chargingKind },
       client,
     ),
     getCompanyTaxBasis(),
@@ -101,6 +102,8 @@ async function currentTerms(q: {
 export async function snapshotReservationFeeTerms(q: {
   stationUuid: string;
   driverUuid: string | null;
+  /** The reserved EVSE (internal id), null for a hold of the whole station. */
+  evseUuid?: string | null;
 }): Promise<ReservationFeeSnapshot> {
   try {
     const terms = await currentTerms(q);

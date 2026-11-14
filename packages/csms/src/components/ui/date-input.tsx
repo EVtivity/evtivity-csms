@@ -103,6 +103,9 @@ export function DateInput({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   const gridRef = React.useRef<HTMLDivElement>(null);
+  // Set by opening the calendar and by the grid keys only: a month change from the
+  // buttons or selects keeps the focus where it was (WAI-ARIA APG date picker dialog).
+  const focusGridRef = React.useRef(false);
   const popoverId = React.useId();
 
   // Follow a value the caller changed; a partly typed day stays while it is typed.
@@ -124,6 +127,7 @@ export function DateInput({
       );
     }
     const start = isIsoDay(value) ? value : today;
+    focusGridRef.current = true;
     setFocusDay(dayInRange(start, min, max) ? start : (min ?? max ?? start));
     setOpen(true);
   }
@@ -152,9 +156,10 @@ export function DateInput({
     };
   }, [open]);
 
-  // Keep the keyboard focus on the focused day while the calendar is open.
+  // Move the keyboard focus to the focused day after an open or a grid key.
   React.useEffect(() => {
-    if (!open || focusDay === '') return;
+    if (!open || focusDay === '' || !focusGridRef.current) return;
+    focusGridRef.current = false;
     const el = gridRef.current?.querySelector<HTMLButtonElement>(`[data-day="${focusDay}"]`);
     if (el != null && document.activeElement !== el) el.focus();
   }, [open, focusDay]);
@@ -180,6 +185,7 @@ export function DateInput({
     const next = keys[e.key];
     if (next != null) {
       e.preventDefault();
+      focusGridRef.current = true;
       moveFocus(next());
     }
   }
@@ -209,6 +215,7 @@ export function DateInput({
   const nextDisabled = maxMonth !== '' && isoDay(next.year, next.month, 1).slice(0, 7) > maxMonth;
 
   function showMonth(year: number, month: number): void {
+    focusGridRef.current = false;
     const day = Math.min(splitIsoDay(focusDay)?.day ?? 1, daysInMonth(year, month));
     moveFocus(isoDay(year, month, day));
   }

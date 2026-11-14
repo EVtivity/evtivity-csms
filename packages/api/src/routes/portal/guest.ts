@@ -19,7 +19,7 @@ import {
   resolvableKind,
   startChargingKinds,
 } from '@evtivity/database';
-import { isTariffFree, isUiLanguage, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
+import { isUiLanguage, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import {
   chargingStations,
   connectors,
@@ -740,7 +740,21 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         },
         client,
       );
-      const isFree = station.freeVendEnabled === true || isTariffFree(tariff);
+      // Free or paid as the start decides it: a mixed EVSE is free only when
+      // free at Both, AC and DC (the session is re-priced once named).
+      const isFree = await isStationChargingFree(
+        {
+          stationUuid: station.id,
+          driverUuid: null,
+          reserved: false,
+          freeVend: station.freeVendEnabled === true,
+          chargingKinds: await startChargingKinds(client, {
+            stationUuid: station.id,
+            evseUuid: evse.id,
+          }),
+        },
+        client,
+      );
 
       // Free-vend overrides whatever tariff is assigned. Return a pricing
       // object with isFreeVend: true so the portal PricingDisplay renders

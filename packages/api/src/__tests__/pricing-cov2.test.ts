@@ -129,6 +129,7 @@ vi.mock('@evtivity/database', () => {
     tariffAuditLog: { name: 'tariffAuditLog' },
     writeAudit: vi.fn().mockResolvedValue(undefined),
     resolveGroupTariffs: vi.fn(),
+    pickTariff: vi.fn(() => null),
     getSystemTimezone: vi.fn(() => Promise.resolve('Europe/Berlin')),
     loadStationPricingChain: vi.fn(),
     pickFromChain: vi.fn(),
@@ -162,6 +163,7 @@ import { pricingRoutes } from '../routes/pricing.js';
 import {
   writeAudit,
   resolveGroupTariffs,
+  pickTariff,
   loadStationPricingChain,
   pickFromChain,
   getSystemTimezone,
@@ -326,7 +328,7 @@ describe('pricing routes, uncovered paths', () => {
         priority: 20,
         isDefault: false,
       });
-      setupDbResults([defaultRow], [created]);
+      setupDbResults([defaultRow], [defaultRow], [created]);
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${GROUP_ID}/tariffs`,
@@ -338,6 +340,21 @@ describe('pricing routes, uncovered paths', () => {
       expect(values).toMatchObject({ priority: 20, isDefault: false });
       // No default swap for a restricted tariff.
       expect(argsOf('update', 'set')).toHaveLength(0);
+    });
+
+    it('refuses an overlap a concurrent write committed before the scope lock was taken', async () => {
+      // The read before the transaction sees no default; the read under the
+      // group's scope lock sees the one another request just created.
+      setupDbResults([], [defaultRow]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pricing-groups/${GROUP_ID}/tariffs`,
+        headers: auth,
+        payload: { name: 'Base', pricePerKwh: '0.30' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('TARIFF_OVERLAP');
+      expect(argsOf('insert', 'values')).toHaveLength(0);
     });
 
     it('returns 409 TARIFF_OVERLAP when a second default tariff is created', async () => {
@@ -414,7 +431,7 @@ describe('pricing routes, uncovered paths', () => {
         isActive: true,
       };
       const created = tariffRow({ id: 'trf_000000000002' });
-      setupDbResults([stale], [], [created]);
+      setupDbResults([stale], [stale], [], [created]);
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${GROUP_ID}/tariffs`,
@@ -496,15 +513,12 @@ describe('pricing routes, uncovered paths', () => {
     it('promotes an activated tariff without restrictions to default in one transaction (B20)', async () => {
       const existing = tariffRow({ isDefault: false, isActive: false, priority: 0 });
       const updated = tariffRow({ name: 'Renamed', isDefault: true });
-      setupDbResults(
-        [existing],
-        [
-          { id: TARIFF_ID, restrictions: null, priority: 0, isDefault: false, isActive: false },
-          { ...peakRow, isDefault: true },
-        ],
-        [],
-        [updated],
-      );
+      const groupRows = [
+        { id: TARIFF_ID, restrictions: null, priority: 0, isDefault: false, isActive: false },
+        { ...peakRow, isDefault: true },
+      ];
+      // The group tariffs, then again under the scope lock in the transaction.
+      setupDbResults([existing], groupRows, groupRows, [], [updated]);
       const res = await app.inject({
         method: 'PATCH',
         url,
@@ -728,6 +742,36 @@ describe('pricing routes, uncovered paths', () => {
       expect(vi.mocked(resolveGroupTariffs).mock.calls[0]?.[1]).toMatchObject({
         timezone: 'Europe/Berlin',
       });
+    });
+  });
+
+  describe('GET /pricing-groups/:id/schedule per charging kind', () => {
+    it('flags the AC and DC tariffs current for their kind, not only the Both tariff', async () => {
+      setupDbResults([group]);
+      const both = tariffRow({ id: 'trf_000000000001', priority: 0, name: 'Both' });
+      const ac = tariffRow({ id: 'trf_000000000003', priority: 0, name: 'AC', chargingType: 'ac' });
+      const idle = tariffRow({ id: 'trf_000000000004', priority: 0, name: 'Unused DC' });
+      vi.mocked(resolveGroupTariffs).mockResolvedValueOnce({
+        tariffs: [both, ac, idle],
+        current: both,
+      });
+      vi.mocked(pickTariff).mockImplementation((_t, opts) =>
+        opts.chargingKind === 'ac' ? ac : both,
+      );
+      const res = await app.inject({
+        method: 'GET',
+        url: `/pricing-groups/${GROUP_ID}/schedule`,
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json<Array<{ name: string; isCurrent: boolean; currentFor: string[] }>>();
+      expect(Object.fromEntries(body.map((t) => [t.name, [t.isCurrent, t.currentFor]]))).toEqual({
+        Both: [true, ['dc']],
+        AC: [true, ['ac']],
+        'Unused DC': [false, []],
+      });
+      vi.mocked(pickTariff).mockReset();
+      vi.mocked(pickTariff).mockReturnValue(null);
     });
   });
 

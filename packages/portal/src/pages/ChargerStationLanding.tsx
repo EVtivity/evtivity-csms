@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router';
+import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, MapPin } from 'lucide-react';
@@ -14,7 +14,7 @@ import { api } from '@/lib/api';
 import { ChargerHeading } from '@/components/ChargerHeading';
 import { PortCard, PortGrid } from '@/components/PortCard';
 import { formatDate } from '@/lib/utils';
-import { isStartable } from '@/lib/connector-status';
+import { isStartable, portDisplayStatus } from '@/lib/connector-status';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { EmptyState } from '@/components/ui/content-state';
 import { evseDisplayStatus } from '@evtivity/lib/evse-status';
@@ -57,6 +57,7 @@ export function ChargerStationLanding(): React.JSX.Element {
   const { stationId } = useParams<{ stationId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   // `?unit=<id>` shows one unit (charger box) of a station with units as its
   // own charger, as the signed-in charger page does. A unit id the station
   // does not have is ignored, so the page never names another station's unit.
@@ -144,7 +145,7 @@ export function ChargerStationLanding(): React.JSX.Element {
           {/* Location */}
           {station.siteAddress != null && station.siteId != null ? (
             <Link
-              to={`/location/${station.siteId}?from=${encodeURIComponent(`/charge/${stationId ?? ''}`)}`}
+              to={`/location/${station.siteId}?from=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
               className="flex items-start gap-2 text-sm text-link hover:underline transition-colors"
             >
               <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
@@ -164,6 +165,13 @@ export function ChargerStationLanding(): React.JSX.Element {
               </span>
             </div>
           ) : null}
+
+          {!station.isOnline && (
+            <Alert variant="warning" data-testid="station-offline-notice">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{t('charger.offlineNotice')}</AlertDescription>
+            </Alert>
+          )}
 
           {station.stationUnavailable && (
             <Alert variant="destructive">
@@ -219,7 +227,7 @@ export function ChargerStationLanding(): React.JSX.Element {
                       key={evse.evseId}
                       evseId={evse.evseId}
                       connectors={evse.connectors}
-                      status={connectorStatus}
+                      status={portDisplayStatus(connectorStatus, isAvailable)}
                       available={isAvailable}
                       reservationExpiresAt={evse.reservationExpiresAt}
                       timezone={timezone}

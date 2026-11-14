@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
+import { revenueAtSites } from '../session-revenue.js';
 
 // Any readable file stands in for a font collection: the fake document never parses it.
 const READABLE = fileURLToPath(import.meta.url);
@@ -79,9 +80,8 @@ describe('PDF fonts without the CJK files', () => {
 });
 
 describe('revenueAtSites', () => {
-  it('matches nothing for no sites and lists each site as a parameter', async () => {
-    vi.resetModules();
-    const { revenueAtSites } = await import('../session-revenue.js');
+  // Imported statically: a dynamic import inside the test can pass the 5 s timeout under load.
+  it('matches nothing for no sites and lists each site as a parameter', () => {
     const dialect = new PgDialect();
     const render = (q: SQL) => dialect.sqlToQuery(q);
     expect(render(revenueAtSites([])).sql).toBe('false');

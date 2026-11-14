@@ -112,6 +112,7 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
   isNull: vi.fn(),
+  inArray: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
   // The list sort renders its direction with sql.raw.
@@ -326,8 +327,8 @@ describe('OCPI tariff mapping routes', () => {
         pricingGroupName: 'Default',
         partnerName: null,
       });
-      // pricing group exists, id free, insert, reload
-      setupDbResults([{ id: 'pgr_000000000001' }], [], [{ id: 5 }], [mapping]);
+      // pricing group exists, id free, no AC or DC id collision, insert, reload
+      setupDbResults([{ id: 'pgr_000000000001' }], [], [], [{ id: 5 }], [mapping]);
 
       const res = await post({ ocpiTariffId: 'TARIFF-001', pricingGroupId: 'pgr_000000000001' });
 
@@ -435,10 +436,11 @@ describe('OCPI tariff mapping routes', () => {
         partnerId: null,
         ocpiTariffId: 'OLD-1',
       };
-      // existing, group exists, id free, update, reload
+      // existing, group exists, id free, no AC or DC id collision, update, reload
       setupDbResults(
         [existing],
         [{ id: 'pgr_000000000001' }],
+        [],
         [],
         [],
         [

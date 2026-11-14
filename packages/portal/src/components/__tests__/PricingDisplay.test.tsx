@@ -189,9 +189,87 @@ describe('PricingDisplay', () => {
       />,
     );
     expect(screen.getByTestId('pricing-by-kind')).toBeDefined();
-    expect(screen.getByText('charger.chargingKindAc')).toBeDefined();
+    expect(screen.getAllByText('charger.chargingKindAc').length).toBeGreaterThan(0);
     expect(screen.getByText('€0.30/charger.unitKwh')).toBeDefined();
     expect(screen.getByText('€0.60/charger.unitKwh')).toBeDefined();
     expect(screen.queryByText('€0.49/charger.unitKwh')).toBeNull();
+  });
+
+  const kind = (
+    chargingKind: 'ac' | 'dc',
+    over: Partial<NonNullable<PricingInfo['byChargingKind']>[number]> = {},
+  ): NonNullable<PricingInfo['byChargingKind']>[number] => ({
+    chargingKind,
+    pricePerKwh: null,
+    pricePerMinute: null,
+    pricePerSession: null,
+    idleFeePricePerMinute: null,
+    taxRate: null,
+    ...over,
+  });
+
+  it('shows AC and DC prices when the Both tariff is free', async () => {
+    await i18next.changeLanguage('en');
+    render(
+      <PricingDisplay
+        pricing={{
+          ...pricing,
+          pricePerKwh: '0',
+          pricePerSession: '0',
+          taxRate: null,
+          byChargingKind: [
+            kind('ac', { pricePerKwh: '0.30' }),
+            kind('dc', { pricePerKwh: '0.50' }),
+          ],
+        }}
+        priceDisplay="net"
+      />,
+    );
+    expect(screen.queryByText('charger.pricingFree')).toBeNull();
+    expect(screen.getByText('€0.30/charger.unitKwh')).toBeDefined();
+    expect(screen.getByText('€0.50/charger.unitKwh')).toBeDefined();
+  });
+
+  it('shows free only when every kind is free', () => {
+    render(
+      <PricingDisplay
+        pricing={{
+          ...pricing,
+          byChargingKind: [kind('ac', { pricePerKwh: '0' }), kind('dc', { pricePerKwh: '0' })],
+        }}
+        priceDisplay="net"
+      />,
+    );
+    expect(screen.getByText('charger.pricingFree')).toBeDefined();
+  });
+
+  it('shows each kind its session fee, idle fee and tax note', async () => {
+    await i18next.changeLanguage('en');
+    render(
+      <PricingDisplay
+        pricing={{
+          ...pricing,
+          taxRate: null,
+          byChargingKind: [
+            kind('ac', { pricePerKwh: '0.30', taxRate: '0.07' }),
+            kind('dc', {
+              pricePerKwh: '0.50',
+              pricePerSession: '1.00',
+              idleFeePricePerMinute: '0.10',
+              taxRate: '0.19',
+            }),
+          ],
+        }}
+        priceDisplay="net"
+      />,
+    );
+    const toggle = screen.getByTestId('pricing-by-kind');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    const details = screen.getByTestId('pricing-by-kind-details');
+    expect(toggle.getAttribute('aria-controls')).toBe(details.id);
+    expect(screen.getByText('€1.00 charger.sessionFee')).toBeDefined();
+    expect(screen.getByText('€0.10 charger.idleFee')).toBeDefined();
+    // The rates differ, so each kind carries its own note.
+    expect(screen.getAllByText('charger.taxExcluded')).toHaveLength(2);
   });
 });

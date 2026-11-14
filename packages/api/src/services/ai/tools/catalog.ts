@@ -17604,6 +17604,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'page',
       'limit',
       'search',
+      'ids',
       'city',
       'state',
       'loadManagement',
@@ -17623,6 +17624,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: ['string', 'null'], description: 'Search filter' },
+        ids: {
+          type: ['string', 'null'],
+          pattern: '^[A-Za-z0-9_-]{1,64}(,[A-Za-z0-9_-]{1,64}){0,99}$',
+          description:
+            "Comma-separated site IDs, at most 100: lists only these sites, still within the caller's sites (an ID outside them is left out)",
+        },
         city: { type: ['string', 'null'], description: 'Filter by city' },
         state: { type: ['string', 'null'], description: 'Filter by state' },
         loadManagement: {
@@ -17652,6 +17659,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'page',
         'limit',
         'search',
+        'ids',
         'city',
         'state',
         'loadManagement',
@@ -17673,6 +17681,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Items per page (max 100)',
         },
         search: { type: 'string', description: 'Search filter' },
+        ids: {
+          type: 'string',
+          pattern: '^[A-Za-z0-9_-]{1,64}(,[A-Za-z0-9_-]{1,64}){0,99}$',
+          description:
+            "Comma-separated site IDs, at most 100: lists only these sites, still within the caller's sites (an ID outside them is left out)",
+        },
         city: { type: 'string', description: 'Filter by city' },
         state: { type: 'string', description: 'Filter by state' },
         loadManagement: {

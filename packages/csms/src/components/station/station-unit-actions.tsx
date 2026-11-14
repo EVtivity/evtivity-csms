@@ -85,12 +85,14 @@ function useUnitError(): (err: unknown) => void {
 function useAssignEvseUnit(stationId: string, onDone?: () => void) {
   const refresh = useUnitRefresh(stationId);
   const onError = useUnitError();
+  const savedToast = useSavedToast();
   return useMutation({
     mutationFn: ({ evseId, unitId }: { evseId: number; unitId: string | null }) =>
       api.put(`/v1/stations/${stationId}/evses/${String(evseId)}/unit`, { unitId }),
     onSuccess: () => {
       onDone?.();
       refresh();
+      savedToast();
     },
     onError,
   });

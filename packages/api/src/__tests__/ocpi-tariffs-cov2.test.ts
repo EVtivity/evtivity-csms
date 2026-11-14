@@ -102,6 +102,8 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ eq: [a, b] })),
   and: vi.fn((...a: unknown[]) => ({ and: a })),
   isNull: vi.fn((a: unknown) => ({ isNull: a })),
+  inArray: vi.fn((a: unknown, b: unknown) => ({ inArray: [a, b] })),
+  or: vi.fn((...a: unknown[]) => ({ or: a })),
   sql: vi.fn(() => ({ sql: true })),
   desc: vi.fn(),
 }));
@@ -204,7 +206,7 @@ describe('OCPI tariff mapping routes, uncovered paths', () => {
     });
 
     it('maps a concurrent unique violation on insert to 400', async () => {
-      setupDbResults([{ id: GROUP_ID }], [{ id: PARTNER_ID }], [], uniqueViolation());
+      setupDbResults([{ id: GROUP_ID }], [{ id: PARTNER_ID }], [], [], uniqueViolation());
       const res = await app.inject({
         method: 'POST',
         url: '/ocpi/tariff-mappings',
@@ -217,6 +219,56 @@ describe('OCPI tariff mapping routes, uncovered paths', () => {
         details: { ocpiTariffId: 'This OCPI tariff id is already published to this partner' },
       });
       expect(publishOcpiTariffPush).not.toHaveBeenCalled();
+    });
+
+    it('refuses an id that is the AC or DC id of another pricing group mapping', async () => {
+      setupDbResults(
+        [{ id: TARIFF_ID }],
+        [],
+        [{ id: 9, ocpiTariffId: 'T-1', pricingGroupId: GROUP_ID }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/ocpi/tariff-mappings',
+        headers: auth,
+        payload: { ocpiTariffId: 'T-1-AC', tariffId: TARIFF_ID },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().details.ocpiTariffId).toContain('<id>-AC');
+      expect(argsOf('insert', 'values')).toHaveLength(0);
+    });
+
+    it('refuses a pricing group mapping whose AC or DC id another mapping holds', async () => {
+      setupDbResults(
+        [{ id: GROUP_ID }],
+        [],
+        [{ id: 9, ocpiTariffId: 'T-1-DC', pricingGroupId: null }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/ocpi/tariff-mappings',
+        headers: auth,
+        payload: { ocpiTariffId: 'T-1', pricingGroupId: GROUP_ID },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().details.ocpiTariffId).toContain('<id>-DC');
+    });
+
+    it('keeps an id ending in -AC whose base names a single tariff mapping', async () => {
+      setupDbResults(
+        [{ id: TARIFF_ID }],
+        [],
+        [{ id: 9, ocpiTariffId: 'T-1', pricingGroupId: null }],
+        [{ id: 5 }],
+        [mapping({ id: 5 })],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/ocpi/tariff-mappings',
+        headers: auth,
+        payload: { ocpiTariffId: 'T-1-AC', tariffId: TARIFF_ID },
+      });
+      expect(res.statusCode).toBe(201);
     });
 
     it('returns 500 when the insert returns no row', async () => {
@@ -232,7 +284,7 @@ describe('OCPI tariff mapping routes, uncovered paths', () => {
     });
 
     it('checks the id against mappings for every partner when no partner is given', async () => {
-      setupDbResults([{ id: GROUP_ID }], [], [{ id: 5 }], [mapping({ id: 5 })]);
+      setupDbResults([{ id: GROUP_ID }], [], [], [{ id: 5 }], [mapping({ id: 5 })]);
       const res = await app.inject({
         method: 'POST',
         url: '/ocpi/tariff-mappings',
@@ -263,7 +315,7 @@ describe('OCPI tariff mapping routes, uncovered paths', () => {
 
   describe('PATCH /ocpi/tariff-mappings/:id', () => {
     it('switches the source to a pricing group and clears the tariff', async () => {
-      setupDbResults([mapping()], [{ id: GROUP_ID }], [], [], [mapping({ tariffId: null })]);
+      setupDbResults([mapping()], [{ id: GROUP_ID }], [], [], [], [mapping({ tariffId: null })]);
       const res = await app.inject({
         method: 'PATCH',
         url: '/ocpi/tariff-mappings/1',

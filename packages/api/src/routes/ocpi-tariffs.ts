@@ -5,7 +5,7 @@ import { OCPI_KIND_TARIFF_BASE_ID_MAX } from '@evtivity/lib';
 import { groupHasChargingTypeTariffs } from '../lib/ocpi-kind-tariff-id.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, sql, and, isNull } from 'drizzle-orm';
+import { eq, sql, and, isNull, inArray, or } from 'drizzle-orm';
 import {
   db,
   ocpiTariffMappings,
@@ -313,6 +313,47 @@ async function kindIdTooLong(
   if (pricingGroupId == null || ocpiTariffId.length <= OCPI_KIND_TARIFF_BASE_ID_MAX) return false;
   return groupHasChargingTypeTariffs(db, pricingGroupId);
 }
+const OCPI_KIND_ID_COLLISION =
+  'This OCPI tariff id collides with the AC or DC id (<id>-AC, <id>-DC) of another pricing group mapping';
+const KIND_ID_SUFFIXES = ['-AC', '-DC'] as const;
+
+/**
+ * True when the id would be published twice to one partner: it is the
+ * `<id>-AC` or `<id>-DC` of another pricing group mapping, or this pricing
+ * group mapping's `-AC` or `-DC` id is another mapping's id. A global mapping
+ * reaches every partner, so it is compared with every mapping.
+ */
+async function kindIdCollision(
+  ocpiTariffId: string,
+  partnerId: string | null,
+  pricingGroupId: string | null,
+  exceptId?: number,
+): Promise<boolean> {
+  const base = KIND_ID_SUFFIXES.some((suffix) => ocpiTariffId.endsWith(suffix))
+    ? ocpiTariffId.slice(0, -3)
+    : null;
+  const kindIds = pricingGroupId != null ? KIND_ID_SUFFIXES.map((x) => `${ocpiTariffId}${x}`) : [];
+  const candidates = [...(base != null && base !== '' ? [base] : []), ...kindIds];
+  if (candidates.length === 0) return false;
+  const rows = await db
+    .select({
+      id: ocpiTariffMappings.id,
+      ocpiTariffId: ocpiTariffMappings.ocpiTariffId,
+      pricingGroupId: ocpiTariffMappings.pricingGroupId,
+    })
+    .from(ocpiTariffMappings)
+    .where(
+      and(
+        inArray(ocpiTariffMappings.ocpiTariffId, candidates),
+        partnerId == null
+          ? undefined
+          : or(isNull(ocpiTariffMappings.partnerId), eq(ocpiTariffMappings.partnerId, partnerId)),
+      ),
+    );
+  return rows.some(
+    (r) => r.id !== exceptId && (r.ocpiTariffId !== base || r.pricingGroupId != null),
+  );
+}
 const SOURCE_REQUIRED = 'Select exactly one internal tariff or pricing group';
 
 /** Postgres unique violation (a concurrent mapping with the same id won the race). */
@@ -450,6 +491,12 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         });
         return;
       }
+      if (await kindIdCollision(body.ocpiTariffId, partnerId, pricingGroupId)) {
+        await sendValidationError(reply, OCPI_KIND_ID_COLLISION, {
+          ocpiTariffId: OCPI_KIND_ID_COLLISION,
+        });
+        return;
+      }
 
       let createdId: number;
       try {
@@ -559,6 +606,12 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       if (await ocpiTariffIdTaken(ocpiTariffId, partnerId, id)) {
         await sendValidationError(reply, OCPI_TARIFF_ID_TAKEN, {
           ocpiTariffId: OCPI_TARIFF_ID_TAKEN,
+        });
+        return;
+      }
+      if (await kindIdCollision(ocpiTariffId, partnerId, pricingGroupId, id)) {
+        await sendValidationError(reply, OCPI_KIND_ID_COLLISION, {
+          ocpiTariffId: OCPI_KIND_ID_COLLISION,
         });
         return;
       }

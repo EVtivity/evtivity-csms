@@ -341,7 +341,10 @@ describe('audit routes site scope', () => {
 
     it('sorts the union by an output column, then the entity type and id', async () => {
       await get('/audit?sort=actorType&order=desc');
-      expect(executedSql()[0]).toContain('ORDER BY actor desc nulls last, entity_type, id desc');
+      // The direction applies to both tie-breaker columns.
+      expect(executedSql()[0]).toContain(
+        'ORDER BY actor desc nulls last, entity_type desc, id desc',
+      );
     });
 
     it('refuses a sort key it does not offer and an unknown order', async () => {

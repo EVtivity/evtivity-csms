@@ -138,19 +138,10 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
   const dateErrorLabel: Record<string, string> = {
     required: t('validation.required'),
     invalid: t('validation.required'),
-    startsInPast: t('reservations.startsAtPastError', {
-      defaultValue: 'Start time cannot be in the past',
-    }),
-    expiresTooSoon: t('reservations.expiresTooSoonError', {
-      defaultValue: 'End time must be at least 60 seconds in the future',
-    }),
-    windowTooShort: t('reservations.windowTooShortError', {
-      defaultValue: 'End must be at least 60 seconds after start',
-    }),
-    tooLong: t('reservations.tooLongError', {
-      hours: maxHours,
-      defaultValue: `Reservation cannot exceed ${String(maxHours)} hours`,
-    }),
+    startsInPast: t('reservations.startsAtPastError'),
+    expiresTooSoon: t('reservations.expiresTooSoonError'),
+    windowTooShort: t('reservations.windowTooShortError'),
+    tooLong: t('reservations.tooLongError', { hours: maxHours }),
   };
 
   const listSort = useListSort(FLEET_RESERVATION_SORT_KEYS);

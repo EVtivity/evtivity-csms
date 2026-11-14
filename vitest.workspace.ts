@@ -278,6 +278,8 @@ export default defineConfig({
           root: 'packages/portal',
           include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
           environment: 'jsdom',
+          // A `?raw` stylesheet import returns the file (status-badge-contrast.test.ts); other CSS stays empty.
+          css: { include: [/\.css\?raw$/] },
         },
       },
       {

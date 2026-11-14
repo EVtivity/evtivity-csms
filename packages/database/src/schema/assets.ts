@@ -274,6 +274,8 @@ export const stationUnits = pgTable(
     ipAddress: text('ip_address'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    // When the name, the one field partners see, last changed.
+    nameUpdatedAt: timestamp('name_updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_station_units_station_id').on(table.stationId),

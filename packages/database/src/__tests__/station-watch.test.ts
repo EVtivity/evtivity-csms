@@ -96,5 +96,8 @@ describe('station watch alerts', () => {
     expect(calls[0]?.text).toContain('DELETE FROM station_watches');
     expect(calls[0]?.text).toContain('RETURNING w.driver_id, w.unit_id');
     expect(calls[0]?.values).toContain(availableEvseCountSql('cs', 'w.unit_id'));
+    // One alert per driver who watched both the station and one of its units.
+    expect(calls[0]?.text).toContain('DISTINCT ON (c.driver_id)');
+    expect(calls[0]?.text).toContain('ORDER BY c.driver_id, u.name NULLS LAST');
   });
 });

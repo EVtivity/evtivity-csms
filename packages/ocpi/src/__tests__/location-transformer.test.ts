@@ -498,6 +498,15 @@ describe('physical_reference from the unit name', () => {
     expect(OCPI_PHYSICAL_REFERENCE_MAX).toBe(16);
   });
 
+  it('keeps at most 16 code points and never splits an emoji sequence', () => {
+    // A family emoji is one character of 7 code points.
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}';
+    const cut = physicalReferenceOf(`Box ${family}${family}${family}`);
+    expect(cut).toBe(`Box ${family}`);
+    expect(Array.from(cut ?? '')).toHaveLength(11);
+    expect(physicalReferenceOf(`${family}${family}${family}`)).toBe(`${family}${family}`);
+  });
+
   it('sends no physical_reference for an EVSE without a unit, as before', () => {
     const result = transformEvseStandalone(evse('evs_n', 'sta_n', 'available', false), '2.3.0');
     expect('physical_reference' in result).toBe(false);

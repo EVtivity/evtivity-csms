@@ -110,6 +110,8 @@ import detailsTabSource from '@/components/site/SiteDetailsTab?raw';
 
 function renderSite(permissions: string[], hasAllSiteAccess: boolean, search = ''): void {
   useAuth.setState({ role: 'operator', permissions, hasAllSiteAccess });
+  // URL writers read window.location (frontend rule), so it matches the router's URL.
+  window.history.replaceState(null, '', `/sites/s1${search}`);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -218,5 +220,15 @@ describe('Site detail stations tab sort', () => {
     await vi.waitFor(() => {
       expect(requested).toContain('/v1/sites/s1/stations?page=1&limit=10&sort=stationId&order=asc');
     });
+  });
+
+  it('reads only the list of the tab it shows, so a sort refetches no hidden list', async () => {
+    requested.length = 0;
+    renderSite(['sites:read', 'stations:read', 'sessions:read'], true, '?tab=stations');
+    fireEvent.click(await screen.findByTestId('sort-stationId'));
+    await vi.waitFor(() => {
+      expect(requested).toContain('/v1/sites/s1/stations?page=1&limit=10&sort=stationId&order=asc');
+    });
+    expect(requested.filter((path) => path.startsWith('/v1/sites/s1/sessions'))).toEqual([]);
   });
 });

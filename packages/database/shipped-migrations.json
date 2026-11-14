@@ -1,0 +1,324 @@
+{
+  "v0.1.0": {
+    "0000_initial_schema": "3aea6391483150e40a5041bd277e644967c55159eb6c573a9c207b7fa5463636",
+    "0001_seed_defaults": "7c074b9447e46424adbe1d24ac9fe319ecb6aef35e15a3fcf5339ed884c3ee63"
+  },
+  "v0.1.4": {
+    "0002_decouple_css_stations": "63df5e0f25e910fb361aecde0abf9cde444c6cc20f3299f2103df98946877c0b"
+  },
+  "v0.1.7": {
+    "0003_gray_aaron_stack": "81dd3881c3759500519be36cf2d6e8c3ac8cdbf7a37e49b1e026d2c8a9b0a3ec",
+    "0004_dizzy_human_torch": "505d4aba21773c5d3aeaccb4e69e1de16423478e8ad4ffabbd4a64ba57e7edb5"
+  },
+  "v0.1.8": {
+    "0005_add_reservation_id_seq": "2bcbb322b7c0cace80754638218071e09fdfa371d083c8afa0de52b1a77a3183",
+    "0006_periodic_jobs_to_worker": "4bccedb8f33d5bc683d4202edb48bc69a03d253bdc42db1f65c81cb060b21044",
+    "0007_reservation_max_hours_setting": "a78348035b925562bc08026f66430d25f09f2acbf45624c4000abd1892bfc557"
+  },
+  "v0.1.9": {
+    "0008_amused_living_lightning": "0ec8c7adb2a46fefbc0021c2a798c7d70d06c399de0a2bf460196039fb5087a2",
+    "0009_spotty_bulldozer": "092fbdcacb1d0f95927903a9da3f003460f7272e82f3dfc4ced4ddad5600dd66",
+    "0010_station_message_settings": "84141bb77789e144bcb00f88a56a3557637285a22a0c024fbee5e7d2befebb03",
+    "0011_station_message_refresh_cron": "25398b882b1602bf45ba0631727487621f2f617432d7094fceff361f18fbbc6a",
+    "0012_update_default_logo": "4316e11a3ab83df19cdcd1a33ada8314e81d380d38de514087a09078f34b7abb"
+  },
+  "v0.1.10": {
+    "0013_config_template_station_fk": "c94f1c1db357f5735a69dd1dd98432de2efe2ce5634553d0937788ccf65bacb0",
+    "0014_config_template_unique_station": "028a10f8e956810376e07543e22b0b71316f25224b8909ec30ae6de19e56c546",
+    "0015_firmware_updates_request_id_unique": "7ee2e7b7dfacbcd973becaf16af1bfd9f7308f54ccdc30239b039883a4f1aa71"
+  },
+  "v0.1.11": {
+    "0016_reservation_active_session_check": "6aff7eaee38a4c18390dce57901c359ab5e98813d26580d2139bc3a2acd07282",
+    "0017_reservation_cancel_metadata": "c8a885b0a5607aac28234277470df8b45ee7f245ed7b09c604c0069eeb9881a4",
+    "0018_payment_audit_actor": "1cb3ca5b955ce53178b6c221a13de00be47af48d9c55c78873a93eb866b180f5",
+    "0019_payment_capture_retry_cron": "a7214b586b8e8e4c30e81d7a43e962ecc68c34d38b800112eff355e61680d0b4",
+    "0020_payment_records_payment_method": "20e641a36feaf2ed8dc2f70aeb536185d481fc76bc03b6eb6ddebc31dc16721f",
+    "0021_driver_tokens_unique": "56df06c42cea4783e983572e67e3ac465289c933e66f4b5e3b4106909748e80a",
+    "0022_left_riptide": "5d4d397bf6e742b4511cf0241ff621ad273c0a64adf0d8ccb2ac79951174199a"
+  },
+  "v0.1.12": {
+    "0023_broken_blink": "3cf3f6d6544a731d524186e08ca4f8902df754fcbc8839859cc9fc2e1950de97",
+    "0024_spotty_edwin_jarvis": "326d530cf80984b82c131e6beb7b64c1412f825bec40d9a4e3f144644f6515ec",
+    "0025_wakeful_mojo": "c455f963c25a9dbec486ccb59e9dce1aa6279508df0b5c761182ce3ac5dac147",
+    "0026_mixed_glorian": "894e24607bd37839ac02e6ede38b2b8d4ad11bc9065ee411528997eb1ba9e278",
+    "0027_huge_marauders": "b72cfa61d367896b3df9aaae92b26ecaa9a7b532a2d030035659bd2bdff50c70",
+    "0028_reservation_audit_session_failed": "5779f2edef1d104a913829098533d0ec8d4f2797e46da30ba4984219c6d173c2",
+    "0029_authorize_attempts_matched_indexes": "61df33571fb882701c73e7f900ace795496ef2f801f89c33a63dbb5124bb1744",
+    "0030_pricing_audit_log": "1188fb4fee2f3e0cd689682956c07e58cba62632137695479075ae11c454343b",
+    "0031_pricing_default_unique": "d79ec76ae5597bc13f43a5bc1196bc31995cc79c1eda851f1b449de7be6fd7b4",
+    "0032_pricing_assignment_audit_value": "a1e405aa9568e802dd8751ad3ef872c3b6a72cbffbe16804db63d3f7f2619e1e"
+  },
+  "v0.1.13": {
+    "0033_audit_logs_foundation": "56d5b7200c914f14f318c806e3fbac99487935e92b50a8869fa04c9a1d95e1fa",
+    "0034_audit_logs_entity_tables": "852a2fd4215e9c9f13143dd68f46a2d43c85bf3182d7a616c621fc659ef1e1fe",
+    "0035_unify_legacy_audit_tables": "6b4dc56ce774d691dad9a5eeafc529073b70cdbb25180b9a66d7a01ed3bbcc2d",
+    "0036_seed_vehicle_efficiency_lookup": "9e052157e1b84b2aeee681281d31a0fdf249ff78b6c98e207df68eaa9c9b6966",
+    "0037_seed_dashboard_snapshot_cron": "b95f8d038af29d38e49fbdc6e867be69bf4c8784f55ab9811e55e393372c5364",
+    "0038_seed_missing_cron_jobs": "d5015881e1a634074a596649b69ef354e5f617e657b6ef963ed7b41838cfd220",
+    "0039_fleet_member_uniqueness": "56dff929cc96ccaa389efd736c841922ca9e6a94ab432eac143299f191ee58f1",
+    "0040_seed_mfa_disabled_driver_event": "c750f86a0550b6e39eac88c184925079a097c4938d49e3ea53244c69ec687cdf",
+    "0041_add_driver_stripe_customer_id": "9c8103610f121af6fdf463686a8e01ae2ca9eb01332541a4396fee006791fe69",
+    "0042_seed_payment_failure_station_messages": "25539eb2a04461b8193da6414b46b905fcf01fa0d25b2e9d2edec0d1992df61c",
+    "0043_seed_station_message_event_ttl": "9820b245df9b84dadf6da7734e1bc24be4789e39f735eb029aaaecc2f1c9c014"
+  },
+  "v0.1.14": {
+    "0044_meter_values_dedup_unique": "adda90cf83cacf85eb2939b97a12326de507ab66b3919110e9eb742eb9d8754e",
+    "0045_firmware_status_enum_ocpp21_complete": "69410f2a003c37e36bac08deee66906066880c6adf4ba525456ce604b042063f",
+    "0046_firmware_campaign_stations_campaign_status_index": "4af5dbd12cd432e15b74a0273141a27a1b25569bbcbb7b85643ddf0d74ee5e71",
+    "0047_rename_plaintext_secrets_to_enc": "4f2efc4c79ebf8762f797aa13d23f1080b02cc3cb7ce4b2ac83f4cbca46013bb",
+    "0048_backfill_audit_permissions": "16fbbea16936ed582c223127aca6c431544bbe7af01ab6e3b73960aa04fbc8cf"
+  },
+  "v0.1.15": {
+    "0049_reservation_activation_cancel_reasons": "0546f6bf915325809f88334606a48dc5469d1c7174ea71ffa047a33c2e61c341",
+    "0050_seed_log_retention_settings": "03f8b1c87f8cc6a40791ce5f1880cb8afc1083da103673ffbcb11c0933e7f3ac",
+    "0051_seed_portal_registration_enabled": "966e40287d18bd0861771a641233bd18cadccac4a70b1050f7e82641d16045c9"
+  },
+  "v0.1.16": {
+    "0052_drivers_email_partial_unique": "a0fd4ce5cc740ce8f765e16013fe06d752c748be56d555f6a88b9be38f248caa",
+    "0053_station_image_audit_reordered": "115e06cd619115bf328cd5e5960d886af41f8329fddce795f7d2ca93b3319bc8",
+    "0054_seed_mfa_challenge_prune_cron": "9ad06f4b6a60a579bbf045717ff1d88a50499b635132d5d5f86ff0166d59c90d",
+    "0055_seed_refresh_token_prune_cron": "b8da7dcad3d100bc8b9198c0f885356e90283f1a718867586bf419bf4b46cfae",
+    "0056_dashboard_snapshot_cron_shift_to_11utc": "c2bfbedbfbb54a814415be81ca42e9c8c6ada40a58a812b8a53ae1c07e967ccd",
+    "0057_add_maintenance_mode": "d273a378a74b88c61a835b2a188dc8e5717802f234803c6538d441932a111a09",
+    "0058_backfill_maintenance_perms_for_operators": "b34fc5cb7b3126b7ff365c8cf0549e5174a1f315558462adc373eb4eaef3b20a",
+    "0059_seed_maintenance_settings_and_cron": "48ed26067bc57afa011f7af25aa32f97ec2dd0f477e14d43b783ede5fb329939",
+    "0060_seed_maintenance_driver_events": "b253d0c4be4db1728a0db1fa7e1dd87924445fe146b22bc4a39d2a9c841c49e8",
+    "0061_add_maintenance_audit_updated": "27c5aeedc6c9cffa631ad8262dcbaae387c11a846ae6cda740ac2cd52d1adc8e",
+    "0062_add_partner_registration_token": "20df2555e58b0bf6c29f248530b9277d5611be27fb5783d3eb1af7e2dec07452",
+    "0063_reseed_missing_cron_jobs": "91df7f0388905b4e49c4ed6b321dd6b53151b60f2891eb8012dda2ca43700ebe",
+    "0064_backfill_unknown_connector_type": "ddad95c42b67cbf9c4b0b13f7e15e0b0f6429895e557f91c9b331f9cc221aee2",
+    "0065_add_simulator_persistence_tables": "180e1e13af1dbf732e2bcec947e2a1ecef84d92d558ffd2a6d43b69fe83ce7c2",
+    "0066_add_simulator_auth_cache_and_preserved_tx": "d505e1c52754fea41e24ea0f43e05c3108fd56b5ffd30d8124e74d983d3c6d48",
+    "0067_add_missing_indexes": "17e1ed34dd0974819066491d9ba2ba71739a541df95f484c90805936de503904"
+  },
+  "v0.1.17": {
+    "0068_seed_invoice_driver_event": "df6091e0a290a38a7528f70ff4580c7b61416073324fda6eb9f8c5882e9afa2a",
+    "0069_animated_default_logo": "c42ac3f2a438266c79f72b59392e466b81ea4c2f0d3bd5cf4342367ba3c3fd6a",
+    "0070_meter_values_session_measurand_ts_index": "a12901fff90051789bc41ad158ac23f6ed23118317f3e7c9a1623540f828285f",
+    "0071_maintenance_event_stations": "f277b35053bc69f550c9cc5aaa70fb314825e2eea343a2ec3344f0a821b7f8d0",
+    "0072_seed_event_retention_settings": "040091f2eb65ac775f5f2c1b9440e98875e78295a6044f1942674fd6021352f8",
+    "0073_meter_values_index_rationalization": "35b6e46bf6a6062c681663e45eea0734925af4b2a5cb715db8579aaf31003cf5",
+    "0074_ocpp_message_logs_station_indexes": "cf8cee419f335fa3160af8e7a9b8d980c19ba32a8ce61fab85788184d0df721b"
+  },
+  "v0.1.18": {
+    "0075_meter_values_standalone_index": "cd602d14d36ce3586c7c6c6b51d2f8d7e1db230c6aef0d33b6fd879e197da198",
+    "0076_meter_values_covering_index": "a394b2f36ca6db2ddf146a5e0e17ae8028d9115516876bcea8275e704b1dc616"
+  },
+  "v0.1.19": {
+    "0077_fix_ocpp_setting_key_case": "3bb34ea56a1fe1179afddc7cc62aa9c74c0f8e33de3df17ac83b866fae7d3419",
+    "0078_add_electricity_cost": "aa40e7bf7d3af3156eb31f99ab506b96431cfeafcfff6b0df9c389e02c0f2033",
+    "0079_seed_electricity_rates": "c9fdb303ba2faeb41577a46dfc4a2f82bea0ebf75bab223c959a3b4af2f01961",
+    "0080_refresh_token_device_id": "cf6bb4625571fb27e55e6ade21931b7706c2ed2d1dbd33a73b244256bc0e93a4",
+    "0081_driver_push_tokens": "9bdc463803554570d928f998ab2a93a89f78b823b9197a9b7b37b83bda2eec1a",
+    "0082_mobile_attest_keys": "dcc77a62ba9a1ccc9e5f526879e071e406579805e9d8bcc3b7cb44d59fc1caba",
+    "0083_seed_attestation_settings": "d1aed1b41a97adce7fefb3b1151b279f3d0c7cd19d5ff64e5aa27cebb33752d1",
+    "0084_station_watches": "b9897eb8f71dc6657fe51d669946e494aeaf2c76749f7425687c6fac218c63c9",
+    "0085_seed_ocpi_location_sync_cron": "d4c8b647d084647c9c970486702d43f5e1f2ea3c589f5a8e3eb8a2835be49e41",
+    "0086_rename_attestation_settings": "6d861dadc1a059ec55f515ec2e82c58f4eda4c6861d2af6c2c3e1c28927e1f98"
+  },
+  "v0.1.24": {
+    "0087_dashboard_snapshot_revenue": "ff83df838ef9d9d571a141e00cc41010af287245f8102e1c1661d726f7b28eab"
+  },
+  "v0.1.25": {
+    "0088_single_currency": "da5b2a97bbfe909c2ebba20e8f0791305a1376fdf23a6908802b845bb89c59ae"
+  },
+  "v0.1.26": {
+    "0089_single_currency_contract": "c1056b7f527f85fd72c2537cfc35170653c6678f222ec1bed1b19997764c9c05"
+  },
+  "v0.1.29": {
+    "0090_pending_security_profile": "cb134f2939acba0a5c1a40933ebdb2aae79321e5865a0610e1bc8008e42434c1"
+  },
+  "v0.1.30": {
+    "0091_driver_portal_invite_audit": "fc9d9d777c6d064ca3bdeeed384d764fe87b42a27755394b8939a90bd7dbde31"
+  },
+  "v0.1.32": {
+    "0092_station_reported_status": "69c66c482b6067640edcb0b38cf2cb4c9ec2434e6c64e27433c8373096829c4f",
+    "0093_station_status_inputs": "6538fb82c860f00f1815723cc2bf562f81e2af3209c80124d5abdccbf9231060",
+    "0094_unique_evse_connector_numbers": "7df7dcf0d31e7b6884a09086a033541529b61dfdce82e51ec52e3aeb92e3641e"
+  },
+  "v0.1.33": {
+    "0095_station_configuration_instances": "9805bb04e82b551d6b90567c65f95851f8e6b872c171ea972184fcbc54bae4e4",
+    "0096_seed_pnc_ocsp_allowed_private_hosts": "c40b11f0e395316a8eeb2e870523e9c1e134a58d4a70baa1f3063a3f70229975",
+    "0097_css_installed_certificate_pem": "12664c3af41a7037be1a410440c8a94f000b3596608a9d5f2294993813b5157a",
+    "0098_prepaid_balance_and_payment_limits": "f06d82fb426bad6e8ee1dd7effe8a99892ead22048124b09571fe8daac70a7d7",
+    "0099_station_web_payment_configs": "71c9005dd0de67b18a96394247d9480651f6f76b657eb5454c596f4b5f9e60f8",
+    "0100_firmware_campaign_signature": "0d20ae2b430252a919b2fab330551fc2ae2b112c3008f721500cac4b81f12bfe",
+    "0101_octt_test_status_not_applicable": "e1c8d473dd1d2524a30d40b62be0fa501a8967906e26a0d937dd3f8b666a360e",
+    "0102_octt_not_applicable_counts": "8bc19b55dc40ecfb991969e02168880eadc55a0e19954e41be0e0faf187000de",
+    "0103_drop_web_payment_and_qr_scan_events": "8d520d1fdf1178e92243debba0076e5f54352052f4c4d54a3c2818b7c56e9416"
+  },
+  "v0.1.34": {
+    "0104_driver_price_display": "29c096a0503724e945fb4caaf32f2fd31f0005ebae85e22db338eed62fcc086b",
+    "0105_seed_company_price_display": "d948469d715d8c536d5ffaf3dcc50ae317bb17200b0c1b809880342744a291ef",
+    "0106_invoice_line_item_tax_rate": "6e2a42d6c1cabd39452b37df2abfcc894e531617666bfa55ef1edd3671653d05",
+    "0107_station_message_template_language": "06cdcf30044812b836bf8537b0bcb8f7ee2b4b624aeb3e63153792ec29cd2f00",
+    "0108_seed_station_message_language": "05319fadda6ce9700e1bad44c4e0195466422798e0b47aedf4f91e36abce7e10",
+    "0109_ocpi_tariff_mapping_source": "9686ee94efe2954fc8bce4306714287174977e76f9aee7c9911dadda7a73c6cf",
+    "0110_payment_record_reservation_fees": "e2e275d6cdd8accacfd6591dbbb09670daa0a45621cc91bf530cbf8ef9ed1a29",
+    "0111_session_cost_breakdown": "d446c0a26242eabafb9fdb8ff73b64a6e650ef1359a4cd9833467ce5ebc737f3",
+    "0112_seed_company_tax_basis": "0a8987177e9f341105b50d535d04c7967e96d9d0379367a5280dc51e8b966246"
+  },
+  "v0.1.36": {
+    "0113_station_message_charging_power": "afe62849b695e5f0fc3e24519f5fbe63f11963ec4abd5d69b73341cec85189f6"
+  },
+  "v0.1.37": {
+    "0114_collapse_queued_screen_and_cost_commands": "ae796a0fe10f1809bf5cf06cb377c47cacec540cd061b854ab6d2cdc246abcfb",
+    "0115_seed_stripe_webhook_secret": "3cab68e5c513f2fb0ad8aa74e1e3b0d3671c79bde294d65a9e909e14a38ae534",
+    "0116_seed_payment_provider": "aed17b7984b9bec0f42d75f5f389f887b09cb47da7b605ca4306a5c2a2355588",
+    "0117_seed_adyen_settings": "d685e6eabbd99bebb0e049a0aa02f2905e3998d702beea841b1cce452abb10ab"
+  },
+  "v0.1.38": {
+    "0118_payment_webhooks_payout_onboarding": "78fc97436fecb5c722b774a15dad524236328b89360b66d267ca4be4a2b6d041",
+    "0119_cron_payout_account_sync": "8758e5f32b10c5073c5b50501a828a44dfa76823a2adfe5ffcb7d123b7c36668",
+    "0120_payment_provider_columns": "7a9da2e6f1d0df6d821236b2fd8604559bafd7173eae959a9983ebd58f1f2560",
+    "0121_payment_records_provider_backfill": "476129097f548c40d10887452e7ae8986a9368c2d4ef03ae42d102a3b4321528",
+    "0122_payment_methods_customers_backfill": "6d3c934ae68f1e67ee5a5ab03cbd6e3f00f1fa7f49452ebee55015ad991d5745",
+    "0123_payment_provider_indexes": "a44031b00fb9cd62b77fc1b4e5f7320c5b1040ce86ac4d324bef483a6aff0402",
+    "0124_cron_process_version_watch": "e07468e4c0004becdc08deb3c00f9db004cdaf2277b20d5a5d8c03d3528387d8",
+    "0125_payment_settings_provider_neutral": "ab13716678bf8303ae75c86add6f9369571ba54608218898f874fdf8dd45f986",
+    "0126_payment_async_operations": "342ff0b26e192e82da7ca1ef7b57ec4cb5b1cd16a3d906d581b458e50d6a0d8d",
+    "0127_guest_session_start_requested": "1027f8b55ff03830f3ce7a075c16d4999d5fcad0de890d9bade48da0df1150ff",
+    "0128_seed_mobile_app_settings": "e71ce17b53b3b3517d3c359f497b8509f1a7cc958f0bdc0a54bea741d5fafe45",
+    "0129_seed_ev_connection_timeout": "87613dd11186e41d3700627dbaedf8428184ab6506bc9933673f343643823a7f",
+    "0130_session_idle_notified_at": "726d91cc948f8029e1c526425ffa1c230bd31842391716664a8ff291b9333af6",
+    "0131_setting_audit_deleted": "13ee39a1eb0896c24447d9bac8b7b4a209b1936ca716bd8bb2f13017247dc9e3",
+    "0132_css_reconnect_back_off_defaults": "653aa14052505beb93c4864bb7c0d4a9282736bec33385283d5247b2ee82db00",
+    "0133_css_drop_factory_tx_default_profiles": "d352b5022a03334dade5f333498574c33a8b1744e78526c76c25f9a721b58234",
+    "0134_ocpi_partner_allow_private_network": "1f867249144b9e05c52d063bd89594f90349672c15efe72706187b4e4a34e58a",
+    "0135_seed_webhook_allowed_private_hosts": "130bc1e23f3f27e933442fb1a4b96351a0ee8c5de989da8b10f2ccabbf06acba",
+    "0136_offline_command_queue_station_fk": "ae14d3555dd8df7fd8abde9b5e1c21cacc7689a12f74543e63b5769b490d3603",
+    "0137_invoice_paid_status_backfill": "1d4847f7e78fee8140291d51399807212c1ee4a71814e6ec1dd340ac6503e81c",
+    "0138_station_message_site_language_brand_line": "a1ce9bf980e2d36d69c97008ef8d16e78033a8faeb9fa6b43f26add5ad36c66d",
+    "0139_ocpi_partner_legacy_evse_uids": "411d66f02b037fe490ec5650fdb7e0ed059f20718ce525e7943d5d38baff8a76",
+    "0140_ocpi_removed_evses": "67c7bb76201732ffbbbc9c979d9407ab8daf836b8f54023763f5d2aa610fcbe0",
+    "0141_ocpi_cdr_backfill": "a2dd0875e4e7829c7aec6f410e05b1f4facde873a3977989dc195b96af1aa54a",
+    "0142_session_end_request": "a65554c1b7f1641df160e1711f043c746d28eaf634de2b2c38c41864572e4481",
+    "0143_session_transaction_unique_per_station": "3f218639bed16a44a28760dee9e067c84ed6a23de0c0f2a97a7db9d0da189177",
+    "0144_status_reported_at": "1b87fb79a5f8c06e0991f2e05a1ebd2f95092de9a6348c9c9bdf400b67515e69",
+    "0145_simulator_identity": "a4df8df535c5155abc156a5c1b5e79479b1db966719839d1193ce94392c34f79",
+    "0146_pnc_local_contract_ca": "b16bc12299cef0844ccf691bdb5a6d98b0c3d17e4d3f7f2166c61de5f73b2745"
+  },
+  "v0.1.39": {
+    "0147_session_transaction_contract": "e7d35e93c2bbb9773a2fa6d22a070a44f8e4538b0035a94e043521dd19205907",
+    "0148_payment_provider_contract_backfill": "afe514a40d411033e3c1ec553d3f71c03ccc8e5e85d5d7ef88af6a876b3348fa",
+    "0149_payment_provider_contract": "02ab024c2b5de83a38d2c2772c49acb57547142022ee8b00728154d659f08b67",
+    "0150_payment_provider_check_validate": "f22a37fa4941aea42ba3d8071df8c5e651910393acdcd480b0e738c985dfbd81",
+    "0151_session_cost_ceiling": "98a51875b1b273a7a968a9f76a1b66432a1dfd1bbf83faba8167c9dbd5314f70",
+    "0152_payment_pending_operation_check_validate": "4c87a7f3d41aad3aa69ad0723d658ae24d524d297aed9cb0c248fd1b75298a2b"
+  },
+  "v0.1.40": {
+    "0153_payment_provider_drop_stripe_columns": "72d7da4ad198bf28fccd15db7dd2cbb7c487eff9fcd9ca77f499a27e5ee58484",
+    "0154_cron_station_offline_sweep": "f4037eef121f83797ffcbf60176ff8193478a014b30c96fee65dc200403db969",
+    "0155_session_rebill": "69e46ba8d426eed132c00874eee3c417e4363342f24041ed82c8079910430c1f",
+    "0156_notification_switches": "a292857d5bf55a083b96e199884fe65d2a73ad96f2fc2697d388d753f2016ceb",
+    "0157_prepaid_session_cost_ceiling": "3fa4c6a179ec8c659b72d6cf2f75b6e6b535989747583d524a821a6bd52728cb",
+    "0158_drop_suffixless_secret_settings": "39c7efce0e5c7273dd453c319385e8541024749d6f6637f000f2db17da44cb82"
+  },
+  "v0.1.41": {
+    "0159_drop_system_event_settings": "af9644aca00bc9cde81486335287918d3cd5594ac63691172d005e945e245ffb",
+    "0160_operator_payment_source": "8e33ab7475ac825329b774ece3f208bcc47a62365015a1275da71d729994cf2d",
+    "0161_prepaid_notices": "bbf839c1f928ca1f9539c00bbc009970a5bbebe702a001735ba455b88dc26da3",
+    "0162_invoice_claim_columns": "5287e7eb1f83061331e91b9d705afdb7f043d5cda964116b00b2feb2a07d73bd",
+    "0163_invoice_claim_backfill": "6f97adc62cdb3b1a1fcd526b740d38ad7768f99458a75202f5b894d119e5e8b3",
+    "0164_invoice_claim_index": "15582a8be5e2b86e9c3c793142f8c64db7d32ec50aa41a1d31c0632bf386c012",
+    "0165_invoice_claim_fk_validate": "96f48bef48a074ce2d42b4818a85a5c0db7848910e301aa9eec97c459fb804aa",
+    "0166_seed_invoice_settings": "179e127f0cdde4f2086363d6587944baac68fe150e735a02a92a0debd173433e",
+    "0167_invoice_credit_note_enums": "4fe59427b588947e77d8637b4bda9b6bb9ce05762e265723f4a5830a94e355ca",
+    "0168_invoice_credit_notes": "621be0b4e42c77a3c48b148ef481ba23a2eeb3db8e91af3a424fdd024128278f",
+    "0169_fleet_account_billing_enums": "532c2c76d23cf388b764d04152203ab07d0900753c53e23570d2e92401d26044",
+    "0170_fleet_account_billing_columns": "94792212d4d2d864aef266d15325eee747343049fb52d7a2da8008d63b810d14",
+    "0171_fleet_account_billing_index": "4bf26dc59d940ea467f8b2238f91fb0fab356b7ddbe53f3c95e5fe3ec8ec0029",
+    "0172_fleet_account_billing_validate": "c0d14008fbf1248be53f76edef60f3a2d9696a4d773f645ced8014e6955db8f5",
+    "0180_fleet_billing_profile": "c1e97b8939d288c670daab8a171fc65546848f141a3243ed15f9f879037952b3",
+    "0200_fleet_credit_limit": "4b935da84d5c48756e9785a7cc545d93cae63dbc02422017393a23ccf56933e0",
+    "0210_fleet_invoice_enums": "ab379a8c3b827dc992bd69b530c5a94794d326fc8091f38278e6e195b11febee",
+    "0211_fleet_invoices": "5c13c4770de549e1e59e5f384092e2c40c195fed3bdfda92e4e8b29c62c1b257",
+    "0220_fleet_credit_notice_bigint": "e857d848600dca1e9930726e37d96b18ccb639155348d3b0dbd309a2585c1cff",
+    "0230_fleet_invoice_overdue_notice": "001eb4f07a390abd10195104e189738766e4deb8bc1d812cc007ec9085ac311c",
+    "0231_seed_fleet_invoice_run": "5a7008d074b3c47cab4ae3f2b45391b46f1db39285ac01d749df00339f960cbb",
+    "0232_fleet_invoice_run_failures": "490e8a6e78dbb7b562d4eaa27bfccdad5eeff037e3c38595ea7d17b7914ccb9b",
+    "0240_fleet_credit_reservation": "bd7408b20ab58ceeb65c5e2ae2c93cc198040b766f52848d24caedafd1353a3d"
+  },
+  "v0.1.42": {
+    "0250_session_end_notice_claims": "332e367ab06dc052634c973495fb22f87152b871f5f3782dc2b6a8817df654be",
+    "0251_session_energy_rose_at": "350b7f2b57f4bd7f84a081e644c60866140818531ed8c35f43206f385777c3c8",
+    "0252_session_end_notice_claims_backfill": "d90ee968eaba46b317f2b5f9327d5088e1033bba045114686995e93bfc8ed15c",
+    "0270_invoice_claim_contract": "4e547b7b92ba7d25b36d6a174f68dfe37a045f2ebda5532a5cfd4117ac01a65d"
+  },
+  "v0.1.43": {
+    "0280_ocpp_server_health_per_process": "e51be32bb513e47e7e1d2edb600c4a9645234a660f2a651912fe00ac426bc753",
+    "0290_invoice_number_seq_drop": "9df5f6e2f21d66609a2ecf59c19fed474fedf3eea10e5543e2b4f4bc19bfcb2b",
+    "0310_report_site_scope": "6f3781632c49af9737aaca18df4b0efc8ebbcddb6ad37af3b7c3d10ddcb97d0c",
+    "0330_session_tariff_segment_open_unique": "695c9bb361acdc5c6ba822335d0a6a852bcabc9b4e8faaae38274640cb932d0a",
+    "0331_session_meter_register_offset": "064600e7f8ea4499a5d505cfc0d890770b35c69376c56dbfa2d25e07ba4af6ba",
+    "0340_tariff_group_default": "173b2f7838fb03773242d63ffd3d64c227aba7ebd52882337b566f6bf8f1402f",
+    "0341_reservation_fee_snapshot": "757b718c818475e09882e599ca00326177bf5b242087ca32ac722955f8a51ed1",
+    "0350_session_station_cost": "c55f4ca29b418fcd78eacb05c130cf6191822c1d818116fb172b85123888d8ba",
+    "0360_ocpi_location_id_unique": "9d165a39e2a889c18a48205ab07f560bc9a136048743772f64645fec9541f576",
+    "0361_station_circuit_site_cleanup": "7ef11db9d544e723267af54e008a9aaab09c7a8c9386e7b2eeda56806cc8a5cc",
+    "0370_seed_ai_settings": "7b563a4bf3c790d565264d23493a981cd2a869d7cf0143945fda1795d29b4c8e",
+    "0371_ai_provider_keys_move": "a3aa1463d53f878ecbb901f905f4e297e9b46bb4dad3079d4747cbde1448299a",
+    "0372_chatbot_ai_configs_effort": "0d8674e46237fa3a95081a72e9420bb2e3cd112533a77832de4069aad0e241dd",
+    "0373_backfill_ai_assistant_permissions": "8f08f1c2aa57f5ad5c1b3deb8928d4dd96528d7617dd4cf3164eb9e36c1154e3",
+    "0375_ai_conversations": "2f425d14b55c73940caccc87e6e7e4cc99c3e98d2c1b79e8084f40ade43dafb5",
+    "0376_ai_messages": "b81d10777f733c18819e28732a03671a32d22975e246684c40d3bd7cf421e83f",
+    "0377_ai_tool_calls": "fd1a2ecdfe89602ecfa478d93e9d163d260f5e0c0be1256b6ed3baac21a8a46c",
+    "0378_ai_pending_actions": "4ef9bc986fe512f47647eef648447302d423bac1f5811911de9988672c356c9c",
+    "0379_ai_conversation_audit": "dff2d1b975d432d8980bfebdcea4baad07f9a5828f6810038ebd93f55b422e85",
+    "0380_ai_attachments": "24bd9438ba064ecfe26d030621aacd7af327cfc1a4fa18cfaf9ac7edd97ca7df",
+    "0381_cron_ai_retention_prune": "4e2791583a4e89088de2bbef9993bceed3810633917aec08ae6900e55c72d31d",
+    "0395_seed_pdf_branding": "1c06365accfa41cbdcd33acddba3e60e07bd4f0320cd2a2d43360d7c29368244",
+    "0400_invoice_audit_sent": "8ef77af4416220055fc4c63b91afc13e0ef53567d688c4d1e2dfaeabc3b3d7b2",
+    "0405_ai_message_access_scope": "e6880ba59f62a1113c024c9f848428f9c0cb39793e81a719153014797f9b60cd",
+    "0410_drop_plaintext_ai_provider_keys": "6ecd8d627d20c7739d8f8264e2d470a84bb29db030fe6eb43f51ccabab82b70c",
+    "0415_seed_invoice_seller": "02091a69c974aa37edc7b55141a742297d911e04cd30785221a966b86fde5694"
+  },
+  "v0.1.44": {
+    "0416_ai_usage_ledger": "12c93423c04a9089932a4a133be3ead1a7555f186215951a32a8dcade64d4c8c",
+    "0417_ai_usage_ledger_backfill": "e0263c397f79a1d197b5cefc4c42ba4927021065edade22859c003204cdea5d1",
+    "0418_site_ai_settings": "3a37dd51db0c96d1cd9f17497b9efbfceb5709d6bd679813623f6efb1e0f4ae2",
+    "0419_ai_budget_notices": "ae44236a9663b5e17f7e54025f4e3cfc1b7bbd46965538d400375c1f2522b587",
+    "0421_ai_insights": "65593fd7bb7dc1dc25eee342f28798e81d31aab898b836f32ac6d235dc950eb9",
+    "0422_ai_insight_scan_state": "f7935efd07de63cb6d0aba831dcd8ba3a7eec732577555be3db9ef071abd4194",
+    "0423_ai_insight_audit": "b907a042f70707117265b447ae1a77a951ae4f84ab9ffb7ca0e61ef5082e2aa6",
+    "0425_cron_ai_insight_scan": "9146916d05b4e309a2d6a02627b4e1802f7a3fda1d1b24074e59b5b911cef228",
+    "0428_ai_conversation_context": "facf6f28c6707648c5b90c3afdd14f3d69d084cd34bbddbfc6d577025bad1cbe",
+    "0431_ai_proposals": "a9cb2e705d2e02a4279d772d73d4fb642a652b7f98da1ce5d3c636f2788c3e5e",
+    "0432_ai_proposal_audit": "c3bc0cf75755c1fb1543fe9a3aed6566565562a32c24a4a1c7ee708a5e9c4a60",
+    "0433_cron_ai_workers": "6046ca6859ded447617e2425d96fd034d79066cc871accbcfca97beac4678900",
+    "0434_ai_digest_email_preference": "5933d5aa4d57ad804c9b1a29780c80996e117b1938a8743df33d8c89d2c5cbbf",
+    "0438_ai_mcp_calls": "29540f4d8b8860d37ad14f7cfe71997634bcd968fe294706a4f103c0a69714e7",
+    "0441_seed_ai_ops_settings": "f3c147d3d90ba46addc7913cb1c630ceed5f6b6cf86e9e03620e5f844f08aacd",
+    "0442_backfill_ai_roadmap_permissions": "3675cfc83b040637236bb38c551c8a61a1051ff4399f54bc8b07e819c52297b2"
+  },
+  "v0.1.45": {
+    "0474_release_0_1_45": "a912d13169b12c43bc77b0eb4cf9e0088ee2d6dc679377006eb3f14f91a35be7"
+  },
+  "v0.1.46": {
+    "0475_release_0_1_46": "177c914b0202f194999b25953a0400054ca9b23bc896ac554e95c4bbd7634e86",
+    "0476_release_0_1_46_indexes": "f71e0c0d088f75383b2bebb2fc8fd4b52d6666fbb72f640744eb0eaee91d2ce3"
+  },
+  "v0.1.47": {
+    "0477_release_0_1_47": "abdb20abd8b34f50590a61e0a367d8687cff63b640ae25172346436717e6f665",
+    "0478_release_0_1_47_indexes": "ab71bac152658a824df902021e3910d45aa839f531928bf812207ddee1c3034b"
+  },
+  "v0.1.48": {
+    "0479_release_0_1_48": "2815bf8ae16867adc64e833f3939aaa35d9a212a18e85abffc696e051639c0f7"
+  },
+  "v0.1.49": {
+    "0480_release_0_1_49": "bc9f9ee29684243ebbb05cde68ee65ac70c7db5083d26b33e9fab7ec812ce504",
+    "0481_release_0_1_49_indexes": "c9a85377f107dfa277262d8d2c8c78918681ab76347958a929a989d038c6f238",
+    "0482_release_0_1_49_indexes_2": "862a23a6aa79cc29a4a539da54a6c2127d6bc9de348e6b34bb43ab0ae5de48f8",
+    "0483_release_0_1_49_charger_colors": "7c2bbc79ba96228a1a8e90fbcca604976504c0f3bc2341e554e57720664823af",
+    "0484_release_0_1_49_board_positions": "80cad6b610e10ef027e59ebf837e728bc387a6ef44e21789269432ebb9a1c35d"
+  },
+  "v0.1.50": {
+    "0485_driver_token_label": "63fa5e26833e2edc023f739885cde7eaaaaac009c0f50543b416b0feab3d677a",
+    "0486_release_0_1_50": "0ea124476e61ed8db3ad54cc7dfc984725526a24df18c82ffc59eeb431320ca2",
+    "0487_station_portal_listed": "d911164db79366bb561cecc0831efbf6d95291293acd6254e80202a094c18c1b"
+  },
+  "v0.1.51": {
+    "0488_release_0_1_51": "d34dc2afa88eb99fc0816caf4a45a9c29c39cb082740de26f8702e7ab1919105",
+    "0489_release_0_1_51_indexes": "a28a9e2cb28051e6759d4791aca580383a8aa3f21f2f3804a311c73bda9551e7"
+  }
+}

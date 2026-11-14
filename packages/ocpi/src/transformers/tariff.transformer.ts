@@ -3,8 +3,8 @@
 
 import { netUnitPrice, vatPercentFromFraction } from '@evtivity/lib/price-display';
 import type { TaxBasis } from '@evtivity/lib/price-display';
-import { compareTariffs } from '@evtivity/lib';
-import type { TariffRestrictions } from '@evtivity/lib';
+import { compareTariffs, tariffSpecificity } from '@evtivity/lib';
+import type { TariffChargingType, TariffRestrictions } from '@evtivity/lib';
 import type {
   OcpiDayOfWeek,
   OcpiTariff,
@@ -29,6 +29,8 @@ export interface TariffSource {
   priority: number;
   isDefault: boolean;
   isActive: boolean;
+  /** AC, DC or Both (absent: Both). An AC or DC tariff wins over the default as the fallback. */
+  chargingType?: TariffChargingType;
 }
 
 export interface TariffTransformInput {
@@ -200,9 +202,9 @@ export function toOcpiRestrictions(
  * The tariffs in the order the resolver picks them (compareTariffs):
  * restricted tariffs by priority (highest first; energy thresholds highest
  * threshold first, so the highest threshold reached matches first; then by
- * id), then the default tariff without restrictions.
- * Inactive tariffs, and tariffs the resolver never picks (no restrictions or
- * priority 0, and not the default), are left out. A single-tariff mapping
+ * id), then the unrestricted tariff the resolver falls back to: the most
+ * specific one (an AC or DC tariff), else the default.
+ * Inactive tariffs, and tariffs the resolver never picks, are left out. A single-tariff mapping
  * publishes the mapped tariff's prices without its restrictions.
  */
 function orderedTariffs(
@@ -223,7 +225,9 @@ function orderedTariffs(
         input.today,
       ),
     }));
-  const fallback = active.find((t) => t.isDefault && t.priority === 0);
+  const fallback = active
+    .filter((t) => t.priority === 0 && (t.isDefault || tariffSpecificity(t) > 0))
+    .sort(compareTariffs)[0];
   return fallback != null
     ? [...restricted, { tariff: fallback, restrictions: [undefined] }]
     : restricted;

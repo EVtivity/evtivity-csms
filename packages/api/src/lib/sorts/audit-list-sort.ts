@@ -18,7 +18,7 @@ export const auditListSort = defineListSort(
     actorType: sql.raw('actor'),
   },
   {
-    tieBreaker: sql.raw('entity_type, id'),
+    tieBreaker: [sql.raw('entity_type'), sql.raw('id')],
     defaultOrder: [sql.raw('created_at DESC'), sql.raw('entity_type ASC'), sql.raw('id DESC')],
   },
 );

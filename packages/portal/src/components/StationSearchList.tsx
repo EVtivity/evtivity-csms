@@ -12,8 +12,9 @@ import { Badge } from '@/components/ui/badge';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { api } from '@/lib/api';
 import { formatConnectorCurrentAmps, formatConnectorPowerKw } from '@/lib/utils';
-import { EmptyState } from '@/components/ui/content-state';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 import { chargerRowKey } from '@/lib/station-units';
+import { activatableProps, ACTIVATABLE_FOCUS_CLASS } from '@/lib/activatable';
 import { usePortalFeatures } from '@/hooks/use-portal-features';
 import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
@@ -271,7 +272,12 @@ export function StationSearchList({
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: results } = useQuery({
+  const {
+    data: results,
+    isLoading: searchLoading,
+    isError: searchError,
+    refetch: refetchSearch,
+  } = useQuery({
     queryKey: ['charger-search', debouncedQuery],
     queryFn: () =>
       api.get<SearchResult[]>(`/v1/portal/chargers/search?q=${encodeURIComponent(debouncedQuery)}`),
@@ -370,10 +376,11 @@ export function StationSearchList({
             {nearbyStations.map((station) => (
               <Card
                 key={chargerRowKey(station.stationId, station.unitId)}
-                className="cursor-pointer transition-colors hover:bg-accent/50"
-                onClick={() => {
+                className={`cursor-pointer transition-colors hover:bg-accent/50 ${ACTIVATABLE_FOCUS_CLASS}`}
+                data-testid="search-row"
+                {...activatableProps(() => {
                   onSelect(station.stationId, station.unitId ?? null);
-                }}
+                })}
               >
                 <CardContent className="p-3 space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -417,16 +424,33 @@ export function StationSearchList({
           </>
         )}
 
+        {tab === 'local' && debouncedQuery.length >= 2 && searchLoading && <LoadingState />}
+
+        {tab === 'local' && debouncedQuery.length >= 2 && searchError && (
+          <ErrorState
+            message={t('chargerSearch.searchError')}
+            onRetry={() => {
+              void refetchSearch();
+            }}
+          />
+        )}
+
+        {tab === 'local' &&
+          debouncedQuery.length >= 2 &&
+          results != null &&
+          results.length === 0 && <EmptyState>{t('chargerSearch.noResults')}</EmptyState>}
+
         {tab === 'local' &&
           results != null &&
           results.length > 0 &&
           results.map((station) => (
             <Card
               key={chargerRowKey(station.stationId, station.unitId)}
-              className="cursor-pointer transition-colors hover:bg-accent/50"
-              onClick={() => {
+              className={`cursor-pointer transition-colors hover:bg-accent/50 ${ACTIVATABLE_FOCUS_CLASS}`}
+              data-testid="search-row"
+              {...activatableProps(() => {
                 onSelect(station.stationId, station.unitId ?? null);
-              }}
+              })}
             >
               <CardContent className="p-3 space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -486,7 +510,7 @@ export function StationSearchList({
                       {location.countryCode}-{location.partyId}
                     </Badge>
                     <Badge variant="secondary" className="text-xs">
-                      {String(location.evseCount)} EVSE
+                      {t('chargerSearch.evseCount', { count: location.evseCount })}
                     </Badge>
                   </div>
                 </div>

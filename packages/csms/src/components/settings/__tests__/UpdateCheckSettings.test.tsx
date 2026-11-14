@@ -66,6 +66,10 @@ describe('Update Check settings', () => {
         value: false,
       });
     });
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith({ variant: 'success', title: 'common.saved' });
+    });
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
   });
 
   it('puts the switch back and says why when the save fails', async () => {

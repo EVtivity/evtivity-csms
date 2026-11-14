@@ -387,6 +387,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
   const feeTerms = await snapshotReservationFeeTerms({
     stationUuid: station.id,
     driverUuid: input.driverId,
+    evseUuid,
   });
 
   const row = await db.transaction(async (tx) => {

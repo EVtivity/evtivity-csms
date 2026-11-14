@@ -1260,6 +1260,36 @@ describe('SiteLayout3D', () => {
     expect(links).toEqual(['/stations/sta_1', '/sessions/ses_1', '/drivers/drv_1']);
   });
 
+  it("floats one avatar per charging EVSE, each opening its own driver's session", () => {
+    const ses = (id: string, name: string) => ({
+      id,
+      startedAt: new Date().toISOString(),
+      energyDeliveredWh: 1000,
+      currentCostCents: 100,
+      currency: 'USD',
+      driver: { id: `drv_${id}`, name, avatar: null },
+    });
+    const first = ses('ses_a', 'Ann Lee');
+    const second = ses('ses_b', 'Bo Kim');
+    renderView([
+      station({
+        chargingKind: 'ac',
+        session: { ...first, evseId: 1 },
+        evses: [1, 2].map((evseId) => ({
+          evseId,
+          status: 'charging',
+          session: evseId === 1 ? first : second,
+          connectors: [connector({ status: 'charging', isPluggedIn: true })],
+        })),
+      }),
+    ]);
+    expect(screen.getByTestId('site-layout-3d-avatar-sta_1')).toBeDefined();
+    const other = screen.getByTestId('site-layout-3d-avatar-sta_1@stall1').querySelector('button');
+    expect(other?.getAttribute('aria-label')).toContain('sessionOfDriver');
+    if (other != null) fireEvent.click(other);
+    expect(screen.getByTestId('session-layout-popup').textContent).toContain('Bo Kim');
+  });
+
   it('shows a session without the driver when drivers may not be read', () => {
     renderView([
       chargingStation({
@@ -2369,5 +2399,37 @@ describe('SiteLayout3D two-port curb post', () => {
     // Its next spot holds sta_next: it serves its own spot (stored positions stay valid).
     const full = drawn.find((d) => d.id === 'sta_full');
     expect(full?.curbPair).toBeUndefined();
+  });
+
+  it('draws each two-EVSE unit as a two-port curb post with a car per EVSE (owner decision 2026-11-13)', () => {
+    const settings = streetSettings();
+    const units = station({
+      id: 'sta_units',
+      stationId: 'EM4-STREET',
+      chargingKind: 'ac',
+      positionX: 20,
+      positionY: 20,
+      session: null,
+      units: [
+        { id: 'unt_1', name: 'Box 1', evseIds: [1, 2], boardPosition: null },
+        { id: 'unt_2', name: 'Box 2', evseIds: [3, 4], boardPosition: null },
+      ],
+      evses: [1, 2, 3, 4].map((evseId) => ({
+        evseId,
+        status: 'charging',
+        unitId: evseId <= 2 ? 'unt_1' : 'unt_2',
+        connectors: [j1772(true)],
+      })),
+    });
+    renderView([units], { settings });
+    const drawn = scene.stations as unknown as Drawn[];
+    for (const id of ['sta_units', 'sta_units#u2']) {
+      const box = drawn.find((d) => d.id === id);
+      expect(box?.curbPair, id).toBe(true);
+      expect(
+        box?.stallCars?.map((c) => c != null),
+        id,
+      ).toEqual([true, true]);
+    }
   });
 });

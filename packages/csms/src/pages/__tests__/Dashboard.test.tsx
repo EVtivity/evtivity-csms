@@ -165,7 +165,13 @@ vi.stubGlobal(
   },
 );
 
-import { Dashboard, statCardCount, statGridClass, statGridColumns } from '../Dashboard';
+import {
+  Dashboard,
+  statCardCount,
+  statGridClass,
+  statGridColumns,
+  statGridLastSpans,
+} from '../Dashboard';
 import { useAuth } from '@/lib/auth';
 import {
   defaultDashboardLayout,
@@ -795,6 +801,21 @@ describe('stat rows fill every viewport', () => {
       expect(spans).toBe(count % 2 === 1);
     },
   );
+
+  it.each([5, 7])('fills every row of %i cards with the last card spanning the rest', (count) => {
+    const columns = statGridColumns(count);
+    const spans = statGridLastSpans(count);
+    columns.forEach((cols, i) => {
+      // More than one column from md up, and the last row adds up to the full width.
+      if (i > 0) expect(cols).toBeGreaterThan(1);
+      const rest = count % cols;
+      const lastRow = rest === 0 ? cols : rest - 1 + (spans[i] ?? 1);
+      expect(lastRow, `breakpoint ${String(i)}`).toBe(cols);
+    });
+    expect(statGridClass(5)).toBe(
+      'grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-4 xl:[&>*:last-child]:col-span-1',
+    );
+  });
 
   it('keeps the layouts that already filled their rows from md up', () => {
     expect(statGridClass(1)).toBe('grid gap-4 grid-cols-1');

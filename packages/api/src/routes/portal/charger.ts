@@ -26,6 +26,7 @@ import {
   writeCsmsSessionAudit,
   loadStationEvseKinds,
   startChargingKinds,
+  evseStartKinds,
 } from '@evtivity/database';
 import { decryptString, notificationMoney, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
@@ -650,6 +651,21 @@ const portalPricingInfo = z
       .describe(
         'The AC and DC prices of a station with AC and DC EVSEs whose prices differ, to show side by side (AC and DC tariffs). Empty otherwise',
       ),
+    evseFree: z
+      .array(
+        z
+          .object({
+            evseId: z.number().int().describe('OCPP EVSE number'),
+            free: z
+              .boolean()
+              .describe(
+                'True when a start on this EVSE needs no payment method: free at every kind the EVSE may be priced at (a mixed EVSE: Both, AC and DC), as the start decides',
+              ),
+          })
+          .loose(),
+      )
+      .optional()
+      .describe('Free or paid per EVSE of the station for this driver. Absent at a free vend site'),
   })
   .loose();
 
@@ -973,7 +989,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // are all AC or all DC is priced at that kind; one with both shows the
       // AC and DC prices side by side when they differ (byChargingKind), and
       // the Both tariff on top.
-      const kinds = chargingKindsOf([...(await loadStationEvseKinds(client, station.id)).values()]);
+      const evseKinds = await loadStationEvseKinds(client, station.id);
+      const kinds = chargingKindsOf([...evseKinds.values()]);
       const topKind = kinds.length === 1 ? (kinds[0] ?? null) : null;
       const resolved = await resolveStationPricing(
         { stationUuid: station.id, driverUuid: driverId, chargingKind: topKind },
@@ -983,7 +1000,6 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'No pricing found', code: 'PRICING_NOT_FOUND' });
         return;
       }
-      const { tariff } = resolved;
       const perKind =
         kinds.length > 1
           ? await Promise.all(
@@ -1017,28 +1033,66 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       );
       const kindPricesDiffer =
         new Set(byChargingKind.map((k) => JSON.stringify({ ...k, chargingKind: null }))).size > 1;
+      // AC and DC agree: every session pays that price, not the Both tariff's.
+      const agreedKind =
+        kinds.length > 1 && !kindPricesDiffer && byChargingKind.length === kinds.length
+          ? perKind[0]?.resolved
+          : null;
+      const shown = (agreedKind ?? resolved).tariff;
       const splitBilling = await isSplitBillingEnabled();
       const priceChangesDuringSession = splitBilling && groupTariffs.some((t) => t.priority > 0);
       // The start decides free or paid like isStationChargingFree (B3).
       const paidTariffAhead = splitBilling && hasPaidTariff(groupTariffs);
+      // Free or paid per EVSE, decided as the start decides it (the EVSE's
+      // kinds; a mixed EVSE counts Both, AC and DC).
+      const evseRows = await db
+        .select({ id: evses.id, evseId: evses.evseId })
+        .from(evses)
+        .where(and(eq(evses.stationId, station.id), isNull(evses.retiredAt)));
+      const freeByKinds = new Map<string, Promise<boolean>>();
+      const freeFor = (chargingKinds: Array<'ac' | 'dc' | null>): Promise<boolean> => {
+        const key = chargingKinds.join(',');
+        let free = freeByKinds.get(key);
+        if (free == null) {
+          free = isStationChargingFree(
+            {
+              stationUuid: station.id,
+              driverUuid: driverId,
+              reserved: false,
+              freeVend: false,
+              chargingKinds,
+            },
+            client,
+          );
+          freeByKinds.set(key, free);
+        }
+        return free;
+      };
+      const evseFree = await Promise.all(
+        evseRows.map(async (row) => ({
+          evseId: row.evseId,
+          free: await freeFor(evseStartKinds(evseKinds.get(row.id) ?? null)),
+        })),
+      );
 
       return {
         currency: await getCompanyCurrency(),
-        pricePerKwh: tariff.pricePerKwh,
-        pricePerMinute: tariff.pricePerMinute,
-        pricePerSession: tariff.pricePerSession,
-        idleFeePricePerMinute: tariff.idleFeePricePerMinute,
-        reservationFeePerMinute: tariff.reservationFeePerMinute,
-        taxRate: tariff.taxRate,
+        pricePerKwh: shown.pricePerKwh,
+        pricePerMinute: shown.pricePerMinute,
+        pricePerSession: shown.pricePerSession,
+        idleFeePricePerMinute: shown.idleFeePricePerMinute,
+        reservationFeePerMinute: shown.reservationFeePerMinute,
+        taxRate: shown.taxRate,
         taxBasis: await getCompanyTaxBasis(),
         isFreeVend: false,
-        restrictions: tariff.restrictions ?? null,
+        restrictions: shown.restrictions ?? null,
         billing: toDriverBilling(await resolveAccountBilling(client, driverId)),
-        timezone: tariff.timezone,
+        timezone: shown.timezone,
         priceChangesDuringSession,
         paidTariffAhead,
         chargingKind: topKind,
         byChargingKind: kindPricesDiffer ? byChargingKind : [],
+        evseFree,
       };
     },
   );
@@ -1101,6 +1155,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .innerJoin(sites, eq(chargingStations.siteId, sites.id))
         .where(and(publicStationListed(), whereClause))
+        .orderBy(asc(chargingStations.stationId), asc(chargingStations.id))
         .limit(SEARCH_ROW_LIMIT);
 
       const stationUuids = rows.map((r) => r.stationUuid);
@@ -1144,7 +1199,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteAddress: r.siteAddress,
           siteCity: r.siteCity,
         }),
-      ).slice(0, SEARCH_ROW_LIMIT);
+        SEARCH_ROW_LIMIT,
+      );
     },
   );
 
@@ -1201,7 +1257,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             sql`${distanceExpr} <= ${radius}`,
           ),
         )
-        .orderBy(sql`${distanceExpr}`)
+        .orderBy(sql`${distanceExpr}`, asc(chargingStations.id))
         .limit(limit);
 
       const stationUuids = rows.map((r) => r.stationUuid);
@@ -1246,7 +1302,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteCity: r.siteCity,
           distanceKm: Math.round(r.distanceKm * 10) / 10,
         }),
-      ).slice(0, limit);
+        limit,
+      );
     },
   );
 

@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
-const { getMock, patchMock, postMock } = vi.hoisted(() => {
+const { getMock, patchMock, postMock, toastMock } = vi.hoisted(() => {
   // The auth store reads the system mode when it loads; jsdom has no matchMedia.
   window.matchMedia = ((query: string) => ({
     matches: false,
@@ -14,7 +14,7 @@ const { getMock, patchMock, postMock } = vi.hoisted(() => {
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   })) as unknown as typeof window.matchMedia;
-  return { getMock: vi.fn(), patchMock: vi.fn(), postMock: vi.fn() };
+  return { getMock: vi.fn(), patchMock: vi.fn(), postMock: vi.fn(), toastMock: vi.fn() };
 });
 
 vi.mock('react-i18next', () => ({
@@ -26,6 +26,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   api: { get: getMock, patch: patchMock, post: postMock },
 }));
 vi.mock('@/i18n', () => ({ loadLanguage: vi.fn(() => Promise.resolve()) }));
+vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
 import { useAuth } from '@/lib/auth';
 import { UserDropdown } from '../UserDropdown';
@@ -135,6 +136,35 @@ describe('Sidebar user menu theme and mode', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(document.documentElement.getAttribute('data-theme')).toBe('soft');
     expect(screen.getByLabelText<HTMLSelectElement>('profile.theme').value).toBe('dark');
+  });
+
+  it('puts the theme back and says so when the save fails', async () => {
+    patchMock.mockRejectedValue(new Error('offline'));
+    renderMenu();
+    openMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'profile.uiTheme' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'profile.uiThemeSoft' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(patchMock).toHaveBeenCalledWith('/v1/users/me', { uiTheme: 'soft' });
+    expect(useAuth.getState().uiTheme).toBe('default');
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }));
+  });
+
+  it('puts the mode back and says so when the save fails', async () => {
+    patchMock.mockRejectedValue(new Error('offline'));
+    renderMenu();
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('profile.theme'), { target: { value: 'dark' } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(useAuth.getState().theme).toBe('light');
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }));
   });
 
   it('goes back from the theme list to the menu', () => {

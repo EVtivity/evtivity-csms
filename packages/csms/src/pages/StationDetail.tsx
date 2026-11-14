@@ -162,7 +162,12 @@ export function StationDetail(): React.JSX.Element {
     enabled: id != null,
   });
 
-  const { data: units } = useQuery({
+  const {
+    data: units,
+    isLoading: unitsLoading,
+    isError: unitsError,
+    refetch: refetchUnits,
+  } = useQuery({
     queryKey: ['stations', id, 'units'],
     queryFn: () => api.get<StationUnit[]>(`/v1/stations/${id ?? ''}/units`),
     enabled: id != null,
@@ -469,10 +474,12 @@ export function StationDetail(): React.JSX.Element {
         <TabsContent value="connectors">
           <ConnectorStatus
             data={connectorsData}
-            isLoading={connectorsLoading}
+            isLoading={connectorsLoading || unitsLoading}
             isError={connectorsError}
+            unitsError={unitsError && units == null}
             onRetry={() => {
               void refetchConnectors();
+              void refetchUnits();
             }}
             stationId={station.id}
             stationOcppId={station.stationId}

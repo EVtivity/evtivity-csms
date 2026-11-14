@@ -82,8 +82,11 @@ export async function claimStationWatches(
         AND ${sql.unsafe(availableEvseCountSql('cs', 'w.unit_id'))} > 0
       RETURNING w.driver_id, w.unit_id
     )
-    SELECT c.driver_id, u.name AS unit_name
+    -- A driver watching the station and one of its units gets one alert,
+    -- naming the unit.
+    SELECT DISTINCT ON (c.driver_id) c.driver_id, u.name AS unit_name
     FROM claimed c LEFT JOIN station_units u ON u.id = c.unit_id
+    ORDER BY c.driver_id, u.name NULLS LAST
   `;
   return (rows as unknown as Array<{ driver_id: string; unit_name: string | null }>).map((r) => ({
     driverId: r.driver_id,

@@ -11,9 +11,12 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 // by the shared driver availability rule; an operator enable changes no
 // connector status) that a station's availability changed. All are fail-open:
 // the availability is already stored.
+// `dashboardsOnly` tells the dashboards alone: a change partners and drivers
+// never see (a station unit's serial number, IP address or order).
 export async function publishStationStatusChanged(
   station: { id: string; siteId: string | null },
   logger?: FastifyBaseLogger,
+  options: { dashboardsOnly?: boolean } = {},
 ): Promise<void> {
   const pubsub = getPubSub();
   try {
@@ -28,6 +31,7 @@ export async function publishStationStatusChanged(
   } catch (err) {
     logger?.warn({ err, stationId: station.id }, 'station.status publish failed');
   }
+  if (options.dashboardsOnly === true) return;
   try {
     await alertStationWatchersIfAvailable(client, station.id);
   } catch (err) {

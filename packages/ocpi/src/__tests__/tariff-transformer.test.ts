@@ -209,6 +209,27 @@ describe('transformTariff for a pricing group', () => {
     isDefault: false,
   };
 
+  it('publishes an unrestricted AC tariff as the fallback instead of the default', () => {
+    const ac: TariffSource = {
+      ...tariff,
+      id: 'trf_ac',
+      pricePerKwh: '0.35',
+      pricePerSession: null,
+      isDefault: false,
+      chargingType: 'ac',
+    };
+    const result = transformTariff(
+      input({ tariffs: [tariff, ac], applyRestrictions: true }),
+      '2.2.1',
+    );
+    expect(result.elements).toHaveLength(1);
+    expect(result.elements[0]?.price_components).toContainEqual({
+      type: 'ENERGY',
+      price: 0.35,
+      step_size: 1,
+    });
+  });
+
   it('orders elements as the resolver does, restricted first, default last', () => {
     const result = transformTariff(
       input({ tariffs: [tariff, offPeak, bulk], applyRestrictions: true }),

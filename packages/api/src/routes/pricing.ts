@@ -11,6 +11,7 @@ import {
   loadStationPricingChain,
   loadStationEvseKinds,
   pickFromChain,
+  pickTariff,
   resolveGroupTariffs,
   getSystemTimezone,
   pgErrorCode,
@@ -190,7 +191,12 @@ const scheduleItem = z
     isCurrent: z
       .boolean()
       .describe(
-        'Whether this tariff is the one resolved as active right now, evaluated in the `timezone` query parameter or, without it, the system timezone setting (a pricing group has no site of its own). GET /v1/stations/:id/active-tariff resolves in the station site timezone.',
+        'Whether this tariff is the one resolved as active right now for an AC session, a DC session or a session whose kind is not known yet, evaluated in the `timezone` query parameter or, without it, the system timezone setting (a pricing group has no site of its own). GET /v1/stations/:id/active-tariff resolves in the station site timezone.',
+      ),
+    currentFor: z
+      .array(z.enum(['ac', 'dc']))
+      .describe(
+        'The charging kinds (ac, dc) this tariff is the active one for right now; empty when it is active only while the kind is not known (a mixed EVSE before the connector is named) or not active',
       ),
   })
   .loose();
@@ -438,11 +444,55 @@ async function sendDefaultRequired(reply: FastifyReply, error: string): Promise<
   await reply.status(409).send({ error, code: 'TARIFF_DEFAULT_REQUIRED' });
 }
 
+const DEFAULT_REQUIRED_REFUSAL: WriteRefusal = {
+  status: 409,
+  body: { error: DEFAULT_REQUIRED_MESSAGE, code: 'TARIFF_DEFAULT_REQUIRED' },
+};
+
+/** The overlap refusal of a tariff write against the group's active tariffs, or null. */
+function overlapRefusal(
+  groupTariffs: GroupTariffRow[],
+  restrictions: TariffRestrictions | null,
+  priority: number,
+  excludeTariffId: string | undefined,
+  scope: { chargingType: TariffChargingType; siteIds: readonly string[] | null },
+): WriteRefusal | null {
+  const check = validateNoOverlap(
+    groupTariffs
+      .filter((t) => t.isActive)
+      .map((t) => ({
+        id: t.id,
+        restrictions: t.restrictions,
+        priority: t.priority,
+        chargingType: t.chargingType,
+        siteIds: t.siteIds,
+      })),
+    restrictions,
+    priority,
+    excludeTariffId,
+    scope,
+  );
+  if (check.valid) return null;
+  return {
+    status: 409,
+    body: {
+      error: check.message ?? 'Tariff overlap detected',
+      code: 'TARIFF_OVERLAP',
+      conflictingTariffId: check.conflictingTariffId,
+    },
+  };
+}
+
 /** Every tariff of the group (active or not), as the default rule reads it. */
+type GroupTariffRow = GroupDefaultTariff & { priority: number };
+type WriteRefusal = { status: 400 | 409; body: Record<string, unknown> };
+
+/** The group's tariffs, read through `executor` (the write transaction under the scope lock). */
 async function loadGroupDefaultTariffs(
   groupId: string,
-): Promise<Array<GroupDefaultTariff & { priority: number }>> {
-  const rows = await db
+  executor: Parameters<typeof loadTariffSiteIds>[0] = db,
+): Promise<GroupTariffRow[]> {
+  const rows = await executor
     .select({
       id: tariffs.id,
       restrictions: tariffs.restrictions,
@@ -455,7 +505,7 @@ async function loadGroupDefaultTariffs(
     .from(tariffs)
     .where(eq(tariffs.pricingGroupId, groupId));
   const siteMap = await loadTariffSiteIds(
-    db,
+    executor,
     rows.filter((t) => t.siteScope === 'selected').map((t) => t.id),
   );
   return rows.map((t) => ({
@@ -901,47 +951,35 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const groupTariffs = await loadGroupDefaultTariffs(id);
-
-      const overlapCheck = validateNoOverlap(
-        groupTariffs
-          .filter((t) => t.isActive)
-          .map((t) => ({
-            id: t.id,
-            restrictions: t.restrictions,
-            priority: t.priority,
-            chargingType: t.chargingType,
-            siteIds: t.siteIds,
-          })),
-        restrictions ?? null,
-        priority,
-        undefined,
-        scope,
-      );
-
-      if (!overlapCheck.valid) {
-        await reply.status(409).send({
-          error: overlapCheck.message ?? 'Tariff overlap detected',
-          code: 'TARIFF_OVERLAP',
-          conflictingTariffId: overlapCheck.conflictingTariffId,
-        });
-        return;
-      }
-
-      // A restricted tariff needs the group's default first, so a time or
-      // energy the restrictions leave out never bills zero.
-      const after: GroupDefaultTariff[] = [
-        ...groupTariffs.map((t) => ({ ...t, isDefault: isDefault ? false : t.isDefault })),
-        {
-          id: '',
-          restrictions: restrictions ?? null,
-          isDefault,
-          isActive: body.isActive,
-          ...scope,
-        },
-      ];
-      if (!checkGroupDefault(after).valid) {
-        await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
+      // The overlap and default rules over the group's tariffs. Checked
+      // before the transaction for a fast answer, and again inside it under
+      // the group's scope lock, so two concurrent writes cannot both pass.
+      const ruleRefusal = (groupTariffs: GroupTariffRow[]): WriteRefusal | null => {
+        const overlap = overlapRefusal(
+          groupTariffs,
+          restrictions ?? null,
+          priority,
+          undefined,
+          scope,
+        );
+        if (overlap != null) return overlap;
+        // A restricted tariff needs the group's default first, so a time or
+        // energy the restrictions leave out never bills zero.
+        const after: GroupDefaultTariff[] = [
+          ...groupTariffs.map((t) => ({ ...t, isDefault: isDefault ? false : t.isDefault })),
+          {
+            id: '',
+            restrictions: restrictions ?? null,
+            isDefault,
+            isActive: body.isActive,
+            ...scope,
+          },
+        ];
+        return checkGroupDefault(after).valid ? null : DEFAULT_REQUIRED_REFUSAL;
+      };
+      const early = ruleRefusal(await loadGroupDefaultTariffs(id));
+      if (early != null) {
+        await reply.status(early.status).send(early.body);
         return;
       }
 
@@ -953,6 +991,8 @@ export function pricingRoutes(app: FastifyInstance): void {
         created = await db.transaction(async (tx) => {
           const refusal = await scopeRefusal(tx, id, chargingType, siteIds);
           if (refusal != null) throw new ScopeRefused(refusal);
+          const locked = ruleRefusal(await loadGroupDefaultTariffs(id, tx));
+          if (locked != null) throw new ScopeRefused(locked);
           if (isDefault) {
             await tx
               .update(tariffs)
@@ -1100,43 +1140,24 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Overlap validation
-      const overlapCheck = validateNoOverlap(
-        groupTariffs
-          .filter((t) => t.isActive)
-          .map((t) => ({
-            id: t.id,
-            restrictions: t.restrictions,
-            priority: t.priority,
-            chargingType: t.chargingType,
-            siteIds: t.siteIds,
-          })),
-        restrictions,
-        priority,
-        tariffId,
-        scope,
-      );
-
-      if (!overlapCheck.valid) {
-        await reply.status(409).send({
-          error: overlapCheck.message ?? 'Tariff overlap detected',
-          code: 'TARIFF_OVERLAP',
-          conflictingTariffId: overlapCheck.conflictingTariffId,
-        });
-        return;
-      }
-
       const takesDefault = isDefault && !existing.isDefault;
-      if (touchesDefault) {
-        const after: GroupDefaultTariff[] = groupTariffs.map((t) =>
+      // The overlap and default rules, before the transaction and again
+      // inside it under the group's scope lock (concurrent writes).
+      const ruleRefusal = (rows: GroupTariffRow[]): WriteRefusal | null => {
+        const overlap = overlapRefusal(rows, restrictions, priority, tariffId, scope);
+        if (overlap != null) return overlap;
+        if (!touchesDefault) return null;
+        const after: GroupDefaultTariff[] = rows.map((t) =>
           t.id === tariffId
             ? { id: t.id, restrictions, isDefault, isActive, ...scope }
             : { ...t, isDefault: takesDefault ? false : t.isDefault },
         );
-        if (!checkGroupDefault(after).valid) {
-          await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
-          return;
-        }
+        return checkGroupDefault(after).valid ? null : DEFAULT_REQUIRED_REFUSAL;
+      };
+      const early = ruleRefusal(groupTariffs);
+      if (early != null) {
+        await reply.status(early.status).send(early.body);
+        return;
       }
 
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -1169,10 +1190,18 @@ export function pricingRoutes(app: FastifyInstance): void {
       // transaction (uq_tariffs_one_default_per_group), under the group's
       // scope lock (D-B). Only a changed scope is checked, so a price edit
       // of a tariff in a group written before still saves.
-      const scopeChanged = body.chargingType !== undefined || body.siteIds !== undefined;
+      // Reactivating an AC or DC tariff makes the group publish per kind
+      // again, so it takes the same checks (the OCPI id length).
+      const scopeChanged =
+        body.chargingType !== undefined ||
+        body.siteIds !== undefined ||
+        (body.isActive === true && !existing.isActive && chargingType !== 'both');
       let updated: (typeof tariffs.$inferSelect & { siteIds: string[] | null }) | undefined;
       try {
         updated = await db.transaction(async (tx) => {
+          await lockPricingGroupScope(tx, existing.pricingGroupId);
+          const locked = ruleRefusal(await loadGroupDefaultTariffs(existing.pricingGroupId, tx));
+          if (locked != null) throw new ScopeRefused(locked);
           if (scopeChanged) {
             const refusal = await scopeRefusal(
               tx,
@@ -1292,18 +1321,25 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // The default stays while the group has other active tariffs.
-      if (tariff.isDefault) {
-        const rest = (await loadGroupDefaultTariffs(tariff.pricingGroupId)).filter(
-          (t) => t.id !== tariffId,
-        );
-        if (!checkGroupDefault(rest).valid) {
-          await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
-          return;
+      // The default stays while the group has other active tariffs, read
+      // under the group's scope lock so a concurrent create cannot add one.
+      const defaultKept = await db.transaction(async (tx) => {
+        await lockPricingGroupScope(tx, tariff.pricingGroupId);
+        const rows = await loadGroupDefaultTariffs(tariff.pricingGroupId, tx);
+        const self = rows.find((t) => t.id === tariffId);
+        if (
+          self?.isDefault === true &&
+          !checkGroupDefault(rows.filter((t) => t.id !== tariffId)).valid
+        ) {
+          return false;
         }
+        await tx.delete(tariffs).where(eq(tariffs.id, tariffId));
+        return true;
+      });
+      if (!defaultKept) {
+        await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
+        return;
       }
-
-      await db.delete(tariffs).where(eq(tariffs.id, tariffId));
       await writeAudit(
         { table: tariffAuditLog, idColumn: 'tariff_id' },
         {
@@ -1364,11 +1400,19 @@ export function pricingRoutes(app: FastifyInstance): void {
       // A group has no site of its own: the caller names the timezone (a site's,
       // when shown for a site or station), else the system timezone setting.
       const timezone = query.timezone ?? (await getSystemTimezone());
+      const at = new Date();
       const { tariffs: activeTariffs, current: currentTariff } = await resolveGroupTariffs(
         id,
-        { at: new Date(), timezone },
+        { at, timezone },
         client,
       );
+      // The tariff in force for each charging kind: an AC or DC tariff applies
+      // only to sessions of its kind, the Both tariffs while the kind is unknown.
+      const holidays = await getPricingHolidays(client);
+      const currentByKind = (['ac', 'dc'] as const).map((chargingKind) => ({
+        chargingKind,
+        id: pickTariff(activeTariffs, { at, timezone, chargingKind }, holidays)?.id ?? null,
+      }));
 
       const schedule = activeTariffs
         .map((t) => ({
@@ -1384,7 +1428,8 @@ export function pricingRoutes(app: FastifyInstance): void {
           isDefault: t.isDefault,
           chargingType: t.chargingType,
           siteScope: t.siteIds != null ? ('selected' as const) : ('all' as const),
-          isCurrent: currentTariff?.id === t.id,
+          isCurrent: currentTariff?.id === t.id || currentByKind.some((c) => c.id === t.id),
+          currentFor: currentByKind.filter((c) => c.id === t.id).map((c) => c.chargingKind),
         }))
         .sort((a, b) => b.priority - a.priority);
 

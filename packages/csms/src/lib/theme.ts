@@ -35,7 +35,7 @@ export function applyUiTheme(theme: UiTheme): void {
  */
 export function adoptUiTheme(uiTheme: unknown): UiTheme {
   const theme = toUiTheme(uiTheme);
-  localStorage.setItem('ui_theme', theme);
+  writeStored('ui_theme', theme);
   applyUiTheme(theme);
   return theme;
 }
@@ -65,6 +65,15 @@ export function applyStartupAppearance(): void {
 
 // Storage can be blocked (private mode): the system mode and Default then, as
 // public/theme-init.js does, so the app still renders (Unable to Connect included).
+/** Saves an appearance choice for the next page load; the page keeps it when storage refuses. */
+export function writeStored(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn('Could not save the appearance for the next visit', err);
+  }
+}
+
 function readStored(key: string): string | null {
   try {
     return localStorage.getItem(key);

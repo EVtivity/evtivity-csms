@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
+import { isDcConnector } from '@evtivity/lib/connector-power';
 import { planProfileHash } from '@evtivity/services/charging-plan-profile-hash';
 
 // SQL mock: records every tagged-template call (strings + interpolated values)
@@ -1237,6 +1238,23 @@ describe('Event projections - coverage round 2', () => {
       const upd = findSql(/UPDATE connectors\s+SET connector_type/);
       expect(upd).toBeDefined();
       expect(upd?.values).toContain('CCS2');
+    });
+
+    it('keeps a reported cGBT-DC connector DC (its tariff is the DC one)', async () => {
+      await setup();
+      setupSqlResults(STA, [], []);
+      await emit('ocpp.NotifyReport', 'CS-1', {
+        reportData: [
+          {
+            component: { name: 'Connector', evse: { id: 1, connectorId: 1 } },
+            variable: { name: 'ConnectorType' },
+            variableAttribute: [{ type: 'Actual', value: 'cGBT-DC' }],
+          },
+        ],
+      });
+      const upd = findSql(/UPDATE connectors\s+SET connector_type/);
+      expect(upd?.values).toContain('cGBT-DC');
+      expect(isDcConnector({ connectorType: 'cGBT-DC', maxPowerKw: null })).toBe(true);
     });
 
     it('stores non-primitive attribute value as null', async () => {

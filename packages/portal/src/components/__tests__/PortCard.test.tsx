@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup, within, fireEvent } from '@testing-library/react';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -104,5 +104,71 @@ describe('PortCard', () => {
     ).toEqual(['neutral', 'neutral']);
     expect(screen.getByText('VendorPlug')).toBeTruthy();
     expect(screen.getByText('connectorTypeNames.other')).toBeTruthy();
+  });
+
+  it('is a keyboard button when selectable: Enter and Space select, pressed state announced', () => {
+    const onSelect = vi.fn();
+    render(
+      <PortCard
+        evseId={2}
+        status="available"
+        available
+        onSelect={onSelect}
+        connectors={[{ connectorId: 1, connectorType: 'CCS1', maxPowerKw: 50 }]}
+      />,
+    );
+    const button = screen.getByRole('button', { pressed: false });
+    expect(button.getAttribute('tabindex')).toBe('0');
+    expect(button.getAttribute('aria-label')).toBe(
+      'stationDetail.connectorPort:2, status.available, CCS1',
+    );
+    fireEvent.keyDown(button, { key: 'Enter' });
+    fireEvent.keyDown(button, { key: ' ' });
+    fireEvent.keyDown(button, { key: 'a' });
+    expect(onSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces the selected card as pressed', () => {
+    render(
+      <PortCard
+        evseId={1}
+        status="available"
+        available
+        selected
+        onSelect={() => undefined}
+        connectors={[{ connectorId: 1, connectorType: 'Type2', maxPowerKw: 22 }]}
+      />,
+    );
+    expect(screen.getByRole('button', { pressed: true })).toBeTruthy();
+  });
+
+  it('does not select an unavailable card from the keyboard or a click', () => {
+    const onSelect = vi.fn();
+    render(
+      <PortCard
+        evseId={1}
+        status="faulted"
+        available={false}
+        onSelect={onSelect}
+        connectors={[{ connectorId: 1, connectorType: 'Type2', maxPowerKw: 22 }]}
+      />,
+    );
+    const button = screen.getByRole('button');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.keyDown(button, { key: 'Enter' });
+    fireEvent.click(button);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('is no button when the card only shows the port', () => {
+    render(
+      <PortCard
+        evseId={1}
+        status="available"
+        available
+        connectors={[{ connectorId: 1, connectorType: 'Type2', maxPowerKw: 22 }]}
+      />,
+    );
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });

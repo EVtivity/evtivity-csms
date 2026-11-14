@@ -58,7 +58,11 @@ describe('list sort definitions', () => {
         const [first, second] = terms.map((term) => render([term]));
         expect(first, `${key} ${order}`).toMatch(new RegExp(` ${order}( nulls last)?$`));
         expect(second, `${key} ${order}`).toMatch(new RegExp(` ${order}$`));
-        tieBreakers.add(second?.replace(/ (asc|desc)$/, '') ?? '');
+        // Every column of the tie-breaker takes the chosen direction.
+        for (const part of (second ?? '').split(', ')) {
+          expect(part, `${key} ${order}`).toMatch(new RegExp(` ${order}$`));
+        }
+        tieBreakers.add(second?.replace(/ (asc|desc)/g, '') ?? '');
       }
     }
     // One tie-breaker (the primary key) for every key of a list.

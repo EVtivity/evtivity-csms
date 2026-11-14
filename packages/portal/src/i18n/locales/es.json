@@ -340,6 +340,7 @@
     "pricingFree": "Gratis",
     "chargingKindAc": "CA",
     "chargingKindDc": "CC",
+    "priceDetailsToggle": "Mostrar los detalles de precios de CA y CC",
     "freeVendBadge": "Carga gratuita en este sitio",
     "freeVendDescription": "El operador del sitio ha activado el modo de carga gratuita - no se aplican cargos.",
     "restrictionHolidays": "Tarifa de festivos",
@@ -382,7 +383,8 @@
     "reserved": "Reservado",
     "connectorReserved": "El conector está reservado",
     "maintenanceTitle": "Sitio en mantenimiento",
-    "maintenanceUntil": "Reanudación prevista: {{time}}"
+    "maintenanceUntil": "Reanudación prevista: {{time}}",
+    "offlineNotice": "Esta estación está fuera de línea. La carga no puede iniciarse hasta que se vuelva a conectar."
   },
   "chargerSearch": {
     "title": "Iniciar carga",
@@ -405,7 +407,11 @@
     "available": "disponible",
     "enableLocation": "Habilite los servicios de ubicación para ver estaciones cercanas.",
     "enableLocationButton": "Habilitar Ubicación",
-    "nearbyError": "Error al cargar estaciones cercanas."
+    "nearbyError": "Error al cargar estaciones cercanas.",
+    "noResults": "No se encontraron estaciones",
+    "searchError": "Error al buscar estaciones.",
+    "evseCount_one": "{{count}} puerto",
+    "evseCount_other": "{{count}} puertos"
   },
   "guest": {
     "checkoutTitle": "Pago de invitado",
@@ -644,7 +650,8 @@
       }
     },
     "linkedSessionFallback": "Sesión de carga",
-    "linkedStationFallback": "Estación de carga"
+    "linkedStationFallback": "Estación de carga",
+    "defaultSubject": "Problema en {{station}}"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Cuenta desactivada",
@@ -921,6 +928,7 @@
     "STREAM_LIMIT_REACHED": "Hay demasiadas actualizaciones en vivo de estaciones abiertas desde este dispositivo. Cierre otras pestañas e inténtelo de nuevo.",
     "SUPPORT_AI_NOT_CONFIGURED": "La IA de soporte no está configurada",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Este caso de soporte no está esperando su valoración de una respuesta automática",
+    "SUPPORT_CASE_CHANGED": "El estado del caso cambió desde que lo abrió. Vuelva a cargar el caso e inténtelo de nuevo.",
     "SUPPORT_CASE_NOT_FOUND": "Caso de soporte no encontrado",
     "SUPPORT_DISABLED": "El soporte está deshabilitado",
     "TARIFF_IN_USE": "La tarifa está referenciada por sesiones de carga y no se puede eliminar",
@@ -1292,14 +1300,15 @@
   "location": {
     "title": "Detalles de Ubicación",
     "chargers": "{{count}} cargadores",
-    "available": "{{count}} disponibles",
     "hoursOfOperation": "Horario de operación",
     "getDirections": "Obtener Direcciones",
     "noImages": "No hay imágenes disponibles",
     "contactInfo": "Contacto",
     "loading": "Cargando ubicación...",
     "stations": "Estaciones",
-    "noStations": "No hay estaciones en esta ubicación."
+    "noStations": "No hay estaciones en esta ubicación.",
+    "available_one": "{{count}} disponible",
+    "available_other": "{{count}} disponibles"
   },
   "stationDetail": {
     "selectConnector": "Seleccione un puerto para comenzar a cargar",

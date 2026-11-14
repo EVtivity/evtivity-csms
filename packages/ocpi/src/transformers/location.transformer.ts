@@ -80,18 +80,28 @@ export interface EvseRow {
 export const OCPI_PHYSICAL_REFERENCE_MAX = 16;
 
 /**
- * The `physical_reference` of an EVSE: its unit name cut to the OCPI length
- * (in characters, never splitting one), or none for an EVSE without a unit.
+ * The `physical_reference` of an EVSE: its unit name cut to the OCPI length,
+ * or none for an EVSE without a unit. OCPI does not say what string(n)
+ * counts, so the cut keeps whole characters (never splitting an emoji
+ * sequence) and at most 16 code points, which a partner that counts
+ * characters, graphemes or code points all accept.
  */
 export function physicalReferenceOf(unitName: string | null | undefined): string | undefined {
   if (unitName == null) return undefined;
   const trimmed = unitName.trim();
   if (trimmed === '') return undefined;
-  const graphemes = Array.from(
-    new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(trimmed),
-    (s) => s.segment,
-  );
-  return graphemes.slice(0, OCPI_PHYSICAL_REFERENCE_MAX).join('').trimEnd();
+  let out = '';
+  let codePoints = 0;
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(
+    trimmed,
+  )) {
+    const length = Array.from(segment).length;
+    if (codePoints + length > OCPI_PHYSICAL_REFERENCE_MAX) break;
+    out += segment;
+    codePoints += length;
+  }
+  const cut = out.trimEnd();
+  return cut === '' ? undefined : cut;
 }
 
 interface ConnectorRow {
@@ -153,6 +163,7 @@ const CONNECTOR_TYPE_MAP: Record<string, OcpiConnectorType> = {
   Type2: 'IEC_62196_T2',
   Type1: 'IEC_62196_T1',
   GBT: 'GBT_DC',
+  'cGBT-DC': 'GBT_DC',
   Tesla: 'TESLA_S',
   NACS: 'IEC_62196_T1_COMBO',
 };
@@ -162,7 +173,7 @@ function mapConnectorType(connectorType: string | null): OcpiConnectorType {
   return CONNECTOR_TYPE_MAP[connectorType] ?? 'IEC_62196_T2';
 }
 
-const DC_CONNECTOR_TYPES = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'Tesla', 'NACS']);
+const DC_CONNECTOR_TYPES = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'cGBT-DC', 'Tesla', 'NACS']);
 
 function inferConnectorFormat(connectorType: string | null): OcpiConnectorFormat {
   // DC connectors typically use cables; AC connectors often use sockets

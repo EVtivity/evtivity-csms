@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router';
+import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
@@ -152,6 +152,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   const { stationId } = useParams<{ stationId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const priceDisplay = usePriceDisplay();
   // Signed-out visitors see times in the browser's time zone.
@@ -333,7 +334,11 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
 
   // A free tariff with a paid tariff ahead (split billing) needs a payment
   // method like a paid one: the start decides from the whole group (B3).
-  const isFree = pricing != null && isTariffFree(pricing) && pricing.paidTariffAhead !== true;
+  // The picked EVSE's own answer from the API (its kind decides: on a station
+  // with AC and DC tariffs the Both tariff above may be free while DC is not).
+  const evseFree = pricing?.evseFree?.find((e) => e.evseId === selectedEvseId)?.free;
+  const isFree =
+    pricing != null && (evseFree ?? (isTariffFree(pricing) && pricing.paidTariffAhead !== true));
   // The no-show fee of the chosen window, tax included, as the server charges
   // it when the reservation expires unused; the generic note without a fee.
   const noShowFee =
@@ -558,7 +563,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       {/* Location */}
       {station.siteAddress != null && station.siteId != null ? (
         <Link
-          to={`/location/${station.siteId}?from=${encodeURIComponent(`/start/${station.stationId}`)}`}
+          to={`/location/${station.siteId}?from=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
           className="flex items-start gap-2 text-sm text-link hover:underline transition-colors"
         >
           <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
@@ -704,7 +709,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
             setFocusedEvseId(null);
           }}
         >
-          {t('stationDetail.showAllConnectors', { total: station.evses.length })}
+          {t('stationDetail.showAllConnectors', { total: scopeEvses.length })}
         </Button>
       )}
 

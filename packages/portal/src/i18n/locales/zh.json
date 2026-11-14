@@ -340,6 +340,7 @@
     "pricingFree": "免费",
     "chargingKindAc": "交流",
     "chargingKindDc": "直流",
+    "priceDetailsToggle": "显示交流和直流价格详情",
     "freeVendBadge": "本充电站免费充电",
     "freeVendDescription": "充电站运营商已启用免费充电模式 - 无需付费。",
     "restrictionHolidays": "节假日费率",
@@ -382,7 +383,8 @@
     "reserved": "已预约",
     "connectorReserved": "连接器已被预约",
     "maintenanceTitle": "充电站维护中",
-    "maintenanceUntil": "预计恢复时间: {{time}}"
+    "maintenanceUntil": "预计恢复时间: {{time}}",
+    "offlineNotice": "此充电桩处于离线状态。重新连接之前无法开始充电。"
   },
   "chargerSearch": {
     "title": "开始充电",
@@ -405,7 +407,11 @@
     "available": "可用",
     "enableLocation": "启用位置服务以查看附近的充电桩。",
     "enableLocationButton": "启用位置",
-    "nearbyError": "加载附近充电桩失败。"
+    "nearbyError": "加载附近充电桩失败。",
+    "noResults": "未找到充电桩",
+    "searchError": "搜索充电桩失败。",
+    "evseCount_one": "{{count}} 个端口",
+    "evseCount_other": "{{count}} 个端口"
   },
   "guest": {
     "checkoutTitle": "访客结账",
@@ -644,7 +650,8 @@
       }
     },
     "linkedSessionFallback": "充电会话",
-    "linkedStationFallback": "充电桩"
+    "linkedStationFallback": "充电桩",
+    "defaultSubject": "{{station}} 的问题"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "账户已停用",
@@ -921,6 +928,7 @@
     "STREAM_LIMIT_REACHED": "此设备打开的充电桩实时更新过多。请关闭其他标签页后重试。",
     "SUPPORT_AI_NOT_CONFIGURED": "支持 AI 未配置",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "此支持工单未在等待对自动回答的反馈",
+    "SUPPORT_CASE_CHANGED": "自您打开此工单后，其状态已更改。请重新加载工单后重试。",
     "SUPPORT_CASE_NOT_FOUND": "未找到支持工单",
     "SUPPORT_DISABLED": "支持功能已禁用",
     "TARIFF_IN_USE": "费率已被充电会话引用，无法删除",
@@ -1291,14 +1299,15 @@
   "location": {
     "title": "位置详情",
     "chargers": "{{count}} 个充电桩",
-    "available": "{{count}} 个可用",
     "hoursOfOperation": "营业时间",
     "getDirections": "获取路线",
     "noImages": "暂无图片",
     "contactInfo": "联系方式",
     "loading": "加载位置中...",
     "stations": "充电桩",
-    "noStations": "此位置没有充电桩。"
+    "noStations": "此位置没有充电桩。",
+    "available_one": "{{count}} 个可用",
+    "available_other": "{{count}} 个可用"
   },
   "stationDetail": {
     "selectConnector": "选择端口以开始充电",

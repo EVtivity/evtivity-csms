@@ -17,6 +17,8 @@ import {
   UI_CONTRAST_PAIRS,
   UI_SHAPE_TOKENS,
   UI_THEME_TOKENS,
+  UI_TINT_ALPHA,
+  UI_TINT_TEXT_PAIRS,
   contrastOnTint,
   contrastRatio,
   renderThemeCss,
@@ -140,17 +142,30 @@ describe('ui theme contrast (WCAG 2.2)', () => {
 
   for (const theme of UI_THEMES) {
     for (const mode of ['light', 'dark'] as const) {
-      it(`${theme} ${mode}: warning text meets AA on the Alert tint (10 percent fill)`, () => {
+      it(`${theme} ${mode}: Alert text and muted text meet AA on every tone tint`, () => {
         const t = UI_THEME_TOKENS[theme][mode];
-        for (const surface of ['card', 'background'] as const) {
-          expect(
-            contrastOnTint(t['warning-text'], t.warning, t[surface], 0.1),
-            surface,
-          ).toBeGreaterThanOrEqual(4.5);
+        const failing: string[] = [];
+        for (const pair of UI_TINT_TEXT_PAIRS) {
+          for (const surface of ['card', 'background'] as const) {
+            const ratio = contrastOnTint(t[pair.fg], t[pair.tone], t[surface], UI_TINT_ALPHA);
+            if (ratio < 4.5) failing.push(`${pair.fg} on ${pair.tone}/10 over ${surface}`);
+          }
         }
+        expect(failing).toEqual([]);
       });
     }
   }
+
+  it('checks the focus ring and every tone text token', () => {
+    const fgs = UI_CONTRAST_PAIRS.map((p) => `${p.fg}/${p.bg}`);
+    for (const pair of ['ring/card', 'ring/background']) expect(fgs).toContain(pair);
+    for (const tone of ['destructive', 'success', 'info', 'warning']) {
+      expect(UI_TINT_TEXT_PAIRS.some((p) => p.fg === `${tone}-text`)).toBe(true);
+      expect(UI_TINT_TEXT_PAIRS.some((p) => p.fg === 'muted-foreground' && p.tone === tone)).toBe(
+        true,
+      );
+    }
+  });
 
   it('asks AAA of body text in High Contrast only', () => {
     expect(requiredContrast('high-contrast', 'body')).toBe(7);

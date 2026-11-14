@@ -32,7 +32,7 @@ export async function unitsOf(
   const ids = [...new Set(unitIds.filter((id): id is string => id != null))];
   if (ids.length === 0) return new Map();
   const rows = await db
-    .select({ id: stationUnits.id, name: stationUnits.name, updatedAt: stationUnits.updatedAt })
+    .select({ id: stationUnits.id, name: stationUnits.name, updatedAt: stationUnits.nameUpdatedAt })
     .from(stationUnits)
     .where(inArray(stationUnits.id, ids));
   return new Map(rows.map((r) => [r.id, { name: r.name, updatedAt: r.updatedAt }]));

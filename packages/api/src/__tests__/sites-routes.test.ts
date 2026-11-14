@@ -557,6 +557,37 @@ describe('Site routes - handler logic', () => {
       }
     });
 
+    it('lists only the sites named by ids, once each, within the caller scope', async () => {
+      const drizzle = await import('drizzle-orm');
+      vi.mocked(drizzle.inArray).mockClear();
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_a', 'sit_b']);
+      setupDbResults([], [{ count: 0 }]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/sites?ids=sit_a,sit_c,sit_a',
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+      const lists = vi.mocked(drizzle.inArray).mock.calls.map((call) => call[1]);
+      // The caller's sites, then the named ones: both conditions apply.
+      expect(lists).toEqual([
+        ['sit_a', 'sit_b'],
+        ['sit_a', 'sit_c'],
+      ]);
+    });
+
+    it('refuses more than 100 ids or an empty id', async () => {
+      const many = Array.from({ length: 101 }, (_, i) => `sit_${String(i)}`).join(',');
+      for (const ids of [many, 'sit_a,,sit_b', 'sit_a;drop']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/sites?ids=${encodeURIComponent(ids)}`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+        expect(response.statusCode, ids).toBe(400);
+      }
+    });
+
     it('refuses a sort key it does not offer and an unknown order', async () => {
       for (const query of ['sort=id', 'sort=sites.name', 'sort=powerDraw', 'sort=name&order=up']) {
         const response = await app.inject({

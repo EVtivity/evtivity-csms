@@ -19,6 +19,13 @@ export function isStartable(status: string | null | undefined): boolean {
   return status != null && STARTABLE_STATUSES.includes(status);
 }
 
+// The status a port card shows: a port that reports Available but cannot
+// start (station offline, disabled, under maintenance, or the EVSE reserved)
+// shows Unavailable, so the location page and the guest pages agree.
+export function portDisplayStatus(status: string, available: boolean): string {
+  return !available && status === 'available' ? 'unavailable' : status;
+}
+
 export interface SelectableEvse {
   connectors: { status: string | null }[];
   // An active reservation holds the EVSE.
@@ -57,7 +64,7 @@ export function connectorStatusVariant(): 'secondary' {
 export function connectorStatusClassName(status: string): string {
   switch (status) {
     case 'available':
-      return 'bg-green-500 text-green-50 hover:bg-green-500/80';
+      return 'bg-green-500 text-green-950 hover:bg-green-500/80';
     case 'finishing':
       return 'bg-violet-500 text-violet-50 hover:bg-violet-500/80';
     case 'occupied':
@@ -66,13 +73,13 @@ export function connectorStatusClassName(status: string): string {
       return 'bg-blue-500 text-blue-50 hover:bg-blue-500/80';
     case 'preparing':
     case 'ev_connected':
-      return 'bg-cyan-500 text-cyan-50 hover:bg-cyan-500/80';
+      return 'bg-cyan-500 text-cyan-950 hover:bg-cyan-500/80';
     case 'reserved':
-      return 'bg-orange-500 text-orange-50 hover:bg-orange-500/80';
+      return 'bg-orange-500 text-orange-950 hover:bg-orange-500/80';
     case 'suspended_ev':
     case 'suspended_evse':
     case 'idle':
-      return 'bg-yellow-500 text-yellow-50 hover:bg-yellow-500/80';
+      return 'bg-yellow-500 text-yellow-950 hover:bg-yellow-500/80';
     case 'faulted':
     case 'unavailable':
     default:

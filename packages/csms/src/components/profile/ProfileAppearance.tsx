@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { useAuth } from '@/lib/auth';
 import { UI_THEME_LABEL_KEY } from '@/lib/theme';
+import { useAppearanceSave } from '@/hooks/use-appearance-save';
 
 export function ProfileAppearance(): React.JSX.Element {
   const { t } = useTranslation();
@@ -15,6 +16,7 @@ export function ProfileAppearance(): React.JSX.Element {
   const authTheme = useAuth((s) => s.theme);
   const setUiTheme = useAuth((s) => s.setUiTheme);
   const uiTheme = useAuth((s) => s.uiTheme);
+  const saveAppearance = useAppearanceSave();
 
   return (
     <Card>
@@ -31,7 +33,7 @@ export function ProfileAppearance(): React.JSX.Element {
             value={uiTheme}
             aria-describedby="edit-ui-theme-description"
             onChange={(e) => {
-              void setUiTheme(e.target.value as UiTheme);
+              saveAppearance(setUiTheme(e.target.value as UiTheme));
             }}
           >
             {UI_THEMES.map((theme) => (
@@ -52,7 +54,7 @@ export function ProfileAppearance(): React.JSX.Element {
             id="edit-theme"
             value={authTheme}
             onChange={(e) => {
-              void setTheme(e.target.value as 'light' | 'dark');
+              saveAppearance(setTheme(e.target.value as 'light' | 'dark'));
             }}
           >
             <option value="light">{t('profile.themeLight')}</option>

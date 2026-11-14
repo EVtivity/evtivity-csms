@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { postMock, putMock, patchMock, deleteMock, canWrite } = vi.hoisted(() => ({
+const { postMock, putMock, patchMock, deleteMock, canWrite, toastMock } = vi.hoisted(() => ({
+  toastMock: vi.fn(),
   postMock: vi.fn(),
   putMock: vi.fn(),
   patchMock: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('@/lib/api', () => ({
   api: { get: vi.fn(), post: postMock, patch: patchMock, put: putMock, delete: deleteMock },
   ApiError: class extends Error {},
 }));
-vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('@/lib/auth', () => ({ useHasPermission: () => canWrite.value }));
 vi.mock('@/lib/ocpp-command-access', () => ({ useCanSendOcppCommand: () => () => true }));
 
@@ -42,10 +43,11 @@ const UNITS: StationUnit[] = Array.from({ length: 8 }, (_, i) => ({
 }));
 
 // EVSEs numbered `looseFrom` and up have no unit.
-function evses(withUnits: boolean, looseFrom = 17) {
+function evses(withUnits: boolean, looseFrom = 17, retired: readonly number[] = []) {
   return Array.from({ length: 16 }, (_, i) => ({
     evseId: i + 1,
     status: 'available',
+    retiredAt: retired.includes(i + 1) ? '2026-11-01T00:00:00Z' : null,
     unitId: withUnits && i + 1 < looseFrom ? `unt_box${String(Math.floor(i / 2) + 1)}` : null,
     unitName: withUnits ? `Box ${String(Math.floor(i / 2) + 1)}` : null,
     connectors: [
@@ -65,12 +67,13 @@ function renderTab(props: {
   isOnline?: boolean;
   units?: StationUnit[];
   looseFrom?: number;
+  retired?: number[];
 }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ConnectorStatus
-        data={evses(props.withUnits, props.looseFrom) as never}
+        data={evses(props.withUnits, props.looseFrom, props.retired) as never}
         stationId="sta_1"
         stationOcppId="EM4-MASTER"
         ocppProtocol="ocpp1.6"
@@ -120,6 +123,17 @@ describe('EVSE & Connectors tab with station units', () => {
   it('shows every unit offline while the station is offline', () => {
     renderTab({ withUnits: true, units: UNITS, isOnline: false });
     expect(screen.getAllByTestId('station-online-badge')).toHaveLength(8);
+  });
+
+  it('counts only the EVSEs in service and names the retired ones apart', () => {
+    renderTab({ withUnits: true, units: UNITS, retired: [2, 16], looseFrom: 16 });
+    const box1 = screen.getByTestId('station-unit-unt_box1');
+    expect(box1.textContent).toContain('stationUnits.evseCount:{"count":1}');
+    expect(box1.textContent).toContain('stationUnits.retiredCount:{"count":1}');
+    // The retired loose EVSE 16 still shows, to restore it, and counts no EVSE in service.
+    const loose = screen.getByTestId('station-unit-unassigned');
+    expect(loose.textContent).toContain('stationUnits.evseCount:{"count":0}');
+    expect(loose.textContent).toContain('stationUnits.retiredCount:{"count":1}');
   });
 
   it('lists the EVSEs without a unit last', () => {
@@ -301,6 +315,9 @@ describe('EVSE & Connectors tab with station units', () => {
       expect(putMock).toHaveBeenCalledWith('/v1/stations/sta_1/evses/3/unit', {
         unitId: 'unt_box1',
       });
+    });
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith({ variant: 'success', title: 'common.saved' });
     });
   });
 

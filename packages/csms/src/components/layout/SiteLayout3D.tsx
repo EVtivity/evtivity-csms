@@ -111,6 +111,7 @@ import {
 import { AccountAvatar } from '@/components/AccountAvatar';
 import type { LayoutInsight } from './site-layout-data';
 import { SessionLayoutPopup, splitDriverName } from './SessionLayoutPopup';
+import { otherStallSessions, parseAvatarKey, stallAvatarKey } from './site-layout-stall-avatars';
 import { departureLabel } from './layout-departure';
 import {
   LayoutStationList,
@@ -669,7 +670,8 @@ export default function SiteLayout3D({
     if (!usesDepotSpots(settings) && siteTypeOf(settings) !== 'curbside') return out;
     const own = new Set([...bays.values()].map((b) => `${String(b.col)}:${String(b.row)}`));
     for (const s of stations) {
-      if (s.unitCharger != null) continue;
+      // A two-EVSE unit charger is one too (owner decision 2026-11-13): its run
+      // holds the next bay or spot for it, so the check below passes.
       const span = stationSpanCount(stationLayoutKindOf(s), settings);
       const bay = bays.get(s.id);
       if (span < 2 || bay == null) continue;
@@ -1292,9 +1294,12 @@ export default function SiteLayout3D({
             // (a unit charger: its whole station's run is its own).
             const { placedSlots: placed, settings: s, unitOf: units } = stateRef.current;
             const own = units.get(exceptId)?.stationUuid ?? exceptId;
+            // Without the access aisle: placed without the dragged station, the
+            // accessible space could sit on its own spots (it follows the station).
             const held = heldSpots(
               placed.filter((p) => p.id !== own),
               s,
+              false,
             );
             return held.has(`${String(bay.col)}:${String(bay.row)}`);
           },
@@ -1315,6 +1320,7 @@ export default function SiteLayout3D({
             const held = heldSpots(
               placed.filter((p) => p.id !== id),
               s,
+              false,
             );
             const others = [...held.keys()].map((k) => {
               const [col, row] = k.split(':').map(Number);
@@ -1466,8 +1472,9 @@ export default function SiteLayout3D({
                 tooltip.style.visibility = 'visible';
               }
             }
-            for (const [id, el] of avatarRefs.current) {
-              const p = current.avatarPoint(id);
+            for (const [key, el] of avatarRefs.current) {
+              const { viewId, stall } = parseAvatarKey(key);
+              const p = current.avatarPoint(viewId, stall);
               const size = scaleBadge(
                 el,
                 p,
@@ -1519,7 +1526,8 @@ export default function SiteLayout3D({
             const sessionPopup = sessionPopupRef.current;
             const sessionStation = sessionStationRef.current;
             if (sessionPopup != null && sessionStation != null && stage.clientWidth > 0) {
-              const p = current.avatarPoint(sessionStation);
+              const { viewId, stall } = parseAvatarKey(sessionStation);
+              const p = current.avatarPoint(viewId, stall);
               if (p == null) return;
               placeLayoutPopup(
                 sessionPopup,
@@ -1661,10 +1669,23 @@ export default function SiteLayout3D({
   // marker is today's only.
   const live = !replaying;
   const charging = stations.filter((s) => stationDisplayState(s) === 'charging');
-  const sessionStation =
+  // One avatar per charging driver: the station's session, and on a charger
+  // serving two or more stalls each other stall's own session (case A).
+  const avatars = charging.flatMap((s) => [
+    { key: s.id, station: s, session: s.session ?? null, own: true },
+    ...otherStallSessions(s).map(({ stall, session }) => ({
+      key: stallAvatarKey(s.id, stall),
+      station: s,
+      session,
+      own: false,
+    })),
+  ]);
+  const sessionAvatar =
     sessionStationId == null
       ? null
-      : (stations.find((s) => s.id === sessionStationId && s.session != null) ?? null);
+      : (avatars.find((a) => a.key === sessionStationId && a.session != null) ?? null);
+  const sessionStation = sessionAvatar?.station ?? null;
+  const popupSession = sessionAvatar?.session ?? null;
 
   function openStation(id: string): void {
     setSessionStationId(null);
@@ -2132,21 +2153,21 @@ export default function SiteLayout3D({
             </div>
           );
         })()}
-        {charging.map((s) => {
-          const session = s.session ?? null;
+        {avatars.map(({ key, station: s, session, own }) => {
           const driver = session?.driver ?? null;
           const names = splitDriverName(driver?.name ?? null);
           // A depot shows the departure the parked vehicle charges for above it.
-          const departure = depot && session?.departure != null ? session.departure : null;
+          const departure =
+            own && depot && s.session?.departure != null ? s.session.departure : null;
           const label = departure != null ? departureLabel(departure, t) : null;
           return (
             <div
-              key={`avatar-${s.id}`}
+              key={`avatar-${key}`}
               ref={(el) => {
-                if (el == null) avatarRefs.current.delete(s.id);
-                else avatarRefs.current.set(s.id, el);
+                if (el == null) avatarRefs.current.delete(key);
+                else avatarRefs.current.set(key, el);
               }}
-              data-testid={`site-layout-3d-avatar-${s.id}`}
+              data-testid={`site-layout-3d-avatar-${key}`}
               className="absolute flex -translate-x-1/2 -translate-y-full flex-col items-center gap-1"
               style={{ left: 0, top: 0, visibility: 'hidden' }}
             >
@@ -2203,7 +2224,7 @@ export default function SiteLayout3D({
                   onClick={() => {
                     if (editing) return;
                     setSelectedId(null);
-                    setSessionStationId(s.id);
+                    setSessionStationId(key);
                   }}
                 >
                   {driver != null ? (
@@ -2382,10 +2403,10 @@ export default function SiteLayout3D({
       <p className="sr-only" aria-live="polite" data-testid="site-layout-3d-announcement">
         {announcement}
       </p>
-      {sessionStation?.session != null && !editing && (
+      {sessionStation != null && popupSession != null && !editing && (
         <SessionLayoutPopup
           ref={sessionPopupRef}
-          session={sessionStation.session}
+          session={popupSession}
           stationLabel={layoutChargerName(sessionStation, t)}
           stationId={layoutStationIdOf(sessionStation.id)}
           onClose={() => {

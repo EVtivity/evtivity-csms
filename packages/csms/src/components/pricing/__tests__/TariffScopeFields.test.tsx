@@ -25,6 +25,20 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** The site list for a search, and the sites named by `ids`. */
+function mockSites(sites: Array<{ id: string; name: string }>): void {
+  getMock.mockImplementation((url: string) => {
+    const params = new URL(url, 'http://x').searchParams;
+    const ids = params.get('ids');
+    if (ids != null) {
+      const wanted = ids.split(',');
+      return Promise.resolve({ data: sites.filter((x) => wanted.includes(x.id)) });
+    }
+    const search = params.get('search') ?? '';
+    return Promise.resolve({ data: sites.filter((x) => x.name.includes(search)) });
+  });
+}
+
 function wrap(node: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
@@ -53,7 +67,7 @@ function Harness({
 
 describe('TariffScopeFields', () => {
   it('sets the charging type and picks selected sites', async () => {
-    getMock.mockResolvedValue({ data: [{ id: 'sit_a', name: 'Site A' }] });
+    mockSites([{ id: 'sit_a', name: 'Site A' }]);
     const onValue = vi.fn();
     wrap(<Harness allowed onValue={onValue} />);
     fireEvent.change(screen.getByLabelText('pricing.chargingType'), { target: { value: 'dc' } });
@@ -66,6 +80,28 @@ describe('TariffScopeFields', () => {
     expect(onValue).toHaveBeenLastCalledWith({ chargingType: 'dc', siteIds: ['sit_a'] });
   });
 
+  it('finds a site by search and keeps the selected sites listed by name', async () => {
+    mockSites([
+      { id: 'sit_a', name: 'Alpha Depot' },
+      { id: 'sit_b', name: 'Beta Garage' },
+    ]);
+    const onValue = vi.fn();
+    wrap(<Harness allowed onValue={onValue} />);
+    fireEvent.change(screen.getByLabelText('pricing.siteAvailability'), {
+      target: { value: 'selected' },
+    });
+    fireEvent.change(screen.getByLabelText('sites.search'), { target: { value: 'Beta' } });
+    fireEvent.click(await screen.findByLabelText('Beta Garage'));
+    expect(onValue).toHaveBeenLastCalledWith({ chargingType: 'both', siteIds: ['sit_b'] });
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith(expect.stringContaining('search=Beta'));
+    });
+    // A new search that does not match it still lists the picked site, read by its id.
+    fireEvent.change(screen.getByLabelText('sites.search'), { target: { value: 'Alpha' } });
+    expect(await screen.findByLabelText('Alpha Depot')).toBeTruthy();
+    expect(screen.getByLabelText('Beta Garage')).toHaveProperty('checked', true);
+  });
+
   it('explains why a station or site group has no Site Availability', () => {
     wrap(<Harness allowed={false} onValue={vi.fn()} />);
     expect(screen.queryByLabelText('pricing.siteAvailability')).toBeNull();
@@ -75,11 +111,25 @@ describe('TariffScopeFields', () => {
 
 describe('TariffSitesSummary', () => {
   it('names the sites and counts the ones the reader may not see', async () => {
-    getMock.mockResolvedValue({ data: [{ id: 'sit_a', name: 'Site A' }] });
+    mockSites([{ id: 'sit_a', name: 'Site A' }]);
     wrap(<TariffSitesSummary siteIds={['sit_a']} otherSiteCount={2} />);
     await waitFor(() => {
       expect(screen.getByText('Site A, pricing.otherSites:2')).toBeTruthy();
     });
+  });
+
+  it('reads the names of every selected site in one request', async () => {
+    mockSites([
+      { id: 'sit_a', name: 'Site A' },
+      { id: 'sit_b', name: 'Site B' },
+      { id: 'sit_c', name: 'Site C' },
+    ]);
+    wrap(<TariffSitesSummary siteIds={['sit_c', 'sit_a', 'sit_b']} />);
+    await waitFor(() => {
+      expect(screen.getByText('Site C, Site A, Site B')).toBeTruthy();
+    });
+    expect(getMock).toHaveBeenCalledTimes(1);
+    expect(getMock).toHaveBeenCalledWith('/v1/sites?ids=sit_a,sit_b,sit_c&limit=100');
   });
 
   it('shows All Sites for a tariff without a site list', () => {

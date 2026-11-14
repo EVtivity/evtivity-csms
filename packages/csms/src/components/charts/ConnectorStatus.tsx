@@ -55,7 +55,6 @@ import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 import { useHasPermission } from '@/lib/auth';
 import { orderedUnits, type StationUnit } from '@/lib/station-units';
 import { StationUnitTree } from '@/components/station/StationUnitTree';
-import { StationUnassignedEvsesNotice } from '@/components/station/StationUnassignedEvsesNotice';
 import { StationCreateUnitButton } from '@/components/station/station-unit-actions';
 import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
 
@@ -123,6 +122,8 @@ interface ConnectorStatusProps {
   data: Evse[] | undefined;
   isLoading?: boolean;
   isError?: boolean;
+  /** The units could not be read: the tab shows the error, not a grid without units. */
+  unitsError?: boolean;
   onRetry?: () => void;
   stationId: string;
   stationOcppId: string;
@@ -147,6 +148,7 @@ export function ConnectorStatus({
   data: evses,
   isLoading = false,
   isError = false,
+  unitsError = false,
   onRetry,
   stationId,
   stationOcppId,
@@ -737,7 +739,7 @@ export function ConnectorStatus({
     <TabPanel
       title={t('stations.evseConnectorsTab')}
       isLoading={isLoading}
-      isError={isError && evses == null}
+      isError={(isError && evses == null) || unitsError}
       onRetry={onRetry}
       actions={
         <div className="flex flex-wrap gap-2 sm:flex-nowrap">
@@ -754,7 +756,6 @@ export function ConnectorStatus({
         </div>
       }
     >
-      <StationUnassignedEvsesNotice unitCount={units.length} evses={evses} />
       <Alert variant="info" className="mb-4">
         <Info className="h-4 w-4" />
         <AlertDescription>

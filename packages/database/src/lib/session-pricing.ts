@@ -21,7 +21,12 @@ import type {
 import { getIdlingGracePeriodMinutes } from './idling-setting.js';
 import { toDate, toDateOrNull } from './raw-timestamp.js';
 import type { RawTimestamp } from './raw-timestamp.js';
-import { resolveStationTariff } from './tariff-resolution.js';
+import {
+  getPricingHolidays,
+  loadGroupPricingAtStation,
+  pickTariff,
+  resolveStationTariff,
+} from './tariff-resolution.js';
 
 /** The tariff columns copied onto a session or a tariff segment. */
 export interface TariffPriceSnapshot {
@@ -434,31 +439,43 @@ function kindOf(value: unknown): ChargingKind | null {
  * Prices a session at its charging kind once a mixed EVSE names the
  * connector after the start (owner decision D-E, 2026-11-13): until then the
  * session was priced from the Both tariffs only. Stores the kind (only while
- * it is null) and re-prices the snapshot and every segment from the start,
- * as repriceSessionForDriver does: no segment is closed or opened, and
- * nothing changes when the kind's tariff is the one the session has. One
- * transaction under the session row lock. Returns whether the snapshot was
- * replaced.
+ * it is null) and re-prices the snapshot and every segment from the start
+ * within the pricing group the session started in (an assignment change
+ * applies to the next session only). With split billing on, a tariff window
+ * of the kind that began during the open segment (the Both tariff did not
+ * change there, so no switch was made) gets its segment from where it began
+ * (openMissedKindBoundaries). One transaction under the session row lock,
+ * then the boundary switches. Returns whether anything was re-priced.
  */
 export async function repriceSessionForChargingKind(
   sql: postgres.Sql,
-  params: { sessionId: string; stationUuid: string; chargingKind: ChargingKind; basis: TaxBasis },
+  params: {
+    sessionId: string;
+    stationUuid: string;
+    chargingKind: ChargingKind;
+    basis: TaxBasis;
+    /** pricing.splitBillingEnabled, read by the caller. */
+    splitBilling?: boolean;
+    /** The end of the boundary search. Default now. */
+    at?: Date;
+  },
 ): Promise<boolean> {
-  return sql.begin(async (tx) => {
+  const locked = await sql.begin(async (tx) => {
     const txSql = tx as unknown as postgres.Sql;
     const [session] = await txSql`
-      SELECT started_at, tariff_id, tax_basis, charging_kind, driver_id, status
+      SELECT started_at, tariff_id, tax_basis, charging_kind, driver_id, status, pricing_group_id
       FROM charging_sessions
       WHERE id = ${params.sessionId}
       FOR UPDATE
     `;
-    if (session == null || session.status !== 'active') return false;
-    if (kindOf(session.charging_kind) != null) return false;
+    if (session == null || session.status !== 'active') return null;
+    if (kindOf(session.charging_kind) != null) return null;
     await txSql`
       UPDATE charging_sessions SET charging_kind = ${params.chargingKind}
       WHERE id = ${params.sessionId}
     `;
-    return repriceLocked(
+    const pricingGroupId = (session.pricing_group_id as string | null) ?? null;
+    const repriced = await repriceLocked(
       txSql,
       {
         sessionId: params.sessionId,
@@ -471,9 +488,121 @@ export async function repriceSessionForChargingKind(
         tariffId: session.tariff_id as string | null,
         taxBasis: session.tax_basis as TaxBasis | null,
         chargingKind: params.chargingKind,
+        pricingGroupId,
+        walkSegments: true,
       },
     );
+    return { repriced, pricingGroupId };
   });
+  if (locked == null) return false;
+  let switched = false;
+  if (params.splitBilling === true && locked.pricingGroupId != null) {
+    switched = await openMissedKindBoundaries(sql, {
+      sessionId: params.sessionId,
+      stationUuid: params.stationUuid,
+      chargingKind: params.chargingKind,
+      pricingGroupId: locked.pricingGroupId,
+      until: params.at ?? new Date(),
+    });
+  }
+  return locked.repriced || switched;
+}
+
+/** The longest open segment searched for missed boundaries, in minute steps. */
+const KIND_BOUNDARY_SEARCH_MAX_MINUTES = 7 * 24 * 60;
+
+/**
+ * Split billing opens a segment only when the session's resolved tariff
+ * changes, and before the connector was named that was the Both tariff. A
+ * window of the kind that began during the open segment (a DC peak tariff at
+ * 18:00 while the Both default stayed) therefore has no segment. This walks
+ * the open segment minute by minute within the session's group and switches
+ * at each minute the kind's tariff changes, with the session energy of the
+ * last register reading at or before it. Energy thresholds are not searched:
+ * the next meter reading switches them. Returns whether it switched.
+ */
+async function openMissedKindBoundaries(
+  sql: postgres.Sql,
+  params: {
+    sessionId: string;
+    stationUuid: string;
+    chargingKind: ChargingKind;
+    pricingGroupId: string;
+    until: Date;
+  },
+): Promise<boolean> {
+  const [open] = await sql`
+    SELECT tariff_id, started_at, energy_wh_start FROM session_tariff_segments
+    WHERE session_id = ${params.sessionId} AND ended_at IS NULL
+  `;
+  if (open == null) return false;
+  const pricing = await loadGroupPricingAtStation(params.pricingGroupId, params.stationUuid, sql);
+  if (pricing == null || pricing.tariffs.length === 0) return false;
+  const holidays = await getPricingHolidays(sql);
+  const minuteMs = 60_000;
+  const startMs = new Date(open.started_at as string | Date).getTime();
+  const energyStartKwh = Number(open.energy_wh_start ?? 0) / 1000;
+  const lastMs = Math.min(
+    params.until.getTime(),
+    startMs + KIND_BOUNDARY_SEARCH_MAX_MINUTES * minuteMs,
+  );
+  let currentId = open.tariff_id as string;
+  let switched = false;
+  for (let t = Math.floor(startMs / minuteMs) * minuteMs + minuteMs; t <= lastMs; t += minuteMs) {
+    const at = new Date(t);
+    const tariff = pickTariff(
+      pricing.tariffs,
+      {
+        at,
+        timezone: pricing.timezone,
+        sessionEnergyKwh: energyStartKwh,
+        chargingKind: params.chargingKind,
+        siteId: pricing.siteId,
+      },
+      holidays,
+    );
+    if (tariff == null || tariff.id === currentId) continue;
+    const energyWh = await sessionEnergyWhAt(sql, params.sessionId, at);
+    const result = await switchTariffSegment(sql, {
+      sessionId: params.sessionId,
+      tariff,
+      at,
+      energyWh,
+    });
+    if (result == null) break;
+    currentId = tariff.id;
+    switched = true;
+  }
+  return switched;
+}
+
+/**
+ * The session energy at `at` from the last energy register reading at or
+ * before it (an overall Outlet value, as the session energy is projected),
+ * at most the session's energy now. 0 without a reading.
+ */
+async function sessionEnergyWhAt(sql: postgres.Sql, sessionId: string, at: Date): Promise<number> {
+  const [row] = await sql`
+    SELECT
+      (SELECT CASE WHEN mv.unit = 'kWh' THEN mv.value * 1000 ELSE mv.value END
+       FROM meter_values mv
+       WHERE mv.session_id = cs.id
+         AND (mv.measurand IS NULL OR mv.measurand = 'Energy.Active.Import.Register')
+         AND (mv.location IS NULL OR mv.location = 'Outlet')
+         AND mv.phase IS NULL
+         AND mv.timestamp <= ${at.toISOString()}
+       ORDER BY mv.timestamp DESC
+       LIMIT 1)::text AS register_wh,
+      cs.meter_start, cs.meter_register_offset_wh, cs.energy_delivered_wh
+    FROM charging_sessions cs
+    WHERE cs.id = ${sessionId}
+  `;
+  if (row == null || row.register_wh == null) return 0;
+  const delivered =
+    Number(row.register_wh) +
+    Number(row.meter_register_offset_wh ?? 0) -
+    Number(row.meter_start ?? 0);
+  return Math.min(Math.max(0, delivered), Number(row.energy_delivered_wh ?? delivered));
 }
 
 /** The re-price of a locked session from its start (driver link or charging kind). */
@@ -485,6 +614,10 @@ async function repriceLocked(
     tariffId: string | null;
     taxBasis: TaxBasis | null;
     chargingKind: ChargingKind | null;
+    /** Resolve only in this group (the one the session started in). Absent: the chain. */
+    pricingGroupId?: string | null;
+    /** Re-price the later segments also when the start tariff does not change. */
+    walkSegments?: boolean;
   },
 ): Promise<boolean> {
   const startedAt = session.startedAt;
@@ -494,22 +627,29 @@ async function repriceLocked(
       driverUuid: params.driverUuid,
       at: startedAt,
       chargingKind: session.chargingKind,
+      ...(session.pricingGroupId != null ? { pricingGroupId: session.pricingGroupId } : {}),
     },
     txSql,
   );
-  if (tariff == null || tariff.id === session.tariffId) return false;
-  // The tax basis stays the one stamped at Started.
-  const basis = session.taxBasis ?? params.basis;
-  await snapshotSessionTariff(txSql, params.sessionId, tariff, basis);
+  if (tariff == null) return false;
+  const startChanged = tariff.id !== session.tariffId;
+  if (!startChanged && session.walkSegments !== true) return false;
+  if (startChanged) {
+    // The tax basis stays the one stamped at Started.
+    const basis = session.taxBasis ?? params.basis;
+    await snapshotSessionTariff(txSql, params.sessionId, tariff, basis);
+  }
   const segments = await txSql`
-    SELECT id, started_at, energy_wh_start FROM session_tariff_segments
+    SELECT id, tariff_id, started_at, energy_wh_start FROM session_tariff_segments
     WHERE session_id = ${params.sessionId}
     ORDER BY started_at, id
   `;
   if (segments.length === 0) {
+    if (!startChanged) return false;
     await insertSegment(txSql, params.sessionId, tariff, startedAt.toISOString(), 0);
     return true;
   }
+  let changed = startChanged;
   for (const [index, segment] of segments.entries()) {
     const segmentTariff =
       index === 0
@@ -528,6 +668,8 @@ async function repriceLocked(
             txSql,
           );
     if (segmentTariff == null) continue;
+    if (!startChanged && segment.tariff_id === segmentTariff.id) continue;
+    changed = true;
     await txSql`
       UPDATE session_tariff_segments
       SET tariff_id = ${segmentTariff.id},
@@ -541,7 +683,7 @@ async function repriceLocked(
       WHERE id = ${segment.id as number}
     `;
   }
-  return true;
+  return changed;
 }
 
 /**

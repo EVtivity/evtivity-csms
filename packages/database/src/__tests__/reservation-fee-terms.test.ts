@@ -9,11 +9,14 @@ const m = vi.hoisted(() => ({
   getReservationSettings: vi.fn(),
   // The free vend lookup (a client tagged-template query).
   client: vi.fn(),
+  loadEvseChargingKind: vi.fn(),
 }));
 
 vi.mock('../lib/charging-kind.js', () => ({
   // A station of one kind or none: the Both tariffs (tested in charging-kind).
   stationDisplayKind: vi.fn(() => Promise.resolve(null)),
+  loadEvseChargingKind: m.loadEvseChargingKind,
+  resolvableKind: (k: string | null) => (k === 'ac' || k === 'dc' ? k : null),
 }));
 vi.mock('../config.js', () => ({ client: m.client }));
 vi.mock('../lib/tariff-resolution.js', () => ({ resolveStationTariff: m.resolveStationTariff }));
@@ -78,6 +81,26 @@ describe('snapshotReservationFeeTerms', () => {
       { stationUuid: 'sta_1', driverUuid: 'drv_1', chargingKind: null },
       m.client,
     );
+  });
+
+  it('prices the hold at the reserved EVSE kind, a mixed EVSE at the Both tariffs', async () => {
+    m.loadEvseChargingKind.mockResolvedValueOnce('dc').mockResolvedValueOnce('mixed');
+    await snapshotReservationFeeTerms({
+      stationUuid: 'sta_1',
+      driverUuid: 'drv_1',
+      evseUuid: 'evs_1',
+    });
+    await snapshotReservationFeeTerms({
+      stationUuid: 'sta_1',
+      driverUuid: 'drv_1',
+      evseUuid: 'evs_2',
+    });
+    expect(m.loadEvseChargingKind).toHaveBeenNthCalledWith(1, m.client, 'evs_1');
+    expect(
+      m.resolveStationTariff.mock.calls.map(
+        (c) => (c[0] as { chargingKind: unknown }).chargingKind,
+      ),
+    ).toEqual(['dc', null]);
   });
 
   it('stores null tariff terms when no tariff resolves', async () => {

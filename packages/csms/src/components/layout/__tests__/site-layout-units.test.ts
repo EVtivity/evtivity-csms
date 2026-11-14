@@ -8,6 +8,7 @@ import {
   chargerEvseNumber,
   expandUnitStations,
   layoutChargerName,
+  layoutKindOfStation,
   layoutStationIdOf,
   stationPlacementOfUnit,
   unitChargerStatus,
@@ -131,20 +132,33 @@ describe('expandUnitStations', () => {
   });
 
   it('gives each unit its own bay or lane at a depot and its own curb post on a street', () => {
-    for (const siteType of ['depot', 'curbside'] as const) {
+    // An AC box takes one spot at a depot; on a street each two-EVSE box is a
+    // two-port curb post over two parallel spots (owner decision 2026-11-13).
+    for (const [siteType, cols, spots] of [
+      ['depot', [2, 3, 4], [1, 1, 1]],
+      ['curbside', [2, 4, 6], [2, 2, 2]],
+    ] as const) {
       const settings = effectiveLayoutSettings({ ...lot, siteType, busBays: 10, chargersLeft: 10 });
       const views = expandUnitStations([em4({}, 3)], settings);
       expect(views.map((v) => v.id)).toEqual(['sta_em4', 'sta_em4#u2', 'sta_em4#u3']);
-      // One spot each, contiguous along the row from the station's slot (column 2).
-      expect(views.map((v) => positionToBay({ x: v.positionX, y: v.positionY }).col)).toEqual([
-        2, 3, 4,
-      ]);
-      expect(views.map((v) => v.unitCharger?.spots)).toEqual([1, 1, 1]);
+      // Contiguous along the row from the station's slot (column 2).
+      expect(views.map((v) => positionToBay({ x: v.positionX, y: v.positionY }).col)).toEqual(cols);
+      expect(views.map((v) => v.unitCharger?.spots)).toEqual(spots);
       expect(views.map((v) => v.unitCharger?.number)).toEqual([1, 2, 3]);
       // A station without units stays the same object (D3).
       const plain = em4({ units: [] });
       expect(expandUnitStations([plain], settings)[0]).toBe(plain);
     }
+  });
+
+  it('gives a two-EVSE plug-in bus box at a depot two bays, a pantograph box one', () => {
+    const depot = effectiveLayoutSettings({ ...lot, siteType: 'depot', busBays: 10 });
+    const ccs = { ...type2(), connectorType: 'CCS1', maxPowerKw: 180 };
+    const bus = em4({ evses: em4({}, 2).evses.map((e) => ({ ...e, connectors: [ccs] })) }, 2);
+    expect(expandUnitStations([bus], depot).map((v) => v.unitCharger?.spots)).toEqual([2, 2]);
+    const pan = { ...ccs, connectorType: 'Pan' };
+    const poles = em4({ evses: em4({}, 2).evses.map((e) => ({ ...e, connectors: [pan] })) }, 2);
+    expect(expandUnitStations([poles], depot).map((v) => v.unitCharger?.spots)).toEqual([1, 1]);
   });
 
   it('maps a view id back to its station', () => {
@@ -241,6 +255,23 @@ describe('unit charger session fallback', () => {
       views[1] != null ? positionToBay({ x: views[1].positionX, y: views[1].positionY }).col : null,
     ).toBe(3);
   });
+
+  it('counts a unit EVSE whose only connector is retired as no port, as the server does', () => {
+    const station = em4({}, 2);
+    station.evses[1] = {
+      ...station.evses[1]!,
+      connectors: [{ ...type2(), retired: true }],
+    };
+    const views = expandUnitStations([station], lot);
+    expect(views[0]?.unitCharger?.spots).toBe(1);
+    expect(layoutKindOfStation(station).ports).toBe(3);
+  });
+
+  it('reads a station without units with a retired second EVSE as one port, not a dual-port pedestal', () => {
+    const plain = em4({ units: [] }, 1);
+    plain.evses = plain.evses.map((e, i) => ({ ...e, unitId: null, retired: i === 1 }));
+    expect(layoutKindOfStation(plain).ports).toBe(1);
+  });
 });
 
 describe('unit terminals', () => {
@@ -295,6 +326,15 @@ describe('custom site unit chargers', () => {
     // Siblings touch and never overlap: no resolution slides one of them.
     const places = freeStationPlaces(views);
     expect(views.map((v) => places.get(v.id)?.placement.x)).toEqual(xs);
+  });
+
+  it('gives every unit charger its own place past 16 spots (9 two-EVSE boxes and more)', () => {
+    const station = em4({ freePosition: { x: 0, z: 20, rotationDeg: 0 } }, 12);
+    const views = layoutViewStations([station], custom);
+    const xs = views.map((v) => v.freePosition?.x);
+    expect(new Set(xs).size).toBe(12);
+    // 24 spots centered on the station: no charger falls back to the station center.
+    expect(views.some((v) => v.unitCharger?.freeOffsetX === 0)).toBe(false);
   });
 });
 

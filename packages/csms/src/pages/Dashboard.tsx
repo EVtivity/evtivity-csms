@@ -115,37 +115,74 @@ const GRID_COLS: Record<string, Record<number, string>> = {
   },
 };
 
+/** Full class names of the last card's span, so Tailwind finds every one in the source. */
+const LAST_SPAN: Record<string, Record<number, string>> = {
+  '': { 1: '[&>*:last-child]:col-span-1', 2: '[&>*:last-child]:col-span-2' },
+  'md:': {
+    1: 'md:[&>*:last-child]:col-span-1',
+    2: 'md:[&>*:last-child]:col-span-2',
+    3: 'md:[&>*:last-child]:col-span-3',
+  },
+  'lg:': {
+    1: 'lg:[&>*:last-child]:col-span-1',
+    2: 'lg:[&>*:last-child]:col-span-2',
+    3: 'lg:[&>*:last-child]:col-span-3',
+    4: 'lg:[&>*:last-child]:col-span-4',
+  },
+  'xl:': {
+    1: 'xl:[&>*:last-child]:col-span-1',
+    2: 'xl:[&>*:last-child]:col-span-2',
+    3: 'xl:[&>*:last-child]:col-span-3',
+    4: 'xl:[&>*:last-child]:col-span-4',
+    5: 'xl:[&>*:last-child]:col-span-5',
+    6: 'xl:[&>*:last-child]:col-span-6',
+  },
+};
+
 /**
  * The columns of a stat row at each breakpoint. From md up: the most that
  * divide the card count, so every row is full. On phones: two columns side by
- * side, 50/50 (one for a single card); an odd last card spans the row
- * (`STAT_GRID_PHONE_LAST_SPAN`), so no card sits at half width next to an
- * empty cell (owner decision 2026-11-13).
+ * side, 50/50 (one for a single card). A count with no divisor that fits (5 or
+ * 7 cards from md) takes the most columns that fit instead, and the last card
+ * spans the rest of its row (`statGridLastSpans`, as an odd last card does on
+ * phones), so no row ends with an empty cell and the cards never fall back to
+ * one full-width column (owner decision 2026-11-13).
  */
 export function statGridColumns(count: number): number[] {
   const n = Math.max(1, count);
   return STAT_GRID_MAX_COLUMNS.map(([prefix, max]) => {
-    if (prefix === '') return Math.min(max, n);
-    let cols = Math.min(max, n);
+    const fit = Math.min(max, n);
+    if (prefix === '') return fit;
+    let cols = fit;
     while (n % cols !== 0) cols -= 1;
-    return cols;
+    return cols > 1 ? cols : fit;
   });
 }
 
-/** On phones an odd last card takes the whole row; from md the row divides evenly again. */
-const STAT_GRID_PHONE_LAST_SPAN = '[&>*:last-child]:col-span-2 md:[&>*:last-child]:col-span-1';
+/** The columns the last card of a stat row spans at each breakpoint (1: its own cell). */
+export function statGridLastSpans(count: number): number[] {
+  const n = Math.max(1, count);
+  return statGridColumns(n).map((cols) => {
+    const rest = n % cols;
+    return rest === 0 ? 1 : cols - rest + 1;
+  });
+}
 
-/** Grid classes of a stat row by its card count (`statGridColumns`). */
+/** Grid classes of a stat row by its card count (`statGridColumns`, `statGridLastSpans`). */
 export function statGridClass(count: number): string {
   const classes = ['grid', 'gap-4'];
   let previous = 0;
-  const columns = statGridColumns(count);
-  columns.forEach((cols, i) => {
+  statGridColumns(count).forEach((cols, i) => {
     const prefix = STAT_GRID_MAX_COLUMNS[i]?.[0] ?? '';
     if (cols !== previous) classes.push(GRID_COLS[prefix]?.[cols] ?? '');
     previous = cols;
   });
-  if (columns[0] === 2 && count % 2 === 1) classes.push(STAT_GRID_PHONE_LAST_SPAN);
+  let previousSpan = 1;
+  statGridLastSpans(count).forEach((span, i) => {
+    const prefix = STAT_GRID_MAX_COLUMNS[i]?.[0] ?? '';
+    if (span !== previousSpan) classes.push(LAST_SPAN[prefix]?.[span] ?? '');
+    previousSpan = span;
+  });
   return classes.join(' ');
 }
 

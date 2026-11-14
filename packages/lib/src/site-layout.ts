@@ -1866,13 +1866,27 @@ export function unitChargerKinds(
  * draws at most two EVSEs, CHARGER_PORT_LIMITS), else one. A unit charger is
  * never a split system: a DC unit with three or more EVSEs draws the first two
  * on one dispenser (derived: a box is one charger, and the port limits cap one
- * charger at two EVSEs). One on every other site type.
+ * charger at two EVSEs). At a depot a plug-in DC bus unit with two or more
+ * EVSEs is a dual-outlet bus charger over two bays, on a street an AC unit
+ * with two or more a two-port curb post over two spots, one vehicle per EVSE
+ * (owner decision 2026-11-13; `station` gives the station's depot spot and
+ * pantograph flag, which a unit shares); else one. One on a custom site.
  */
-export function unitChargerSpotCount(charger: UnitChargerKind, settings: LayoutShape): number {
+export function unitChargerSpotCount(
+  charger: UnitChargerKind,
+  settings: LayoutShape,
+  station?: Partial<Pick<LayoutStationKind, 'depot' | 'overhead'>> | null,
+): number {
   const type = siteTypeOf(settings);
   if (charger.ports < 2) return 1;
   if (type === 'office_retail') return charger.charging === 'ac' ? 2 : 1;
   if (type === 'parking_lot') return 2;
+  if (type === 'depot') {
+    return charger.charging === 'dc' && station?.depot === 'bus' && station.overhead !== true
+      ? DUAL_OUTLET_BUS_CHARGER.outlets
+      : 1;
+  }
+  if (type === 'curbside') return charger.charging === 'ac' ? TWO_PORT_CURB_POST.outlets : 1;
   return 1;
 }
 
@@ -1895,10 +1909,17 @@ export function stationSpanCount(kind: SpanKind | null | undefined, settings: La
     return splitDispenserCount(kind, settings);
   }
   // A depot gives each unit its own bay or lane, a street its own curb post
-  // (owner decision 2026-11-12), contiguous along the row from the slot.
-  if (type === 'depot' || type === 'curbside') return units.length;
-  if (type !== 'parking_lot' && type !== 'office_retail') return 1;
-  return units.reduce((n, u) => n + unitChargerSpotCount(u, settings), 0);
+  // (owner decision 2026-11-12), two for a two-EVSE unit (2026-11-13),
+  // contiguous along the row from the slot.
+  if (
+    type !== 'parking_lot' &&
+    type !== 'office_retail' &&
+    type !== 'depot' &&
+    type !== 'curbside'
+  ) {
+    return 1;
+  }
+  return units.reduce((n, u) => n + unitChargerSpotCount(u, settings, kind), 0);
 }
 
 /** What `stationSpanCount` reads of a station kind. */
@@ -1972,10 +1993,11 @@ export function twoPortCurbPost(kind: SpanKind | null | undefined): boolean {
 export function unitChargerSpans(
   units: readonly UnitChargerKind[],
   settings: LayoutShape,
+  station?: Partial<Pick<LayoutStationKind, 'depot' | 'overhead'>> | null,
 ): Array<{ offset: number; spots: number }> {
   let offset = 0;
   return units.map((u) => {
-    const spots = unitChargerSpotCount(u, settings);
+    const spots = unitChargerSpotCount(u, settings, station);
     const at = { offset, spots };
     offset += spots;
     return at;
@@ -2699,11 +2721,11 @@ export const FREE_LAYOUT = {
   maxSpots: 4,
   /**
    * Spots a station with units has at most (`stationFreeSpotCount`): one car
-   * spot per unit charger spot, up to 16 (derived: 8 boxes of 2 charging
-   * points, the ABL eM4 master with seven extenders of GitHub discussion 59,
-   * is the largest group of one station the owner named).
+   * spot per unit charger spot, up to 128 (derived: the unit writer holds 64
+   * units per station, each charger serves two spots at most), so every unit
+   * charger gets spots of its own and none stands on another's.
    */
-  maxUnitSpots: 16,
+  maxUnitSpots: 128,
   /** A free position stays within this distance of the site origin on each axis, in meters. */
   reachM: 400,
   /** The curbed island a truck dispenser stands on beside its pull-through lane, in meters. */

@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table';
 import { formatDecimal } from '@/lib/formatting';
 import { api } from '@/lib/api';
+import { scheduleCurrentLabel } from '@/lib/schedule-current';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import {
   formatRestrictionSummary,
@@ -34,6 +35,7 @@ interface ScheduleItem {
   priority: number;
   isDefault: boolean;
   isCurrent: boolean;
+  currentFor?: Array<'ac' | 'dc'>;
 }
 
 interface PricingGroupScheduleTabProps {
@@ -106,7 +108,9 @@ export function PricingGroupScheduleTab({
                       {item.isDefault && (
                         <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
                       )}
-                      {item.isCurrent && <Badge variant="success">{t('pricing.isCurrent')}</Badge>}
+                      {item.isCurrent && (
+                        <Badge variant="success">{scheduleCurrentLabel(item, t)}</Badge>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

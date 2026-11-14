@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { postMock, toastMock } = vi.hoisted(() => ({ postMock: vi.fn(), toastMock: vi.fn() }));
 
@@ -54,6 +55,26 @@ afterEach(() => {
 });
 
 describe('SessionPaymentTab', () => {
+  it('shows why a session has no payment record above the empty state', () => {
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <SessionPaymentTab
+            sessionId="sess_1"
+            payment={null}
+            canRefund
+            formatCents={(cents) => `$${String(cents)}`}
+            timezone="UTC"
+            noPaymentReason={{ reason: 'anonymous' }}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const reason = screen.getByText('sessions.noPaymentReason.anonymous');
+    const empty = screen.getByText('sessions.noPayment');
+    expect(reason.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('labels a known payment source and shows an unknown one as stored', () => {
     renderTab({ ...base, paymentSource: 'operator' });
     expect(screen.getByText('payments.sources.operator')).toBeDefined();

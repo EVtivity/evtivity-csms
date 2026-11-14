@@ -161,12 +161,16 @@ function connectorSummary(c: ConnectorSummaryRow): ConnectorSummary {
  * Turns station rows of the charger search and nearby list into driver
  * charger rows: a station without units stays one row (unit fields null), a
  * station with units becomes one row per unit plus one for its EVSEs without a
- * unit, each with its own EVSE count, availability and connectors.
+ * unit, each with its own EVSE count, availability and connectors. A station
+ * with units but no EVSE in service stays one row, like a station without units.
+ * With `limit`, only whole stations are returned: a station whose chargers
+ * would pass the limit ends the page, except the first, which is always whole.
  */
 export function expandToDriverChargers<R extends StationListRow, B extends object>(
   rows: readonly R[],
   unitData: ReadonlyMap<string, StationDriverUnits>,
   base: (row: R) => B,
+  limit?: number,
 ): Array<
   B & {
     evseCount: number;
@@ -176,10 +180,10 @@ export function expandToDriverChargers<R extends StationListRow, B extends objec
     unitName: string | null;
   }
 > {
-  return rows.flatMap((row) => {
+  const perStation = rows.map((row) => {
     const data = unitData.get(row.stationUuid);
     const chargers = data == null ? null : driverChargers(data.evses, data.units);
-    if (chargers == null) {
+    if (chargers == null || chargers.length === 0) {
       return [
         {
           ...base(row),
@@ -202,6 +206,13 @@ export function expandToDriverChargers<R extends StationListRow, B extends objec
       unitName: c.unitName,
     }));
   });
+  if (limit == null) return perStation.flat();
+  const out: (typeof perStation)[number] = [];
+  for (const stationRows of perStation) {
+    if (out.length > 0 && out.length + stationRows.length > limit) break;
+    out.push(...stationRows);
+  }
+  return out;
 }
 
 /**
@@ -277,9 +288,10 @@ export async function locationChargers(
     const startable = new Set(stationRows.filter((r) => r.available).map((r) => r.evseId));
     const data = unitData.get(uuid);
     const chargers = data == null ? null : driverChargers(data.evses, data.units);
-    const groups = chargers ?? [
-      { unitId: null, unitName: null, evseIds: listedIds.sort((a, b) => a - b) },
-    ];
+    const groups =
+      chargers == null || chargers.length === 0
+        ? [{ unitId: null, unitName: null, evseIds: listedIds.sort((a, b) => a - b) }]
+        : chargers;
     for (const c of groups) {
       const evseIds = c.evseIds.filter((id) => listedIds.includes(id));
       if (evseIds.length === 0) continue;

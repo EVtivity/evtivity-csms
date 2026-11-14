@@ -105,6 +105,7 @@ describe('station unit service', () => {
     expect(m.publishStationStatusChanged).toHaveBeenCalledWith(
       { id: 'sta_1', siteId: 'sit_1' },
       log,
+      { dashboardsOnly: false },
     );
   });
 
@@ -195,6 +196,7 @@ describe('station unit service', () => {
         evseIds: [],
       },
       after: { id: 'unt_1', name: 'Box 1', serialNumber: null, ipAddress: '10.0.0.6', evseIds: [] },
+      fields: ['serialNumber', 'ipAddress'],
     });
     await updateUnit('sta_1', 'unt_1', { serialNumber: '', ipAddress: '10.0.0.6' }, ctx);
     expect(m.updateStationUnit).toHaveBeenCalledWith('sta_1', 'unt_1', {
@@ -209,6 +211,63 @@ describe('station unit service', () => {
     expect(update.notes).toBe('Unit details changed');
     expect(update.before.unit.serialNumber).toBe('SN1');
     expect(update.after.unit).toMatchObject({ serialNumber: null, ipAddress: '10.0.0.6' });
+    // Admin metadata reaches neither partners nor drivers: dashboards only, no layout refit.
+    expect(m.publishStationStatusChanged).toHaveBeenLastCalledWith(expect.anything(), log, {
+      dashboardsOnly: true,
+    });
+    expect(m.refitStationRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('names every field a combined update changed', async () => {
+    m.updateStationUnit.mockResolvedValue({
+      ok: true,
+      value: { ...UNIT, name: 'Box 9' },
+      changed: true,
+      before: { id: 'unt_1', name: 'Box 1', evseIds: [1] },
+      after: { id: 'unt_1', name: 'Box 9', evseIds: [1] },
+      fields: ['name', 'serialNumber', 'sortOrder'],
+    });
+    await updateUnit('sta_1', 'unt_1', { name: 'Box 9', serialNumber: 'SN9', sortOrder: 3 }, ctx);
+    expect((m.writeAudit.mock.calls[0]?.[1] as { notes: string }).notes).toBe(
+      'Unit renamed, details changed and moved in the order',
+    );
+    expect(m.publishStationStatusChanged).toHaveBeenCalledWith(expect.anything(), log, {
+      dashboardsOnly: false,
+    });
+  });
+
+  it('writes a history row for each unit a new unit took EVSEs from', async () => {
+    m.selectRows = [
+      [
+        { id: 'evs_3', evseId: 3 },
+        { id: 'evs_4', evseId: 4 },
+      ],
+      [{ siteId: 'sit_1' }],
+    ];
+    m.readStationUnits.mockResolvedValue([{ ...VIEW, id: 'unt_9', name: 'Box 9' }]);
+    m.createStationUnit.mockResolvedValue({
+      ok: true,
+      value: { ...UNIT, id: 'unt_9', name: 'Box 9' },
+      changed: true,
+      before: null,
+      after: { id: 'unt_9', name: 'Box 9', evseIds: [3, 4] },
+      left: [
+        {
+          before: { id: 'unt_2', name: 'Box 2', evseIds: [3, 4] },
+          after: { id: 'unt_2', name: 'Box 2', evseIds: [] },
+        },
+      ],
+    });
+    await createUnit('sta_1', { name: 'Box 9', evseIds: [3, 4] }, ctx);
+    const rows = m.writeAudit.mock.calls.map((c) => c[1] as Record<string, unknown>);
+    expect(rows.map((r) => r['notes'])).toEqual([
+      'Unit created',
+      'EVSE 3 and 4 moved to unit Box 9',
+    ]);
+    expect(rows[1]).toMatchObject({
+      before: { unit: { id: 'unt_2', evseIds: [3, 4] } },
+      after: { unit: { id: 'unt_2', evseIds: [] } },
+    });
   });
 
   it('maps the writer refusals to API errors', async () => {
@@ -260,6 +319,7 @@ describe('station unit service', () => {
       changed: true,
       before: { id: 'unt_1', name: 'Box 1', evseIds: [1] },
       after: { id: 'unt_1', name: 'Box 9', evseIds: [1] },
+      fields: ['name'],
     });
     await updateUnit('sta_1', 'unt_1', { name: 'Box 9' }, ctx);
     m.selectRows = [[{ id: 'evs_2' }]];

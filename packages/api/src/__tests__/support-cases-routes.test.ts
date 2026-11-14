@@ -1044,6 +1044,19 @@ describe('support case routes', () => {
       expect(callsOf('update')).toHaveLength(0);
     });
 
+    it('answers 409 and writes nothing when the status changed after the read', async () => {
+      // The guarded UPDATE matches no row: the driver closed or reopened the case meanwhile.
+      queue([baseCase()], []);
+      const res = await inject('PATCH', `/support-cases/${CASE_ID}`, {
+        status: 'in_progress',
+        addSessionIds: [],
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe('SUPPORT_CASE_CHANGED');
+      expect(callsOf('insert', 'supportCaseMessages')).toHaveLength(0);
+      expect(mocks.writeAudit).not.toHaveBeenCalled();
+    });
+
     it('resolves a case: sets resolvedAt, posts system messages, notifies and audits', async () => {
       const existing = baseCase();
       const updated = baseCase({

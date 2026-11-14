@@ -57,12 +57,18 @@ export function buildDerivedStatusSubquery(stationIdColumn: Column): SQL<string>
  *
  * A faulted connector only explains the display status when no other plug is
  * in use or reserved: the derived status shows charging or reserved then, so
- * the reason is null, matching buildDerivedStatusSubquery.
+ * the reason is null, matching buildDerivedStatusSubquery. And it never hides
+ * a station-level install or reported outage, which the derived status puts
+ * before the plug summary.
  */
 export function buildStatusReasonSubquery(stationIdColumn: Column): SQL<string | null> {
   const outerColumn = qualified(stationIdColumn);
   return sql<string | null>`(
     SELECT CASE
+      WHEN r3.reason = 'connector_faulted' AND r3.firmware_state::text = 'installing'
+        THEN 'firmware_installing'
+      WHEN r3.reason = 'connector_faulted' AND r3.reported_status::text = 'unavailable'
+        THEN 'station_unavailable'
       WHEN r3.reason = 'connector_faulted' AND EXISTS (
         SELECT 1 FROM ${connectors} c3 JOIN ${evses} e3 ON e3.id = c3.evse_id
         WHERE e3.station_id = r3.id AND e3.retired_at IS NULL AND c3.retired_at IS NULL
@@ -71,7 +77,8 @@ export function buildStatusReasonSubquery(stationIdColumn: Column): SQL<string |
       ELSE r3.reason
     END
     FROM (
-      SELECT s3.id, ${sql.raw(stationStatusReasonSql('s3'))} AS reason
+      SELECT s3.id, s3.firmware_state, s3.reported_status,
+        ${sql.raw(stationStatusReasonSql('s3'))} AS reason
       FROM ${chargingStations} s3
       WHERE s3.id = ${outerColumn}
     ) r3

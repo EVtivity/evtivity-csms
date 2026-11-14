@@ -186,3 +186,28 @@ describe('Create EVSE unit field', () => {
     expect(putMock).not.toHaveBeenCalled();
   });
 });
+
+describe('units that cannot be read', () => {
+  it('shows the load error with Retry instead of a grid without units', () => {
+    const onRetry = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConnectorStatus
+          data={EVSES as never}
+          stationId="sta_1"
+          stationOcppId="CS-0001"
+          ocppProtocol="ocpp2.1"
+          isOnline
+          isSimulator={false}
+          unitsError
+          onRetry={onRetry}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId('error-state')).toBeTruthy();
+    expect(screen.queryByText('charts.evse')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    expect(onRetry).toHaveBeenCalled();
+  });
+});

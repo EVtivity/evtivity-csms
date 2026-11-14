@@ -21,7 +21,7 @@ import { ChargerHeading } from '@/components/ChargerHeading';
 import { PortCard } from '@/components/PortCard';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDate } from '@/lib/utils';
-import { isStartable } from '@/lib/connector-status';
+import { isStartable, portDisplayStatus } from '@/lib/connector-status';
 import { checkGuestConnectorStatus, qrTransactionLimits } from '@/lib/charger-utils';
 import { guestStartExtras } from '@/lib/guest-start';
 import { useStationEvents } from '@/hooks/use-station-events';
@@ -29,6 +29,7 @@ import { useCableCheck } from '@/hooks/use-cable-check';
 import { evseDisplayStatus } from '@evtivity/lib/evse-status';
 import { loginPathFor } from '@/lib/return-path';
 import { GuestAccountPrompt } from '@/components/GuestAccountPrompt';
+import { ErrorState } from '@/components/ui/content-state';
 
 interface ChargerInfo {
   stationId: string;
@@ -101,7 +102,11 @@ export function ChargerLanding(): React.JSX.Element {
     staleTime: 0,
   });
 
-  const { data: guestConfig } = useQuery({
+  const {
+    data: guestConfig,
+    isError: guestConfigError,
+    refetch: refetchGuestConfig,
+  } = useQuery({
     queryKey: ['guest-charger-config', stationId, evseId],
     queryFn: () =>
       api.get<{
@@ -219,6 +224,12 @@ export function ChargerLanding(): React.JSX.Element {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
+          {!charger.isOnline && (
+            <Alert variant="warning" className="text-left" data-testid="station-offline-notice">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{t('charger.offlineNotice')}</AlertDescription>
+            </Alert>
+          )}
           {charger.stationUnavailable && (
             <Alert variant="destructive" className="text-left">
               <AlertCircle className="h-4 w-4" />
@@ -250,7 +261,7 @@ export function ChargerLanding(): React.JSX.Element {
           {/* Location */}
           {charger.siteAddress != null && charger.siteId != null ? (
             <Link
-              to={`/location/${charger.siteId}?from=${encodeURIComponent(`/charge/${stationId ?? ''}/${evseId ?? ''}`)}`}
+              to={`/location/${charger.siteId}?from=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
               className="flex items-start gap-2 text-sm text-link hover:underline transition-colors"
             >
               <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
@@ -276,7 +287,7 @@ export function ChargerLanding(): React.JSX.Element {
             testId="charger-port"
             evseId={charger.evse.evseId}
             connectors={charger.evse.connectors}
-            status={connectorStatus}
+            status={portDisplayStatus(connectorStatus, isAvailable && charger.isOnline)}
             available={isAvailable && charger.isOnline}
             reservationExpiresAt={charger.evse.reservationExpiresAt}
             timezone={timezone}
@@ -287,7 +298,26 @@ export function ChargerLanding(): React.JSX.Element {
           )}
 
           {/* Actions */}
-          {guestConfig == null ? (
+          {guestConfig == null && guestConfigError ? (
+            // The guest options could not be read: retry, or sign in instead.
+            <div className="space-y-2 pt-2" data-testid="guest-config-error">
+              <ErrorState
+                className="py-2"
+                onRetry={() => {
+                  void refetchGuestConfig();
+                }}
+              />
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  void navigate(loginPath);
+                }}
+              >
+                {t('charger.signIn')}
+              </Button>
+            </div>
+          ) : guestConfig == null ? (
             <p className="pt-2 text-center text-sm text-muted-foreground">
               {t('charger.loadingInfo')}
             </p>

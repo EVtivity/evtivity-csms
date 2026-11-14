@@ -170,4 +170,20 @@ describe('ChargerDetail station units', () => {
       expect(getMock).toHaveBeenCalledWith('/v1/portal/favorites/check/EM4-MASTER');
     });
   });
+
+  it('counts the ports of the unit in Show All on a unit page narrowed to one port', async () => {
+    renderAt('/start/EM4-MASTER?unit=unt_box3&evse=5', station(true));
+    expect(await screen.findByText('stationDetail.showAllConnectors:2')).toBeDefined();
+  });
+
+  it('keeps the unit and the port in the location back link', async () => {
+    renderAt('/start/EM4-MASTER?unit=unt_box3&evse=5', {
+      ...station(true),
+      siteId: 'sit_1',
+      siteAddress: 'Main Street 1',
+    });
+    const link = await screen.findByRole('link', { name: /Main Street 1/ });
+    const from = new URL(link.getAttribute('href') ?? '', 'http://x').searchParams.get('from');
+    expect(from).toBe('/start/EM4-MASTER?unit=unt_box3&evse=5');
+  });
 });
