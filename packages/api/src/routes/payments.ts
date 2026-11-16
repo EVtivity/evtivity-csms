@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { isIP } from 'node:net';
 import { PRE_AUTH_AMOUNT_MAX_CENTS, PRE_AUTH_AMOUNT_MIN_CENTS } from '@evtivity/lib/currency';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -10,6 +11,7 @@ import {
   client,
   writeAudit,
   siteAuditLog,
+  settingAuditLog,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
@@ -53,6 +55,7 @@ import {
   WebhookExistsError,
 } from '@evtivity/payments';
 import type {
+  PaymentMethodDomainStatus,
   PaymentProvider,
   RefundOutcome,
   WebhookEndpointInfo,
@@ -529,6 +532,43 @@ function registerProviderWebhook(
   return provider.registerWebhook(input);
 }
 
+/**
+ * The hostname Apple Pay and Google Pay run on: the guest checkout's origin,
+ * PORTAL_URL (the guest start checks the same origin). Null when Stripe cannot
+ * verify it: not https, localhost, an IP address or a name without a dot.
+ */
+function portalWalletDomain(): string | null {
+  const url = URL.parse(apiConfig.PORTAL_URL);
+  if (url == null || url.protocol !== 'https:') return null;
+  const host = url.hostname;
+  if (host === 'localhost' || !host.includes('.') || isIP(host.replace(/^\[|\]$/g, '')) !== 0) {
+    return null;
+  }
+  return host;
+}
+
+/** The portal domain registration of a provider with wallet payment method domains. */
+function getProviderPaymentMethodDomain(
+  provider: PaymentProvider,
+  domain: string,
+): Promise<PaymentMethodDomainStatus | null> {
+  if (provider.getPaymentMethodDomain == null) {
+    throw new Error(`Payment provider ${provider.id} cannot read payment method domains`);
+  }
+  return provider.getPaymentMethodDomain(domain);
+}
+
+/** Registers the portal domain with a provider that has wallet payment method domains. */
+function registerProviderPaymentMethodDomain(
+  provider: PaymentProvider,
+  domain: string,
+): Promise<PaymentMethodDomainStatus> {
+  if (provider.registerPaymentMethodDomain == null) {
+    throw new Error(`Payment provider ${provider.id} cannot register payment method domains`);
+  }
+  return provider.registerPaymentMethodDomain(domain);
+}
+
 /** 400 for a Stripe webhook setup call that Stripe or the configuration refused. */
 async function sendStripeWebhookError(
   request: FastifyRequest,
@@ -769,6 +809,47 @@ const createStripeWebhookBody = z.object({
       'Replace the endpoints that already exist at this URL (after the operator confirms). Endpoints of other EVtivity deployments at other URLs are never changed.',
     ),
 });
+
+// --- Stripe payment method domain (Apple Pay, Google Pay) ---
+
+const walletDomainStatusItem = z
+  .object({
+    status: z
+      .enum(['active', 'inactive'])
+      .describe('Whether the wallet shows on the guest checkout at this domain'),
+    errorMessage: z
+      .string()
+      .nullable()
+      .describe("Stripe's reason for an inactive wallet; null when active or none given"),
+  })
+  .loose();
+
+const stripePaymentMethodDomainResponse = z
+  .object({
+    portalUrl: z.string().describe('PORTAL_URL of this deployment, the guest checkout origin'),
+    domain: z
+      .string()
+      .nullable()
+      .describe(
+        'Hostname of PORTAL_URL that Apple Pay and Google Pay run on; null when PORTAL_URL is not a public https URL Stripe can verify (http, localhost, an IP address)',
+      ),
+    registration: z
+      .object({
+        id: z.string().describe('Stripe id of the payment method domain (pmd_...)'),
+        domain: z.string().describe('Registered hostname'),
+        enabled: z
+          .boolean()
+          .describe('Whether wallets show at the domain; a disabled domain is enabled on register'),
+        applePay: walletDomainStatusItem.describe('Apple Pay on the domain'),
+        googlePay: walletDomainStatusItem.describe('Google Pay on the domain'),
+      })
+      .loose()
+      .nullable()
+      .describe(
+        'The registration on the platform Stripe account; null when the domain is not registered. Destination charges to payout accounts use the platform registration.',
+      ),
+  })
+  .loose();
 
 const stripeWebhookSetupQuery = z.object({
   url: z
@@ -1499,6 +1580,115 @@ export function paymentRoutes(app: FastifyInstance): void {
         'Stripe webhook endpoints created',
       );
       return { endpoints: registration.endpoints };
+    },
+  );
+
+  // ---- Stripe Payment Method Domain ----
+
+  app.get(
+    '/settings/stripe/payment-method-domain',
+    {
+      onRequest: [authorize('settings.payment:read')],
+      schema: {
+        tags: ['Payments'],
+        summary: 'Get the Stripe payment method domain of the portal',
+        description:
+          'Reads the registration of the portal domain (the hostname of PORTAL_URL) in the Stripe account, which Apple Pay and Google Pay need on the guest checkout, with the status of each wallet. Stripe is not called when PORTAL_URL is not a public https URL (domain null).',
+        operationId: 'getStripePaymentMethodDomain',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: itemResponse(stripePaymentMethodDomainResponse),
+          400: errorWith('Stripe is not configured or refused the call', [
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_PERMISSION_MISSING,
+            ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
+          ]),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
+      const domain = portalWalletDomain();
+      if (domain == null) return { portalUrl: apiConfig.PORTAL_URL, domain, registration: null };
+      try {
+        const provider = await paymentRegistry.getPaymentProvider('stripe');
+        const registration = await getProviderPaymentMethodDomain(provider, domain);
+        return { portalUrl: apiConfig.PORTAL_URL, domain, registration };
+      } catch (err) {
+        await sendStripeWebhookError(request, reply, err);
+        return;
+      }
+    },
+  );
+
+  app.post(
+    '/settings/stripe/payment-method-domain',
+    {
+      onRequest: [authorize('settings.payment:write')],
+      schema: {
+        tags: ['Payments'],
+        summary: 'Register the portal domain with Stripe',
+        description:
+          'Registers the portal domain (the hostname of PORTAL_URL) as a payment method domain in the Stripe account, so Apple Pay and Google Pay show on the guest checkout. An existing registration is enabled when disabled, or else checked again by Stripe (validate). Only the platform account is registered: holds to payout accounts are destination charges, which use it. Registrations of other domains are never changed. A restricted key needs the Payment Method Domains write permission.',
+        operationId: 'registerStripePaymentMethodDomain',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: itemResponse(stripePaymentMethodDomainResponse),
+          400: errorWith(
+            'PORTAL_URL is not a public https URL, or Stripe is not configured or refused the call',
+            [
+              ERROR_CODES.VALIDATION_ERROR,
+              ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+              ERROR_CODES.PAYMENT_PROVIDER_PERMISSION_MISSING,
+              ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
+            ],
+          ),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
+      const domain = portalWalletDomain();
+      if (domain == null) {
+        await reply.status(400).send({
+          error: 'PORTAL_URL is not a public https URL',
+          code: 'VALIDATION_ERROR',
+          details: { portalUrl: 'Stripe verifies only a public https domain' },
+        });
+        return;
+      }
+      let before: PaymentMethodDomainStatus | null;
+      let registration: PaymentMethodDomainStatus;
+      try {
+        const provider = await paymentRegistry.getPaymentProvider('stripe');
+        before = await getProviderPaymentMethodDomain(provider, domain);
+        registration = await registerProviderPaymentMethodDomain(provider, domain);
+      } catch (err) {
+        await sendStripeWebhookError(request, reply, err);
+        return;
+      }
+      const key = 'stripe.paymentMethodDomain';
+      await writeAudit(
+        { table: settingAuditLog, idColumn: 'setting_key' },
+        {
+          entityId: key,
+          entityIdSnapshot: key,
+          action: 'updated',
+          ...getAuditActor(request),
+          before: { key, value: before },
+          after: { key, value: registration },
+        },
+        db,
+        request.log,
+      );
+      request.log.info({ domain, id: registration.id }, 'Stripe payment method domain registered');
+      return { portalUrl: apiConfig.PORTAL_URL, domain, registration };
     },
   );
 

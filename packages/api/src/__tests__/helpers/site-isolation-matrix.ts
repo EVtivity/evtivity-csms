@@ -620,6 +620,23 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   ),
   c(
     'GET',
+    '/settings/stripe/payment-method-domain',
+    'settings.payment:read',
+    () => '/settings/stripe/payment-method-domain',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'POST',
+    '/settings/stripe/payment-method-domain',
+    'settings.payment:write',
+    () => '/settings/stripe/payment-method-domain',
+    'SETTING_NOT_FOUND',
+    {
+      control: ctl(400, 'VALIDATION_ERROR', 'PORTAL_URL of the test API is http://localhost'),
+    },
+  ),
+  c(
+    'GET',
     '/settings/stripe/webhook',
     'settings.payment:read',
     () => '/settings/stripe/webhook',

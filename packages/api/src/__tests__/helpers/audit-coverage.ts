@@ -576,6 +576,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'api/src/lib/payment-settings-writes.ts',
   },
   'POST /settings/s3/test': { allow: 'connection test, no stored state' },
+  'POST /settings/stripe/payment-method-domain': {
+    audited: 'setting',
+    service: 'api/src/routes/payments.ts',
+  },
   'POST /settings/stripe/test': { allow: 'connection test, no stored state' },
   'POST /settings/stripe/webhook': {
     audited: 'setting',
