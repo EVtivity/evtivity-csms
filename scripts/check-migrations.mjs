@@ -6,6 +6,8 @@
  *   1. A SQL file on disk with no matching journal entry, or vice versa.
  *   2. Duplicate or non-sequential `idx` values.
  *   3. A `when` value that is not strictly greater than the previous entry.
+ *   5. A baseline manifest (meta/baseline.json) that does not match the journal
+ *      or the files: the baseline first, its hash, no folded file left.
  *   4. A file whose form the runner cannot apply safely: CONCURRENTLY outside
  *      a no-transaction file, or a no-transaction file statement that would
  *      fail on a rerun (scripts/lib/migration-files.mjs).
@@ -18,6 +20,7 @@
  *
  * Usage:
  *   node scripts/check-migrations.mjs              # check only (exit 1 on failure)
+ *   node scripts/check-migrations.mjs --dir <path> # check another folder (a squash dry run)
  *   node scripts/check-migrations.mjs --fix-last   # auto-bump the LAST entry
  *                                                  # (safe: skips already-applied
  *                                                  #  migrations, only patches
@@ -27,11 +30,14 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { migrationFileProblems } from './lib/migration-files.mjs';
+import { migrationFileProblems, migrationHash } from './lib/migration-files.mjs';
+import { baselineManifestProblems, readBaselineManifest } from './lib/migration-baseline.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
-const MIGRATIONS_DIR = join(REPO_ROOT, 'packages/database/src/migrations');
+const dirArg = process.argv.indexOf('--dir');
+const MIGRATIONS_DIR =
+  dirArg > 0 ? process.argv[dirArg + 1] : join(REPO_ROOT, 'packages/database/src/migrations');
 const JOURNAL_PATH = join(MIGRATIONS_DIR, 'meta/_journal.json');
 
 const fixLast = process.argv.includes('--fix-last');
@@ -116,6 +122,17 @@ for (const tag of tagToFile.keys()) {
 for (const f of sqlFiles) {
   for (const problem of migrationFileProblems(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))) {
     errors.push(`${f}: ${problem}`);
+  }
+}
+
+const manifest = readBaselineManifest(MIGRATIONS_DIR);
+if (manifest != null) {
+  const hashOf = (tag) =>
+    tagToFile.has(tag)
+      ? migrationHash(readFileSync(join(MIGRATIONS_DIR, `${tag}.sql`), 'utf8'))
+      : null;
+  for (const problem of baselineManifestProblems(manifest, journal, hashOf)) {
+    errors.push(`baseline: ${problem}`);
   }
 }
 

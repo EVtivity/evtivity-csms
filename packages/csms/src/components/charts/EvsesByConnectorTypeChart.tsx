@@ -10,8 +10,16 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, escapeChartText, getGridColor } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
-import { ChartBody, type QueryState } from './ChartBody';
+import { CHART_HEIGHT, ChartBody, type QueryState } from './ChartBody';
 import { useConnectorTypeLabel } from '@/hooks/use-connector-type-label';
+
+const ROW_HEIGHT_PX = 36;
+const AXIS_HEIGHT_PX = 80;
+
+/** Grows with the number of types so every bar keeps a readable row. */
+export function connectorChartHeight(typeCount: number): number {
+  return Math.max(CHART_HEIGHT, typeCount * ROW_HEIGHT_PX + AXIS_HEIGHT_PX);
+}
 
 export interface EvsesByConnectorTypePoint {
   connectorType: string;
@@ -53,15 +61,18 @@ export function EvsesByConnectorTypeChart({
       },
       theme: { mode: isDark ? 'dark' : 'light' },
       grid: { borderColor: getGridColor(isDark) },
-      plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
+      // Horizontal bars: each connector type name gets its own row on the
+      // category axis, so full names never overlap however many types there
+      // are or however narrow the card is.
+      plotOptions: { bar: { horizontal: true, borderRadius: 4, barHeight: '60%' } },
       xaxis: {
         type: 'category',
         categories: labels,
-        labels: { rotate: 0, hideOverlappingLabels: false, trim: false },
+        title: { text: t('dashboard.chartEvses') },
+        labels: { formatter: (val: string) => formatNumber(Number(val), 0) },
       },
       yaxis: {
-        title: { text: t('dashboard.chartEvses') },
-        labels: { formatter: (val: number) => formatNumber(val, 0) },
+        labels: { maxWidth: 200 },
       },
       dataLabels: { enabled: false },
       tooltip: {
@@ -78,7 +89,6 @@ export function EvsesByConnectorTypeChart({
         },
       },
       colors: [CHART_COLORS.secondary],
-      responsive: [{ breakpoint: 768, options: { chart: { height: 250 } } }],
     }),
     [isDark, labels, data, t, i18n.language],
   );
@@ -98,7 +108,12 @@ export function EvsesByConnectorTypeChart({
       </CardHeader>
       <CardContent>
         <ChartBody state={state} isEmpty={data.length === 0} emptyText={t('dashboard.noEvses')}>
-          <ReactApexChart options={options} series={series} type="bar" height={300} />
+          <ReactApexChart
+            options={options}
+            series={series}
+            type="bar"
+            height={connectorChartHeight(data.length)}
+          />
         </ChartBody>
       </CardContent>
     </Card>

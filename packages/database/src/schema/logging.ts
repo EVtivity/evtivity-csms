@@ -137,6 +137,7 @@ export const workerJobLogs = pgTable(
     index('idx_worker_job_logs_job_name').on(table.jobName),
     index('idx_worker_job_logs_queue').on(table.queue),
     index('idx_worker_job_logs_started_at').on(table.startedAt),
+    index('idx_worker_job_logs_completed_at').on(table.completedAt),
   ],
 );
 

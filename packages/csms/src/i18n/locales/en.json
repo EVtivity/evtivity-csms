@@ -7791,6 +7791,8 @@
     "retiredCount_other": "{{count}} Retired",
     "unitCount_one": "{{count}} Unit",
     "unitCount_other": "{{count}} Units",
+    "ocppEndpoint": "OCPP Endpoint",
+    "ocppEndpointHelp": "Reported by the station's OCPP connection. With units, this is the box that connects to the CSMS; each unit's own details are on the EVSE & Connectors tab.",
     "assignEvse": "Assign EVSE",
     "assignEvseDescription": "Pick an EVSE to move into {{name}}. An EVSE of another unit leaves that unit, since an EVSE belongs to one unit only.",
     "removeEvse": "Remove EVSE",

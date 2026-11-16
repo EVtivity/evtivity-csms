@@ -9,6 +9,7 @@ export function shippedMigrationProblems(
   shipped: ShippedMigrations,
   journal: MigrationJournal,
   hashOf: (tag: string) => string | null,
+  manifest?: { baseline: { tag: string }; replaced: Record<string, string> } | null,
 ): string[];
 export function recordShippedMigrations(
   shipped: ShippedMigrations,

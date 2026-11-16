@@ -7791,6 +7791,8 @@
     "retiredCount_other": "{{count}} 個已停用",
     "unitCount_one": "{{count}} 個單元",
     "unitCount_other": "{{count}} 個單元",
+    "ocppEndpoint": "OCPP 端點",
+    "ocppEndpointHelp": "由充電樁的 OCPP 連線回報。有單元時，這是連線到 CSMS 的那台設備；各單元自己的資訊在 EVSE 與連接器分頁中。",
     "assignEvse": "分配 EVSE",
     "assignEvseDescription": "選擇要移到 {{name}} 的 EVSE。一個 EVSE 只屬於一個單元，因此其他單元的 EVSE 會離開原單元。",
     "removeEvse": "移除 EVSE",

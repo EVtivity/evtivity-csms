@@ -148,3 +148,7 @@ BEGIN
       CHECK ("charging_kind" IS NULL OR "charging_kind" IN ('ac', 'dc')) NOT VALID;
   END IF;
 END $$;
+--> statement-breakpoint
+-- Every invoice is written with the currency it was issued in; the 'USD'
+-- default left from the first schema is dropped (one company currency).
+ALTER TABLE "invoices" ALTER COLUMN "currency" DROP DEFAULT;

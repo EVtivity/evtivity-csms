@@ -16,6 +16,7 @@ import {
   unique,
   uniqueIndex,
   primaryKey,
+  check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
@@ -71,7 +72,15 @@ export const tariffs = pgTable(
   // not support partial unique indexes via the schema DSL, so the constraint
   // is declared in raw SQL and lives outside this file. Do not add a second
   // index here for the same column or generate would treat them as duplicates.
-  (table) => [index('idx_tariffs_group_active').on(table.pricingGroupId, table.isActive)],
+  (table) => [
+    index('idx_tariffs_group_active').on(table.pricingGroupId, table.isActive),
+    check('tariffs_charging_type_check', sql`${table.chargingType} IN ('ac', 'dc', 'both')`),
+    check('tariffs_site_scope_check', sql`${table.siteScope} IN ('all', 'selected')`),
+    check(
+      'tariffs_default_unscoped_check',
+      sql`NOT ${table.isDefault} OR (${table.chargingType} = 'both' AND ${table.siteScope} = 'all')`,
+    ),
+  ],
 );
 
 // The sites of a Selected Sites tariff (migration 0490). Written only by the

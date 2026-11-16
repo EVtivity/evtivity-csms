@@ -23,6 +23,7 @@ import { sql } from 'drizzle-orm';
 import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib/load-allocation';
 import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import { createId } from '../lib/id.js';
+import { users } from './identity.js';
 
 export const chargingStationStatusEnum = pgEnum('charging_station_status', [
   'available',
@@ -160,15 +161,14 @@ export const chargingStations = pgTable(
     iccid: varchar('iccid', { length: 20 }),
     imsi: varchar('imsi', { length: 20 }),
     // Who wrote the ICCID: `reported` by a BootNotification, `entered` by a
-    // person through the station PATCH, with that person (the migration's
-    // foreign key to users sets it null on delete; assets cannot import
-    // identity) and whether they had access to every site. A Refresh attaches
-    // an entered ICCID as `entered`, never as reported.
+    // person through the station PATCH, with that person (null when the user
+    // is deleted) and whether they had access to every site. A Refresh
+    // attaches an entered ICCID as `entered`, never as reported.
     iccidSource: varchar('iccid_source', { length: 16 })
       .$type<'reported' | 'entered'>()
       .notNull()
       .default('reported'),
-    iccidEnteredBy: text('iccid_entered_by'),
+    iccidEnteredBy: text('iccid_entered_by').references(() => users.id, { onDelete: 'set null' }),
     iccidEnteredWithAllSites: boolean('iccid_entered_with_all_sites').notNull().default(false),
     availability: chargingStationStatusEnum('availability').notNull().default('available'),
     // The status the station reports for itself as a whole: OCPP 1.6
@@ -381,6 +381,13 @@ export const stationLayoutPositions = pgTable(
     check(
       'station_layout_positions_board_check',
       sql`(${table.boardX} IS NULL) = (${table.boardY} IS NULL)`,
+    ),
+    check(
+      'station_layout_positions_free_check',
+      sql`(${table.freeXM} IS NULL AND ${table.freeZM} IS NULL AND ${table.freeRotationDeg} IS NULL)
+        OR (${table.freeXM} IS NOT NULL AND ${table.freeZM} IS NOT NULL AND ${table.freeRotationDeg} IS NOT NULL
+          AND ${table.freeXM} BETWEEN -400 AND 400 AND ${table.freeZM} BETWEEN -400 AND 400
+          AND ${table.freeRotationDeg} >= 0 AND ${table.freeRotationDeg} < 360)`,
     ),
   ],
 );

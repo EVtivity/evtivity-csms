@@ -19,6 +19,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { applyMigrationFile, lockMigrations, migrationHash } from './lib/migration-files.mjs';
+import { readBaselineManifest, reconcileBaseline } from './lib/migration-baseline.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -104,6 +105,10 @@ try {
     await lockMigrations(sql);
     const lockedRows = await sql`SELECT hash FROM drizzle.__drizzle_migrations`;
     const lockedApplied = new Set(lockedRows.map((r) => r.hash));
+    // The baseline is never self-healed blindly: the runner's decision applies
+    // (run on an empty database, record on one at the upgrade release, refuse
+    // an older one).
+    await reconcileBaseline(sql, readBaselineManifest(MIGRATIONS_DIR), lockedApplied);
     missing = missing.filter((e) => !lockedApplied.has(e.hash));
     console.warn(
       `verify-migrations-applied: ${missing.length} migration(s) drizzle silently skipped, self-healing...`,

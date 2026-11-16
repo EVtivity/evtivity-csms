@@ -274,6 +274,11 @@ export const chargingSessions = pgTable(
       'charging_sessions_member_billed_check',
       sql`NOT member_billed OR (coalesce(billing_mode = 'account', false) AND driver_id IS NOT NULL)`,
     ),
+    check('chk_charging_sessions_tax_basis', sql`${table.taxBasis} IN ('net', 'gross')`),
+    check(
+      'charging_sessions_charging_kind_check',
+      sql`${table.chargingKind} IS NULL OR ${table.chargingKind} IN ('ac', 'dc')`,
+    ),
     check(
       'charging_sessions_rebill_status_check',
       sql`rebill_status IS NULL OR rebill_status IN ('in_progress', 'billed', 'manual')`,

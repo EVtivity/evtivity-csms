@@ -7791,6 +7791,8 @@
     "retiredCount_other": "{{count}} retirados",
     "unitCount_one": "{{count}} Unidad",
     "unitCount_other": "{{count}} Unidades",
+    "ocppEndpoint": "Punto Final OCPP",
+    "ocppEndpointHelp": "Informado por la conexión OCPP de la estación. Con unidades, es la caja que se conecta al CSMS; los datos de cada unidad están en la pestaña EVSE y Conectores.",
     "assignEvse": "Asignar EVSE",
     "assignEvseDescription": "Elija un EVSE para moverlo a {{name}}. Un EVSE de otra unidad sale de esa unidad, porque un EVSE pertenece a una sola unidad.",
     "removeEvse": "Quitar EVSE",

@@ -9,13 +9,20 @@
  * unmapped journal entry ordered before a shipped one (only the files of the
  * release being built may be unmapped, and they come last).
  *
+ * With a baseline manifest (scripts/lib/migration-baseline.mjs) the files it
+ * replaced are expected gone from the folder and the journal, and the manifest
+ * must hold the hash each one shipped with; the baseline itself may be
+ * unmapped and first.
+ *
  * @param {Record<string, Record<string, string>>} shipped version -> tag -> sha256
  * @param {{ entries: { idx: number; tag: string }[] }} journal
  * @param {(tag: string) => string | null} hashOf the current sha256 of a file, null when missing
+ * @param {{ baseline: { tag: string }, replaced: Record<string, string> } | null} [manifest]
  * @returns {string[]}
  */
-export function shippedMigrationProblems(shipped, journal, hashOf) {
+export function shippedMigrationProblems(shipped, journal, hashOf, manifest = null) {
   const problems = [];
+  const folded = manifest?.replaced ?? {};
   const releaseOf = new Map();
   for (const [version, files] of Object.entries(shipped)) {
     for (const [tag, hash] of Object.entries(files)) {
@@ -24,6 +31,13 @@ export function shippedMigrationProblems(shipped, journal, hashOf) {
         continue;
       }
       releaseOf.set(tag, version);
+      if (Object.hasOwn(folded, tag)) {
+        if (folded[tag] !== hash) {
+          problems.push(`${tag} (shipped in ${version}): the baseline manifest holds another hash`);
+        }
+        if (hashOf(tag) != null) problems.push(`${tag}: folded into the baseline but still a file`);
+        continue;
+      }
       const current = hashOf(tag);
       if (current == null) {
         problems.push(`${tag} (shipped in ${version}): the file is missing`);
@@ -36,7 +50,11 @@ export function shippedMigrationProblems(shipped, journal, hashOf) {
     }
   }
   const journalTags = new Set(journal.entries.map((e) => e.tag));
+  for (const tag of Object.keys(folded)) {
+    if (!releaseOf.has(tag)) problems.push(`${tag}: folded into the baseline but never shipped`);
+  }
   for (const [tag, version] of releaseOf) {
+    if (Object.hasOwn(folded, tag)) continue;
     if (!journalTags.has(tag)) problems.push(`${tag} (shipped in ${version}): not in the journal`);
   }
   let lastShippedIdx = -1;
@@ -44,6 +62,7 @@ export function shippedMigrationProblems(shipped, journal, hashOf) {
     if (releaseOf.has(entry.tag)) lastShippedIdx = Math.max(lastShippedIdx, entry.idx);
   }
   for (const entry of journal.entries) {
+    if (entry.tag === manifest?.baseline.tag) continue;
     if (!releaseOf.has(entry.tag) && entry.idx < lastShippedIdx) {
       problems.push(`${entry.tag}: not shipped but ordered before a shipped migration`);
     }

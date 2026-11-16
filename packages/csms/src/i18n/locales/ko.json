@@ -7791,6 +7791,8 @@
     "retiredCount_other": "{{count}}개 사용 중지",
     "unitCount_one": "유닛 {{count}}개",
     "unitCount_other": "유닛 {{count}}개",
+    "ocppEndpoint": "OCPP 엔드포인트",
+    "ocppEndpointHelp": "충전소의 OCPP 연결이 보고한 정보입니다. 유닛이 있으면 CSMS에 연결되는 박스의 정보이며, 각 유닛의 정보는 EVSE 및 커넥터 탭에 있습니다.",
     "assignEvse": "EVSE 할당",
     "assignEvseDescription": "{{name}}(으)로 옮길 EVSE를 선택하세요. EVSE는 하나의 유닛에만 속하므로 다른 유닛의 EVSE는 그 유닛에서 빠집니다.",
     "removeEvse": "EVSE 제거",

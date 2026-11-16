@@ -245,6 +245,11 @@ export const driverTokens = pgTable(
     index('idx_driver_tokens_driver_id').on(table.driverId),
     index('idx_driver_tokens_expires_at').on(table.expiresAt),
     index('idx_driver_tokens_vehicle_id').on(table.vehicleId),
+    uniqueIndex('uq_driver_tokens_id_token_type').on(table.idToken, table.tokenType),
+    check(
+      'driver_tokens_deactivated_by_check',
+      sql`${table.deactivatedBy} IS NULL OR ${table.deactivatedBy} IN ('operator', 'driver', 'system')`,
+    ),
   ],
 );
 

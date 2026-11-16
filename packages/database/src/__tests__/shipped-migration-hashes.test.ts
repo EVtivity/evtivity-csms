@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { readBaselineManifest } from '../../../../scripts/lib/migration-baseline.mjs';
 import { migrationHash } from '../../../../scripts/lib/migration-files.mjs';
 import {
   recordShippedMigrations,
@@ -16,6 +17,7 @@ import {
 } from '../../../../scripts/lib/shipped-migrations.mjs';
 
 const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url);
+const BASELINE = readBaselineManifest(new URL('../migrations', import.meta.url).pathname);
 const SHIPPED = JSON.parse(
   readFileSync(new URL('../../shipped-migrations.json', import.meta.url), 'utf8'),
 ) as ShippedMigrations;
@@ -30,7 +32,7 @@ function currentHash(tag: string): string | null {
 
 describe('shipped migration hashes', () => {
   it('keeps every migration file of a released version byte for byte', () => {
-    expect(shippedMigrationProblems(SHIPPED, JOURNAL, currentHash)).toEqual([]);
+    expect(shippedMigrationProblems(SHIPPED, JOURNAL, currentHash, BASELINE)).toEqual([]);
   });
 
   it('records every release up to v0.1.51, with its release files', () => {
@@ -45,7 +47,9 @@ describe('shipped migration hashes', () => {
 
   it('leaves only the files of the release being built unrecorded', () => {
     const recorded = new Set(Object.values(SHIPPED).flatMap((files) => Object.keys(files)));
-    const unrecorded = JOURNAL.entries.map((e) => e.tag).filter((tag) => !recorded.has(tag));
+    const unrecorded = JOURNAL.entries
+      .map((e) => e.tag)
+      .filter((tag) => !recorded.has(tag) && tag !== BASELINE?.baseline.tag);
     const versions = new Set(
       unrecorded.map((tag) =>
         /^\d{4}_release_(\d+)_(\d+)_(\d+)(?:_\w+)?$/.exec(tag)?.slice(1, 4).join('.'),
@@ -106,6 +110,39 @@ describe('shippedMigrationProblems', () => {
       hashOf,
     );
     expect(twice).toEqual(['0001_a: listed in v0.1.0 and v0.1.2']);
+  });
+});
+
+describe('shippedMigrationProblems with a baseline', () => {
+  const journal: MigrationJournal = {
+    entries: [
+      { idx: 0, tag: '0000_baseline_before_v0_1_1' },
+      { idx: 1, tag: '0002_b' },
+    ],
+  };
+  const shipped: ShippedMigrations = { 'v0.1.0': { '0001_a': 'h1' }, 'v0.1.1': { '0002_b': 'h2' } };
+  const manifest = {
+    baseline: { tag: '0000_baseline_before_v0_1_1' },
+    replaced: { '0001_a': 'h1' },
+  };
+  const hashes: Record<string, string> = { '0000_baseline_before_v0_1_1': 'hb', '0002_b': 'h2' };
+  const hashOf = (tag: string): string | null => hashes[tag] ?? null;
+
+  it('expects the folded files gone and lets the unrecorded baseline come first', () => {
+    expect(shippedMigrationProblems(shipped, journal, hashOf, manifest)).toEqual([]);
+  });
+
+  it('fails a folded file still on disk, a hash mismatch and a file never shipped', () => {
+    const still = shippedMigrationProblems(shipped, journal, (t) => hashes[t] ?? 'h1', manifest);
+    expect(still).toEqual(['0001_a: folded into the baseline but still a file']);
+    const other = shippedMigrationProblems(shipped, journal, hashOf, {
+      ...manifest,
+      replaced: { '0001_a': 'x', '0009_z': 'h9' },
+    });
+    expect(other).toEqual([
+      '0001_a (shipped in v0.1.0): the baseline manifest holds another hash',
+      '0009_z: folded into the baseline but never shipped',
+    ]);
   });
 });
 

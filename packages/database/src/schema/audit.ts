@@ -68,7 +68,7 @@ export const siteAuditLog = pgTable(
   },
   (table) => [
     index('idx_site_audit_site_id').on(table.siteId),
-    index('idx_site_audit_created_at').on(table.createdAt),
+    index('idx_site_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -117,7 +117,7 @@ export const stationAuditLog = pgTable(
   },
   (table) => [
     index('idx_station_audit_station_id').on(table.stationId),
-    index('idx_station_audit_created_at').on(table.createdAt),
+    index('idx_station_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -179,7 +179,7 @@ export const driverAuditLog = pgTable(
   },
   (table) => [
     index('idx_driver_audit_driver_id').on(table.driverId),
-    index('idx_driver_audit_created_at').on(table.createdAt),
+    index('idx_driver_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -217,7 +217,7 @@ export const fleetAuditLog = pgTable(
   },
   (table) => [
     index('idx_fleet_audit_fleet_id').on(table.fleetId),
-    index('idx_fleet_audit_created_at').on(table.createdAt),
+    index('idx_fleet_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -273,7 +273,7 @@ export const userAuditLog = pgTable(
   },
   (table) => [
     index('idx_user_audit_user_id').on(table.userId),
-    index('idx_user_audit_created_at').on(table.createdAt),
+    index('idx_user_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -309,7 +309,7 @@ export const vehicleAuditLog = pgTable(
   },
   (table) => [
     index('idx_vehicle_audit_vehicle_id').on(table.vehicleId),
-    index('idx_vehicle_audit_created_at').on(table.createdAt),
+    index('idx_vehicle_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -358,7 +358,7 @@ export const supportCaseAuditLog = pgTable(
   },
   (table) => [
     index('idx_support_case_audit_case_id').on(table.supportCaseId),
-    index('idx_support_case_audit_created_at').on(table.createdAt),
+    index('idx_support_case_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -395,7 +395,7 @@ export const ocpiPartnerAuditLog = pgTable(
   },
   (table) => [
     index('idx_ocpi_partner_audit_partner_id').on(table.ocpiPartnerId),
-    index('idx_ocpi_partner_audit_created_at').on(table.createdAt),
+    index('idx_ocpi_partner_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -433,7 +433,7 @@ export const certificateAuditLog = pgTable(
   },
   (table) => [
     index('idx_certificate_audit_cert_id').on(table.certificateId),
-    index('idx_certificate_audit_created_at').on(table.createdAt),
+    index('idx_certificate_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -465,7 +465,7 @@ export const roleAuditLog = pgTable(
   },
   (table) => [
     index('idx_role_audit_role_id').on(table.roleId),
-    index('idx_role_audit_created_at').on(table.createdAt),
+    index('idx_role_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -498,7 +498,7 @@ export const apiKeyAuditLog = pgTable(
   },
   (table) => [
     index('idx_api_key_audit_key_id').on(table.apiKeyId),
-    index('idx_api_key_audit_created_at').on(table.createdAt),
+    index('idx_api_key_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -525,7 +525,7 @@ export const settingAuditLog = pgTable(
   },
   (table) => [
     index('idx_setting_audit_key').on(table.settingKey),
-    index('idx_setting_audit_created_at').on(table.createdAt),
+    index('idx_setting_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -557,7 +557,7 @@ export const smartChargingTemplateAuditLog = pgTable(
   },
   (table) => [
     index('idx_smart_charging_template_audit_template_id').on(table.templateId),
-    index('idx_smart_charging_template_audit_created_at').on(table.createdAt),
+    index('idx_smart_charging_template_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -589,7 +589,7 @@ export const configTemplateAuditLog = pgTable(
   },
   (table) => [
     index('idx_config_template_audit_template_id').on(table.templateId),
-    index('idx_config_template_audit_created_at').on(table.createdAt),
+    index('idx_config_template_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -627,7 +627,7 @@ export const firmwareCampaignAuditLog = pgTable(
   },
   (table) => [
     index('idx_firmware_campaign_audit_campaign_id').on(table.campaignId),
-    index('idx_firmware_campaign_audit_created_at').on(table.createdAt),
+    index('idx_firmware_campaign_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -660,7 +660,7 @@ export const stationImageAuditLog = pgTable(
   },
   (table) => [
     index('idx_station_image_audit_image_id').on(table.stationImageId),
-    index('idx_station_image_audit_created_at').on(table.createdAt),
+    index('idx_station_image_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -692,7 +692,7 @@ export const localAuthListAuditLog = pgTable(
   },
   (table) => [
     index('idx_local_auth_list_audit_station_id').on(table.stationId),
-    index('idx_local_auth_list_audit_created_at').on(table.createdAt),
+    index('idx_local_auth_list_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -824,7 +824,7 @@ export const pricingGroupAuditLog = pgTable(
   },
   (table) => [
     index('idx_pricing_group_audit_id').on(table.pricingGroupId),
-    index('idx_pricing_group_audit_created_at').on(table.createdAt),
+    index('idx_pricing_group_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -849,7 +849,7 @@ export const tariffAuditLog = pgTable(
   },
   (table) => [
     index('idx_tariff_audit_id').on(table.tariffId),
-    index('idx_tariff_audit_created_at').on(table.createdAt),
+    index('idx_tariff_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -874,7 +874,7 @@ export const holidayAuditLog = pgTable(
   },
   (table) => [
     index('idx_holiday_audit_id').on(table.holidayId),
-    index('idx_holiday_audit_created_at').on(table.createdAt),
+    index('idx_holiday_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 
@@ -899,7 +899,7 @@ export const pricingAssignmentAuditLog = pgTable(
   },
   (table) => [
     index('idx_pricing_assignment_audit_id').on(table.pricingAssignmentId),
-    index('idx_pricing_assignment_audit_created_at').on(table.createdAt),
+    index('idx_pricing_assignment_audit_created_at').on(table.createdAt.desc()),
   ],
 );
 

@@ -12,6 +12,7 @@ import {
   jsonb,
   index,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { drivers } from './drivers.js';
 
@@ -113,7 +114,7 @@ export const driverPushTokens = pgTable(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   },
   (table) => [
-    unique('uq_driver_push_tokens_token').on(table.token),
+    uniqueIndex('uq_driver_push_tokens_token').on(table.token),
     index('idx_driver_push_tokens_driver').on(table.driverId),
   ],
 );

@@ -220,6 +220,9 @@ export const firmwareUpdates = pgTable(
   (table) => [
     index('idx_firmware_updates_station_id').on(table.stationId),
     index('idx_firmware_updates_request_id').on(table.requestId),
+    uniqueIndex('uniq_firmware_updates_station_request')
+      .on(table.stationId, table.requestId)
+      .where(sql`request_id IS NOT NULL`),
     index('idx_firmware_updates_status').on(table.status),
   ],
 );

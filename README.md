@@ -240,6 +240,8 @@ graph TB
 
 ## Deployment
 
+Before upgrading across a minor version, read [Upgrading to a New Minor Version](#upgrading-to-a-new-minor-version).
+
 | Option                | Use it for                                           | Source                                                                        | Guide                                                                      |
 | --------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Docker Compose        | Local development and single-host installs           | `docker-compose.yml` in this repository                                       | [Docker Compose](https://www.evtivity.com/docs/deployment/docker-compose/) |
@@ -334,6 +336,11 @@ The [Helm chart](https://github.com/EVtivity/evtivity-csms-helm) and the [AWS CD
 - **Upgrade notes** give the steps for the upgrade, such as webhook moves, renamed settings, or chart values that changed.
 - Database changes that old and new versions must share during a rolling upgrade ship in two steps: one release adds the new structure while keeping the old one, and a later release removes the old one. When a release note says so, upgrade through each stable version in order instead of skipping one.
 - The dashboard shows an update notice when a newer stable release is available. Prereleases never trigger it.
+
+### Upgrading to a New Minor Version
+
+> [!IMPORTANT]
+> Each new minor version upgrades directly from any release of the minor version just before it. For example, you can upgrade any 0.2.x release straight to 0.3.0. If you run an older version, such as 0.1.x, upgrade to any 0.2.x release first, then to 0.3.0.
 
 ## License
 

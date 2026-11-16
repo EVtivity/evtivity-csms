@@ -160,13 +160,10 @@ describe('new dashboard charts', () => {
         ]}
       />,
     );
-    const xaxis = captured.options?.xaxis as {
-      categories: string[];
-      labels: { rotate: number; hideOverlappingLabels: boolean; trim: boolean };
-    };
-    // Short standard names on the axis, so no label is rotated, hidden or clipped.
+    const xaxis = captured.options?.xaxis as { categories: string[] };
+    // Horizontal bars: each type name gets its own row, so names never overlap.
+    expect(captured.options?.plotOptions?.bar?.horizontal).toBe(true);
     expect(xaxis.categories).toEqual(['CCS2', 'connectorTypeNames.other', 'MCS', 'vendorx']);
-    expect(xaxis.labels).toEqual({ rotate: 0, hideOverlappingLabels: false, trim: false });
     // The tooltip names the same type.
     const tooltip = captured.options?.tooltip as {
       x: { formatter: (val: number, opts?: { dataPointIndex?: number }) => string };

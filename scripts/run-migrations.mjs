@@ -29,6 +29,11 @@
 // statement outside a transaction (CREATE INDEX CONCURRENTLY), and its hash is
 // recorded after the last statement succeeded (scripts/lib/migration-files.mjs).
 //
+// A squash folds the oldest files into one baseline (meta/baseline.json,
+// scripts/lib/migration-baseline.mjs): an empty database runs it, a database at
+// the upgrade release records it as applied, an older one is refused before
+// anything runs. Without the manifest nothing changes.
+//
 // Usage: node run-migrations.mjs [migrationsFolder]
 //   migrationsFolder defaults to ./src/migrations relative to cwd.
 
@@ -36,6 +41,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import postgres from 'postgres';
 import { applyMigrationFile, lockMigrations, migrationHash } from './lib/migration-files.mjs';
+import { readBaselineManifest, reconcileBaseline } from './lib/migration-baseline.mjs';
 
 const folder = path.resolve(process.argv[2] ?? './src/migrations');
 const journalPath = path.join(folder, 'meta', '_journal.json');
@@ -73,6 +79,11 @@ try {
 
   const appliedRows = await sql`SELECT hash FROM "drizzle"."__drizzle_migrations"`;
   const appliedHashes = new Set(appliedRows.map((row) => row.hash));
+  const manifest = readBaselineManifest(folder);
+  const baseline = await reconcileBaseline(sql, manifest, appliedHashes);
+  if (baseline.kind === 'mark') {
+    console.log(`recorded ${manifest.baseline.tag}: this database already holds its migrations`);
+  }
 
   let applied = 0;
   for (const entry of journal.entries) {

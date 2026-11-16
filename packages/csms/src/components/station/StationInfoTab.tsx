@@ -47,6 +47,7 @@ interface Station extends StationAiInsightsState {
   model: string | null;
   serialNumber: string | null;
   firmwareVersion: string | null;
+  unitCount?: number | undefined;
   iccid: string | null;
   imsi: string | null;
   availability: string;
@@ -245,6 +246,28 @@ export function StationInfoTab({
     });
   }
 
+  const hasUnits = (station.unitCount ?? 0) > 0;
+  const endpointFields = (
+    <>
+      <div>
+        <dt className="text-muted-foreground">{t('stations.vendor')}</dt>
+        <dd className="font-medium">{station.vendorName ?? '-'}</dd>
+      </div>
+      <div>
+        <dt className="text-muted-foreground">{t('stations.model')}</dt>
+        <dd className="font-medium">{station.model ?? '-'}</dd>
+      </div>
+      <div>
+        <dt className="text-muted-foreground">{t('stations.serialNumber')}</dt>
+        <dd className="font-medium">{station.serialNumber ?? '-'}</dd>
+      </div>
+      <div>
+        <dt className="text-muted-foreground">{t('stations.firmware')}</dt>
+        <dd className="font-medium">{station.firmwareVersion ?? '-'}</dd>
+      </div>
+    </>
+  );
+
   return (
     <>
       <TabPanel
@@ -398,134 +421,138 @@ export function StationInfoTab({
             </div>
           </form>
         ) : (
-          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            {mainImage != null && mainImageUrl != null && (
-              <div className="hidden md:block md:col-start-2 md:row-span-3 md:row-start-1">
-                <img
-                  src={mainImageUrl}
-                  alt={station.stationId}
-                  className="h-[150px] w-[200px] rounded-lg object-cover cursor-pointer"
-                  onClick={() => {
-                    setHeaderViewerOpen(true);
-                  }}
-                />
+          <div className="space-y-6">
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {mainImage != null && mainImageUrl != null && (
+                <div className="hidden md:block md:col-start-2 md:row-span-3 md:row-start-1">
+                  <img
+                    src={mainImageUrl}
+                    alt={station.stationId}
+                    className="h-[150px] w-[200px] rounded-lg object-cover cursor-pointer"
+                    onClick={() => {
+                      setHeaderViewerOpen(true);
+                    }}
+                  />
+                </div>
+              )}
+              <div>
+                <dt className="text-muted-foreground">{t('stations.site')}</dt>
+                <dd className="font-medium">
+                  {station.siteId != null ? (
+                    <Link to={`/sites/${station.siteId}`} className="text-link hover:underline">
+                      {sites?.find((s) => s.id === station.siteId)?.name ?? t('common.unnamedSite')}
+                    </Link>
+                  ) : (
+                    '-'
+                  )}
+                </dd>
               </div>
-            )}
-            <div>
-              <dt className="text-muted-foreground">{t('stations.site')}</dt>
-              <dd className="font-medium">
-                {station.siteId != null ? (
-                  <Link to={`/sites/${station.siteId}`} className="text-link hover:underline">
-                    {sites?.find((s) => s.id === station.siteId)?.name ?? t('common.unnamedSite')}
-                  </Link>
-                ) : (
-                  '-'
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('common.status')}</dt>
-              <dd className="font-medium">
-                {t(`status.${station.status}`, station.status)}
-                {station.statusReason != null &&
-                  (station.status === 'unavailable' || station.status === 'faulted') && (
-                    <span className="block text-sm font-normal text-muted-foreground">
-                      {t(`stations.statusReason.${station.statusReason}`, station.statusReason)}
+              <div>
+                <dt className="text-muted-foreground">{t('common.status')}</dt>
+                <dd className="font-medium">
+                  {t(`status.${station.status}`, station.status)}
+                  {station.statusReason != null &&
+                    (station.status === 'unavailable' || station.status === 'faulted') && (
+                      <span className="block text-sm font-normal text-muted-foreground">
+                        {t(`stations.statusReason.${station.statusReason}`, station.statusReason)}
+                      </span>
+                    )}
+                </dd>
+              </div>
+              {!hasUnits && endpointFields}
+              <div>
+                <dt className="text-muted-foreground">{t('stations.ocppProtocol')}</dt>
+                <dd className="font-medium">{station.ocppProtocol ?? '-'}</dd>
+              </div>
+              {simEnabled && (
+                <>
+                  <div>
+                    <dt className="text-muted-foreground">{t('stations.iccid')}</dt>
+                    <dd className="font-medium break-all">{station.iccid ?? t('common.na')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('stations.imsi')}</dt>
+                    <dd className="font-medium break-all">{station.imsi ?? t('common.na')}</dd>
+                  </div>
+                </>
+              )}
+              <div>
+                <dt className="text-muted-foreground">{t('stations.simulator')}</dt>
+                <dd className="font-medium">
+                  {station.isSimulator ? t('common.yes') : t('common.no')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('stations.latitude')}</dt>
+                <dd className="font-medium">{station.latitude ?? '-'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('stations.longitude')}</dt>
+                <dd className="font-medium">{station.longitude ?? '-'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('stations.lastHeartbeat')}</dt>
+                <dd className="font-medium">
+                  {station.lastHeartbeat != null
+                    ? formatDateTime(station.lastHeartbeat, siteTimezone)
+                    : '-'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('common.created')}</dt>
+                <dd className="font-medium">{formatDateTime(station.createdAt, siteTimezone)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
+                <dd className="font-medium">{formatDateTime(station.updatedAt, siteTimezone)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('stations.hoursOfOperation')}</dt>
+                <dd className="font-medium whitespace-pre-line">
+                  {station.siteHoursOfOperation ?? '-'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground flex items-center gap-1">
+                  {t('stations.ocppUrl')}
+                  <InfoTooltip
+                    content={<div className="max-w-64">{t('stations.ocppUrlHelp')}</div>}
+                  />
+                </dt>
+                <dd className="font-medium">
+                  {OCPP_BASE_URL !== '' ? (
+                    <CopyableId id={`${OCPP_BASE_URL}/${station.stationId}`} variant="detail" />
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {t('stations.ocppUrlNotConfigured')}
                     </span>
                   )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.vendor')}</dt>
-              <dd className="font-medium">{station.vendorName ?? '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.model')}</dt>
-              <dd className="font-medium">{station.model ?? '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.serialNumber')}</dt>
-              <dd className="font-medium">{station.serialNumber ?? '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.firmware')}</dt>
-              <dd className="font-medium">{station.firmwareVersion ?? '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.ocppProtocol')}</dt>
-              <dd className="font-medium">{station.ocppProtocol ?? '-'}</dd>
-            </div>
-            {simEnabled && (
-              <>
-                <div>
-                  <dt className="text-muted-foreground">{t('stations.iccid')}</dt>
-                  <dd className="font-medium break-all">{station.iccid ?? t('common.na')}</dd>
+                </dd>
+              </div>
+              <StationAiInsightsRow
+                stationId={station.id}
+                station={station}
+                timezone={siteTimezone}
+              />
+            </dl>
+            {hasUnits && (
+              <section
+                aria-labelledby="ocpp-endpoint-title"
+                className="space-y-3 border-t pt-4 text-sm"
+                data-testid="ocpp-endpoint-group"
+              >
+                <div className="space-y-1">
+                  <h3 id="ocpp-endpoint-title" className="font-semibold">
+                    {t('stationUnits.ocppEndpoint')}
+                  </h3>
+                  <p className="text-muted-foreground">{t('stationUnits.ocppEndpointHelp')}</p>
                 </div>
-                <div>
-                  <dt className="text-muted-foreground">{t('stations.imsi')}</dt>
-                  <dd className="font-medium break-all">{station.imsi ?? t('common.na')}</dd>
-                </div>
-              </>
+                <dl className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {endpointFields}
+                </dl>
+              </section>
             )}
-            <div>
-              <dt className="text-muted-foreground">{t('stations.simulator')}</dt>
-              <dd className="font-medium">
-                {station.isSimulator ? t('common.yes') : t('common.no')}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.latitude')}</dt>
-              <dd className="font-medium">{station.latitude ?? '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.longitude')}</dt>
-              <dd className="font-medium">{station.longitude ?? '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.lastHeartbeat')}</dt>
-              <dd className="font-medium">
-                {station.lastHeartbeat != null
-                  ? formatDateTime(station.lastHeartbeat, siteTimezone)
-                  : '-'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('common.created')}</dt>
-              <dd className="font-medium">{formatDateTime(station.createdAt, siteTimezone)}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
-              <dd className="font-medium">{formatDateTime(station.updatedAt, siteTimezone)}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('stations.hoursOfOperation')}</dt>
-              <dd className="font-medium whitespace-pre-line">
-                {station.siteHoursOfOperation ?? '-'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground flex items-center gap-1">
-                {t('stations.ocppUrl')}
-                <InfoTooltip
-                  content={<div className="max-w-64">{t('stations.ocppUrlHelp')}</div>}
-                />
-              </dt>
-              <dd className="font-medium">
-                {OCPP_BASE_URL !== '' ? (
-                  <CopyableId id={`${OCPP_BASE_URL}/${station.stationId}`} variant="detail" />
-                ) : (
-                  <span className="text-muted-foreground">
-                    {t('stations.ocppUrlNotConfigured')}
-                  </span>
-                )}
-              </dd>
-            </div>
-            <StationAiInsightsRow
-              stationId={station.id}
-              station={station}
-              timezone={siteTimezone}
-            />
-          </dl>
+          </div>
         )}
       </TabPanel>
       {headerViewerOpen && stationImages != null && stationImages.length > 0 && (

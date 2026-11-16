@@ -68,6 +68,7 @@ interface Station {
   model: string | null;
   serialNumber: string | null;
   firmwareVersion: string | null;
+  unitCount?: number | undefined;
   iccid: string | null;
   imsi: string | null;
   availability: string;
