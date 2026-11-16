@@ -2,13 +2,22 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react';
 import type { CardSetupProps, GuestPaymentProps } from '../types';
 
-const { stripeMock, loadStripeMock } = vi.hoisted(() => ({
-  stripeMock: { confirmCardSetup: vi.fn(), createPaymentMethod: vi.fn() },
-  loadStripeMock: vi.fn(() => Promise.resolve(null)),
-}));
+const { stripeMock, loadStripeMock, elementsMock, rendered } = vi.hoisted(() => {
+  // Props of the last Elements and ExpressCheckoutElement render, to fire wallet events.
+  const rendered: {
+    elementsOptions?: unknown;
+    express?: Record<string, (...args: unknown[]) => void>;
+  } = {};
+  return {
+    stripeMock: { confirmCardSetup: vi.fn(), createPaymentMethod: vi.fn() },
+    loadStripeMock: vi.fn(() => Promise.resolve(null)),
+    elementsMock: { getElement: () => ({}), submit: vi.fn() },
+    rendered,
+  };
+});
 
 // The account prompt replaces guest payment where a provider cannot take it.
 vi.mock('@/components/GuestAccountPrompt', () => ({
@@ -17,10 +26,17 @@ vi.mock('@/components/GuestAccountPrompt', () => ({
 vi.mock('@stripe/stripe-js/pure', () => ({ loadStripe: loadStripeMock }));
 
 vi.mock('@stripe/react-stripe-js', () => ({
-  Elements: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Elements: ({ children, options }: { children: React.ReactNode; options?: unknown }) => {
+    rendered.elementsOptions = options;
+    return <>{children}</>;
+  },
   CardElement: () => <div data-testid="card-element" />,
+  ExpressCheckoutElement: (props: Record<string, (...args: unknown[]) => void>) => {
+    rendered.express = props;
+    return <div data-testid="express-checkout" />;
+  },
   useStripe: () => stripeMock,
-  useElements: () => ({ getElement: () => ({}) }),
+  useElements: () => elementsMock,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -66,7 +82,13 @@ afterEach(() => {
   cleanup();
   stripeMock.confirmCardSetup.mockReset();
   stripeMock.createPaymentMethod.mockReset();
+  elementsMock.submit.mockReset();
 });
+
+function express(): Record<string, (...args: unknown[]) => void> {
+  if (rendered.express == null) throw new Error('ExpressCheckoutElement not rendered');
+  return rendered.express;
+}
 
 describe('Stripe module', () => {
   it('loads Stripe once per publishable key', () => {
@@ -196,6 +218,80 @@ describe('Stripe module', () => {
       render(<StripeGuestPayment {...props} />);
       const button = screen.getByRole('button', { name: 'guest.startCharging' });
       expect((button as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('defers the Elements to the manual-capture hold of the payout account', () => {
+      render(
+        <StripeGuestPayment
+          {...guestProps({
+            config: { provider: 'stripe', publishableKey: 'pk_test_1', onBehalfOf: 'acct_1' },
+          })}
+        />,
+      );
+      expect(rendered.elementsOptions).toEqual({
+        mode: 'payment',
+        amount: 5000,
+        currency: 'usd',
+        captureMethod: 'manual',
+        paymentMethodCreation: 'manual',
+        onBehalfOf: 'acct_1',
+      });
+    });
+
+    it('pays with the PaymentMethod of the wallet sheet', async () => {
+      elementsMock.submit.mockResolvedValue({});
+      stripeMock.createPaymentMethod.mockResolvedValue({ paymentMethod: { id: 'pm_wallet' } });
+      const paymentFailed = vi.fn();
+      const props = guestProps();
+      render(<StripeGuestPayment {...props} />);
+      act(() => {
+        express().onConfirm?.({ paymentFailed });
+      });
+      await waitFor(() => {
+        expect(props.pay).toHaveBeenCalledWith('pm_wallet');
+      });
+      expect(stripeMock.createPaymentMethod).toHaveBeenCalledWith({ elements: elementsMock });
+      expect(paymentFailed).not.toHaveBeenCalled();
+    });
+
+    it('fails the wallet sheet and does not pay when the PaymentMethod is refused', async () => {
+      elementsMock.submit.mockResolvedValue({});
+      stripeMock.createPaymentMethod.mockResolvedValue({
+        error: { code: 'card_declined', message: 'Your card was declined.' },
+      });
+      const paymentFailed = vi.fn();
+      const props = guestProps();
+      render(<StripeGuestPayment {...props} />);
+      act(() => {
+        express().onConfirm?.({ paymentFailed });
+      });
+      expect(await screen.findByText('guest.cardDeclined')).toBeTruthy();
+      expect(paymentFailed).toHaveBeenCalledWith({ reason: 'fail' });
+      expect(props.pay).not.toHaveBeenCalled();
+    });
+
+    it('opens the wallet sheet only when the host check passes', () => {
+      const canPay = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+      render(<StripeGuestPayment {...guestProps({ canPay })} />);
+      const resolve = vi.fn();
+      express().onClick?.({ resolve });
+      expect(resolve).not.toHaveBeenCalled();
+      express().onClick?.({ resolve });
+      expect(resolve).toHaveBeenCalledWith({
+        lineItems: [{ name: 'guest.walletHoldLabel', amount: 5000 }],
+      });
+    });
+
+    it('shows the card divider only when a wallet is available', () => {
+      render(<StripeGuestPayment {...guestProps()} />);
+      act(() => {
+        express().onReady?.({ availablePaymentMethods: undefined });
+      });
+      expect(screen.queryByText('guest.orPayByCard')).toBeNull();
+      act(() => {
+        express().onReady?.({ availablePaymentMethods: { applePay: true, googlePay: false } });
+      });
+      expect(screen.getByText('guest.orPayByCard')).toBeTruthy();
     });
 
     it('offers the account prompt without a publishable key', () => {

@@ -421,6 +421,8 @@
     "emailForReceipt": "Correo electrónico (para recibo)",
     "card": "Tarjeta",
     "preAuthHold": "Se realizará una retención de {{amount}} en su tarjeta. Solo se le cobrará por la energía utilizada.",
+    "orPayByCard": "o pague con tarjeta",
+    "walletHoldLabel": "Retención para la carga",
     "processing": "Procesando...",
     "startCharging": "Iniciar carga",
     "paymentFailed": "Pago fallido",

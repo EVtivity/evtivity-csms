@@ -421,6 +421,8 @@
     "emailForReceipt": "이메일 (영수증용)",
     "card": "카드",
     "preAuthHold": "카드에 {{amount}}가 사전 승인됩니다. 실제 사용한 전력량만 청구됩니다.",
+    "orPayByCard": "또는 카드로 결제",
+    "walletHoldLabel": "충전 사전 승인",
     "processing": "처리 중...",
     "startCharging": "충전 시작",
     "paymentFailed": "결제 실패",

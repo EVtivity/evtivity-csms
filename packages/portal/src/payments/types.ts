@@ -105,6 +105,11 @@ export interface GuestPaymentProps {
    * fails the session: the next pay starts a new one.
    */
   payDetails: (sessionToken: string, details: unknown) => Promise<GuestPayResult>;
+  /**
+   * Host's synchronous check (the e-mail field) before a wallet sheet opens; false when
+   * the host showed its own field error. Synchronous: the sheet must open in the click.
+   */
+  canPay?: () => boolean;
 }
 
 export interface PaymentProviderModule {
