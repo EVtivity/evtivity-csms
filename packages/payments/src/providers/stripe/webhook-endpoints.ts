@@ -63,7 +63,8 @@ function translate(err: unknown, permission: string): unknown {
   return err;
 }
 
-async function request<T>(permission: string, fn: () => Promise<T>): Promise<T> {
+/** Runs a Stripe call, translating a refusal into the payment errors (see translate). */
+export async function request<T>(permission: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {

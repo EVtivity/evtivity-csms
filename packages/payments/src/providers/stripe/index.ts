@@ -29,6 +29,7 @@ import type {
   MethodSetupStep,
   ModificationResult,
   NormalizedPaymentEvent,
+  PaymentMethodDomainStatus,
   PaymentProvider,
   PayoutAccountStatus,
   PaymentProviderClientConfig,
@@ -50,6 +51,10 @@ import {
   listEvtivityWebhookEndpoints,
   registerStripeWebhookEndpoints,
 } from './webhook-endpoints.js';
+import {
+  getStripePaymentMethodDomain,
+  registerStripePaymentMethodDomain,
+} from './payment-method-domains.js';
 import {
   createStripeOnboardingLink,
   createStripePayoutAccount,
@@ -482,6 +487,16 @@ export class StripePaymentProvider implements PaymentProvider {
   /** Creates (or with `replace`, replaces) the platform and Connect endpoints. */
   async registerWebhook(input: WebhookRegistrationInput): Promise<WebhookRegistration> {
     return call(() => registerStripeWebhookEndpoints(this.stripe, input));
+  }
+
+  /** The platform account's payment method domain of the portal (Apple Pay, Google Pay). */
+  async getPaymentMethodDomain(domain: string): Promise<PaymentMethodDomainStatus | null> {
+    return call(() => getStripePaymentMethodDomain(this.stripe, domain));
+  }
+
+  /** Registers the portal domain, or enables or re-checks its registration. */
+  async registerPaymentMethodDomain(domain: string): Promise<PaymentMethodDomainStatus> {
+    return call(() => registerStripePaymentMethodDomain(this.stripe, domain));
   }
 
   /** A site host's connected account (Accounts v2, destination charges). */
