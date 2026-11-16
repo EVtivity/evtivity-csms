@@ -30,6 +30,7 @@ import { PrepaidSettings } from './PrepaidSettings';
 import { InvoiceSettings } from './InvoiceSettings';
 import { PaymentProviderSettings } from './PaymentProviderSettings';
 import { SitePayoutAccountCard } from './SitePayoutAccountCard';
+import { StripePaymentMethodDomainCard } from './StripePaymentMethodDomainCard';
 import { StripeWebhookCard } from './StripeWebhookCard';
 import { StoredSecretInput } from './StoredSecretInput';
 import { ButtonSpinner } from '@/components/ui/button-spinner';
@@ -564,6 +565,10 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
             </CardContent>
           </Card>
           <StripeWebhookCard
+            canWrite={canWriteProvider}
+            secretKeyConfigured={stripeSettings?.secretKeyConfigured}
+          />
+          <StripePaymentMethodDomainCard
             canWrite={canWriteProvider}
             secretKeyConfigured={stripeSettings?.secretKeyConfigured}
           />
