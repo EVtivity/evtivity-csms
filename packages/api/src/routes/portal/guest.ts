@@ -130,6 +130,13 @@ const chargerConfigResponse = z
     paymentProvider: z
       .object({
         provider: z.string().describe('Provider id the guest checkout loads its payment UI for'),
+        onBehalfOf: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            'Stripe only: the connected payout account the hold is a destination charge to (on_behalf_of), for the deferred Elements of Apple Pay and Google Pay. Null without a ready payout account',
+          ),
       })
       .loose()
       .nullable()
@@ -817,7 +824,10 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         connectorType,
         // The guest checkout loads the payment UI of paymentProvider.provider.
         // publishableKey stays for portal bundles cached before the descriptor.
-        paymentProvider: clientConfig,
+        paymentProvider:
+          clientConfig.provider === 'stripe'
+            ? { ...clientConfig, onBehalfOf: terms.payoutAccountId }
+            : clientConfig,
         ...(clientConfig.provider === 'stripe' && typeof clientConfig.publishableKey === 'string'
           ? { publishableKey: clientConfig.publishableKey }
           : {}),
