@@ -6,7 +6,8 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// station_units and evses.unit_id have one writer, packages/database/src/lib/station-units.ts.
+// station_units, evses.unit_id and charging_stations.uses_units (after the
+// station insert) have one writer, packages/database/src/lib/station-units.ts.
 // The API unit service drives it (audit, cache, OCPI push), so a unit always
 // stays on its own station and every change leaves a history row.
 
@@ -22,6 +23,9 @@ const WRITE_PATTERNS: RegExp[] = [
   // evses.unit_id, through Drizzle or raw SQL.
   /\.set\(\{[^}]*\bunitId\b/g,
   /\bUPDATE\s+"?evses"?\s+SET\b[^;`]*\bunit_id\b/gi,
+  // The Uses Station Units switch: off is refused while a unit exists.
+  /\.set\(\{[^}]*\busesUnits\b/g,
+  /\bUPDATE\s+"?charging_stations"?\s+SET\b[^;`]*\buses_units\b/gi,
 ];
 
 function sourceFiles(dir: string): string[] {
@@ -65,7 +69,7 @@ function findWrites(): string[] {
 }
 
 describe('station unit writer guard', () => {
-  it('writes station_units and evses.unit_id only in lib/station-units.ts', () => {
+  it('writes station_units, evses.unit_id and uses_units only in lib/station-units.ts', () => {
     expect(findWrites()).toEqual([]);
   });
 

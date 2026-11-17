@@ -164,7 +164,9 @@
     "noSessions": "尚無工作階段。",
     "unknownStation": "未知充電站",
     "pageOf": "{{page}} / {{total}}",
-    "co2Avoided": "減少的 CO₂"
+    "co2Avoided": "減少的 CO₂",
+    "evseNumber": "EVSE {{id}}",
+    "connectorNumber": "連接器 {{id}}"
   },
   "sessionDetail": {
     "title": "工作階段詳細資料",
@@ -918,6 +920,8 @@
     "STATION_UNIT_NOT_FOUND": "找不到單元",
     "STATION_UNIT_NAME_IN_USE": "此充電樁的另一個單元已使用此名稱",
     "STATION_UNIT_LIMIT_REACHED": "一個充電樁最多有 64 個單元",
+    "STATION_UNITS_DISABLED": "此充電樁不使用單元。請先開啟使用充電樁單元。",
+    "STATION_UNITS_IN_USE": "關閉使用充電樁單元前，請先刪除此充電樁的單元。",
     "STATION_OFFLINE": "充電樁已離線",
     "STATION_ONLINE": "充電樁在線上。請改為在充電樁停止工作階段。",
     "STATION_REJECTED": "充電樁拒絕啟動：...",

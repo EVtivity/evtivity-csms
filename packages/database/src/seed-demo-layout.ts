@@ -337,6 +337,7 @@ async function seedSite(
     const n = station.rowKey ?? station.id.slice(-2);
     const isDc = station.kind === 'dc';
     const model = station.model ?? (isDc ? 'Terra 184' : 'Pulsar Plus');
+    const serialNumber = station.serialNumber ?? `SN-LY-00${n}`;
     const supply =
       station.acSupply ?? (isDc ? { phases: 3, voltage: 400 } : { phases: 1, voltage: 208 });
     const created = await sql`
@@ -345,7 +346,7 @@ async function seedSite(
         ocpp_protocol, basic_auth_password_hash, is_simulator, circuit_id, data_plan, created_at,
         updated_at)
       VALUES (${station.id}, ${station.stationId}, ${site.id}, ${vendorId},
-        ${model}, ${`SN-LY-00${n}`}, '2.4.1', 'accepted',
+        ${model}, ${serialNumber}, '2.4.1', 'accepted',
         'available', false, 1, ${station.ocppProtocol ?? 'ocpp2.1'}, ${passwordHash}, true,
         ${station.circuitId},
         ${station.cellular === true ? 'cellular' : null}, ${createdAt}, ${createdAt})
@@ -390,6 +391,41 @@ async function seedSite(
       continue;
     }
     seeded.push(station.id);
+    // An earlier demo's model and serial number, still on the station, become
+    // the current ones; the simulator reports them at its next boot.
+    if (station.identityBefore != null) {
+      const before = station.identityBefore;
+      const renamed = await sql`
+        UPDATE charging_stations SET model = ${model}, serial_number = ${serialNumber},
+          updated_at = now()
+        WHERE id = ${station.id} AND model = ${before.model}
+          AND serial_number = ${before.serialNumber}
+        RETURNING id
+      `;
+      if (renamed.length > 0) {
+        const oldModels = [before.model, ...(before.configModels ?? [])];
+        await sql`
+          UPDATE css_config_variables v SET value = CASE v.key
+              WHEN 'ChargePointModel' THEN ${model} ELSE ${serialNumber} END
+          FROM css_stations s
+          WHERE s.id = v.css_station_id AND s.station_id = ${station.stationId}
+            AND ((v.key = 'ChargePointModel' AND v.value IN ${sql(oldModels)})
+              OR (v.key = 'ChargePointSerialNumber' AND v.value = ${before.serialNumber}))
+        `;
+        await writeAudit(
+          { table: stationAuditLog, idColumn: 'station_id' },
+          {
+            entityId: station.id,
+            entityIdSnapshot: station.stationId,
+            action: 'updated',
+            ...auditActor(ctx),
+            before: { model: before.model, serialNumber: before.serialNumber },
+            after: { model, serialNumber },
+            notes: 'Site layout demo: model and serial number corrected',
+          },
+        );
+      }
+    }
     // A station still on the shared circuit of the plan before moves to its own.
     if (station.circuitFrom != null) {
       const rehung = await sql`

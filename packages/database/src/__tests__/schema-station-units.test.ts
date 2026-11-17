@@ -16,20 +16,33 @@ describe('station units schema', () => {
         'created_at',
         'id',
         'ip_address',
+        'latitude',
+        'longitude',
+        'model',
         'name',
         'name_updated_at',
+        'position_updated_at',
         'serial_number',
         'sort_order',
         'station_id',
         'updated_at',
       ].sort(),
     );
-    for (const name of ['serial_number', 'ip_address']) {
+    for (const name of [
+      'serial_number',
+      'ip_address',
+      'model',
+      'latitude',
+      'longitude',
+      'position_updated_at',
+    ]) {
       expect(cfg.columns.find((c) => c.name === name)?.notNull).toBe(false);
     }
     // When the name, the one field partners see, last changed.
     expect(cfg.columns.find((c) => c.name === 'name_updated_at')?.notNull).toBe(true);
     expect(cfg.uniqueConstraints.map((u) => u.name)).toContain('uq_station_units_id_station');
+    // A position holds both coordinates or neither.
+    expect(cfg.checks.map((c) => c.name)).toContain('station_units_position_check');
   });
 
   it('gives evses a nullable unit_id kept on its own station', () => {

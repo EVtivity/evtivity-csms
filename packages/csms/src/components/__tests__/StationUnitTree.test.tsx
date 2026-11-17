@@ -19,6 +19,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
       opts == null ? key : `${key}:${JSON.stringify(opts)}`,
+    i18n: { language: 'en' },
   }),
 }));
 vi.mock('@/lib/api', () => ({
@@ -79,6 +80,7 @@ function renderTab(props: {
         ocppProtocol="ocpp1.6"
         isOnline={props.isOnline ?? true}
         isSimulator={false}
+        usesUnits
         {...(props.units != null ? { units: props.units } : {})}
         stationStatus="charging"
         statusReason={null}
@@ -258,7 +260,38 @@ describe('EVSE & Connectors tab with station units', () => {
         name: 'Box 1',
         serialNumber: '',
         ipAddress: '',
+        model: '',
+        latitude: '',
+        longitude: '',
       });
+    });
+  });
+
+  it('shows the unit model on its card and edits the model and position', async () => {
+    patchMock.mockResolvedValue({});
+    const units = UNITS.map((u, i) =>
+      i === 0 ? { ...u, model: 'AC Master', latitude: '47.99591', longitude: '7.85222' } : u,
+    );
+    renderTab({ withUnits: true, units });
+    const box1 = screen.getByTestId('station-unit-unt_box1');
+    expect(within(box1).getByTestId('station-unit-model').textContent).toBe('AC Master');
+    expect(
+      within(screen.getByTestId('station-unit-unt_box2')).queryByTestId('station-unit-model'),
+    ).toBeNull();
+    fireEvent.click(within(box1).getByRole('button', { name: 'stationUnits.editUnit' }));
+    expect(screen.getByLabelText<HTMLInputElement>('stations.latitude').value).toBe('47.99591');
+    fireEvent.change(screen.getByLabelText('stations.model'), { target: { value: 'AC Extender' } });
+    fireEvent.change(screen.getByLabelText('stations.longitude'), { target: { value: '7.853' } });
+    fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }));
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith(
+        '/v1/stations/sta_1/units/unt_box1',
+        expect.objectContaining({
+          model: 'AC Extender',
+          latitude: '47.99591',
+          longitude: '7.853',
+        }),
+      );
     });
   });
 
@@ -283,6 +316,9 @@ describe('EVSE & Connectors tab with station units', () => {
         name: 'Master',
         serialNumber: 'EM4-0001',
         ipAddress: '192.168.1.21',
+        model: '',
+        latitude: '',
+        longitude: '',
       });
     });
     fireEvent.click(within(box1).getByRole('button', { name: 'stationUnits.deleteUnit' }));
@@ -334,6 +370,7 @@ describe('EVSE & Connectors tab with station units', () => {
           isOnline
           isSimulator={false}
           units={[all]}
+          usesUnits
           stationStatus="charging"
           statusReason={null}
         />

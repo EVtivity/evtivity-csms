@@ -107,6 +107,10 @@
     "columns": {
       "transactionId": "Transaction ID",
       "transactionIdShort": "Txn ID",
+      "unit": "Unit",
+      "evse": "EVSE",
+      "connector": "Connector",
+      "connectorType": "Connector Type",
       "cost": "Cost",
       "costFinal": "Cost Final",
       "net": "Net",

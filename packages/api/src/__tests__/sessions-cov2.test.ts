@@ -69,6 +69,9 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: { select: vi.fn(() => makeChain()) },

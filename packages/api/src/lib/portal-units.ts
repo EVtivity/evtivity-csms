@@ -3,6 +3,7 @@
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { chargingStations, db, evses, evseAvailableSql, stationUnits } from '@evtivity/database';
+import { haversineKm } from '@evtivity/lib/geo-position';
 import { publicStationListed } from './public-station.js';
 
 // The driver view of a station with units (a master box and its extenders):
@@ -23,6 +24,9 @@ export interface DriverUnit {
   id: string;
   name: string;
   sortOrder: number;
+  /** Where the box stands, both or neither; null keeps the station position. */
+  latitude?: string | null;
+  longitude?: string | null;
 }
 
 export interface DriverCharger {
@@ -32,6 +36,9 @@ export interface DriverCharger {
   evseIds: number[];
   evseCount: number;
   availableCount: number;
+  /** The unit position, null for a unit without one and for the EVSEs without a unit. */
+  latitude: string | null;
+  longitude: string | null;
 }
 
 /**
@@ -48,18 +55,22 @@ export function driverChargers(
     (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
   );
   const out: DriverCharger[] = [];
-  const group = (unitId: string | null, unitName: string | null): void => {
+  const group = (unit: DriverUnit | null): void => {
+    const unitId = unit?.id ?? null;
     const members = evseRows.filter((e) => e.unitId === unitId).sort((a, b) => a.evseId - b.evseId);
     if (members.length === 0) return;
+    const hasPosition = unit?.latitude != null && unit.longitude != null;
     out.push({
       unitId,
-      unitName,
+      unitName: unit?.name ?? null,
       evseIds: members.map((e) => e.evseId),
       evseCount: members.length,
       availableCount: members.filter((e) => e.available).length,
+      latitude: hasPosition ? (unit.latitude ?? null) : null,
+      longitude: hasPosition ? (unit.longitude ?? null) : null,
     });
   };
-  for (const unit of ordered) group(unit.id, unit.name);
+  for (const unit of ordered) group(unit);
   const known = new Set(ordered.map((u) => u.id));
   // An EVSE naming a unit the list does not hold counts as without a unit.
   const loose = evseRows.map((e) =>
@@ -73,6 +84,8 @@ export function driverChargers(
       evseIds: unassigned.map((e) => e.evseId).sort((a, b) => a - b),
       evseCount: unassigned.length,
       availableCount: unassigned.filter((e) => e.available).length,
+      latitude: null,
+      longitude: null,
     });
   }
   return out;
@@ -99,6 +112,8 @@ export async function loadStationDriverUnits(
       stationId: stationUnits.stationId,
       name: stationUnits.name,
       sortOrder: stationUnits.sortOrder,
+      latitude: stationUnits.latitude,
+      longitude: stationUnits.longitude,
     })
     .from(stationUnits)
     .where(inArray(stationUnits.stationId, [...stationUuids]))
@@ -106,7 +121,13 @@ export async function loadStationDriverUnits(
   if (unitRows.length === 0) return out;
   for (const u of unitRows) {
     const entry = out.get(u.stationId) ?? { units: [], evses: [] };
-    entry.units.push({ id: u.id, name: u.name, sortOrder: u.sortOrder });
+    entry.units.push({
+      id: u.id,
+      name: u.name,
+      sortOrder: u.sortOrder,
+      latitude: u.latitude,
+      longitude: u.longitude,
+    });
     out.set(u.stationId, entry);
   }
   const evseRows = await db
@@ -144,6 +165,9 @@ interface StationListRow {
   evseCount: number;
   availableCount: number;
   connectors: ConnectorSummaryRow[];
+  /** The station position (else its site's), decimal degrees, null when neither has one. */
+  latitude?: string | null;
+  longitude?: string | null;
 }
 
 type ConnectorSummary = Omit<ConnectorSummaryRow, 'evseId'>;
@@ -157,6 +181,17 @@ function connectorSummary(c: ConnectorSummaryRow): ConnectorSummary {
   };
 }
 
+/** One row of the charger search or nearby list: the base fields and the charger's own. */
+export type DriverChargerRow<B> = B & {
+  evseCount: number;
+  availableCount: number;
+  connectors: ConnectorSummary[];
+  unitId: string | null;
+  unitName: string | null;
+  latitude: string | null;
+  longitude: string | null;
+};
+
 /**
  * Turns station rows of the charger search and nearby list into driver
  * charger rows: a station without units stays one row (unit fields null), a
@@ -165,22 +200,19 @@ function connectorSummary(c: ConnectorSummaryRow): ConnectorSummary {
  * with units but no EVSE in service stays one row, like a station without units.
  * With `limit`, only whole stations are returned: a station whose chargers
  * would pass the limit ends the page, except the first, which is always whole.
+ * Every row carries the position of its charger: a unit with its own position
+ * gives its own, every other row the station's. With `distanceFrom`, a unit
+ * charger with its own position gets `distanceKm` from it (rounded to 0.1 km);
+ * other rows keep the distance `base` gives.
  */
 export function expandToDriverChargers<R extends StationListRow, B extends object>(
   rows: readonly R[],
   unitData: ReadonlyMap<string, StationDriverUnits>,
   base: (row: R) => B,
   limit?: number,
-): Array<
-  B & {
-    evseCount: number;
-    availableCount: number;
-    connectors: ConnectorSummary[];
-    unitId: string | null;
-    unitName: string | null;
-  }
-> {
-  const perStation = rows.map((row) => {
+  distanceFrom?: { lat: number; lng: number },
+): Array<DriverChargerRow<B>> {
+  const perStation = rows.map((row): DriverChargerRow<B>[] => {
     const data = unitData.get(row.stationUuid);
     const chargers = data == null ? null : driverChargers(data.evses, data.units);
     if (chargers == null || chargers.length === 0) {
@@ -192,22 +224,44 @@ export function expandToDriverChargers<R extends StationListRow, B extends objec
           connectors: row.connectors.map(connectorSummary),
           unitId: null,
           unitName: null,
+          latitude: row.latitude ?? null,
+          longitude: row.longitude ?? null,
         },
       ];
     }
-    return chargers.map((c) => ({
-      ...base(row),
-      evseCount: c.evseCount,
-      availableCount: c.availableCount,
-      connectors: row.connectors
-        .filter((con) => c.evseIds.includes(con.evseId))
-        .map(connectorSummary),
-      unitId: c.unitId,
-      unitName: c.unitName,
-    }));
+    return chargers.map((c): DriverChargerRow<B> => {
+      const own = c.latitude != null && c.longitude != null;
+      const distance =
+        own && distanceFrom != null
+          ? {
+              distanceKm:
+                Math.round(
+                  haversineKm(
+                    distanceFrom.lat,
+                    distanceFrom.lng,
+                    Number(c.latitude),
+                    Number(c.longitude),
+                  ) * 10,
+                ) / 10,
+            }
+          : {};
+      return {
+        ...base(row),
+        ...distance,
+        evseCount: c.evseCount,
+        availableCount: c.availableCount,
+        connectors: row.connectors
+          .filter((con) => c.evseIds.includes(con.evseId))
+          .map(connectorSummary),
+        unitId: c.unitId,
+        unitName: c.unitName,
+        latitude: own ? c.latitude : (row.latitude ?? null),
+        longitude: own ? c.longitude : (row.longitude ?? null),
+      };
+    });
   });
   if (limit == null) return perStation.flat();
-  const out: (typeof perStation)[number] = [];
+  const out: DriverChargerRow<B>[] = [];
   for (const stationRows of perStation) {
     if (out.length > 0 && out.length + stationRows.length > limit) break;
     out.push(...stationRows);

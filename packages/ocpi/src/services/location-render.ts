@@ -25,26 +25,66 @@ import { config } from '../lib/config.js';
 import type { EvseRow, LocationTransformInput } from '../transformers/location.transformer.js';
 import type { TariffStation } from './connector-tariffs.js';
 
-/** The units named by `unitIds`, keyed by id (EVSE `physical_reference`). */
+/** A unit as an EVSE row shows it to partners. */
+export interface PartnerUnit {
+  name: string;
+  /** Its last partner-visible change: the name or the position. */
+  updatedAt: Date;
+  latitude: string | null;
+  longitude: string | null;
+}
+
+/** The units named by `unitIds`, keyed by id (EVSE `physical_reference`, `coordinates`). */
 export async function unitsOf(
   unitIds: readonly (string | null)[],
-): Promise<Map<string, { name: string; updatedAt: Date }>> {
+): Promise<Map<string, PartnerUnit>> {
   const ids = [...new Set(unitIds.filter((id): id is string => id != null))];
   if (ids.length === 0) return new Map();
   const rows = await db
-    .select({ id: stationUnits.id, name: stationUnits.name, updatedAt: stationUnits.nameUpdatedAt })
+    .select({
+      id: stationUnits.id,
+      name: stationUnits.name,
+      nameUpdatedAt: stationUnits.nameUpdatedAt,
+      positionUpdatedAt: stationUnits.positionUpdatedAt,
+      latitude: stationUnits.latitude,
+      longitude: stationUnits.longitude,
+    })
     .from(stationUnits)
     .where(inArray(stationUnits.id, ids));
-  return new Map(rows.map((r) => [r.id, { name: r.name, updatedAt: r.updatedAt }]));
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        name: r.name,
+        updatedAt:
+          r.positionUpdatedAt != null && r.positionUpdatedAt > r.nameUpdatedAt
+            ? r.positionUpdatedAt
+            : r.nameUpdatedAt,
+        latitude: r.latitude,
+        longitude: r.longitude,
+      },
+    ]),
+  );
 }
 
 /** The unit fields of an EVSE row: none for an EVSE without a unit. */
 export function unitFields(
   unitId: string | null,
-  unitById: ReadonlyMap<string, { name: string; updatedAt: Date }>,
-): { unitName?: string; unitUpdatedAt?: Date } {
+  unitById: ReadonlyMap<string, PartnerUnit>,
+): {
+  unitName?: string;
+  unitUpdatedAt?: Date;
+  unitPosition?: { latitude: string; longitude: string };
+} {
   const unit = unitId == null ? undefined : unitById.get(unitId);
-  return unit == null ? {} : { unitName: unit.name, unitUpdatedAt: unit.updatedAt };
+  if (unit == null) return {};
+  return {
+    unitName: unit.name,
+    unitUpdatedAt: unit.updatedAt,
+    ...(unit.latitude != null && unit.longitude != null
+      ? { unitPosition: { latitude: unit.latitude, longitude: unit.longitude } }
+      : {}),
+  };
 }
 
 export interface SiteLocation {

@@ -17,6 +17,7 @@ import {
   StationUnitNameDialog,
   StationUnitRemoveEvseDialog,
   type UnitNameDraft,
+  unitDraftOf,
 } from './station-unit-actions';
 
 interface TreeEvse {
@@ -96,6 +97,11 @@ export function StationUnitTree<E extends TreeEvse>({
               <h3 className="text-sm font-medium">{unit.name}</h3>
               {badge(unitEvses)}
               {count(unitEvses)}
+              {unit.model != null && (
+                <span className="text-xs text-muted-foreground" data-testid="station-unit-model">
+                  {unit.model}
+                </span>
+              )}
               {unit.serialNumber != null && (
                 <span className="text-xs text-muted-foreground">
                   {t('stationUnits.serialNumberValue', { value: unit.serialNumber })}
@@ -126,12 +132,7 @@ export function StationUnitTree<E extends TreeEvse>({
                 <EditIconButton
                   title={t('stationUnits.editUnit')}
                   onClick={() => {
-                    setRenaming({
-                      id: unit.id,
-                      name: unit.name,
-                      serialNumber: unit.serialNumber ?? '',
-                      ipAddress: unit.ipAddress ?? '',
-                    });
+                    setRenaming(unitDraftOf(unit));
                   }}
                 />
                 <RemoveIconButton

@@ -141,3 +141,30 @@ describe('StationCreate password rules', () => {
     });
   });
 });
+
+describe('StationCreate Uses Station Units switch', () => {
+  it('sends the switch off by default and on once turned on', async () => {
+    postMock.mockResolvedValue({ id: 'sta_1', stationId: 'CS-1' });
+    renderCreate();
+    await fillRequired('ocpp1.6', 'a'.repeat(16));
+    const toggle = screen.getByRole('switch', { name: 'stations.usesUnits' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    submit();
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/stations',
+        expect.objectContaining({ usesUnits: false }),
+      );
+    });
+    postMock.mockClear();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    submit();
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/stations',
+        expect.objectContaining({ usesUnits: true }),
+      );
+    });
+  });
+});

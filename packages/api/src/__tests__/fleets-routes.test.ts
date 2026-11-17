@@ -124,6 +124,9 @@ vi.mock('@evtivity/database', () => {
     return chain;
   };
   return {
+    evses: {},
+    connectors: {},
+    stationUnits: {},
     INVOICE_DATE_MODES: ['run_date', 'period_end'],
     db: {
       select: vi.fn(() => buildChain()),
@@ -1331,6 +1334,10 @@ describe('Fleet routes - handler logic', () => {
         stationId: 'CS001',
         stationName: null,
         siteName: null,
+        evseId: null,
+        unitName: null,
+        connectorId: null,
+        connectorType: null,
         transactionId: null,
         status: 'completed',
         startedAt: null,

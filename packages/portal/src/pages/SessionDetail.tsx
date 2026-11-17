@@ -46,6 +46,7 @@ import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import type { SessionAccountBilling } from '@/lib/fleet-billing';
 import { isUnchargedSession, sessionDisplayCostCents } from '@evtivity/lib/session-cost';
+import { useChargingPointPath } from '@/hooks/use-charging-point-path';
 
 /** Longer than the API's 35 s wait for the station's stop answer plus the session end. */
 const STOP_SAFETY_TIMEOUT_MS = 50_000;
@@ -71,6 +72,10 @@ interface SessionDetailData {
   stoppedReason: string | null;
   stationName: string | null;
   siteName: string | null;
+  unitName?: string | null;
+  evseId?: number | null;
+  connectorId?: number | null;
+  connectorType?: string | null;
   siteAddress: string | null;
   siteCity: string | null;
   siteState: string | null;
@@ -259,6 +264,7 @@ export function SessionDetail(): React.JSX.Element {
   }, [stopping, toast, t]);
 
   const elapsed = useElapsedTime(session?.startedAt, isActive);
+  const chargingPointPath = useChargingPointPath();
 
   if (isLoading) {
     return <LoadingLogo />;
@@ -267,6 +273,9 @@ export function SessionDetail(): React.JSX.Element {
   if (session == null) {
     return <ErrorCard message={t('sessionDetail.notFound')} />;
   }
+
+  // Site / Station / Unit / EVSE / Connector type on one line.
+  const chargingPoint = chargingPointPath(session);
 
   // A faulted or failed session that cost nothing was not charged; any other
   // session at 0 was free (shared rule: @evtivity/lib/session-cost).
@@ -467,13 +476,14 @@ export function SessionDetail(): React.JSX.Element {
       <Card>
         <CardContent className="flex items-start gap-3 p-4">
           <MapPin className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-medium">
-              {session.stationName ?? t('sessionDetail.unknownStation')}
+          <div className="min-w-0">
+            <p
+              className="truncate text-sm font-medium"
+              title={chargingPoint}
+              data-testid="session-charging-point"
+            >
+              {chargingPoint === '' ? t('sessionDetail.unknownStation') : chargingPoint}
             </p>
-            {session.siteName != null && (
-              <p className="text-sm text-muted-foreground">{session.siteName}</p>
-            )}
             {(session.siteAddress != null || session.siteCity != null) && (
               <p className="text-xs text-muted-foreground">
                 {[session.siteAddress, session.siteCity, session.siteState]

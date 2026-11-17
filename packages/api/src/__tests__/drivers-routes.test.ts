@@ -59,6 +59,9 @@ const { mockResolveAccountBilling, mockResolveDriverPricingSource, mockGetDriver
   }));
 
 vi.mock('@evtivity/database', () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   resolveAccountBilling: mockResolveAccountBilling,
   resolveDriverPricingSource: mockResolveDriverPricingSource,

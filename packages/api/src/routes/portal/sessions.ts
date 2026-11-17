@@ -33,6 +33,16 @@ import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/compan
 import { isValidTimezone, storedSessionCostTax } from '@evtivity/lib';
 import { sessionLimitReached } from '../../lib/session-limit.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
+import {
+  sessionChargingPointColumns,
+  sessionChargingPointShape,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../../lib/session-charging-point.js';
 import { getAuditActor } from '../../lib/audit-actor.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -79,6 +89,7 @@ const portalSessionListItem = z
     currency: z.string().length(3).describe('ISO 4217 currency code the session was billed in'),
     stationName: z.string().max(255).nullable().describe('OCPP station identity (display name)'),
     siteName: z.string().max(255).nullable().describe('Site name'),
+    ...sessionChargingPointShape,
     siteAddress: z.string().max(500).nullable().describe('Street address'),
     siteCity: z.string().max(100).nullable().describe('City'),
     siteState: z.string().max(100).nullable().describe('State or region'),
@@ -415,6 +426,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             currency: sessionCurrencySql(),
             stationName: chargingStations.stationId,
             siteName: sites.name,
+            ...sessionChargingPointColumns,
             siteAddress: sites.address,
             siteCity: sites.city,
             siteState: sites.state,
@@ -424,6 +436,9 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           .from(chargingSessions)
           .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
           .leftJoin(sites, sessionSiteJoin)
+          .leftJoin(sessionEvse, sessionEvseJoin)
+          .leftJoin(sessionUnit, sessionUnitJoin)
+          .leftJoin(sessionConnector, sessionConnectorJoin)
           .where(whereClause)
           .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
           .limit(limit)
@@ -608,6 +623,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           stoppedReason: chargingSessions.stoppedReason,
           stationName: chargingStations.stationId,
           siteName: sites.name,
+          ...sessionChargingPointColumns,
           siteAddress: sites.address,
           siteCity: sites.city,
           siteState: sites.state,
@@ -637,6 +653,9 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         .from(chargingSessions)
         .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .leftJoin(sites, sessionSiteJoin)
+        .leftJoin(sessionEvse, sessionEvseJoin)
+        .leftJoin(sessionUnit, sessionUnitJoin)
+        .leftJoin(sessionConnector, sessionConnectorJoin)
         .leftJoin(driverTokens, eq(chargingSessions.tokenId, driverTokens.id))
         // An operator can assign a fleet vehicle of another driver to the
         // session; the driver sees only their own vehicle's details.

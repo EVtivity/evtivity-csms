@@ -15,6 +15,7 @@ import { useDriverTimezone } from '@/lib/timezone';
 import type { SessionAccountBilling } from '@/lib/fleet-billing';
 import { isUnchargedSession, sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
+import { useChargingPointPath } from '@/hooks/use-charging-point-path';
 
 interface Session {
   id: string;
@@ -28,6 +29,10 @@ interface Session {
   currency: string;
   stationName: string | null;
   siteName: string | null;
+  unitName?: string | null;
+  evseId?: number | null;
+  connectorId?: number | null;
+  connectorType?: string | null;
   /** Set when the session is billed to a fleet (charge on account). */
   accountBilling?: SessionAccountBilling | null;
 }
@@ -35,6 +40,22 @@ interface Session {
 interface SessionsResponse {
   data: Session[];
   total: number;
+}
+
+/** Site / Station / Unit / EVSE / Connector type on one line, cut with an ellipsis. */
+function SessionChargingPoint({ session }: { session: Session }): React.JSX.Element {
+  const { t } = useTranslation();
+  const chargingPointPath = useChargingPointPath();
+  const path = chargingPointPath(session);
+  return (
+    <p
+      className="truncate text-sm font-medium"
+      title={path === '' ? undefined : path}
+      data-testid="session-charging-point"
+    >
+      {path === '' ? t('sessions.unknownStation') : path}
+    </p>
+  );
 }
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' {
@@ -92,13 +113,8 @@ export function Sessions(): React.JSX.Element {
           >
             <CardContent className="p-3">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">
-                    {session.stationName ?? t('sessions.unknownStation')}
-                  </p>
-                  {session.siteName != null && (
-                    <p className="text-xs text-muted-foreground">{session.siteName}</p>
-                  )}
+                <div className="min-w-0">
+                  <SessionChargingPoint session={session} />
                   <p className="text-xs text-muted-foreground">
                     {formatDate(session.startedAt, timezone)}
                   </p>

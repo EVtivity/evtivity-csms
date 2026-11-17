@@ -68,7 +68,7 @@ const UNITS: StationUnit[] = [
   },
 ];
 
-function renderTab(units: StationUnit[]): void {
+function renderTab(units: StationUnit[], usesUnits = true): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -80,6 +80,7 @@ function renderTab(units: StationUnit[]): void {
         isOnline
         isSimulator={false}
         units={units}
+        usesUnits={usesUnits}
       />
     </QueryClientProvider>,
   );
@@ -97,6 +98,23 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   canWrite.value = true;
+});
+
+describe('Uses Station Units switch on the EVSE & Connectors tab', () => {
+  it('shows Create Unit only while the switch is on', () => {
+    renderTab([], false);
+    expect(screen.queryByRole('button', { name: 'stationUnits.createUnit' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'stations.addEvse' })).toBeTruthy();
+    cleanup();
+    renderTab([], true);
+    expect(screen.getByRole('button', { name: 'stationUnits.createUnit' })).toBeTruthy();
+  });
+
+  it('shows no unit choice in Create EVSE while the switch is off', () => {
+    renderTab(UNITS, false);
+    fireEvent.click(screen.getByRole('button', { name: 'stations.addEvse' }));
+    expect(screen.queryByLabelText('stationUnits.unit')).toBeNull();
+  });
 });
 
 describe('Create EVSE unit field', () => {

@@ -107,6 +107,10 @@
     "columns": {
       "transactionId": "거래 ID",
       "transactionIdShort": "거래 ID",
+      "unit": "유닛",
+      "evse": "EVSE",
+      "connector": "커넥터",
+      "connectorType": "커넥터 유형",
       "cost": "비용",
       "costFinal": "비용 확정",
       "net": "순액",

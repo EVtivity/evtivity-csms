@@ -152,3 +152,31 @@ END $$;
 -- Every invoice is written with the currency it was issued in; the 'USD'
 -- default left from the first schema is dropped (one company currency).
 ALTER TABLE "invoices" ALTER COLUMN "currency" DROP DEFAULT;
+--> statement-breakpoint
+-- Uses Station Units (owner decision 2026-11-17): a station shows and takes
+-- units only while it is on. Off on every station, then on for every station
+-- that already has a unit, so nothing an operator set up disappears. A rerun
+-- finds no station with a unit and the switch off (the API refuses that).
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "uses_units" boolean NOT NULL DEFAULT false;
+--> statement-breakpoint
+UPDATE "charging_stations" SET "uses_units" = true
+WHERE NOT "uses_units"
+  AND EXISTS (SELECT 1 FROM "station_units" WHERE "station_units"."station_id" = "charging_stations"."id");
+--> statement-breakpoint
+-- The model and position of a unit (owner decision 2026-11-17, discussion 59),
+-- null on every existing row. The model is admin metadata (at most 20
+-- characters, the OCPP 1.6 chargePointModel length); the position (decimal
+-- degrees, both or neither) replaces the station position for the unit's
+-- EVSEs in the portal, the app and OCPI.
+ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "model" varchar(20);
+--> statement-breakpoint
+ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "latitude" varchar(20);
+--> statement-breakpoint
+ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "longitude" varchar(20);
+--> statement-breakpoint
+ALTER TABLE "station_units" ADD COLUMN IF NOT EXISTS "position_updated_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "station_units" DROP CONSTRAINT IF EXISTS "station_units_position_check";
+--> statement-breakpoint
+ALTER TABLE "station_units" ADD CONSTRAINT "station_units_position_check"
+  CHECK (("latitude" IS NULL) = ("longitude" IS NULL));

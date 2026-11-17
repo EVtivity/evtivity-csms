@@ -164,7 +164,9 @@
     "noSessions": "No sessions yet.",
     "unknownStation": "Unknown station",
     "pageOf": "{{page}} / {{total}}",
-    "co2Avoided": "CO₂ Avoided"
+    "co2Avoided": "CO₂ Avoided",
+    "evseNumber": "EVSE {{id}}",
+    "connectorNumber": "Connector {{id}}"
   },
   "sessionDetail": {
     "title": "Session Details",
@@ -918,6 +920,8 @@
     "STATION_UNIT_NOT_FOUND": "Unit not found",
     "STATION_UNIT_NAME_IN_USE": "Another unit of this station has this name",
     "STATION_UNIT_LIMIT_REACHED": "A station holds at most 64 units",
+    "STATION_UNITS_DISABLED": "This station does not use units. Turn on Uses Station Units first.",
+    "STATION_UNITS_IN_USE": "Delete the units of this station before turning off Uses Station Units.",
     "STATION_OFFLINE": "Station is offline",
     "STATION_ONLINE": "The station is online. Stop the session at the station instead.",
     "STATION_REJECTED": "Station rejected start: ...",

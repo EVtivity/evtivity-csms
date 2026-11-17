@@ -10,6 +10,11 @@ export interface StationUnit {
   /** Admin metadata: the box's serial number and IP address, null when not set. */
   serialNumber?: string | null;
   ipAddress?: string | null;
+  /** The box model, null when not set. */
+  model?: string | null;
+  /** Where the box stands, both or neither; null keeps the station position. */
+  latitude?: string | null;
+  longitude?: string | null;
   evseIds: string[];
   evseNumbers: number[];
 }

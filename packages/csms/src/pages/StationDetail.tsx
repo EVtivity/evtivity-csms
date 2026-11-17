@@ -69,6 +69,7 @@ interface Station {
   serialNumber: string | null;
   firmwareVersion: string | null;
   unitCount?: number | undefined;
+  usesUnits?: boolean | undefined;
   iccid: string | null;
   imsi: string | null;
   availability: string;
@@ -488,6 +489,7 @@ export function StationDetail(): React.JSX.Element {
             isOnline={station.isOnline}
             isSimulator={station.isSimulator}
             units={units}
+            usesUnits={station.usesUnits}
             stationStatus={station.status}
             statusReason={station.statusReason}
           />

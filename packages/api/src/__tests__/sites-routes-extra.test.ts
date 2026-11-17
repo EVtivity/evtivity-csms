@@ -145,6 +145,7 @@ vi.mock('@evtivity/database', async () => {
     delete: vi.fn(() => makeChain()),
   };
   return {
+    stationUnits: {},
     ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
     ...(await import('./helpers/departure-schema-mocks.js')).departureSchemaMocks(),

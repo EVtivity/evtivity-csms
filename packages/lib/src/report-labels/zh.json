@@ -107,6 +107,10 @@
     "columns": {
       "transactionId": "交易 ID",
       "transactionIdShort": "交易 ID",
+      "unit": "单元",
+      "evse": "EVSE",
+      "connector": "连接器",
+      "connectorType": "连接器类型",
       "cost": "费用",
       "costFinal": "费用已确定",
       "net": "净额",

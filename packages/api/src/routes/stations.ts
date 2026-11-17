@@ -29,6 +29,7 @@ import {
   db,
   client,
   writeAudit,
+  setStationUsesUnits,
   recordRemovedOcpiEvses,
   stationAuditLog,
   sessionAuditLog,
@@ -52,6 +53,16 @@ import {
   markSitePlanStale,
 } from '@evtivity/database';
 import type { StationInsightSuppressionSource } from '@evtivity/database';
+import {
+  sessionChargingPointColumns,
+  sessionChargingPointShape,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../lib/session-charging-point.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { AI_INSIGHT_SCOPE_REASONS } from '@evtivity/lib/ai-insights';
 import { SECURITY_SEVERITIES } from '@evtivity/lib/security-severity';
@@ -224,6 +235,7 @@ import {
   escapeLikePattern,
   CONNECTOR_MAX_POWER_REQUIRED_MESSAGE,
   connectorNeedsMaxPower,
+  AppError,
 } from '@evtivity/lib';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import {
@@ -413,6 +425,12 @@ const createStationBody = z.object({
   isSimulator: z.boolean().optional().describe('Whether this station is a simulator'),
   latitude: z.string().max(20).optional().describe('Station latitude'),
   longitude: z.string().max(20).optional().describe('Station longitude'),
+  usesUnits: z
+    .boolean()
+    .optional()
+    .describe(
+      'Uses Station Units: the station has several physical units (a master box and its extenders) whose EVSEs the operator groups. Default false',
+    ),
 });
 
 const updateStationBody = z.object({
@@ -451,6 +469,12 @@ const updateStationBody = z.object({
     .optional()
     .describe(
       'Whether the driver portal lists the station in its search, map and location pages. False hides it there only: drivers still reach it by its QR code or a link and can charge.',
+    ),
+  usesUnits: z
+    .boolean()
+    .optional()
+    .describe(
+      'Uses Station Units. Off is refused with 409 STATION_UNITS_IN_USE while the station has a unit; units can be created only while it is on',
     ),
   iccid: z
     .string()
@@ -830,6 +854,11 @@ const stationDetail = z
       .describe(
         'Whether the driver portal lists the station in its search, map and location pages; drivers reach an unlisted station by its QR code or a link',
       ),
+    usesUnits: z
+      .boolean()
+      .describe(
+        'Whether the operator groups the station EVSEs into physical units (a master box and its extenders). Off: the station has no units and none can be added',
+      ),
     dataPlan: z
       .enum(DATA_PLANS)
       .nullable()
@@ -894,6 +923,12 @@ const stationCreated = z
     hasPassword: z
       .boolean()
       .describe('Whether a Basic Auth password is configured for this station'),
+    usesUnits: z
+      .boolean()
+      .optional()
+      .describe(
+        'Whether the operator groups the station EVSEs into physical units (a master box and its extenders). Off: the station has no units and none can be added',
+      ),
     createdAt: z.coerce.date().describe('When the station record was created'),
     updatedAt: z.coerce.date().describe('When the station record was last updated'),
   })
@@ -1142,6 +1177,7 @@ const sessionItem = z
     stationId: z.string().describe('Internal station identifier (nanoid) the session belongs to'),
     stationName: z.string().nullable().describe('OCPP station identity for display'),
     siteName: z.string().nullable().describe('Name of the site this station belongs to'),
+    ...sessionChargingPointShape,
     driverId: z
       .string()
       .nullable()
@@ -1486,6 +1522,7 @@ export function stationRoutes(app: FastifyInstance): void {
           longitude: chargingStations.longitude,
           reservationsEnabled: chargingStations.reservationsEnabled,
           portalListed: chargingStations.portalListed,
+          usesUnits: chargingStations.usesUnits,
           dataPlan: chargingStations.dataPlan,
           effectiveDataPlan: effectiveDataPlanSql,
           dataPlanSource: dataPlanSourceSql,
@@ -1858,6 +1895,7 @@ export function stationRoutes(app: FastifyInstance): void {
               securityProfile: chargingStations.securityProfile,
               pendingSecurityProfile: chargingStations.pendingSecurityProfile,
               ocppProtocol: chargingStations.ocppProtocol,
+              usesUnits: chargingStations.usesUnits,
               createdAt: chargingStations.createdAt,
               updatedAt: chargingStations.updatedAt,
             });
@@ -1942,6 +1980,7 @@ export function stationRoutes(app: FastifyInstance): void {
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
+          409: errorWith('The station has units', [ERROR_CODES.STATION_UNITS_IN_USE]),
           502: errorWith('The station did not accept the change', [
             ERROR_CODES.STATION_SECURITY_CHANGE_REJECTED,
             ERROR_CODES.OCPP_COMMAND_FAILED,
@@ -1970,8 +2009,15 @@ export function stationRoutes(app: FastifyInstance): void {
           return;
         }
       }
-      const { password, securityProfile, ocppInterface, availability, dataPlan, ...body } =
-        request.body as z.infer<typeof updateStationBody>;
+      const {
+        password,
+        securityProfile,
+        ocppInterface,
+        availability,
+        dataPlan,
+        usesUnits,
+        ...body
+      } = request.body as z.infer<typeof updateStationBody>;
       // Check access to the new site when the station moves. A site-restricted
       // user cannot remove a station from its site (siteId null): only
       // all-site users manage stations without a site.
@@ -2086,6 +2132,19 @@ export function stationRoutes(app: FastifyInstance): void {
       // ICCID atomically so a failure rolls the whole update back instead of
       // leaving the tables out of sync.
       const result = await db.transaction(async (tx) => {
+        // The unit writer turns the switch under the station lock its unit
+        // writes take, so off never leaves a unit behind; a refusal rolls the
+        // whole update back.
+        if (usesUnits !== undefined) {
+          const switched = await setStationUsesUnits(id, usesUnits, tx);
+          if (!switched.ok && switched.reason === 'units_in_use') {
+            throw new AppError(
+              'Delete the units of this station before turning off Uses Station Units',
+              409,
+              'STATION_UNITS_IN_USE',
+            );
+          }
+        }
         const [updated] = await tx
           .update(chargingStations)
           .set(updates)
@@ -2110,6 +2169,7 @@ export function stationRoutes(app: FastifyInstance): void {
             ocppProtocol: chargingStations.ocppProtocol,
             hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
             portalListed: chargingStations.portalListed,
+            usesUnits: chargingStations.usesUnits,
             createdAt: chargingStations.createdAt,
             updatedAt: chargingStations.updatedAt,
           });
@@ -4307,6 +4367,7 @@ export function stationRoutes(app: FastifyInstance): void {
             stationId: chargingSessions.stationId,
             stationName: chargingStations.stationId,
             siteName: sites.name,
+            ...sessionChargingPointColumns,
             driverId: chargingSessions.driverId,
             driverName: sql<
               string | null
@@ -4327,6 +4388,9 @@ export function stationRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
+          .leftJoin(sessionEvse, sessionEvseJoin)
+          .leftJoin(sessionUnit, sessionUnitJoin)
+          .leftJoin(sessionConnector, sessionConnectorJoin)
           .where(where)
           .orderBy(...sessionListSort.orderBy(request.query as z.infer<typeof sessionsQuery>))
           .limit(limit)

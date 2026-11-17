@@ -86,6 +86,7 @@ vi.mock('@evtivity/database', async () => {
   // db back as the tx so the chained query helpers above are reused inside.
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
+    stationUnits: {},
     ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
     db: dbMock,
     chargingStations: {},

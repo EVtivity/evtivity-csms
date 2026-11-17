@@ -52,6 +52,9 @@ function makeChain() {
 vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
 
 vi.mock('@evtivity/database', async () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
@@ -163,6 +166,10 @@ describe('Portal sessions routes - handler logic', () => {
             currency: 'USD',
             stationName: 'CS-001',
             siteName: 'Site A',
+            evseId: 5,
+            unitName: 'Box 3',
+            connectorId: 1,
+            connectorType: 'CCS2',
             siteAddress: '123 Main St',
             siteCity: 'Austin',
             siteState: 'TX',
@@ -185,6 +192,11 @@ describe('Portal sessions routes - handler logic', () => {
       expect(body.data[0].id).toBe(VALID_SESSION_ID);
       expect(body.data[0].status).toBe('completed');
       expect(body.data[0].taxCents).toBe(80);
+      // The charging point the driver sees: unit, EVSE number and connector.
+      expect(body.data[0].unitName).toBe('Box 3');
+      expect(body.data[0].evseId).toBe(5);
+      expect(body.data[0].connectorId).toBe(1);
+      expect(body.data[0].connectorType).toBe('CCS2');
     });
 
     it('returns the account billing state of a session billed to a fleet', async () => {
@@ -199,6 +211,10 @@ describe('Portal sessions routes - handler logic', () => {
         currency: 'EUR',
         stationName: 'CS-001',
         siteName: null,
+        evseId: null,
+        unitName: null,
+        connectorId: null,
+        connectorType: null,
         siteAddress: null,
         siteCity: null,
         siteState: null,
@@ -381,6 +397,10 @@ describe('Portal sessions routes - handler logic', () => {
             stoppedReason: 'EVDisconnected',
             stationName: 'CS-001',
             siteName: 'Site A',
+            evseId: null,
+            unitName: null,
+            connectorId: null,
+            connectorType: null,
             siteAddress: '123 Main St',
             siteCity: 'Austin',
             siteState: 'TX',
@@ -453,6 +473,10 @@ describe('Portal sessions routes - handler logic', () => {
             stoppedReason: null,
             stationName: 'CS-001',
             siteName: null,
+            evseId: null,
+            unitName: null,
+            connectorId: null,
+            connectorType: null,
             siteAddress: null,
             siteCity: null,
             siteState: null,
@@ -497,6 +521,10 @@ describe('Portal sessions routes - handler logic', () => {
             stoppedReason: null,
             stationName: 'CS-001',
             siteName: null,
+            evseId: null,
+            unitName: null,
+            connectorId: null,
+            connectorType: null,
             siteAddress: null,
             siteCity: null,
             siteState: null,
@@ -540,6 +568,10 @@ describe('Portal sessions routes - handler logic', () => {
             stoppedReason: null,
             stationName: 'CS-001',
             siteName: null,
+            evseId: null,
+            unitName: null,
+            connectorId: null,
+            connectorType: null,
             siteAddress: null,
             siteCity: null,
             siteState: null,

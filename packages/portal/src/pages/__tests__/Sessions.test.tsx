@@ -16,12 +16,14 @@ vi.mock('@/lib/api', () => ({
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string, options?: { amount?: string; fleet?: string; state?: string }) =>
-      options?.amount != null
-        ? `${key}:${options.amount}`
-        : options?.fleet != null
-          ? `${key}:${options.fleet}:${options.state ?? ''}`
-          : key,
+    t: (key: string, options?: { amount?: string; fleet?: string; state?: string; id?: number }) =>
+      options?.id != null
+        ? `${key}:${String(options.id)}`
+        : options?.amount != null
+          ? `${key}:${options.amount}`
+          : options?.fleet != null
+            ? `${key}:${options.fleet}:${options.state ?? ''}`
+            : key,
     i18n: { language: 'en', changeLanguage: vi.fn() },
   }),
 }));
@@ -65,6 +67,29 @@ afterEach(() => {
 });
 
 describe('Sessions', () => {
+  it('shows site, station, unit, EVSE and connector type of a session on one line', async () => {
+    getMock.mockResolvedValue({
+      data: [
+        {
+          ...session('1', 1000, null),
+          siteName: 'Parkhaus Lindenhof',
+          unitName: 'Box 3',
+          evseId: 5,
+          connectorId: 1,
+          connectorType: 'CCS2',
+        },
+      ],
+      total: 1,
+    });
+    renderPage();
+    const path = 'Parkhaus Lindenhof / CS-1 / Box 3 / sessions.evseNumber:5 / CCS2';
+    const line = await screen.findByText(path);
+    expect(line.getAttribute('title')).toBe(path);
+    expect(line.className).toContain('truncate');
+    // No second line repeats the site.
+    expect(screen.queryByText('Parkhaus Lindenhof')).toBeNull();
+  });
+
   it('shows the fleet and billing state of a session billed on account', async () => {
     getMock.mockResolvedValue({
       data: [

@@ -92,6 +92,9 @@ export class SimulatorManager {
   private readonly refusedTargets = new Set<string>();
   // Per-station self-heal restart counter, reset when a station becomes ready.
   private readonly healAttempts = new Map<string, number>();
+  // The model and serial number each running simulator reports in its
+  // BootNotification, read when it started.
+  private readonly startedIdentity = new Map<string, string>();
   // Optional: when set, dispatchAction publishes a {commandId, success,
   // error?} message to css_command_results so the API can surface
   // simulator-side rejects (e.g. "Cable not plugged in") to the operator.
@@ -193,6 +196,30 @@ export class SimulatorManager {
     }
   }
 
+  // The identity columns of the station as stored now. Falls back to the
+  // cycle's row when the read fails or finds nothing (a deleted station is
+  // reaped by the next poll).
+  private async readStationIdentityRow(
+    stationId: string,
+    cycleRow: IdentityRow,
+  ): Promise<IdentityRow> {
+    try {
+      const [current] = await this.sql`
+        SELECT cs.model, cs.serial_number, cs.firmware_version, v.name AS vendor_name
+        FROM charging_stations cs
+        LEFT JOIN vendors v ON v.id = cs.vendor_id
+        WHERE cs.station_id = ${stationId}
+      `;
+      return current ?? cycleRow;
+    } catch (err: unknown) {
+      logger.warn(
+        { err, stationId },
+        'Station identity read failed, starting with the identity read at the start of the sync',
+      );
+      return cycleRow;
+    }
+  }
+
   private async syncStationsInner(): Promise<void> {
     // The two queries are independent -- one reads css_stations, the other
     // reads css_evses. Running them sequentially adds one DB round-trip
@@ -286,8 +313,15 @@ export class SimulatorManager {
       // INSERT keyed on it will fail with FK violation. Stop the stale
       // instance so the boot path below recreates it with the fresh id.
       const existing = this.simulators.get(stationId);
+      const started = this.startedIdentity.get(stationId);
       if (existing != null) {
-        if (existing.cssStationId === (row.id as string)) {
+        if (started != null && started !== stationIdentity(row, stationId).key) {
+          // The station row now holds another model or serial number: restart,
+          // or the next BootNotification reports the old ones and writes them back.
+          console.log(
+            `[simulator-manager] Model or serial number changed for ${stationId}, restarting`,
+          );
+        } else if (existing.cssStationId === (row.id as string)) {
           // Same station still running. Leave healthy ones alone; restart one
           // that jammed during a cold-start storm (booted but never finished
           // its StatusNotification sweep), which otherwise sits with its
@@ -369,6 +403,12 @@ export class SimulatorManager {
         this.tlsProbeFailureCache.delete(targetUrl);
       }
 
+      // One cycle can run for minutes while thousands of stations start one by
+      // one, so the row read at its start may be stale by now: a model or serial
+      // number corrected since then would be reported old in the BootNotification
+      // and written back by the CSMS, leaving no change for the next poll to see.
+      const current = await this.readStationIdentityRow(stationId, row);
+      const identity = stationIdentity(current, stationId);
       const stationPk = row.id as string;
       const passwordVal = row.password as string | null;
       const securityProfileVal = row.security_profile as number;
@@ -392,10 +432,10 @@ export class SimulatorManager {
         ocppProtocol,
         securityProfile: securityProfileVal,
         targetUrl: row.target_url as string,
-        vendorName: (row.vendor_name as string | null) ?? 'EVtivity',
-        model: (row.model as string | null) ?? 'CSS-1000',
-        serialNumber: (row.serial_number as string | null) ?? `SN-${stationId}`,
-        firmwareVersion: (row.firmware_version as string | null) ?? '1.0.0',
+        vendorName: (current['vendor_name'] as string | null) ?? 'EVtivity',
+        model: identity.model,
+        serialNumber: identity.serialNumber,
+        firmwareVersion: (current['firmware_version'] as string | null) ?? '1.0.0',
         evses: evsesByStation.get(stationPk) ?? [],
         ...(passwordVal != null ? { password: passwordVal } : {}),
         ...(clientCertVal != null ? { clientCert: clientCertVal } : {}),
@@ -408,6 +448,7 @@ export class SimulatorManager {
       try {
         // Add to map BEFORE start() to prevent duplicate creation during async boot
         this.simulators.set(stationId, sim);
+        this.startedIdentity.set(stationId, identity.key);
         await sim.start();
         this.clockAlignedScheduler.register(sim);
         console.log(`[simulator-manager] Started simulator: ${stationId}`);
@@ -416,6 +457,7 @@ export class SimulatorManager {
         // first: its client keeps retrying the connection in the background,
         // and the next sync starts a fresh simulator for the station.
         this.simulators.delete(stationId);
+        this.startedIdentity.delete(stationId);
         await sim.stop().catch(() => {});
         const msg = err instanceof Error ? err.message : String(err);
         console.log(`[simulator-manager] Failed to start simulator ${stationId}: ${msg}`);
@@ -434,6 +476,7 @@ export class SimulatorManager {
         this.clockAlignedScheduler.unregister(stationId);
         this.simulators.delete(stationId);
         this.healAttempts.delete(stationId);
+        this.startedIdentity.delete(stationId);
         console.log(`[simulator-manager] Stopped simulator: ${stationId}`);
       }
     }
@@ -781,4 +824,16 @@ export class SimulatorManager {
       await this.publishResult(commandId, false, msg);
     }
   }
+}
+
+type IdentityRow = Record<string, unknown>;
+
+/** The model and serial number a simulator reports for a station row. */
+function stationIdentity(
+  row: Record<string, unknown>,
+  stationId: string,
+): { model: string; serialNumber: string; key: string } {
+  const model = (row['model'] as string | null) ?? 'CSS-1000';
+  const serialNumber = (row['serial_number'] as string | null) ?? `SN-${stationId}`;
+  return { model, serialNumber, key: JSON.stringify([model, serialNumber]) };
 }

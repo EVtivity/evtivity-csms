@@ -57,6 +57,9 @@ vi.mock('../services/vehicle.service.js', async (importOriginal) => ({
 }));
 
 vi.mock('@evtivity/database', () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -142,6 +145,10 @@ const baseSession = {
   stoppedReason: null,
   stationName: 'CS-001',
   siteName: 'Site A',
+  evseId: null,
+  unitName: null,
+  connectorId: null,
+  connectorType: null,
   siteAddress: '123 Main St',
   siteCity: 'Austin',
   siteState: 'TX',

@@ -79,10 +79,20 @@ interface EvseRow {
 
 // css_stations rows and css_evses rows by query text. `state` is mutable so a
 // test can change what the next sync cycle sees.
-function makeSql(state: { rows: Row[]; evses: EvseRow[] }): postgres.Sql {
-  return ((strings: TemplateStringsArray) => {
+// `identity` answers the per-station identity read the manager makes right
+// before a start, keyed by station id (missing: no row, the cycle's row is used).
+function makeSql(state: {
+  rows: Row[];
+  evses: EvseRow[];
+  identity?: Record<string, Partial<Row>>;
+}): postgres.Sql {
+  return ((strings: TemplateStringsArray, ...values: unknown[]) => {
     const q = strings.join(' ');
     if (q.includes('FROM css_evses')) return Promise.resolve(state.evses);
+    if (q.includes('FROM charging_stations cs')) {
+      const current = state.identity?.[values[0] as string];
+      return Promise.resolve(current != null ? [current] : []);
+    }
     if (q.includes('FROM css_stations')) {
       return Promise.resolve(
         state.rows.map((r) => ({
@@ -703,6 +713,109 @@ describe('SimulatorManager station sync', () => {
     expect(logged('Error stopping stale simulator CS-1: socket gone')).toBe(true);
     expect(fresh).toHaveBeenCalledTimes(1);
     expect((manager.simulators.get('CS-1') as unknown as SimStub).cssStationId).toBe('pk-new');
+  });
+
+  it('restarts a running station whose model or serial number changed, with the new ones', async () => {
+    const SimulatorManager = await loadManagerClass();
+    const state = {
+      rows: [
+        { id: 'pk1', station_id: 'CS-1', model: 'Old Model', serial_number: 'SN-OLD' },
+      ] as Row[],
+      evses: [],
+    };
+    const created: SimStub[] = [];
+    const factory = vi.fn((config: StationConfig) => {
+      const sim = makeSim(config);
+      created.push(sim);
+      return sim as unknown as StationSimulator;
+    });
+    const manager = new SimulatorManager(makeSql(state), undefined, factory);
+
+    await sync(manager);
+    await sync(manager);
+    expect(factory).toHaveBeenCalledTimes(1);
+
+    state.rows[0] = { ...state.rows[0], model: 'New Model', serial_number: 'SN-NEW' } as Row;
+    await sync(manager);
+
+    expect(created[0]?.stop).toHaveBeenCalledTimes(1);
+    expect(logged('Model or serial number changed for CS-1, restarting')).toBe(true);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(created[1]?.config).toMatchObject({ model: 'New Model', serialNumber: 'SN-NEW' });
+
+    await sync(manager);
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  it('boots with the identity stored at its start, not the one read when the sync began', async () => {
+    const SimulatorManager = await loadManagerClass();
+    // The sync read the old row; the row was corrected before this station's turn.
+    const state = {
+      rows: [
+        { id: 'pk1', station_id: 'CS-1', model: 'Old Model', serial_number: 'SN-OLD' },
+      ] as Row[],
+      evses: [],
+      identity: {
+        'CS-1': {
+          model: 'New Model',
+          serial_number: 'SN-NEW',
+          firmware_version: '2.0',
+          vendor_name: 'V',
+        },
+      } as Record<string, Partial<Row>>,
+    };
+    const created: SimStub[] = [];
+    const factory = vi.fn((config: StationConfig) => {
+      const sim = makeSim(config);
+      created.push(sim);
+      return sim as unknown as StationSimulator;
+    });
+    const manager = new SimulatorManager(makeSql(state), undefined, factory);
+
+    await sync(manager);
+    expect(created[0]?.config).toMatchObject({
+      model: 'New Model',
+      serialNumber: 'SN-NEW',
+      firmwareVersion: '2.0',
+      vendorName: 'V',
+    });
+
+    // The next poll reads the corrected row and keeps the running simulator.
+    state.rows[0] = { ...state.rows[0], model: 'New Model', serial_number: 'SN-NEW' } as Row;
+    await sync(manager);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(created[0]?.stop).not.toHaveBeenCalled();
+  });
+
+  it('starts with the sync row when the identity read fails', async () => {
+    const SimulatorManager = await loadManagerClass();
+    const base = makeSql({
+      rows: [{ id: 'pk1', station_id: 'CS-1', model: 'M', serial_number: 'SN' }] as Row[],
+      evses: [],
+    });
+    const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (strings.join(' ').includes('FROM charging_stations cs')) {
+        return Promise.reject(new Error('db down'));
+      }
+      return (base as unknown as (s: TemplateStringsArray, ...v: unknown[]) => unknown)(
+        strings,
+        ...values,
+      );
+    }) as unknown as postgres.Sql;
+    const created: SimStub[] = [];
+    const factory = vi.fn((config: StationConfig) => {
+      const sim = makeSim(config);
+      created.push(sim);
+      return sim as unknown as StationSimulator;
+    });
+    const manager = new SimulatorManager(sql, undefined, factory);
+
+    await sync(manager);
+    expect(created[0]?.config).toMatchObject({ model: 'M', serialNumber: 'SN' });
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationId: 'CS-1' }),
+      expect.stringContaining('Station identity read failed'),
+    );
   });
 
   it('stops simulators whose stations left the database, even when stop throws', async () => {

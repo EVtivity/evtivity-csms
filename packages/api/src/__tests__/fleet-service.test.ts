@@ -76,6 +76,7 @@ vi.mock('@evtivity/services/fleet-billing-notice', () => ({
 }));
 
 vi.mock('@evtivity/database', () => ({
+  stationUnits: {},
   client: 'client',
   isOperatorStation: () => ({ conformancePredicate: 'isOperatorStation' }),
   inOperatorStation: () => ({ conformancePredicate: 'inOperatorStation' }),

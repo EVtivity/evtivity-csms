@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, and, eq, count, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import {
   db,
   chargingSessions,
@@ -9,6 +10,9 @@ import {
   sites,
   drivers,
   paymentRecords,
+  evses,
+  stationUnits,
+  connectors,
   getSystemTimezone,
   inOperatorStation,
 } from '@evtivity/database';
@@ -92,10 +96,20 @@ function buildConditions(filters: Filters, tz: string): SQL[] {
   return conditions;
 }
 
+const sessionEvse = alias(evses, 'session_evse');
+const sessionUnit = alias(stationUnits, 'session_unit');
+const sessionConnector = alias(connectors, 'session_connector');
+
 interface SessionRow {
   sessionId: string;
   transactionId: string;
   stationName: string;
+  /** The unit the session's EVSE belongs to now, '' without one. */
+  unitName: string;
+  /** OCPP EVSE and connector numbers, null when unknown. */
+  evseId: number | null;
+  connectorId: number | null;
+  connectorType: string;
   siteName: string;
   driverName: string;
   driverEmail: string;
@@ -144,6 +158,10 @@ async function querySessionLog(filters: Filters, tz: string): Promise<SessionLog
       transactionId: chargingSessions.transactionId,
       stationName: sql<string>`coalesce(${chargingStations.stationId}, ${chargingStations.id}::text)`,
       siteName: sql<string>`coalesce(${sites.name}, '')`,
+      unitName: sessionUnit.name,
+      evseId: sessionEvse.evseId,
+      connectorId: sessionConnector.connectorId,
+      connectorType: sessionConnector.connectorType,
       driverFirstName: sql<string>`coalesce(${drivers.firstName}, '')`,
       driverLastName: sql<string>`coalesce(${drivers.lastName}, '')`,
       driverEmail: sql<string>`coalesce(${drivers.email}, '')`,
@@ -180,6 +198,9 @@ async function querySessionLog(filters: Filters, tz: string): Promise<SessionLog
     .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
     .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+    .leftJoin(sessionEvse, eq(sessionEvse.id, chargingSessions.evseId))
+    .leftJoin(sessionUnit, eq(sessionUnit.id, sessionEvse.unitId))
+    .leftJoin(sessionConnector, eq(sessionConnector.id, chargingSessions.connectorId))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(sql`${chargingSessions.startedAt} desc`)
     // LIMIT+1 lets us flag truncation without a second count(*) on what may be
@@ -201,6 +222,10 @@ async function querySessionLog(filters: Filters, tz: string): Promise<SessionLog
       sessionId: r.sessionId,
       transactionId: r.transactionId,
       stationName: r.stationName,
+      unitName: r.unitName ?? '',
+      evseId: r.evseId,
+      connectorId: r.connectorId,
+      connectorType: r.connectorType ?? '',
       siteName: r.siteName,
       driverName: [r.driverFirstName, r.driverLastName].filter(Boolean).join(' '),
       driverEmail: r.driverEmail,
@@ -293,6 +318,10 @@ export async function generateSessionsReport(
     [
       [l.columns.transactionId, (s) => s.transactionId],
       [columns.station, (s) => s.stationName],
+      [l.columns.unit, (s) => s.unitName],
+      [l.columns.evse, (s) => s.evseId ?? ''],
+      [l.columns.connector, (s) => s.connectorId ?? ''],
+      [l.columns.connectorType, (s) => s.connectorType],
       [columns.site, (s) => s.siteName],
       [columns.driver, (s) => s.driverName, 'driver'],
       [columns.email, (s) => s.driverEmail, 'driver'],

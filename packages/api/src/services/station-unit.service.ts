@@ -6,9 +6,11 @@ import type { FastifyBaseLogger } from 'fastify';
 import { AppError, ValidationError } from '@evtivity/lib';
 import { displayLabelProblem } from '@evtivity/lib/display-label';
 import { canonicalIpAddress } from '@evtivity/lib/ip-address';
+import { parsePosition } from '@evtivity/lib/geo-position';
 import {
   STATION_UNIT_NAME_MAX,
   STATION_UNIT_SERIAL_MAX,
+  STATION_UNIT_MODEL_MAX,
   STATION_UNITS_MAX,
   chargingStations,
   createStationUnit,
@@ -72,8 +74,45 @@ function checkName(name: string): void {
 export function checkUnitDetails(input: {
   serialNumber?: string | null | undefined;
   ipAddress?: string | null | undefined;
+  model?: string | null | undefined;
+  latitude?: string | null | undefined;
+  longitude?: string | null | undefined;
 }): UnitDetailsInput {
   const out: UnitDetailsInput = {};
+  if (input.model !== undefined) {
+    const model = input.model?.trim() ?? '';
+    if (model === '') {
+      out.model = null;
+    } else {
+      const problem = displayLabelProblem(model, STATION_UNIT_MODEL_MAX);
+      if (problem === 'too_long') {
+        throw new ValidationError(
+          `The model holds at most ${String(STATION_UNIT_MODEL_MAX)} characters`,
+          { field: 'model' },
+        );
+      }
+      if (problem != null) {
+        throw new ValidationError(
+          'The model must not contain control or invisible format characters',
+          { field: 'model' },
+        );
+      }
+      out.model = model;
+    }
+  }
+  if (input.latitude !== undefined || input.longitude !== undefined) {
+    const position = parsePosition(input.latitude, input.longitude);
+    if (!position.ok) {
+      const message =
+        position.problem === 'missing'
+          ? 'Send both the latitude and the longitude, or clear both'
+          : position.problem === 'out_of_range'
+            ? 'The latitude is -90 to 90 and the longitude -180 to 180 degrees'
+            : 'A coordinate is a decimal number of degrees, at most 20 characters';
+      throw new ValidationError(message, { field: position.field });
+    }
+    out.position = position.value;
+  }
   if (input.serialNumber !== undefined) {
     const serial = input.serialNumber?.trim() ?? '';
     if (serial === '') {
@@ -138,6 +177,12 @@ function unwrap<T>(result: UnitWriteResult<T>): Extract<UnitWriteResult<T>, { ok
       throw new ValidationError('The EVSE and the unit must belong to the same station', {
         field: 'unitId',
       });
+    case 'units_disabled':
+      throw new AppError(
+        'This station does not use station units: turn on Uses Station Units first',
+        409,
+        'STATION_UNITS_DISABLED',
+      );
   }
 }
 
@@ -241,9 +286,10 @@ function evseList(numbers: readonly number[]): string {
 export function unitUpdateNote(fields: readonly UnitField[]): string {
   const parts: string[] = [];
   if (fields.includes('name')) parts.push('renamed');
-  if (fields.includes('serialNumber') || fields.includes('ipAddress')) {
+  if (fields.includes('serialNumber') || fields.includes('ipAddress') || fields.includes('model')) {
     parts.push('details changed');
   }
+  if (fields.includes('position')) parts.push('moved to a new position');
   if (fields.includes('sortOrder')) parts.push('moved in the order');
   if (parts.length === 0) return 'Unit changed';
   const last = parts.pop() ?? '';
@@ -282,6 +328,9 @@ export async function createUnit(
     evseIds?: number[];
     serialNumber?: string | null;
     ipAddress?: string | null;
+    model?: string | null;
+    latitude?: string | null;
+    longitude?: string | null;
   },
   ctx: UnitContext,
 ): Promise<StationUnitView> {
@@ -304,7 +353,7 @@ export async function createUnit(
   return readUnit(stationUuid, result.value.id);
 }
 
-/** Renames a unit, changes its serial number or IP address, or moves it in the order. */
+/** Renames a unit, changes its model, serial number, IP address or position, or moves it in the order. */
 export async function updateUnit(
   stationUuid: string,
   unitId: string,
@@ -313,6 +362,9 @@ export async function updateUnit(
     sortOrder?: number;
     serialNumber?: string | null;
     ipAddress?: string | null;
+    model?: string | null;
+    latitude?: string | null;
+    longitude?: string | null;
   },
   ctx: UnitContext,
 ): Promise<StationUnitView> {
@@ -331,7 +383,7 @@ export async function updateUnit(
       stationUuid,
       [{ before: result.before, after: result.after, notes: unitUpdateNote(fields) }],
       ctx,
-      !fields.includes('name'),
+      !fields.includes('name') && !fields.includes('position'),
     );
   }
   return readUnit(stationUuid, unitId);

@@ -119,8 +119,14 @@
     "./connector-type-label": {
       "import": "./src/connector-type-label.ts"
     },
+    "./charging-point-path": {
+      "import": "./src/charging-point-path.ts"
+    },
     "./display-label": {
       "import": "./src/display-label.ts"
+    },
+    "./geo-position": {
+      "import": "./src/geo-position.ts"
     },
     "./evse-status": {
       "import": "./src/evse-status.ts"

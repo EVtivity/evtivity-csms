@@ -224,6 +224,11 @@ export const chargingStations = pgTable(
     // OCPP id (QR code, link, favorites) and can start a session; it is not an
     // access control (api lib/public-station.ts).
     portalListed: boolean('portal_listed').notNull().default(true),
+    // The operator groups this station's EVSEs into physical units (a master
+    // box and its extenders). Off: the station has no unit and none can be
+    // added. Written only by lib/station-units.ts, which refuses off while a
+    // unit exists.
+    usesUnits: boolean('uses_units').notNull().default(false),
     // The operator's data plan choice for this station; null uses the SIM or
     // site rule (resolveDataPlan). Written only by setStationDataPlan.
     dataPlan: stationDataPlanEnum('data_plan'),
@@ -272,6 +277,16 @@ export const stationUnits = pgTable(
     // (IPv4 or IPv6, stored in canonical form).
     serialNumber: text('serial_number'),
     ipAddress: text('ip_address'),
+    // Admin metadata too: the box model (at most 20 characters, the OCPP 1.6
+    // chargePointModel length).
+    model: varchar('model', { length: 20 }),
+    // Where the box stands (decimal degrees, the station's storage form), both
+    // or neither. Drivers and partners see it: it replaces the station
+    // position for the unit's EVSEs.
+    latitude: varchar('latitude', { length: 20 }),
+    longitude: varchar('longitude', { length: 20 }),
+    // When the position last changed (the OCPI EVSE last_updated moves with it).
+    positionUpdatedAt: timestamp('position_updated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     // When the name, the one field partners see, last changed.
@@ -281,6 +296,10 @@ export const stationUnits = pgTable(
     index('idx_station_units_station_id').on(table.stationId),
     uniqueIndex('uq_station_units_station_name').on(table.stationId, sql`lower(${table.name})`),
     unique('uq_station_units_id_station').on(table.id, table.stationId),
+    check(
+      'station_units_position_check',
+      sql`(${table.latitude} IS NULL) = (${table.longitude} IS NULL)`,
+    ),
   ],
 );
 

@@ -51,6 +51,9 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', async () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
@@ -312,6 +315,10 @@ describe('Portal monthly summary routes', () => {
             currency: 'EUR',
             stationName: 'Station B',
             siteName: 'Site Beta',
+            evseId: null,
+            unitName: null,
+            connectorId: null,
+            connectorType: null,
             siteCity: 'Austin',
             siteAddress: null,
             siteState: null,

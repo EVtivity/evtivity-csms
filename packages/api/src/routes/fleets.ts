@@ -3,6 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { sessionChargingPointShape } from '../lib/session-charging-point.js';
 import * as fleetService from '../services/fleet.service.js';
 import {
   db,
@@ -268,6 +269,7 @@ const fleetSessionItem = z
     stationId: z.string().describe('Station identifier where the session occurred'),
     stationName: z.string().max(255).nullable().describe('Station OCPP id (display label)'),
     siteName: z.string().max(255).nullable().describe('Site name where the station is located'),
+    ...sessionChargingPointShape,
     transactionId: z.string().nullable().describe('OCPP transaction identifier'),
     status: z
       .string()

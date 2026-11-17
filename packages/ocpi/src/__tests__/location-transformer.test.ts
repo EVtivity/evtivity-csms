@@ -479,6 +479,32 @@ describe('coordinates (OCPI 8.4.16 GeoLocation)', () => {
 // Station units (GitHub discussion 59): each EVSE of a master with extenders
 // tells partners which box it is in. OCPI 2.1.1 and 2.3.0 EVSE
 // physical_reference is string(16).
+describe('EVSE coordinates from the unit position', () => {
+  it('sends the unit position as the EVSE coordinates in every version', () => {
+    for (const version of ['2.2.1', '2.3.0'] as const) {
+      const result = transformEvseStandalone(
+        {
+          ...evse('evs_p', 'sta_p', 'available', false),
+          unitName: 'Box 1',
+          unitPosition: { latitude: '47.99591', longitude: '7.8522' },
+        },
+        version,
+      );
+      expect(result.coordinates).toEqual({ latitude: '47.995910', longitude: '7.852200' });
+    }
+  });
+
+  it('sends no coordinates for an EVSE without a unit position, as before', () => {
+    const plain = transformEvseStandalone(evse('evs_q', 'sta_q', 'available', false), '2.2.1');
+    expect('coordinates' in plain).toBe(false);
+    const named = transformEvseStandalone(
+      { ...evse('evs_s', 'sta_s', 'available', false), unitName: 'Box 2' },
+      '2.3.0',
+    );
+    expect('coordinates' in named).toBe(false);
+  });
+});
+
 describe('physical_reference from the unit name', () => {
   it('sends the unit name of an EVSE in a unit', () => {
     const result = transformEvseStandalone(

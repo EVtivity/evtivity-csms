@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { CancelButton } from '@/components/cancel-button';
@@ -32,6 +33,8 @@ const UNIT_NAME_MAX = 50;
 const UNIT_SERIAL_MAX = 64;
 /** The longest IPv6 text (an IPv4-mapped address in full form). */
 const UNIT_IP_MAX = 45;
+/** The longest unit model the API stores (OCPP 1.6 chargePointModel). */
+const UNIT_MODEL_MAX = 20;
 
 /**
  * A unit being added (`id` null) or edited: its name and the optional admin
@@ -42,20 +45,53 @@ export interface UnitNameDraft {
   name: string;
   serialNumber: string;
   ipAddress: string;
+  model: string;
+  latitude: string;
+  longitude: string;
+}
+
+/** A draft for a new unit: every field empty. */
+export function emptyUnitDraft(): UnitNameDraft {
+  return {
+    id: null,
+    name: '',
+    serialNumber: '',
+    ipAddress: '',
+    model: '',
+    latitude: '',
+    longitude: '',
+  };
+}
+
+/** The draft of an existing unit, its empty fields as empty strings. */
+export function unitDraftOf(unit: StationUnit): UnitNameDraft {
+  return {
+    id: unit.id,
+    name: unit.name,
+    serialNumber: unit.serialNumber ?? '',
+    ipAddress: unit.ipAddress ?? '',
+    model: unit.model ?? '',
+    latitude: unit.latitude ?? '',
+    longitude: unit.longitude ?? '',
+  };
 }
 
 /** The body of a create (empty fields left out) or an edit (empty fields clear). */
 export function unitDraftBody(draft: UnitNameDraft): Record<string, string> {
-  const serialNumber = draft.serialNumber.trim();
-  const ipAddress = draft.ipAddress.trim();
+  const fields = {
+    serialNumber: draft.serialNumber.trim(),
+    ipAddress: draft.ipAddress.trim(),
+    model: draft.model.trim(),
+    latitude: draft.latitude.trim(),
+    longitude: draft.longitude.trim(),
+  };
   if (draft.id == null) {
     return {
       name: draft.name,
-      ...(serialNumber !== '' ? { serialNumber } : {}),
-      ...(ipAddress !== '' ? { ipAddress } : {}),
+      ...Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== '')),
     };
   }
-  return { name: draft.name, serialNumber, ipAddress };
+  return { name: draft.name, ...fields };
 }
 
 interface UnitEvse {
@@ -160,6 +196,18 @@ export function StationUnitNameDialog({
             />
           </div>
           <div className="space-y-2">
+            <Label htmlFor="station-unit-model">{t('stations.model')}</Label>
+            <Input
+              id="station-unit-model"
+              maxLength={UNIT_MODEL_MAX}
+              autoComplete="off"
+              value={draft?.model ?? ''}
+              onChange={(e) => {
+                if (draft != null) onDraftChange({ ...draft, model: e.target.value });
+              }}
+            />
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="station-unit-serial">{t('stationUnits.serialNumber')}</Label>
             <Input
               id="station-unit-serial"
@@ -186,6 +234,33 @@ export function StationUnitNameDialog({
             />
             <p className="text-xs text-muted-foreground">{t('stationUnits.ipAddressHint')}</p>
           </div>
+          <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="station-unit-latitude">{t('stations.latitude')}</Label>
+              <DecimalInput
+                id="station-unit-latitude"
+                value={draft?.latitude ?? ''}
+                onChange={(value) => {
+                  if (draft != null) onDraftChange({ ...draft, latitude: value });
+                }}
+                placeholder="47.995910"
+                allowNegative
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="station-unit-longitude">{t('stations.longitude')}</Label>
+              <DecimalInput
+                id="station-unit-longitude"
+                value={draft?.longitude ?? ''}
+                onChange={(value) => {
+                  if (draft != null) onDraftChange({ ...draft, longitude: value });
+                }}
+                placeholder="7.852220"
+                allowNegative
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('stationUnits.positionHint')}</p>
           <DialogFooter>
             <CancelButton
               onClick={() => {
@@ -444,7 +519,7 @@ export function StationCreateUnitButton({
         label={t('stationUnits.createUnit')}
         variant="outline"
         onClick={() => {
-          setDraft({ id: null, name: '', serialNumber: '', ipAddress: '' });
+          setDraft(emptyUnitDraft());
         }}
       />
       <StationUnitNameDialog stationId={stationId} draft={draft} onDraftChange={setDraft} />

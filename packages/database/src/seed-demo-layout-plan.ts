@@ -258,6 +258,14 @@ export interface LayoutDemoStation {
   rowKey?: string;
   /** The model name (default Terra 184 for DC, Pulsar Plus for AC). */
   model?: string;
+  /** The serial number (default `SN-LY-00<rowKey>`). */
+  serialNumber?: string;
+  /**
+   * The model and serial number an earlier demo seeded, replaced on a rerun
+   * while the station still holds both. `configModels` lists other models an
+   * earlier attempt left in the simulator's stored ChargePointModel, replaced too.
+   */
+  identityBefore?: { model: string; serialNumber: string; configModels?: string[] };
   /** The OCPP protocol (default ocpp2.1). */
   ocppProtocol?: 'ocpp1.6' | 'ocpp2.1';
   /** The AC supply of every EVSE in the simulator (default one phase at 208 V, North America). */
@@ -1888,7 +1896,13 @@ export const LAYOUT_DEMO: {
           row: 0,
           circuitId: 'cir_demogarage01',
           rowKey: 'u1',
-          model: 'AC Master Extenders',
+          model: 'Master w/ Extenders',
+          serialNumber: 'SN-LY-0101',
+          identityBefore: {
+            model: 'AC Master Extenders',
+            serialNumber: 'SN-LY-00u1',
+            configModels: ['AC Master with Extenders'],
+          },
           ocppProtocol: 'ocpp1.6',
           evses: 16,
           connectorType: 'Type2',

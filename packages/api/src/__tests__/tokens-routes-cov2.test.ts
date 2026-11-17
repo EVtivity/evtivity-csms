@@ -81,6 +81,9 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 vi.mock('@evtivity/database', () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   db: {
     select: vi.fn(() => makeChain()),
     selectDistinct: selectDistinctMock,

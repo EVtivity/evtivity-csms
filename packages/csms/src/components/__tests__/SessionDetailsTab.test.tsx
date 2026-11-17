@@ -8,8 +8,12 @@ import { MemoryRouter } from 'react-router';
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) =>
-      typeof opts?.['pcid'] === 'string' ? `${key}:${opts['pcid']}` : key,
+    t: (key: string, opts?: Record<string, unknown>) => {
+      if (typeof opts?.['pcid'] === 'string') return `${key}:${opts['pcid']}`;
+      if (key === 'sessions.evseNumber') return `EVSE ${String(opts?.['id'])}`;
+      if (key === 'sessions.connectorNumber') return `Connector ${String(opts?.['id'])}`;
+      return key;
+    },
   }),
 }));
 vi.mock('@/lib/timezone', () => ({ formatDateTime: (value: string) => value }));
@@ -114,12 +118,31 @@ describe('SessionDetailsTab cost and events', () => {
     expect(screen.queryByText('cost:300')).toBeNull();
   });
 
-  it('names the unit (charger box) of the session EVSE, and shows no unit row without one', () => {
-    renderSession({ unitName: 'Box 3' });
-    expect(screen.getByTestId('session-unit-name').textContent).toBe('Box 3');
+  it('shows the charging point path on one line as the station link, with no unit, EVSE or connector rows', () => {
+    renderSession({
+      siteName: 'Northgate Fleet Depot',
+      stationName: 'CS-3048',
+      unitName: 'Box 3',
+      evseId: 1,
+      connectorId: 1,
+      connectorType: 'MCS',
+    });
+    const link = screen.getByTestId('session-charging-point');
+    expect(link.textContent).toBe('Northgate Fleet Depot / CS-3048 / Box 3 / EVSE 1 / MCS');
+    expect(link.getAttribute('href')).toBe('/stations/sta_1');
+    expect(screen.queryByText('sessions.unit')).toBeNull();
+    expect(screen.queryByText('sessions.evse')).toBeNull();
+    expect(screen.queryByText('sessions.connector')).toBeNull();
+  });
+
+  it('leaves out the parts the session does not have', () => {
+    renderSession({ evseId: 2, connectorId: 1, connectorType: null });
+    expect(screen.getByTestId('session-charging-point').textContent).toBe(
+      'CS-1 / EVSE 2 / Connector 1',
+    );
     cleanup();
     renderSession({});
-    expect(screen.queryByTestId('session-unit-name')).toBeNull();
+    expect(screen.getByTestId('session-charging-point').textContent).toBe('CS-1');
   });
 
   it('titles its first panel Details, not the page heading', () => {

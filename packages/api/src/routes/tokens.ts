@@ -13,6 +13,16 @@ import {
   driverTokens,
   inOperatorStation,
 } from '@evtivity/database';
+import {
+  sessionChargingPointColumns,
+  sessionChargingPointShape,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../lib/session-charging-point.js';
 import * as tokenService from '../services/token.service.js';
 import { tokenListSort } from '../lib/sorts/token-list-sort.js';
 import { sessionListSort } from '../lib/sorts/session-list-sort.js';
@@ -122,6 +132,7 @@ const tokenSessionItem = z
     stationId: z.string().describe('Charging station ID'),
     stationName: z.string().nullable().describe('Station OCPP identifier, null if unavailable'),
     siteName: z.string().nullable().describe('Site name, null if station has no site'),
+    ...sessionChargingPointShape,
     driverId: z.string().nullable().describe('Driver ID, null for guest or free-vend sessions'),
     driverName: z
       .string()
@@ -438,6 +449,7 @@ export function tokenRoutes(app: FastifyInstance): void {
             stationId: chargingSessions.stationId,
             stationName: chargingStations.stationId,
             siteName: sites.name,
+            ...sessionChargingPointColumns,
             driverId: chargingSessions.driverId,
             driverName: sql<
               string | null
@@ -455,6 +467,9 @@ export function tokenRoutes(app: FastifyInstance): void {
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
           .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+          .leftJoin(sessionEvse, sessionEvseJoin)
+          .leftJoin(sessionUnit, sessionUnitJoin)
+          .leftJoin(sessionConnector, sessionConnectorJoin)
           .where(where)
           .orderBy(...sessionListSort.orderBy(request.query as z.infer<typeof tokenSessionsQuery>))
           .limit(limit)

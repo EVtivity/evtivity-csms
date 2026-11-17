@@ -178,6 +178,9 @@ vi.mock('@evtivity/database', async () => {
   };
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
+    evses: {},
+    connectors: {},
+    stationUnits: {},
     db: dbMock,
     client: {},
     ...tables,

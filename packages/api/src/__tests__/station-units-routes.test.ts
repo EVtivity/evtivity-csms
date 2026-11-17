@@ -22,6 +22,7 @@ vi.mock('../services/station-unit.service.js', () => svc);
 vi.mock('@evtivity/database', () => ({
   STATION_UNIT_NAME_MAX: 50,
   STATION_UNIT_SERIAL_MAX: 64,
+  STATION_UNIT_MODEL_MAX: 20,
   STATION_UNITS_MAX: 64,
 }));
 vi.mock('../middleware/rbac.js', async () =>
@@ -49,6 +50,9 @@ const VIEW = {
   sortOrder: 0,
   serialNumber: null,
   ipAddress: null,
+  model: null,
+  latitude: null,
+  longitude: null,
   evseIds: ['evs_000000000001'],
   evseNumbers: [1],
 };
@@ -190,6 +194,44 @@ describe('station unit routes', () => {
       { serialNumber: '', ipAddress: null },
       expect.anything(),
     );
+  });
+
+  it('passes the model and the position to the service and returns them', async () => {
+    svc.updateUnit.mockResolvedValue({
+      ...VIEW,
+      model: 'AC Extender',
+      latitude: '47.99591',
+      longitude: '7.85222',
+    });
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: `/stations/${STATION}/units/${UNIT}`,
+      headers: auth,
+      payload: { model: 'AC Extender', latitude: '47.99591', longitude: '7.85222' },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      model: 'AC Extender',
+      latitude: '47.99591',
+      longitude: '7.85222',
+    });
+    expect(svc.updateUnit).toHaveBeenCalledWith(
+      STATION,
+      UNIT,
+      { model: 'AC Extender', latitude: '47.99591', longitude: '7.85222' },
+      expect.anything(),
+    );
+  });
+
+  it('refuses a model with a control or invisible character in the schema', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/stations/${STATION}/units/${UNIT}`,
+      headers: auth,
+      payload: { model: 'M​1' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(svc.updateUnit).not.toHaveBeenCalled();
   });
 
   it('refuses a serial number with a control or invisible character in the schema', async () => {

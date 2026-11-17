@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@evtivity/database', () => ({}));
 
-import { driverChargers, type DriverEvse } from '../lib/portal-units.js';
+import { driverChargers, expandToDriverChargers, type DriverEvse } from '../lib/portal-units.js';
 
 // GitHub discussion 59: one OCPP 1.6 station, 8 boxes of 2 AC EVSEs.
 const UNITS = Array.from({ length: 8 }, (_, i) => ({
@@ -38,6 +38,8 @@ describe('driverChargers', () => {
       evseIds: [1, 2],
       evseCount: 2,
       availableCount: 1,
+      latitude: null,
+      longitude: null,
     });
     expect(chargers?.reduce((n, c) => n + c.evseCount, 0)).toBe(16);
   });
@@ -50,13 +52,75 @@ describe('driverChargers', () => {
     ];
     const chargers = driverChargers(evses, UNITS.slice(0, 2));
     expect(chargers).toEqual([
-      { unitId: 'unt_box1', unitName: 'Box 1', evseIds: [1], evseCount: 1, availableCount: 1 },
-      { unitId: null, unitName: null, evseIds: [3, 4], evseCount: 2, availableCount: 1 },
+      {
+        unitId: 'unt_box1',
+        unitName: 'Box 1',
+        evseIds: [1],
+        evseCount: 1,
+        availableCount: 1,
+        latitude: null,
+        longitude: null,
+      },
+      {
+        unitId: null,
+        unitName: null,
+        evseIds: [3, 4],
+        evseCount: 2,
+        availableCount: 1,
+        latitude: null,
+        longitude: null,
+      },
     ]);
   });
 
   it('counts nothing available while the station is closed to drivers (every EVSE unavailable)', () => {
     const closed = EVSES.map((e) => ({ ...e, available: false }));
     expect(driverChargers(closed, UNITS)?.every((c) => c.availableCount === 0)).toBe(true);
+  });
+});
+
+describe('unit positions in the driver rows', () => {
+  const evses: DriverEvse[] = [
+    { evseId: 1, unitId: 'unt_far', available: true },
+    { evseId: 2, unitId: 'unt_here', available: true },
+    { evseId: 3, unitId: null, available: false },
+  ];
+  const units = [
+    { id: 'unt_far', name: 'Far Box', sortOrder: 0, latitude: '48.1', longitude: '7.9' },
+    { id: 'unt_here', name: 'Here Box', sortOrder: 1, latitude: null, longitude: null },
+  ];
+
+  it('gives a unit with a position its own and every other charger none', () => {
+    const chargers = driverChargers(evses, units) ?? [];
+    expect(chargers.map((c) => [c.unitId, c.latitude, c.longitude])).toEqual([
+      ['unt_far', '48.1', '7.9'],
+      ['unt_here', null, null],
+      [null, null, null],
+    ]);
+  });
+
+  it('shows a unit row at its own position and distance, every other row at the station', () => {
+    const rows = expandToDriverChargers(
+      [
+        {
+          stationUuid: 'sta_1',
+          evseCount: 3,
+          availableCount: 2,
+          connectors: [],
+          latitude: '48.0',
+          longitude: '7.8',
+          distanceKm: 0.5,
+        },
+      ],
+      new Map([['sta_1', { units, evses }]]),
+      (r) => ({ distanceKm: r.distanceKm }),
+      undefined,
+      { lat: 48.0, lng: 7.8 },
+    );
+    expect(rows.map((r) => [r.unitId, r.latitude, r.longitude, r.distanceKm])).toEqual([
+      ['unt_far', '48.1', '7.9', 13.4],
+      ['unt_here', '48.0', '7.8', 0.5],
+      [null, '48.0', '7.8', 0.5],
+    ]);
   });
 });

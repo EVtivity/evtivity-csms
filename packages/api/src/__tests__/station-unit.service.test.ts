@@ -26,6 +26,7 @@ vi.mock('@evtivity/database', () => {
   return {
     STATION_UNIT_NAME_MAX: 50,
     STATION_UNIT_SERIAL_MAX: 64,
+    STATION_UNIT_MODEL_MAX: 20,
     STATION_UNITS_MAX: 64,
     chargingStations: { id: 'id', siteId: 'site_id' },
     evses: { id: 'id', evseId: 'evse_id', stationId: 'station_id' },
@@ -53,6 +54,7 @@ import {
   checkUnitDetails,
   createUnit,
   deleteUnit,
+  unitUpdateNote,
   updateUnit,
 } from '../services/station-unit.service.js';
 
@@ -160,6 +162,50 @@ describe('station unit service', () => {
     }
     expect(m.createStationUnit).not.toHaveBeenCalled();
     expect(m.updateStationUnit).not.toHaveBeenCalled();
+  });
+
+  it('checks the model and the position and passes both pairs or none', () => {
+    expect(
+      checkUnitDetails({ model: ' AC Extender ', latitude: ' 47.99591 ', longitude: '7.85222' }),
+    ).toEqual({
+      model: 'AC Extender',
+      position: { latitude: '47.99591', longitude: '7.85222' },
+    });
+    expect(checkUnitDetails({ model: '', latitude: '', longitude: null })).toEqual({
+      model: null,
+      position: null,
+    });
+  });
+
+  it('refuses an invalid model or position with the field, before writing', async () => {
+    for (const model of ['x'.repeat(21), 'M​1', 'M\n1']) {
+      await expect(createUnit('sta_1', { name: 'Box 1', model }, ctx)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'model' },
+      });
+    }
+    const cases: [{ latitude?: string | null; longitude?: string | null }, string][] = [
+      [{ latitude: '47.9' }, 'longitude'],
+      [{ longitude: '7.8' }, 'latitude'],
+      [{ latitude: '91', longitude: '7.8' }, 'latitude'],
+      [{ latitude: '47.9', longitude: '181' }, 'longitude'],
+      [{ latitude: '1e1', longitude: '7.8' }, 'latitude'],
+      [{ latitude: '47.9', longitude: '7.8.1' }, 'longitude'],
+    ];
+    for (const [input, field] of cases) {
+      await expect(updateUnit('sta_1', 'unt_1', input, ctx)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field },
+      });
+    }
+    expect(m.createStationUnit).not.toHaveBeenCalled();
+    expect(m.updateStationUnit).not.toHaveBeenCalled();
+  });
+
+  it('names a model and a position change in the history note', () => {
+    expect(unitUpdateNote(['model'])).toBe('Unit details changed');
+    expect(unitUpdateNote(['position'])).toBe('Unit moved to a new position');
+    expect(unitUpdateNote(['name', 'position'])).toBe('Unit renamed and moved to a new position');
   });
 
   it('passes the checked details to the writer and notes a details change', async () => {
@@ -278,6 +324,7 @@ describe('station unit service', () => {
       ['name_in_use', 'STATION_UNIT_NAME_IN_USE', 409],
       ['limit', 'STATION_UNIT_LIMIT_REACHED', 400],
       ['other_station', 'VALIDATION_ERROR', 400],
+      ['units_disabled', 'STATION_UNITS_DISABLED', 409],
     ];
     for (const [reason, code, statusCode] of cases) {
       m.updateStationUnit.mockResolvedValueOnce({ ok: false, reason });

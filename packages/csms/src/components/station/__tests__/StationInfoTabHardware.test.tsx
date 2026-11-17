@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
@@ -24,6 +24,7 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock })
 vi.mock('@/components/GoogleMapPicker', () => ({ GoogleMapPicker: () => null }));
 vi.mock('../StationAiInsightsRow', () => ({ StationAiInsightsRow: () => null }));
 
+import { ApiError } from '@/lib/api';
 import { StationInfoTab } from '../StationInfoTab';
 
 const STATION = {
@@ -90,31 +91,53 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('StationInfoTab OCPP endpoint fields', () => {
-  it('shows model, serial number and firmware as plain fields for a station without units', () => {
-    renderTab(false, { ...STATION, unitCount: 0 });
-    expect(screen.queryByTestId('ocpp-endpoint-group')).toBeNull();
-    expect(screen.queryByText('stationUnits.ocppEndpoint')).toBeNull();
-    expect(screen.getByText('stations.model')).toBeTruthy();
-    expect(screen.getByText('ABL')).toBeTruthy();
-    expect(screen.getByText('EM4-MASTER')).toBeTruthy();
-    expect(screen.getByText('SN-0001')).toBeTruthy();
-    expect(screen.getByText('2.4.1')).toBeTruthy();
-  });
+describe('StationInfoTab station hardware fields', () => {
+  it.each([0, 8])(
+    'shows vendor, model, serial number and firmware as plain fields with %i units',
+    (unitCount) => {
+      renderTab(false, { ...STATION, unitCount });
+      expect(screen.queryByTestId('ocpp-endpoint-group')).toBeNull();
+      expect(screen.queryByText('stationUnits.ocppEndpoint')).toBeNull();
+      expect(screen.queryByText('stationUnits.ocppEndpointHelp')).toBeNull();
+      for (const label of ['stations.vendor', 'stations.model', 'stations.serialNumber']) {
+        expect(screen.getAllByText(label)).toHaveLength(1);
+      }
+      expect(screen.getByText('stations.firmware')).toBeTruthy();
+      expect(screen.getByText('ABL')).toBeTruthy();
+      expect(screen.getByText('EM4-MASTER')).toBeTruthy();
+      expect(screen.getByText('SN-0001')).toBeTruthy();
+      expect(screen.getByText('2.4.1')).toBeTruthy();
+    },
+  );
+});
 
-  it('groups them under OCPP Endpoint with the helper line for a station with units', () => {
-    renderTab(false, { ...STATION, unitCount: 8 });
-    const group = screen.getByRole('region', { name: 'stationUnits.ocppEndpoint' });
-    expect(within(group).getByText('stationUnits.ocppEndpointHelp')).toBeTruthy();
-    expect(within(group).getByText('stations.vendor')).toBeTruthy();
-    expect(within(group).getByText('ABL')).toBeTruthy();
-    expect(screen.getAllByText('stations.vendor')).toHaveLength(1);
-    expect(within(group).getByText('stations.model')).toBeTruthy();
-    expect(within(group).getByText('EM4-MASTER')).toBeTruthy();
-    expect(within(group).getByText('stations.serialNumber')).toBeTruthy();
-    expect(within(group).getByText('SN-0001')).toBeTruthy();
-    expect(within(group).getByText('stations.firmware')).toBeTruthy();
-    expect(within(group).getByText('2.4.1')).toBeTruthy();
-    expect(screen.getAllByText('stations.model')).toHaveLength(1);
+describe('StationInfoTab Uses Station Units switch', () => {
+  it('sends the switch only when it changed, and shows the refusal of a station with units', async () => {
+    perms.add('stations:write');
+    renderTab(false, { ...STATION, usesUnits: true, unitCount: 8 });
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    const toggle = screen.getByRole('switch', { name: 'stations.usesUnits' });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.submit(toggle.closest('form') as HTMLFormElement);
+    await waitFor(() => {
+      expect(apiMock.patch).toHaveBeenCalled();
+    });
+    expect(apiMock.patch.mock.calls[0]?.[1]).not.toHaveProperty('usesUnits');
+
+    apiMock.patch.mockReset();
+    apiMock.patch.mockRejectedValue(
+      new ApiError(409, { error: 'Delete the units first', code: 'STATION_UNITS_IN_USE' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'common.edit' }));
+    const again = screen.getByRole('switch', { name: 'stations.usesUnits' });
+    fireEvent.click(again);
+    fireEvent.submit(again.closest('form') as HTMLFormElement);
+    await waitFor(() => {
+      expect(apiMock.patch).toHaveBeenCalledWith(
+        '/v1/stations/st1',
+        expect.objectContaining({ usesUnits: false }),
+      );
+    });
+    expect(await screen.findByText('Delete the units first')).toBeTruthy();
   });
 });

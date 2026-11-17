@@ -29,6 +29,7 @@ import { useToast } from '@/components/ui/toast';
 import { OCPP_BASE_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/timezone';
 import { StationAiInsightsRow } from './StationAiInsightsRow';
+import { StationUsesUnitsField } from './StationUsesUnitsField';
 import type { StationAiInsightsState } from './StationAiInsightsRow';
 import { useSavedToast } from '@/components/saved-message';
 import { stationSimKey } from '@/components/sim/sim-connectivity';
@@ -48,6 +49,7 @@ interface Station extends StationAiInsightsState {
   serialNumber: string | null;
   firmwareVersion: string | null;
   unitCount?: number | undefined;
+  usesUnits?: boolean | undefined;
   iccid: string | null;
   imsi: string | null;
   availability: string;
@@ -119,6 +121,7 @@ export function StationInfoTab({
   const [serialNumber, setSerialNumber] = useState('');
   const [siteId, setSiteId] = useState('');
   const [isSimulator, setIsSimulator] = useState(false);
+  const [usesUnits, setUsesUnits] = useState(false);
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [iccid, setIccid] = useState('');
@@ -165,6 +168,7 @@ export function StationInfoTab({
       serialNumber?: string;
       siteId?: string | null;
       isSimulator?: boolean;
+      usesUnits?: boolean;
       latitude?: string;
       longitude?: string;
       iccid?: string | null;
@@ -204,6 +208,7 @@ export function StationInfoTab({
     setSerialNumber(station.serialNumber ?? '');
     setSiteId(station.siteId ?? '');
     setIsSimulator(station.isSimulator);
+    setUsesUnits(station.usesUnits ?? false);
     setLatitude(station.latitude ?? '');
     setLongitude(station.longitude ?? '');
     setIccid(station.iccid ?? '');
@@ -241,13 +246,13 @@ export function StationInfoTab({
       ...(serialNumber !== '' ? { serialNumber } : {}),
       siteId: siteId !== '' ? siteId : null,
       isSimulator,
+      ...(usesUnits !== (station.usesUnits ?? false) ? { usesUnits } : {}),
       ...(latitude.trim() !== '' ? { latitude } : {}),
       ...(longitude.trim() !== '' ? { longitude } : {}),
     });
   }
 
-  const hasUnits = (station.unitCount ?? 0) > 0;
-  const endpointFields = (
+  const hardwareFields = (
     <>
       <div>
         <dt className="text-muted-foreground">{t('stations.vendor')}</dt>
@@ -340,6 +345,11 @@ export function StationInfoTab({
               />
               <Label htmlFor="edit-simulator">{t('stations.isSimulator')}</Label>
             </div>
+            <StationUsesUnitsField
+              id="edit-uses-units"
+              checked={usesUnits}
+              onCheckedChange={setUsesUnits}
+            />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="edit-latitude">{t('stations.latitude')}</Label>
@@ -459,7 +469,7 @@ export function StationInfoTab({
                     )}
                 </dd>
               </div>
-              {!hasUnits && endpointFields}
+              {hardwareFields}
               <div>
                 <dt className="text-muted-foreground">{t('stations.ocppProtocol')}</dt>
                 <dd className="font-medium">{station.ocppProtocol ?? '-'}</dd>
@@ -535,23 +545,6 @@ export function StationInfoTab({
                 timezone={siteTimezone}
               />
             </dl>
-            {hasUnits && (
-              <section
-                aria-labelledby="ocpp-endpoint-title"
-                className="space-y-3 border-t pt-4 text-sm"
-                data-testid="ocpp-endpoint-group"
-              >
-                <div className="space-y-1">
-                  <h3 id="ocpp-endpoint-title" className="font-semibold">
-                    {t('stationUnits.ocppEndpoint')}
-                  </h3>
-                  <p className="text-muted-foreground">{t('stationUnits.ocppEndpointHelp')}</p>
-                </div>
-                <dl className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  {endpointFields}
-                </dl>
-              </section>
-            )}
           </div>
         )}
       </TabPanel>

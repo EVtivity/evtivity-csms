@@ -56,6 +56,9 @@ function pgError(code: string): Error {
 }
 
 vi.mock('@evtivity/database', async () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   getDriverDefaults: vi.fn(() =>
@@ -1006,6 +1009,10 @@ describe('Driver routes (operator), uncovered paths', () => {
         stationId: 'sta_000000000001',
         stationName: 'CS-1',
         siteName: 'Site',
+        evseId: null,
+        unitName: null,
+        connectorId: null,
+        connectorType: null,
         driverId: DRIVER_ID,
         driverName: 'A B',
         transactionId: 'tx-1',

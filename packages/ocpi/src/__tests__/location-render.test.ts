@@ -59,11 +59,39 @@ beforeEach(() => {
 describe('unit helpers', () => {
   it('reads no units without ids and maps the ones named', async () => {
     expect((await unitsOf([null, null])).size).toBe(0);
-    h.selects.push([{ id: 'unt_1', name: 'Box 1', updatedAt: T1 }]);
+    h.selects.push([
+      {
+        id: 'unt_1',
+        name: 'Box 1',
+        nameUpdatedAt: T1,
+        positionUpdatedAt: null,
+        latitude: null,
+        longitude: null,
+      },
+    ]);
     const units = await unitsOf(['unt_1', 'unt_1', null]);
     expect(unitFields('unt_1', units)).toEqual({ unitName: 'Box 1', unitUpdatedAt: T1 });
     expect(unitFields('unt_x', units)).toEqual({});
     expect(unitFields(null, units)).toEqual({});
+  });
+
+  it('gives a unit with a position its coordinates and the later of its name and position times', async () => {
+    h.selects.push([
+      {
+        id: 'unt_2',
+        name: 'Box 2',
+        nameUpdatedAt: T1,
+        positionUpdatedAt: T2,
+        latitude: '47.99591',
+        longitude: '7.85222',
+      },
+    ]);
+    const units = await unitsOf(['unt_2']);
+    expect(unitFields('unt_2', units)).toEqual({
+      unitName: 'Box 2',
+      unitUpdatedAt: T2,
+      unitPosition: { latitude: '47.99591', longitude: '7.85222' },
+    });
   });
 
   it('takes the latest change of the retired connectors only', () => {

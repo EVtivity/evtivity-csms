@@ -113,6 +113,9 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  evses: {},
+  connectors: {},
+  stationUnits: {},
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
@@ -268,6 +271,10 @@ describe('Session routes', () => {
           stationId: VALID_STATION_ID,
           stationName: 'Station-01',
           siteName: 'Site A',
+          evseId: null,
+          unitName: null,
+          connectorId: null,
+          connectorType: null,
           driverId: null,
           driverName: null,
           transactionId: 'txn-001',
@@ -315,6 +322,63 @@ describe('Session routes', () => {
       expect(body.data[0].siteName).toBe('Site A');
       expect(body.data[0].transactionId).toBe('txn-001');
       expect(body.data[0].status).toBe('active');
+    });
+
+    it('returns the unit, EVSE number, connector number and connector type of each session', async () => {
+      const sessions = [
+        {
+          id: VALID_SESSION_ID,
+          stationId: VALID_STATION_ID,
+          stationName: 'Station-01',
+          siteName: 'Site A',
+          evseId: 5,
+          unitName: 'Box 3',
+          connectorId: 1,
+          connectorType: 'CCS2',
+          driverId: null,
+          driverName: null,
+          transactionId: 'txn-001',
+          status: 'active',
+          startedAt: '2024-06-01T10:00:00Z',
+          endedAt: null,
+          idleStartedAt: null,
+          energyDeliveredWh: '5000',
+          currentCostCents: 250,
+          finalCostCents: null,
+          currency: 'USD',
+          freeVend: false,
+          vehicleId: null,
+          vehicleName: null,
+          vehicleIdValue: null,
+          vehicleIdType: null,
+          vehicleIdSource: null,
+          autocharge: false,
+          billingMode: null,
+          billingFleetId: null,
+          billingFleetName: null,
+          invoiceId: null,
+          invoiceStatus: null,
+          rebillStatus: null,
+          rebillClaimedAt: null,
+          co2AvoidedKg: null,
+          electricityCostCents: null,
+          createdAt: '2024-06-01T10:00:00Z',
+        },
+      ];
+      setupDbResults(sessions, [{ count: 1 }]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/sessions',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const item = response.json().data[0];
+      expect(item.evseId).toBe(5);
+      expect(item.unitName).toBe('Box 3');
+      expect(item.connectorId).toBe(1);
+      expect(item.connectorType).toBe('CCS2');
     });
 
     it('never lists a session at a conformance station', async () => {
@@ -397,6 +461,10 @@ describe('Session routes', () => {
           stationId: VALID_STATION_ID,
           stationName: 'Station-01',
           siteName: 'Site A',
+          evseId: null,
+          unitName: null,
+          connectorId: null,
+          connectorType: null,
           driverId: null,
           driverName: null,
           transactionId: 'txn-001',
@@ -431,6 +499,10 @@ describe('Session routes', () => {
           stationId: VALID_STATION_ID,
           stationName: 'Station-02',
           siteName: null,
+          evseId: null,
+          unitName: null,
+          connectorId: null,
+          connectorType: null,
           driverId: null,
           driverName: null,
           transactionId: null,
@@ -519,6 +591,10 @@ describe('Session routes', () => {
           stationId: VALID_STATION_ID,
           stationName: 'Station-01',
           siteName: 'Site A',
+          evseId: null,
+          unitName: null,
+          connectorId: null,
+          connectorType: null,
           driverId: null,
           driverName: null,
           transactionId: 'txn-match-001',
@@ -572,6 +648,10 @@ describe('Session routes', () => {
           stationId: VALID_STATION_ID,
           stationName: 'Station-01',
           siteName: 'Site A',
+          evseId: null,
+          unitName: null,
+          connectorId: null,
+          connectorType: null,
           driverId: null,
           driverName: null,
           transactionId: 'txn-001',
@@ -637,6 +717,8 @@ describe('Session routes', () => {
         unitName: null,
         stationOnline: true,
         siteName: 'Site A',
+        connectorId: 2,
+        connectorType: 'Type2',
         siteId: null,
         driverId: null,
         driverName: null,
@@ -708,6 +790,9 @@ describe('Session routes', () => {
       expect(body.transactionId).toBe('txn-001');
       // The OCPP EVSE number the CSMS session page stops the session on.
       expect(body.evseId).toBe(1);
+      // The connector the session charged through, for its charging point.
+      expect(body.connectorId).toBe(2);
+      expect(body.connectorType).toBe('Type2');
       expect(body.status).toBe('completed');
       expect(body.finalCostCents).toBe(1000);
       expect(body.stationTariffId).toBe('evt-1');
@@ -731,6 +816,8 @@ describe('Session routes', () => {
       unitName: null,
       stationOnline: true,
       siteName: 'Site A',
+      connectorId: null,
+      connectorType: null,
       siteId: null,
       driverId: null,
       driverName: null,
@@ -865,6 +952,8 @@ describe('Session routes', () => {
         unitName: null,
         stationOnline: true,
         siteName: 'Site A',
+        connectorId: null,
+        connectorType: null,
         siteId: null,
         driverId: null,
         driverName: null,
@@ -949,6 +1038,8 @@ describe('Session routes', () => {
         unitName: null,
         stationOnline: true,
         siteName: 'Site A',
+        connectorId: null,
+        connectorType: null,
         siteId: null,
         driverId: null,
         driverName: null,
@@ -1040,6 +1131,8 @@ describe('Session routes', () => {
         unitName: null,
         stationOnline: true,
         siteName: 'Site A',
+        connectorId: null,
+        connectorType: null,
         siteId: null,
         driverId: null,
         driverName: null,
@@ -1165,6 +1258,8 @@ describe('Session routes', () => {
         unitName: null,
         stationOnline: true,
         siteName: null,
+        connectorId: null,
+        connectorType: null,
         siteId: null,
         driverId: null,
         driverName: null,
@@ -1250,6 +1345,8 @@ describe('Session routes', () => {
         unitName: null,
         stationOnline: true,
         siteName: null,
+        connectorId: null,
+        connectorType: null,
         siteId: null,
         driverId: null,
         driverName: null,

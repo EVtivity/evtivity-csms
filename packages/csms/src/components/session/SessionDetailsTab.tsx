@@ -27,6 +27,7 @@ import {
   type SessionVehicleCapture,
   type SessionVehicleInfo,
 } from '@/components/session/SessionVehicle';
+import { useChargingPointPath } from '@/hooks/use-charging-point-path';
 
 interface TransactionEvent {
   id: number;
@@ -42,6 +43,10 @@ interface SessionOverview {
   stationName: string | null;
   /** The unit (physical charger box) of the session's EVSE, null when it has none. */
   unitName?: string | null;
+  /** OCPP EVSE and connector numbers and the connector type of the session, null when unknown. */
+  evseId?: number | null;
+  connectorId?: number | null;
+  connectorType?: string | null;
   siteName: string | null;
   driverId: string | null;
   driverName: string | null;
@@ -97,6 +102,7 @@ export function SessionDetailsTab({
   formatDuration,
 }: SessionDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const chargingPointPath = useChargingPointPath();
 
   const {
     data: txEventData,
@@ -148,17 +154,14 @@ export function SessionDetailsTab({
       <TabPanel title={t('common.details')}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Row label={t('sessions.station')}>
-            <Link to={`/stations/${session.stationId}`} className="text-link hover:underline">
-              {session.siteName != null
-                ? `${session.siteName} / ${String(session.stationName)}`
-                : (session.stationName ?? t('common.na'))}
+            <Link
+              to={`/stations/${session.stationId}`}
+              className="text-link hover:underline"
+              data-testid="session-charging-point"
+            >
+              {chargingPointPath(session) || t('common.na')}
             </Link>
           </Row>
-          {session.unitName != null && (
-            <Row label={t('sessions.unit')}>
-              <span data-testid="session-unit-name">{session.unitName}</span>
-            </Row>
-          )}
           <Row label={t('sessions.driver')}>
             {session.freeVend === true ? (
               <span className="text-muted-foreground">{t('sessions.freeVend')}</span>

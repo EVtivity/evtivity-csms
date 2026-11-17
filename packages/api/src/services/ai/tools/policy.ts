@@ -1040,7 +1040,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   clearStationChargingProfiles: W,
   confirmRealStation: W,
   confirmStationImageUpload: N,
-  createStation: write({ omit: ['password', 'securityProfile'] }),
+  createStation: write({ omit: ['password', 'securityProfile', 'usesUnits'] }),
   createStationMonitoringRule: W,
   deleteStation: W,
   deleteStationCertificate: N,
@@ -1113,7 +1113,9 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // runs the same data plan push as the CSMS.
   // Hiding a station from the driver portal listings is an operator choice: a
   // prompt injection could hide every station from drivers with one confirm.
-  updateStation: write({ omit: ['password', 'securityProfile', 'dataPlan', 'portalListed'] }),
+  updateStation: write({
+    omit: ['password', 'securityProfile', 'dataPlan', 'portalListed', 'usesUnits'],
+  }),
   updateStationEvse: W,
   updateStationImage: W,
   // Support Cases

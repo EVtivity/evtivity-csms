@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { StationUsesUnitsField } from '@/components/station/StationUsesUnitsField';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
@@ -46,6 +47,7 @@ export function StationCreate(): React.JSX.Element {
   const [securityProfile, setSecurityProfile] = useState('1');
   const [password, setPassword] = useState('');
   const [isSimulator, setIsSimulator] = useState(false);
+  const [usesUnits, setUsesUnits] = useState(false);
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -67,6 +69,7 @@ export function StationCreate(): React.JSX.Element {
       securityProfile?: number;
       password?: string;
       isSimulator?: boolean;
+      usesUnits?: boolean;
     }) => api.post<Station>('/v1/stations', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['stations'] });
@@ -116,6 +119,7 @@ export function StationCreate(): React.JSX.Element {
       securityProfile: Number(securityProfile),
       ...(password.trim() !== '' ? { password } : {}),
       isSimulator,
+      usesUnits,
       ...(latitude.trim() !== '' ? { latitude } : {}),
       ...(longitude.trim() !== '' ? { longitude } : {}),
     });
@@ -232,6 +236,11 @@ export function StationCreate(): React.JSX.Element {
               <Label htmlFor="isSimulator">{t('stations.isSimulator')}</Label>
               <p className="text-xs text-muted-foreground">{t('stations.isSimulatorHelp')}</p>
             </div>
+            <StationUsesUnitsField
+              id="usesUnits"
+              checked={usesUnits}
+              onCheckedChange={setUsesUnits}
+            />
             {securityProfile !== '0' && (
               <div className="space-y-2">
                 <Label htmlFor="password" className="leading-6">

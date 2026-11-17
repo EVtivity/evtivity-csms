@@ -333,6 +333,16 @@ const portalStationDetail = z
               .int()
               .min(0)
               .describe('EVSEs of the unit a driver can use now (the charger search rule)'),
+            latitude: z
+              .string()
+              .nullable()
+              .describe(
+                'Where the unit box stands (decimal degrees), null when it uses the station position',
+              ),
+            longitude: z
+              .string()
+              .nullable()
+              .describe('Longitude of the unit box, null when it uses the station position'),
           })
           .loose(),
       )
@@ -401,6 +411,16 @@ const portalChargerSearch = z
         'On a station with units, the unit this row shows (each unit is its own row); null for a station without units and for the EVSEs without a unit',
       ),
     unitName: z.string().nullable().describe('Name of that unit, null when the row shows none'),
+    latitude: z
+      .string()
+      .nullable()
+      .describe(
+        'Where the charger stands (decimal degrees): the unit position when the row is a unit with its own, else the station position, else the site position; null when none is known',
+      ),
+    longitude: z
+      .string()
+      .nullable()
+      .describe('Longitude of the charger, the same rule as latitude'),
   })
   .loose();
 
@@ -688,7 +708,22 @@ const portalNearbyStation = z
     siteName: z.string().max(255).nullable().describe('Site name'),
     siteAddress: z.string().max(500).nullable().describe('Street address'),
     siteCity: z.string().max(100).nullable().describe('City'),
-    distanceKm: z.number().min(0).describe('Great-circle distance from the search point in km'),
+    distanceKm: z
+      .number()
+      .min(0)
+      .describe(
+        'Great-circle distance from the search point in km, from the unit position for a unit row with its own',
+      ),
+    latitude: z
+      .string()
+      .nullable()
+      .describe(
+        'Where the charger stands (decimal degrees): the unit position when the row is a unit with its own, else the station position, else the site position; null when none is known',
+      ),
+    longitude: z
+      .string()
+      .nullable()
+      .describe('Longitude of the charger, the same rule as latitude'),
     evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
     availableCount: z
       .number()
@@ -1149,6 +1184,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteName: sites.name,
           siteAddress: sites.address,
           siteCity: sites.city,
+          latitude: sql<string | null>`COALESCE(${chargingStations.latitude}, ${sites.latitude})`,
+          longitude: sql<
+            string | null
+          >`COALESCE(${chargingStations.longitude}, ${sites.longitude})`,
           evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id} AND evses.retired_at IS NULL)`,
           availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
         })
@@ -1243,6 +1282,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteName: sites.name,
           siteAddress: sites.address,
           siteCity: sites.city,
+          latitude: sql<string | null>`${latExpr}`,
+          longitude: sql<string | null>`${lngExpr}`,
           distanceKm: distanceExpr,
           evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id} AND evses.retired_at IS NULL)`,
           availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
@@ -1303,6 +1344,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           distanceKm: Math.round(r.distanceKm * 10) / 10,
         }),
         limit,
+        { lat, lng },
       );
     },
   );
@@ -1982,6 +2024,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
                       name: c.unitName,
                       evseIds: c.evseIds,
                       availableCount: c.availableCount,
+                      latitude: c.latitude,
+                      longitude: c.longitude,
                     },
                   ]
                 : [],

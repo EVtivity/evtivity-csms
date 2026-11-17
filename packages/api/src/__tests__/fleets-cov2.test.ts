@@ -42,6 +42,9 @@ vi.mock('@evtivity/database', () => {
     return chain;
   };
   return {
+    evses: {},
+    connectors: {},
+    stationUnits: {},
     db: { select: vi.fn(() => buildChain()) },
     drivers: { id: 'drivers.id' },
     chargingStations: { id: 'charging_stations.id' },

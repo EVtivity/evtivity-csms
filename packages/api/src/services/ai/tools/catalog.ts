@@ -6198,7 +6198,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     pathTemplate: '/v1/stations/{id}/units',
     pathParams: ['id'],
     queryParams: [],
-    bodyParams: ['name', 'serialNumber', 'ipAddress', 'evseIds'],
+    bodyParams: ['name', 'serialNumber', 'ipAddress', 'model', 'latitude', 'longitude', 'evseIds'],
     parameters: {
       type: 'object',
       properties: {
@@ -6222,6 +6222,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'IP address of the unit box, one IPv4 or IPv6 address without a port, prefix length or host name, stored in canonical form (RFC 5952 for IPv6). An empty string or null clears it; left out keeps it. Anything else answers 400 VALIDATION_ERROR (field ipAddress)',
           type: ['string', 'null'],
         },
+        model: {
+          description:
+            'Model of the unit box, 1 to 20 characters after trimming (the OCPP 1.6 chargePointModel length). CSMS users only. An empty string or null clears it; left out keeps it',
+          type: ['string', 'null'],
+          pattern:
+            '^(?:[^\\p{Cc}\\p{Cf}]|(?<=[\\p{Extended_Pictographic}\\p{Emoji_Modifier}]\\uFE0F?)\\u200D(?=\\p{Extended_Pictographic}))*$',
+        },
+        latitude: {
+          description:
+            'Latitude of the unit box in decimal degrees (-90 to 90), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          type: ['string', 'null'],
+        },
+        longitude: {
+          description:
+            'Longitude of the unit box in decimal degrees (-180 to 180), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          type: ['string', 'null'],
+        },
         evseIds: {
           description: 'OCPP EVSE IDs of the station that move into the new unit',
           maxItems: 1000,
@@ -6229,7 +6246,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           items: { type: 'integer', minimum: 1 },
         },
       },
-      required: ['id', 'name', 'serialNumber', 'ipAddress', 'evseIds'],
+      required: [
+        'id',
+        'name',
+        'serialNumber',
+        'ipAddress',
+        'model',
+        'latitude',
+        'longitude',
+        'evseIds',
+      ],
       additionalProperties: false,
     },
     strict: true,
@@ -6261,6 +6287,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           maxLength: 100,
         },
+        model: {
+          description:
+            'Model of the unit box, 1 to 20 characters after trimming (the OCPP 1.6 chargePointModel length). CSMS users only. An empty string or null clears it; left out keeps it',
+          nullable: true,
+          type: 'string',
+          maxLength: 1000,
+          pattern:
+            '^(?:[^\\p{Cc}\\p{Cf}]|(?<=[\\p{Extended_Pictographic}\\p{Emoji_Modifier}]\\uFE0F?)\\u200D(?=\\p{Extended_Pictographic}))*$',
+        },
+        latitude: {
+          description:
+            'Latitude of the unit box in decimal degrees (-90 to 90), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          nullable: true,
+          type: 'string',
+          maxLength: 100,
+        },
+        longitude: {
+          description:
+            'Longitude of the unit box in decimal degrees (-180 to 180), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          nullable: true,
+          type: 'string',
+          maxLength: 100,
+        },
         evseIds: {
           description: 'OCPP EVSE IDs of the station that move into the new unit',
           maxItems: 1000,
@@ -6271,7 +6320,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       required: ['id', 'name'],
       additionalProperties: false,
     },
-    responseFields: ['id', 'ipAddress', 'name', 'serialNumber', 'sortOrder', 'stationId'],
+    responseFields: [
+      'id',
+      'ipAddress',
+      'latitude',
+      'longitude',
+      'model',
+      'name',
+      'serialNumber',
+      'sortOrder',
+      'stationId',
+    ],
   },
   {
     name: 'create_support_case',
@@ -9489,6 +9548,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'billingMode',
       'capturedAmountCents',
       'co2AvoidedKg',
+      'connectorId',
+      'connectorType',
       'createdAt',
       'currency',
       'currentCostCents',
@@ -13738,12 +13799,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'connectorId',
+      'connectorType',
       'currency',
       'currentCostCents',
       'driverId',
       'driverName',
       'endedAt',
       'energyDeliveredWh',
+      'evseId',
       'finalCostCents',
       'id',
       'siteName',
@@ -13753,6 +13817,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'status',
       'total',
       'transactionId',
+      'unitName',
     ],
   },
   {
@@ -14804,10 +14869,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'connectorId',
+      'connectorType',
       'currency',
       'currentCostCents',
       'endedAt',
       'energyDeliveredWh',
+      'evseId',
       'finalCostCents',
       'id',
       'idleStartedAt',
@@ -14818,6 +14886,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'status',
       'total',
       'transactionId',
+      'unitName',
     ],
   },
   {
@@ -17203,6 +17272,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     responseFields: [
       'billingMode',
       'co2AvoidedKg',
+      'connectorId',
+      'connectorType',
       'createdAt',
       'currency',
       'currentCostCents',
@@ -17211,6 +17282,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'electricityCostCents',
       'endedAt',
       'energyDeliveredWh',
+      'evseId',
       'finalCostCents',
       'id',
       'idleStartedAt',
@@ -17224,6 +17296,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'total',
       'transactionId',
       'type',
+      'unitName',
       'value',
       'vehicleId',
       'vehicleName',
@@ -17477,12 +17550,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'connectorId',
+      'connectorType',
       'currency',
       'currentCostCents',
       'driverId',
       'driverName',
       'endedAt',
       'energyDeliveredWh',
+      'evseId',
       'finalCostCents',
       'id',
       'siteName',
@@ -17492,6 +17568,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'status',
       'total',
       'transactionId',
+      'unitName',
     ],
   },
   {
@@ -18521,12 +18598,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'connectorId',
+      'connectorType',
       'currency',
       'currentCostCents',
       'driverId',
       'driverName',
       'endedAt',
       'energyDeliveredWh',
+      'evseId',
       'finalCostCents',
       'id',
       'siteName',
@@ -18536,6 +18616,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'status',
       'total',
       'transactionId',
+      'unitName',
     ],
   },
   {
@@ -18565,7 +18646,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       required: ['id'],
       additionalProperties: false,
     },
-    responseFields: ['id', 'ipAddress', 'name', 'serialNumber', 'sortOrder', 'stationId'],
+    responseFields: [
+      'id',
+      'ipAddress',
+      'latitude',
+      'longitude',
+      'model',
+      'name',
+      'serialNumber',
+      'sortOrder',
+      'stationId',
+    ],
   },
   {
     name: 'list_station_variables',
@@ -19160,12 +19251,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'connectorId',
+      'connectorType',
       'currency',
       'currentCostCents',
       'driverId',
       'driverName',
       'endedAt',
       'energyDeliveredWh',
+      'evseId',
       'finalCostCents',
       'id',
       'siteName',
@@ -19175,6 +19269,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'status',
       'total',
       'transactionId',
+      'unitName',
     ],
   },
   {
@@ -32153,7 +32248,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     pathTemplate: '/v1/stations/{id}/units/{unitId}',
     pathParams: ['id', 'unitId'],
     queryParams: [],
-    bodyParams: ['name', 'sortOrder', 'serialNumber', 'ipAddress'],
+    bodyParams: [
+      'name',
+      'sortOrder',
+      'serialNumber',
+      'ipAddress',
+      'model',
+      'latitude',
+      'longitude',
+    ],
     parameters: {
       type: 'object',
       properties: {
@@ -32184,8 +32287,35 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'IP address of the unit box, one IPv4 or IPv6 address without a port, prefix length or host name, stored in canonical form (RFC 5952 for IPv6). An empty string or null clears it; left out keeps it. Anything else answers 400 VALIDATION_ERROR (field ipAddress)',
           type: ['string', 'null'],
         },
+        model: {
+          description:
+            'Model of the unit box, 1 to 20 characters after trimming (the OCPP 1.6 chargePointModel length). CSMS users only. An empty string or null clears it; left out keeps it',
+          type: ['string', 'null'],
+          pattern:
+            '^(?:[^\\p{Cc}\\p{Cf}]|(?<=[\\p{Extended_Pictographic}\\p{Emoji_Modifier}]\\uFE0F?)\\u200D(?=\\p{Extended_Pictographic}))*$',
+        },
+        latitude: {
+          description:
+            'Latitude of the unit box in decimal degrees (-90 to 90), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          type: ['string', 'null'],
+        },
+        longitude: {
+          description:
+            'Longitude of the unit box in decimal degrees (-180 to 180), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          type: ['string', 'null'],
+        },
       },
-      required: ['id', 'unitId', 'name', 'sortOrder', 'serialNumber', 'ipAddress'],
+      required: [
+        'id',
+        'unitId',
+        'name',
+        'sortOrder',
+        'serialNumber',
+        'ipAddress',
+        'model',
+        'latitude',
+        'longitude',
+      ],
       additionalProperties: false,
     },
     strict: true,
@@ -32224,11 +32354,44 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           maxLength: 100,
         },
+        model: {
+          description:
+            'Model of the unit box, 1 to 20 characters after trimming (the OCPP 1.6 chargePointModel length). CSMS users only. An empty string or null clears it; left out keeps it',
+          nullable: true,
+          type: 'string',
+          maxLength: 1000,
+          pattern:
+            '^(?:[^\\p{Cc}\\p{Cf}]|(?<=[\\p{Extended_Pictographic}\\p{Emoji_Modifier}]\\uFE0F?)\\u200D(?=\\p{Extended_Pictographic}))*$',
+        },
+        latitude: {
+          description:
+            'Latitude of the unit box in decimal degrees (-90 to 90), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          nullable: true,
+          type: 'string',
+          maxLength: 100,
+        },
+        longitude: {
+          description:
+            'Longitude of the unit box in decimal degrees (-180 to 180), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field',
+          nullable: true,
+          type: 'string',
+          maxLength: 100,
+        },
       },
       required: ['id', 'unitId'],
       additionalProperties: false,
     },
-    responseFields: ['id', 'ipAddress', 'name', 'serialNumber', 'sortOrder', 'stationId'],
+    responseFields: [
+      'id',
+      'ipAddress',
+      'latitude',
+      'longitude',
+      'model',
+      'name',
+      'serialNumber',
+      'sortOrder',
+      'stationId',
+    ],
   },
   {
     name: 'update_support_case',

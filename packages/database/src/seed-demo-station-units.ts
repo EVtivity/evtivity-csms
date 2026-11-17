@@ -12,7 +12,7 @@
 
 import type postgres from 'postgres';
 import { writeAudit } from './lib/audit.js';
-import { createStationUnit, readStationUnits } from './lib/station-units.js';
+import { createStationUnit, readStationUnits, setStationUsesUnits } from './lib/station-units.js';
 import { stationAuditLog } from './schema/audit.js';
 
 /** The demo station with units (Parkhaus Lindenhof). */
@@ -20,7 +20,8 @@ export const DEMO_UNIT_STATION = {
   id: 'sta_demounits001',
   stationId: 'EM4-MASTER-01',
   siteId: 'sit_demogarage01',
-  model: 'AC Master Extenders',
+  model: 'Master w/ Extenders',
+  serialNumber: 'SN-LY-0101',
   ocppProtocol: 'ocpp1.6',
   units: 8,
   evsesPerUnit: 2,
@@ -47,6 +48,22 @@ export async function seedDemoStationUnitsOf(
   const rows = await sql<{ id: string; evse_id: number }[]>`
     SELECT id, evse_id FROM evses WHERE station_id = ${stationId}`;
   const byNumber = new Map(rows.map((r) => [r.evse_id, r.id]));
+  const switched = await setStationUsesUnits(stationId, true);
+  if (switched.ok && switched.changed) {
+    await writeAudit(
+      { table: stationAuditLog, idColumn: 'station_id' },
+      {
+        entityId: stationId,
+        entityIdSnapshot: stationId,
+        action: 'updated',
+        actor: actorUserId != null ? 'operator' : 'system',
+        actorUserId,
+        before: { usesUnits: false },
+        after: { usesUnits: true },
+        notes: 'Demo data: station uses units',
+      },
+    );
+  }
   let created = 0;
   for (const unit of units) {
     const evseIds = unit.evseIds.flatMap((n) => {

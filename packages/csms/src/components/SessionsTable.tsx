@@ -22,6 +22,7 @@ import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import type { ListSort } from '@/hooks/use-list-sort';
 import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 import { sessionDisplayCostCents } from '@evtivity/lib/session-cost';
+import { useChargingPointPath } from '@/hooks/use-charging-point-path';
 
 export const SESSIONS_COLUMNS: ColumnMeta[] = [
   // Session rows have no name, so the session ID is their first column (owner decision 2026-11-11).
@@ -128,6 +129,12 @@ export interface Session {
   stationId: string;
   stationName: string | null;
   siteName: string | null;
+  /** The unit (physical box) the session's EVSE belongs to, null when it has none. */
+  unitName?: string | null;
+  /** OCPP EVSE and connector numbers and the connector type, null when unknown. */
+  evseId?: number | null;
+  connectorId?: number | null;
+  connectorType?: string | null;
   driverId: string | null;
   driverName: string | null;
   transactionId: string | null;
@@ -175,6 +182,50 @@ function SessionVehicleCell({ session }: { session: Session }): React.JSX.Elemen
   return <span className="text-muted-foreground">-</span>;
 }
 
+/**
+ * The charging point of a session on one line, Site / Station / Unit / EVSE /
+ * Connector type, cut with an ellipsis when the cell is narrow; the full path
+ * is the title and the accessible name.
+ */
+function SessionChargingPointCell({
+  session,
+  hideSiteName,
+  hideStationName,
+}: {
+  session: Session;
+  hideSiteName: boolean;
+  hideStationName: boolean;
+}): React.JSX.Element {
+  const chargingPointPath = useChargingPointPath();
+  const path = chargingPointPath(session, {
+    hideSite: hideSiteName,
+    hideStation: hideStationName,
+  });
+  if (hideStationName) {
+    return path === '' ? (
+      <span className="text-muted-foreground">-</span>
+    ) : (
+      <span className="block max-w-md truncate" title={path} data-testid="session-charging-point">
+        {path}
+      </span>
+    );
+  }
+  return (
+    <Link
+      to={`/stations/${session.stationId}`}
+      className="block max-w-md truncate text-link hover:underline"
+      title={path}
+      aria-label={path}
+      data-testid="session-charging-point"
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+    >
+      {path === '' ? '-' : path}
+    </Link>
+  );
+}
+
 function formatCost(session: Session): string {
   const cents = sessionDisplayCostCents(session);
   if (cents == null) return '-';
@@ -192,7 +243,10 @@ interface SessionsTableProps {
   isError?: boolean;
   onRetry?: () => void;
   emptyMessage?: string;
+  /** One station's sessions: the column shows the unit, EVSE and connector only. */
   hideStationName?: boolean;
+  /** One site's sessions: the path starts at the station. */
+  hideSiteName?: boolean;
   hideDriverName?: boolean;
   visibility?: ColumnVisibility;
   /** The list's sort; without it the headers do not sort. */
@@ -209,6 +263,7 @@ export const SessionsTable = memo(function SessionsTable({
   onRetry,
   emptyMessage,
   hideStationName = false,
+  hideSiteName = false,
   hideDriverName = false,
   visibility,
   sort,
@@ -220,7 +275,6 @@ export const SessionsTable = memo(function SessionsTable({
     sortKeys.includes(key) ? sort : undefined;
   const isVisible = (key: string): boolean => visibility == null || visibility[key] !== false;
   const colCount = SESSIONS_COLUMNS.filter((c) => {
-    if (c.key === 'stationName' && hideStationName) return false;
     if (c.key === 'driverName' && hideDriverName) return false;
     return isVisible(c.key);
   }).length;
@@ -236,11 +290,14 @@ export const SessionsTable = memo(function SessionsTable({
                   {t('sessions.sessionId')}
                 </SortableTableHead>
               )}
-              {!hideStationName && isVisible('stationName') && (
-                <SortableTableHead sortKey="station" sort={sortOf('station')}>
-                  {t('sessions.stationName')}
-                </SortableTableHead>
-              )}
+              {isVisible('stationName') &&
+                (hideStationName ? (
+                  <TableHead>{t('sessions.chargingPoint')}</TableHead>
+                ) : (
+                  <SortableTableHead sortKey="station" sort={sortOf('station')}>
+                    {t('sessions.stationName')}
+                  </SortableTableHead>
+                ))}
               {!hideDriverName && isVisible('driverName') && (
                 <SortableTableHead sortKey="driver" sort={sortOf('driver')}>
                   {t('sessions.driverName')}
@@ -313,19 +370,13 @@ export const SessionsTable = memo(function SessionsTable({
                     {session.id}
                   </TableCell>
                 )}
-                {!hideStationName && isVisible('stationName') && (
+                {isVisible('stationName') && (
                   <TableCell className="whitespace-nowrap">
-                    <Link
-                      to={`/stations/${session.stationId}`}
-                      className="text-link hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
-                    >
-                      {session.siteName != null
-                        ? `${session.siteName} / ${String(session.stationName)}`
-                        : (session.stationName ?? '-')}
-                    </Link>
+                    <SessionChargingPointCell
+                      session={session}
+                      hideSiteName={hideSiteName}
+                      hideStationName={hideStationName}
+                    />
                   </TableCell>
                 )}
                 {!hideDriverName && isVisible('driverName') && (

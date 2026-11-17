@@ -464,6 +464,7 @@ export function SiteDetail(): React.JSX.Element {
               totalPages={sessionsTotalPages}
               onPageChange={setSessionsPage}
               timezone={site.timezone}
+              hideSiteName
               isLoading={sessionsLoading}
               isError={sessionsError}
               onRetry={() => {

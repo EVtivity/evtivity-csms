@@ -8,6 +8,16 @@ import {
 } from '../lib/tariff-sites.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import {
+  sessionChargingPointColumns,
+  sessionChargingPointShape,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../lib/session-charging-point.js';
 import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
 import {
   eq,
@@ -1045,6 +1055,7 @@ const siteSessionItem = z
     stationId: z.string().describe('Internal station identifier (UUID)'),
     stationName: z.string().nullable().describe('OCPP station identifier of the charging station'),
     siteName: z.string().nullable().describe('Display name of the site'),
+    ...sessionChargingPointShape,
     driverId: z.string().nullable().describe('Identifier of the driver, if known'),
     driverName: z.string().nullable().describe('Full name of the driver (first + last)'),
     transactionId: z
@@ -3160,6 +3171,7 @@ export function siteRoutes(app: FastifyInstance): void {
             stationId: chargingSessions.stationId,
             stationName: chargingStations.stationId,
             siteName: sites.name,
+            ...sessionChargingPointColumns,
             driverId: chargingSessions.driverId,
             driverName: sql<
               string | null
@@ -3178,6 +3190,9 @@ export function siteRoutes(app: FastifyInstance): void {
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
           .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+          .leftJoin(sessionEvse, sessionEvseJoin)
+          .leftJoin(sessionUnit, sessionUnitJoin)
+          .leftJoin(sessionConnector, sessionConnectorJoin)
           .where(where)
           .orderBy(...sessionListSort.orderBy(request.query as z.infer<typeof sessionsQuery>))
           .limit(limit)

@@ -27,6 +27,15 @@ import type {
   FleetCreditLevel,
   ReleaseUpgradePending,
 } from '@evtivity/database';
+import {
+  sessionChargingPointColumns,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../lib/session-charging-point.js';
 import { providerSwitchStore } from '../lib/provider-switch.js';
 import { AppError } from '@evtivity/lib';
 import {
@@ -913,6 +922,7 @@ export async function getFleetSessions(
         stationId: chargingSessions.stationId,
         stationName: chargingStations.stationId,
         siteName: sites.name,
+        ...sessionChargingPointColumns,
         transactionId: chargingSessions.transactionId,
         status: chargingSessions.status,
         startedAt: chargingSessions.startedAt,
@@ -926,6 +936,9 @@ export async function getFleetSessions(
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
+      .leftJoin(sessionEvse, sessionEvseJoin)
+      .leftJoin(sessionUnit, sessionUnitJoin)
+      .leftJoin(sessionConnector, sessionConnectorJoin)
       .where(driverFilter)
       .orderBy(...fleetSessionListSort.orderBy(sortParams))
       .limit(limit)

@@ -164,7 +164,9 @@
     "noSessions": "No hay sesiones aún.",
     "unknownStation": "Estación desconocida",
     "pageOf": "{{page}} / {{total}}",
-    "co2Avoided": "CO₂ evitado"
+    "co2Avoided": "CO₂ evitado",
+    "evseNumber": "EVSE {{id}}",
+    "connectorNumber": "Conector {{id}}"
   },
   "sessionDetail": {
     "title": "Detalles de la sesión",
@@ -918,6 +920,8 @@
     "STATION_UNIT_NOT_FOUND": "Unidad no encontrada",
     "STATION_UNIT_NAME_IN_USE": "Otra unidad de esta estación ya tiene este nombre",
     "STATION_UNIT_LIMIT_REACHED": "Una estación admite como máximo 64 unidades",
+    "STATION_UNITS_DISABLED": "Esta estación no usa unidades. Activa primero Usa Unidades de Estación.",
+    "STATION_UNITS_IN_USE": "Elimina las unidades de esta estación antes de desactivar Usa Unidades de Estación.",
     "STATION_OFFLINE": "La estación está fuera de línea",
     "STATION_ONLINE": "La estación está en línea. Detenga la sesión en la estación.",
     "STATION_REJECTED": "La estación rechazó el inicio: ...",

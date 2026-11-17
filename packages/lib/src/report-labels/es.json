@@ -107,6 +107,10 @@
     "columns": {
       "transactionId": "ID de transacción",
       "transactionIdShort": "ID trans.",
+      "unit": "Unidad",
+      "evse": "EVSE",
+      "connector": "Conector",
+      "connectorType": "Tipo de conector",
       "cost": "Coste",
       "costFinal": "Coste final",
       "net": "Neto",

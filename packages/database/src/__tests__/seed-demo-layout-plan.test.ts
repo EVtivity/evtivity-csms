@@ -712,12 +712,26 @@ describe('site layout demo plan', () => {
       expect(station).toMatchObject({
         id: 'sta_demounits001',
         stationId: 'EM4-MASTER-01',
-        model: 'AC Master Extenders',
+        model: 'Master w/ Extenders',
+        serialNumber: 'SN-LY-0101',
         ocppProtocol: 'ocpp1.6',
         evses: 16,
         connectorType: 'Type2',
         maxPowerKw: 22,
       });
+      // Earlier demos left these; a rerun replaces them, the leftover simulator
+      // ChargePointModel of an earlier attempt included.
+      expect(station?.identityBefore).toEqual({
+        model: 'AC Master Extenders',
+        serialNumber: 'SN-LY-00u1',
+        configModels: ['AC Master with Extenders'],
+      });
+      for (const old of [
+        station?.identityBefore?.model,
+        ...(station?.identityBefore?.configModels ?? []),
+      ]) {
+        expect(old).not.toBe(station?.model);
+      }
       expect(station?.units?.map((u) => [u.name, u.evseIds])).toEqual(
         Array.from({ length: 8 }, (_, i) => [`Box ${String(i + 1)}`, [2 * i + 1, 2 * i + 2]]),
       );

@@ -71,8 +71,10 @@ export interface EvseRow {
   /** Name of the unit (physical charger box) of the EVSE, sent as its
    *  `physical_reference`. Omitted or null when the EVSE has no unit. */
   unitName?: string | null;
-  /** Last change of that unit (a rename changes the published EVSE). */
+  /** Last change of that unit a partner sees (a rename or a new position). */
   unitUpdatedAt?: Date;
+  /** Where the unit stands, sent as the EVSE `coordinates`. Omitted when the unit has no position. */
+  unitPosition?: { latitude: string; longitude: string };
   connectors: ConnectorRow[];
 }
 
@@ -328,6 +330,16 @@ function transformEvse(
     connectors: evse.connectors.map((c) => transformConnector(c, version, evse.tariffIds)),
     capabilities: ['REMOTE_START_STOP_CAPABLE', 'RFID_READER'],
     ...(physicalReference != null ? { physical_reference: physicalReference } : {}),
+    // EVSE coordinates are optional in OCPI 2.1.1, 2.2.1 and 2.3.0 (GeoLocation, as the
+    // Location's); only a unit with its own position sends them.
+    ...(evse.unitPosition != null
+      ? {
+          coordinates: {
+            latitude: ocpiCoordinate(evse.unitPosition.latitude),
+            longitude: ocpiCoordinate(evse.unitPosition.longitude),
+          },
+        }
+      : {}),
     last_updated: evseLastUpdated(evse).toISOString(),
   };
 }

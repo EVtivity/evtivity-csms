@@ -50,9 +50,33 @@ describe('driverChargers (cov3)', () => {
       ],
     );
     expect(out).toEqual([
-      { unitId: 'unt_a', unitName: 'Alpha', evseIds: [1], evseCount: 1, availableCount: 0 },
-      { unitId: 'unt_b', unitName: 'Bravo', evseIds: [3], evseCount: 1, availableCount: 1 },
-      { unitId: null, unitName: null, evseIds: [4, 5], evseCount: 2, availableCount: 1 },
+      {
+        unitId: 'unt_a',
+        unitName: 'Alpha',
+        evseIds: [1],
+        evseCount: 1,
+        availableCount: 0,
+        latitude: null,
+        longitude: null,
+      },
+      {
+        unitId: 'unt_b',
+        unitName: 'Bravo',
+        evseIds: [3],
+        evseCount: 1,
+        availableCount: 1,
+        latitude: null,
+        longitude: null,
+      },
+      {
+        unitId: null,
+        unitName: null,
+        evseIds: [4, 5],
+        evseCount: 2,
+        availableCount: 1,
+        latitude: null,
+        longitude: null,
+      },
     ]);
   });
 });
@@ -139,6 +163,8 @@ describe('expandToDriverChargers', () => {
       connectors: connectors.map(({ evseId: _e, ...c }) => c),
       unitId: null,
       unitName: null,
+      latitude: null,
+      longitude: null,
     });
     expect(out[1]).toMatchObject({
       name: 'Units',
@@ -225,6 +251,8 @@ describe('expandToDriverChargers', () => {
         connectors: [],
         unitId: null,
         unitName: null,
+        latitude: null,
+        longitude: null,
       },
     ]);
   });

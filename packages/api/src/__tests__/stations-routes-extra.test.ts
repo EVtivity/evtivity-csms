@@ -205,6 +205,9 @@ vi.mock('@evtivity/database', async () => {
   };
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
+    evses: {},
+    connectors: {},
+    stationUnits: {},
     ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: dbMock,
     effectiveDataPlanSql: 'effective_data_plan',

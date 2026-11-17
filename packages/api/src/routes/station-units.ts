@@ -7,6 +7,7 @@ import { DISPLAY_LABEL_PATTERN } from '@evtivity/lib/display-label';
 import {
   STATION_UNIT_NAME_MAX,
   STATION_UNIT_SERIAL_MAX,
+  STATION_UNIT_MODEL_MAX,
   STATION_UNITS_MAX,
 } from '@evtivity/database';
 import { authorize } from '../middleware/rbac.js';
@@ -77,10 +78,34 @@ const ipAddress = z
     'IP address of the unit box, one IPv4 or IPv6 address without a port, prefix length or host name, stored in canonical form (RFC 5952 for IPv6). An empty string or null clears it; left out keeps it. Anything else answers 400 VALIDATION_ERROR (field ipAddress)',
   );
 
+const model = z
+  .string()
+  .max(1000)
+  .regex(DISPLAY_LABEL_PATTERN, 'Must not contain control or invisible format characters')
+  .nullable()
+  .optional()
+  .describe(
+    `Model of the unit box, 1 to ${String(STATION_UNIT_MODEL_MAX)} characters after trimming (the OCPP 1.6 chargePointModel length). CSMS users only. An empty string or null clears it; left out keeps it`,
+  );
+const coordinate = (axis: 'Latitude' | 'Longitude', range: string) =>
+  z
+    .string()
+    .max(100)
+    .nullable()
+    .optional()
+    .describe(
+      `${axis} of the unit box in decimal degrees (${range}), at most 20 characters, sent together with the other coordinate. Both empty or null clear the position; left out keeps it. A unit with a position replaces the station position for its EVSEs (portal, app, OCPI EVSE coordinates). One without the other, or an invalid value, answers 400 VALIDATION_ERROR with the field`,
+    );
+const latitude = coordinate('Latitude', '-90 to 90');
+const longitude = coordinate('Longitude', '-180 to 180');
+
 const createBody = z.object({
   name: unitName,
   serialNumber,
   ipAddress,
+  model,
+  latitude,
+  longitude,
   evseIds: z
     .array(z.number().int().min(1))
     .max(1000)
@@ -98,6 +123,9 @@ const updateBody = z.object({
     .describe('Position in the station order'),
   serialNumber,
   ipAddress,
+  model,
+  latitude,
+  longitude,
 });
 const evseUnitBody = z.object({
   unitId: ID_PARAMS.unitId
@@ -119,6 +147,15 @@ const unitItem = z
       .string()
       .nullable()
       .describe('IP address of the unit box in canonical form, null when not set'),
+    model: z.string().nullable().describe('Model of the unit box, null when not set'),
+    latitude: z
+      .string()
+      .nullable()
+      .describe('Latitude of the unit box in decimal degrees, null without a position'),
+    longitude: z
+      .string()
+      .nullable()
+      .describe('Longitude of the unit box in decimal degrees, null without a position'),
     evseIds: z.array(z.string()).describe('EVSE record IDs of the unit, by EVSE number'),
     evseNumbers: z.array(z.number()).describe('OCPP EVSE IDs of the unit, ascending'),
   })
@@ -127,7 +164,7 @@ const unitItem = z
 
 const refusedField = {
   field: z
-    .enum(['name', 'serialNumber', 'ipAddress', 'unitId'])
+    .enum(['name', 'serialNumber', 'ipAddress', 'model', 'latitude', 'longitude', 'unitId'])
     .optional()
     .describe('The refused field of a VALIDATION_ERROR'),
 };
@@ -186,7 +223,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Create a station unit',
-        description: `Adds a named unit at the end of the station order, optionally with EVSEs of the station (they leave their previous unit). At most ${String(STATION_UNITS_MAX)} units per station.`,
+        description: `Adds a named unit at the end of the station order, optionally with EVSEs of the station (they leave their previous unit). At most ${String(STATION_UNITS_MAX)} units per station. A station with Uses Station Units off answers 409 STATION_UNITS_DISABLED.`,
         operationId: 'createStationUnit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -194,7 +231,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(unitItem),
           400: errorWith(
-            'Invalid name, serial number or IP address, or too many units',
+            'Invalid name, model, serial number, IP address or position, or too many units',
             [ERROR_CODES.VALIDATION_ERROR, ERROR_CODES.STATION_UNIT_LIMIT_REACHED],
             refusedField,
           ),
@@ -202,7 +239,10 @@ export function stationUnitRoutes(app: FastifyInstance): void {
             ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.EVSE_NOT_FOUND,
           ]),
-          409: errorWith('Name in use', [ERROR_CODES.STATION_UNIT_NAME_IN_USE]),
+          409: errorWith('Name in use, or the station does not use units', [
+            ERROR_CODES.STATION_UNIT_NAME_IN_USE,
+            ERROR_CODES.STATION_UNITS_DISABLED,
+          ]),
         },
       },
     },
@@ -217,6 +257,9 @@ export function stationUnitRoutes(app: FastifyInstance): void {
           ...(body.evseIds != null ? { evseIds: body.evseIds } : {}),
           ...(body.serialNumber !== undefined ? { serialNumber: body.serialNumber } : {}),
           ...(body.ipAddress !== undefined ? { ipAddress: body.ipAddress } : {}),
+          ...(body.model !== undefined ? { model: body.model } : {}),
+          ...(body.latitude !== undefined ? { latitude: body.latitude } : {}),
+          ...(body.longitude !== undefined ? { longitude: body.longitude } : {}),
         },
         context(request),
       );
@@ -233,7 +276,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Update a station unit',
         description:
-          'Renames the unit, sets or clears its serial number and IP address, or moves it in the station order. The same values again change nothing and write no history.',
+          'Renames the unit, sets or clears its model, serial number, IP address and position, or moves it in the station order. The same values again change nothing and write no history.',
         operationId: 'updateStationUnit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(unitParams),
@@ -241,7 +284,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(unitItem),
           400: errorWith(
-            'Invalid name, serial number or IP address',
+            'Invalid name, model, serial number, IP address or position',
             [ERROR_CODES.VALIDATION_ERROR],
             refusedField,
           ),
@@ -265,6 +308,9 @@ export function stationUnitRoutes(app: FastifyInstance): void {
           ...(body.sortOrder != null ? { sortOrder: body.sortOrder } : {}),
           ...(body.serialNumber !== undefined ? { serialNumber: body.serialNumber } : {}),
           ...(body.ipAddress !== undefined ? { ipAddress: body.ipAddress } : {}),
+          ...(body.model !== undefined ? { model: body.model } : {}),
+          ...(body.latitude !== undefined ? { latitude: body.latitude } : {}),
+          ...(body.longitude !== undefined ? { longitude: body.longitude } : {}),
         },
         context(request),
       );
@@ -310,7 +356,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Move an EVSE into a unit',
         description:
-          'Puts the EVSE in a unit of the same station, or takes it out of every unit with null. An EVSE already in that unit changes nothing (changed false).',
+          'Puts the EVSE in a unit of the same station, or takes it out of every unit with null. An EVSE already in that unit changes nothing (changed false). Moving an EVSE into a unit of a station with Uses Station Units off answers 409 STATION_UNITS_DISABLED.',
         operationId: 'setStationEvseUnit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -323,6 +369,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
           ),
           400: errorWith('A unit of another station', [ERROR_CODES.VALIDATION_ERROR]),
           404: notFoundErrors,
+          409: errorWith('The station does not use units', [ERROR_CODES.STATION_UNITS_DISABLED]),
         },
       },
     },

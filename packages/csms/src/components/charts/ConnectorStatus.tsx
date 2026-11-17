@@ -132,6 +132,8 @@ interface ConnectorStatusProps {
   isSimulator: boolean;
   /** The station's units (physical charger boxes); none keeps the plain EVSE grid. */
   units?: StationUnit[] | undefined;
+  /** Uses Station Units: off hides Create Unit, the unit cards and the unit choice. */
+  usesUnits?: boolean | undefined;
   /** The station status and reason the unit badges follow (station-level states). */
   stationStatus?: string | undefined;
   statusReason?: string | null | undefined;
@@ -155,10 +157,13 @@ export function ConnectorStatus({
   ocppProtocol,
   isOnline,
   isSimulator,
-  units = [],
+  units: loadedUnits = [],
+  usesUnits = false,
   stationStatus = 'unknown',
   statusReason = null,
 }: ConnectorStatusProps): React.JSX.Element {
+  // A station with the switch off has no units; never show the unit controls for it.
+  const units = usesUnits ? loadedUnits : [];
   const { t } = useTranslation();
   const typeLabel = useConnectorTypeLabel();
   const data = evses ?? [];
@@ -251,7 +256,7 @@ export function ConnectorStatus({
   // writer of an EVSE's unit.
   const [newEvseUnitId, setNewEvseUnitId] = useState('');
   const canWriteStations = useHasPermission('stations:write');
-  const showUnitField = canWriteStations && units.length > 0;
+  const showUnitField = canWriteStations && usesUnits && units.length > 0;
   const [newEvseConnector, setNewEvseConnector] = useState<ConnectorFormRow>({
     connectorId: '1',
     connectorType: 'CCS2',
@@ -743,7 +748,7 @@ export function ConnectorStatus({
       onRetry={onRetry}
       actions={
         <div className="flex flex-wrap gap-2 sm:flex-nowrap">
-          <StationCreateUnitButton stationId={stationId} />
+          {usesUnits && <StationCreateUnitButton stationId={stationId} />}
           <CreateButton
             label={t('stations.addEvse')}
             onClick={() => {

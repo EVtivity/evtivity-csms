@@ -79,6 +79,9 @@ vi.mock('@evtivity/database', async () => {
   };
   db['transaction'] = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(db));
   return {
+    evses: {},
+    connectors: {},
+    stationUnits: {},
     ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     currentAuditViaAi: () => undefined,
@@ -539,6 +542,10 @@ describe('Token routes - handler logic', () => {
           stationId: 'sta_000000000001',
           stationName: 'Station-A',
           siteName: 'Main Site',
+          evseId: null,
+          unitName: null,
+          connectorId: null,
+          connectorType: null,
           driverId: VALID_DRIVER_ID,
           driverName: 'John Doe',
           transactionId: 'TX-001',

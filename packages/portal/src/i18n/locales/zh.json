@@ -164,7 +164,9 @@
     "noSessions": "暂无会话。",
     "unknownStation": "未知充电桩",
     "pageOf": "{{page}} / {{total}}",
-    "co2Avoided": "减少的CO₂"
+    "co2Avoided": "减少的CO₂",
+    "evseNumber": "EVSE {{id}}",
+    "connectorNumber": "连接器 {{id}}"
   },
   "sessionDetail": {
     "title": "会话详情",
@@ -918,6 +920,8 @@
     "STATION_UNIT_NOT_FOUND": "未找到单元",
     "STATION_UNIT_NAME_IN_USE": "此充电桩的另一个单元已使用此名称",
     "STATION_UNIT_LIMIT_REACHED": "一个充电桩最多有 64 个单元",
+    "STATION_UNITS_DISABLED": "此充电桩不使用单元。请先开启使用充电桩单元。",
+    "STATION_UNITS_IN_USE": "关闭使用充电桩单元前，请先删除此充电桩的单元。",
     "STATION_OFFLINE": "充电桩离线",
     "STATION_ONLINE": "充电桩在线。请改为在充电桩停止会话。",
     "STATION_REJECTED": "充电桩拒绝启动：...",

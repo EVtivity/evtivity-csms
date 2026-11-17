@@ -21,6 +21,8 @@ export const STATION_UNITS_MAX = 64;
 export const STATION_UNIT_NAME_MAX = 50;
 /** The most characters of a unit serial number after trimming. */
 export const STATION_UNIT_SERIAL_MAX = 64;
+/** The most characters of a unit model after trimming (OCPP 1.6 chargePointModel). */
+export const STATION_UNIT_MODEL_MAX = 20;
 
 export type StationUnitRow = typeof stationUnits.$inferSelect;
 
@@ -33,6 +35,9 @@ export interface UnitSnapshot {
   name: string;
   serialNumber: string | null;
   ipAddress: string | null;
+  model: string | null;
+  latitude: string | null;
+  longitude: string | null;
   evseIds: number[];
 }
 
@@ -45,6 +50,10 @@ export interface StationUnitView {
   /** Admin metadata: never put it in a driver, partner or layout reply. */
   serialNumber: string | null;
   ipAddress: string | null;
+  model: string | null;
+  /** Where the box stands, both or neither; drivers and partners see it. */
+  latitude: string | null;
+  longitude: string | null;
   evseIds: string[];
   evseNumbers: number[];
 }
@@ -55,10 +64,11 @@ export type UnitWriteFailure =
   | 'evse_not_found'
   | 'name_in_use'
   | 'limit'
-  | 'other_station';
+  | 'other_station'
+  | 'units_disabled';
 
 /** The unit fields an update can change. */
-export type UnitField = 'name' | 'sortOrder' | 'serialNumber' | 'ipAddress';
+export type UnitField = 'name' | 'sortOrder' | 'serialNumber' | 'ipAddress' | 'model' | 'position';
 
 export type UnitWriteResult<T> =
   | {
@@ -77,15 +87,54 @@ export type UnitWriteResult<T> =
     }
   | { ok: false; reason: UnitWriteFailure };
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type StationUnitTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Tx = StationUnitTx;
 
-async function lockStation(tx: Tx, stationUuid: string): Promise<boolean> {
+/** Locks the station row; null when the station does not exist. */
+async function lockStation(tx: Tx, stationUuid: string): Promise<{ usesUnits: boolean } | null> {
   const rows = await tx
-    .select({ id: chargingStations.id })
+    .select({ usesUnits: chargingStations.usesUnits })
     .from(chargingStations)
     .where(eq(chargingStations.id, stationUuid))
     .for('update');
-  return rows.length > 0;
+  return rows[0] ?? null;
+}
+
+export type UsesUnitsResult =
+  | { ok: true; changed: boolean; before: boolean; after: boolean }
+  | { ok: false; reason: 'station_not_found' | 'units_in_use' };
+
+/**
+ * Turns the station's Uses Station Units switch on or off, under the station
+ * lock the unit writes take, so a unit created at the same time either sees
+ * the switch on or the switch stays on. Off is refused while the station has
+ * a unit. Runs in `tx` (the station update) or its own transaction.
+ */
+export async function setStationUsesUnits(
+  stationUuid: string,
+  on: boolean,
+  tx?: StationUnitTx,
+): Promise<UsesUnitsResult> {
+  const work = async (t: Tx): Promise<UsesUnitsResult> => {
+    const station = await lockStation(t, stationUuid);
+    if (station == null) return { ok: false, reason: 'station_not_found' };
+    if (station.usesUnits === on) {
+      return { ok: true, changed: false, before: on, after: on };
+    }
+    if (!on) {
+      const [row] = await t
+        .select({ n: sql<number>`count(*)::int` })
+        .from(stationUnits)
+        .where(eq(stationUnits.stationId, stationUuid));
+      if ((row?.n ?? 0) > 0) return { ok: false, reason: 'units_in_use' };
+    }
+    await t
+      .update(chargingStations)
+      .set({ usesUnits: on, updatedAt: new Date() })
+      .where(eq(chargingStations.id, stationUuid));
+    return { ok: true, changed: true, before: station.usesUnits, after: on };
+  };
+  return tx == null ? db.transaction(work) : work(tx);
 }
 
 async function snapshot(tx: Tx, unit: StationUnitRow): Promise<UnitSnapshot> {
@@ -99,6 +148,9 @@ async function snapshot(tx: Tx, unit: StationUnitRow): Promise<UnitSnapshot> {
     name: unit.name,
     serialNumber: unit.serialNumber,
     ipAddress: unit.ipAddress,
+    model: unit.model,
+    latitude: unit.latitude,
+    longitude: unit.longitude,
     evseIds: rows.map((r) => r.evseId),
   };
 }
@@ -142,6 +194,9 @@ async function runUnitWrite<T>(
 export interface UnitDetailsInput {
   serialNumber?: string | null;
   ipAddress?: string | null;
+  model?: string | null;
+  /** Both coordinates, or null for none. */
+  position?: { latitude: string; longitude: string } | null;
 }
 
 /**
@@ -155,7 +210,9 @@ export async function createStationUnit(
 ): Promise<UnitWriteResult<StationUnitRow>> {
   const name = input.name.trim();
   return runUnitWrite(async (tx) => {
-    if (!(await lockStation(tx, stationUuid))) return { ok: false, reason: 'station_not_found' };
+    const station = await lockStation(tx, stationUuid);
+    if (station == null) return { ok: false, reason: 'station_not_found' };
+    if (!station.usesUnits) return { ok: false, reason: 'units_disabled' };
     const counts = await tx
       .select({
         n: sql<number>`count(*)::int`,
@@ -198,6 +255,10 @@ export async function createStationUnit(
         sortOrder: (counts[0]?.maxOrder ?? -1) + 1,
         serialNumber: input.serialNumber ?? null,
         ipAddress: input.ipAddress ?? null,
+        model: input.model ?? null,
+        latitude: input.position?.latitude ?? null,
+        longitude: input.position?.longitude ?? null,
+        positionUpdatedAt: input.position != null ? new Date() : null,
       })
       .returning();
     if (unit == null) throw new Error('Station unit insert returned no row');
@@ -231,7 +292,8 @@ export async function updateStationUnit(
   input: { name?: string; sortOrder?: number } & UnitDetailsInput,
 ): Promise<UnitWriteResult<StationUnitRow>> {
   return runUnitWrite(async (tx) => {
-    if (!(await lockStation(tx, stationUuid))) return { ok: false, reason: 'station_not_found' };
+    if ((await lockStation(tx, stationUuid)) == null)
+      return { ok: false, reason: 'station_not_found' };
     const [unit] = await tx
       .select()
       .from(stationUnits)
@@ -243,8 +305,21 @@ export async function updateStationUnit(
     const serialChanged =
       input.serialNumber !== undefined && input.serialNumber !== unit.serialNumber;
     const ipChanged = input.ipAddress !== undefined && input.ipAddress !== unit.ipAddress;
+    const modelChanged = input.model !== undefined && input.model !== unit.model;
+    const nextLat =
+      input.position === undefined ? unit.latitude : (input.position?.latitude ?? null);
+    const nextLng =
+      input.position === undefined ? unit.longitude : (input.position?.longitude ?? null);
+    const positionChanged = nextLat !== unit.latitude || nextLng !== unit.longitude;
     const before = await snapshot(tx, unit);
-    if (!nameChanged && !orderChanged && !serialChanged && !ipChanged) {
+    if (
+      !nameChanged &&
+      !orderChanged &&
+      !serialChanged &&
+      !ipChanged &&
+      !modelChanged &&
+      !positionChanged
+    ) {
       return { ok: true, value: unit, changed: false, before, after: before, fields: [] };
     }
     const fields: UnitField[] = [
@@ -252,6 +327,8 @@ export async function updateStationUnit(
       ...(orderChanged ? (['sortOrder'] as const) : []),
       ...(serialChanged ? (['serialNumber'] as const) : []),
       ...(ipChanged ? (['ipAddress'] as const) : []),
+      ...(modelChanged ? (['model'] as const) : []),
+      ...(positionChanged ? (['position'] as const) : []),
     ];
     if (nameChanged && (await nameTaken(tx, stationUuid, name, unit.id))) {
       return { ok: false, reason: 'name_in_use' };
@@ -265,6 +342,10 @@ export async function updateStationUnit(
         ...(orderChanged ? { sortOrder: input.sortOrder } : {}),
         ...(serialChanged ? { serialNumber: input.serialNumber ?? null } : {}),
         ...(ipChanged ? { ipAddress: input.ipAddress ?? null } : {}),
+        ...(modelChanged ? { model: input.model ?? null } : {}),
+        ...(positionChanged
+          ? { latitude: nextLat, longitude: nextLng, positionUpdatedAt: new Date() }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(stationUnits.id, unit.id))
@@ -281,6 +362,9 @@ export async function updateStationUnit(
         name: updated.name,
         serialNumber: updated.serialNumber,
         ipAddress: updated.ipAddress,
+        model: updated.model,
+        latitude: updated.latitude,
+        longitude: updated.longitude,
       },
     };
   });
@@ -296,7 +380,8 @@ export async function deleteStationUnit(
   unitId: string,
 ): Promise<UnitWriteResult<null>> {
   return runUnitWrite(async (tx) => {
-    if (!(await lockStation(tx, stationUuid))) return { ok: false, reason: 'station_not_found' };
+    if ((await lockStation(tx, stationUuid)) == null)
+      return { ok: false, reason: 'station_not_found' };
     const [unit] = await tx
       .select()
       .from(stationUnits)
@@ -324,7 +409,9 @@ export async function setEvseUnit(
   unitId: string | null,
 ): Promise<UnitWriteResult<null>> {
   return runUnitWrite(async (tx) => {
-    if (!(await lockStation(tx, stationUuid))) return { ok: false, reason: 'station_not_found' };
+    const station = await lockStation(tx, stationUuid);
+    if (station == null) return { ok: false, reason: 'station_not_found' };
+    if (unitId != null && !station.usesUnits) return { ok: false, reason: 'units_disabled' };
     const [evse] = await tx
       .select({ id: evses.id, stationId: evses.stationId, unitId: evses.unitId })
       .from(evses)
@@ -402,6 +489,9 @@ export async function readUnitsOfStations(
       sortOrder: u.sortOrder,
       serialNumber: u.serialNumber,
       ipAddress: u.ipAddress,
+      model: u.model,
+      latitude: u.latitude,
+      longitude: u.longitude,
       evseIds: evseRows.map((e) => e.id),
       evseNumbers: evseRows.map((e) => e.evseId),
     });

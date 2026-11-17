@@ -201,6 +201,7 @@ const mockReadStationDataPlans = vi.hoisted(() =>
 );
 
 vi.mock('@evtivity/database', async () => ({
+  stationUnits: {},
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
   ...(await import('./helpers/departure-schema-mocks.js')).departureSchemaMocks(),
@@ -1703,6 +1704,10 @@ describe('Site routes - handler logic', () => {
         stationId: VALID_STATION_ID,
         stationName: 'STATION-001',
         siteName: 'Test Site',
+        evseId: null,
+        unitName: null,
+        connectorId: null,
+        connectorType: null,
         driverId: null,
         driverName: null,
         transactionId: null,

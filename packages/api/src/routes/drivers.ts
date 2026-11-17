@@ -31,6 +31,16 @@ import {
   driverAuditLog,
   pricingAssignmentAuditLog,
 } from '@evtivity/database';
+import {
+  sessionChargingPointColumns,
+  sessionChargingPointShape,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../lib/session-charging-point.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import {
   INVALID_PHONE_REPLY,
@@ -389,6 +399,7 @@ const driverSessionItem = z
     stationId: z.string().describe('Station identifier where the session occurred'),
     stationName: z.string().max(255).nullable().describe('Station OCPP id (display label)'),
     siteName: z.string().max(255).nullable().describe('Site name where the station is located'),
+    ...sessionChargingPointShape,
     driverId: z.string().nullable().describe('Driver identifier, null for guest sessions'),
     driverName: z.string().max(255).nullable().describe('Driver full name'),
     transactionId: z.string().nullable().describe('OCPP transaction identifier'),
@@ -1617,6 +1628,7 @@ export function driverRoutes(app: FastifyInstance): void {
             stationId: chargingSessions.stationId,
             stationName: chargingStations.stationId,
             siteName: sites.name,
+            ...sessionChargingPointColumns,
             driverId: chargingSessions.driverId,
             driverName: sql<
               string | null
@@ -1634,6 +1646,9 @@ export function driverRoutes(app: FastifyInstance): void {
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
           .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+          .leftJoin(sessionEvse, sessionEvseJoin)
+          .leftJoin(sessionUnit, sessionUnitJoin)
+          .leftJoin(sessionConnector, sessionConnectorJoin)
           .where(where)
           .orderBy(...sessionListSort.orderBy(request.query as z.infer<typeof sessionsQuery>))
           .limit(limit)

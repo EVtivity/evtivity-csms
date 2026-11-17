@@ -313,6 +313,22 @@ describe('AI tool policy and catalog', () => {
     expect(call.ok).toBe(false);
   });
 
+  it('the assistant never turns the Uses Station Units switch on or off', () => {
+    for (const op of ['createStation', 'updateStation']) {
+      expect(toolPolicy(op).omit, op).toContain('usesUnits');
+      const tool = AI_TOOL_CATALOG.find((t) => t.operationId === op);
+      expect(tool, op).toBeDefined();
+      expect(JSON.stringify(tool?.parameters), op).not.toContain('"usesUnits"');
+    }
+    const tool = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateStation');
+    const toolset = chatbotToolset([tool?.category ?? ''], AI_TOOL_CATALOG);
+    const call = prepareToolCall(toolset, tool?.name ?? '', {
+      id: 'sta_000000000001',
+      usesUnits: false,
+    });
+    expect(call.ok).toBe(false);
+  });
+
   it('no assistant write can set a prepaid balance or another money field (review 2, AI M1)', () => {
     expect(toolPolicy('createToken').omit).toContain('prepaidBalanceCents');
     expect(toolPolicy('updateToken').omit).toEqual(

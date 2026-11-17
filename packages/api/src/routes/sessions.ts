@@ -29,6 +29,16 @@ import { sessionCostMissing } from '@evtivity/services/electricity-cost.service'
 import { PaymentProviderUnavailableError } from '@evtivity/payments';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../lib/id-validation.js';
+import {
+  sessionChargingPointColumns,
+  sessionChargingPointShape,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../lib/session-charging-point.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -87,6 +97,7 @@ const sessionListItem = z
     stationId: z.string().describe('Station internal ID'),
     stationName: z.string().nullable().describe('Station OCPP identity (display name)'),
     siteName: z.string().nullable().describe('Site name where the station is located'),
+    ...sessionChargingPointShape,
     driverId: z.string().nullable().describe('Driver internal ID, null for guest sessions'),
     driverName: z
       .string()
@@ -218,6 +229,8 @@ const sessionDetail = z
       .string()
       .nullable()
       .describe('Unit (physical box) of the EVSE of the session, null when it has none'),
+    connectorId: sessionChargingPointShape.connectorId,
+    connectorType: sessionChargingPointShape.connectorType,
     stationOnline: z
       .boolean()
       .describe(
@@ -671,6 +684,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           stationId: chargingSessions.stationId,
           stationName: chargingStations.stationId,
           siteName: sites.name,
+          ...sessionChargingPointColumns,
           driverId: chargingSessions.driverId,
           driverName: sql<
             string | null
@@ -704,6 +718,9 @@ export function sessionRoutes(app: FastifyInstance): void {
         .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
         .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
         .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
+        .leftJoin(sessionEvse, sessionEvseJoin)
+        .leftJoin(sessionUnit, sessionUnitJoin)
+        .leftJoin(sessionConnector, sessionConnectorJoin)
         .where(where)
         .orderBy(...allSessionsListSort.orderBy(request.query as z.infer<typeof sessionListQuery>))
         .limit(limit)
@@ -753,12 +770,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           id: chargingSessions.id,
           stationId: chargingSessions.stationId,
           stationName: chargingStations.stationId,
-          evseId: sql<
-            number | null
-          >`(SELECT e.evse_id FROM evses e WHERE e.id = ${chargingSessions.evseId})`,
-          unitName: sql<
-            string | null
-          >`(SELECT u.name FROM evses e JOIN station_units u ON u.id = e.unit_id WHERE e.id = ${chargingSessions.evseId})`,
+          ...sessionChargingPointColumns,
           stationOnline: chargingStations.isOnline,
           // The site the session happened at (charging_sessions.site_id).
           siteName: sites.name,
@@ -842,6 +854,9 @@ export function sessionRoutes(app: FastifyInstance): void {
         .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
         .leftJoin(paymentRecords, eq(paymentRecords.sessionId, chargingSessions.id))
         .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
+        .leftJoin(sessionEvse, sessionEvseJoin)
+        .leftJoin(sessionUnit, sessionUnitJoin)
+        .leftJoin(sessionConnector, sessionConnectorJoin)
         .where(eq(chargingSessions.id, id));
 
       if (row == null) {
