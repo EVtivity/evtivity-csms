@@ -1303,7 +1303,7 @@
     "isSimulator": "Simulator-Station",
     "isSimulatorHelp": "Simulator-Stationen werden vom Stationssimulator zu Testzwecken geladen.",
     "usesUnits": "Diese Ladestation hat mehrere physische Einheiten",
-    "usesUnitsHelp": "Aktivieren Sie dies für eine OCPP-Station aus mehreren Ladeboxen, etwa einem Master mit Erweiterungen. Ihre EVSEs gruppieren Sie dann auf dem Tab EVSE & Anschlüsse in Einheiten. Deaktivieren lässt es sich nur, solange die Station keine Einheiten hat.",
+    "usesUnitsHelp": "Aktivieren Sie dieses Kästchen für eine OCPP-Station aus mehreren Ladeboxen, etwa einem Master mit Erweiterungen. Ihre EVSEs gruppieren Sie dann auf dem Tab EVSE & Anschlüsse in Einheiten. Das Häkchen lässt sich nur entfernen, solange die Station keine Einheiten hat.",
     "allTypes": "Alle Typen",
     "simulatorOnly": "Simulatoren",
     "realOnly": "Echte Stationen",
@@ -3976,7 +3976,7 @@
       "description": "Erlaubt MCP-Clients, die KI-Werkzeuge mit einem API-Schlüssel mit MCP-Zugriff zu nutzen. Clients lesen standardmäßig nur. Schreibvorgänge laufen nur, wenn Sie sie erlauben.",
       "enabled": "MCP-Server einschalten",
       "allowWrites": "Schreibvorgänge erlauben",
-      "allowWritesHint": "Aus: MCP-Clients lesen nur. Ein: Schreibwerkzeuge (Stationsbefehle) laufen sofort, mit den Berechtigungen und Standorten des API-Schlüssels.",
+      "allowWritesHint": "MCP-Clients können nur lesen, solange Schreibzugriffe nicht erlaubt sind. Wenn Schreibzugriffe erlaubt sind, laufen Schreibwerkzeuge (Stationsbefehle) sofort, mit den Berechtigungen und Standorten des API-Schlüssels.",
       "rateLimitPerMinute": "Aufrufe pro API-Schlüssel und Minute",
       "dailyCallsPerKey": "Aufrufe pro API-Schlüssel und Tag",
       "allowedOrigins": "Erlaubte Ursprünge",
@@ -4215,20 +4215,20 @@
     "rfidCards": "RFID-Karten",
     "rfidCardsDescription": "Legen Sie fest, ob Fahrer ihre RFID-Karten selbst verwalten oder der Betreiber sie verwaltet.",
     "rfidSelfServiceEnabled": "Fahrer Verwalten Ihre RFID-Karten",
-    "rfidSelfServiceEnabledDesc": "Ein: Fahrer fügen ihre RFID-Karten im Portal und in der mobilen App hinzu, benennen sie um, deaktivieren, reaktivieren und entfernen sie. Aus: Fahrer sehen ihre Karten nur, und Betreiber verwalten sie auf der Seite Token.",
+    "rfidSelfServiceEnabledDesc": "Damit können Fahrer ihre eigenen RFID-Karten im Portal und in der mobilen App hinzufügen, umbenennen, deaktivieren, reaktivieren und entfernen. Solange diese Einstellung aus ist, sehen Fahrer ihre Karten nur, und Betreiber verwalten sie auf der Seite Token.",
     "rfidSelfServiceOffEffect": "Fahrer können RFID-Karten nicht mehr hinzufügen, umbenennen, deaktivieren, reaktivieren oder entfernen und wenden sich an Sie, um eine verlorene Karte sperren zu lassen. Ihre vorhandenen Karten funktionieren weiter.",
     "updateCheck": {
       "title": "Update-Prüfung",
       "description": "Admins informieren, wenn eine neuere EVtivity CSMS-Version erschienen ist.",
       "enabled": "Nach neuen Versionen suchen",
-      "enabledDesc": "Ein: Der Server liest einmal am Tag die neueste Versionsnummer von evtivity.com, und Admins sehen auf dem Dashboard einen Hinweis, wenn eine neuere Version erschienen ist. Nur die IP-Adresse des Servers erreicht evtivity.com; Browser kontaktieren die Seite nie. Aus: Es wird nichts gesendet.",
+      "enabledDesc": "Der Server liest einmal am Tag die neueste Versionsnummer von evtivity.com, und Admins sehen auf dem Dashboard einen Hinweis, wenn eine neuere Version erschienen ist. Nur die IP-Adresse des Servers erreicht evtivity.com. Browser kontaktieren die Seite nie. Solange diese Einstellung aus ist, wird nichts gesendet.",
       "offEffect": "Der Server liest die neueste Version nicht mehr von evtivity.com, und Admins sehen keinen Hinweis mehr, wenn eine neuere Version erschienen ist."
     },
     "station": {
       "title": "Ladestation",
       "description": "Einstellungen, die für jede Ladestation gelten.",
       "unitsEnabled": "Stationseinheiten aktivieren",
-      "unitsEnabledDesc": "An: Eine Ladestation kann ihre EVSEs in physische Einheiten gruppieren, zum Beispiel eine Master-Box und ihre Erweiterungen an einer OCPP-Verbindung. Jede Ladestation hat dann den Schalter Verwendet Stationseinheiten. Aus: Keine Ladestation kann Einheiten verwenden. Ausschalten ist nur möglich, solange keine Ladestation Einheiten verwendet.",
+      "unitsEnabledDesc": "Damit kann eine Ladestation ihre EVSEs in physische Einheiten gruppieren, zum Beispiel eine Master-Box und ihre Erweiterungen an einer OCPP-Verbindung. Jede Ladestation hat dann ein Kontrollkästchen, mit dem Sie angeben, dass sie mehrere physische Einheiten hat. Solange diese Einstellung aus ist, kann keine Ladestation Einheiten verwenden. Ausschalten lässt sie sich nur, solange keine Ladestation Einheiten verwendet.",
       "unitsOffEffect": "Keine Ladestation kann Einheiten verwenden, und der Schalter Verwendet Stationseinheiten sowie alle Einheiten-Steuerelemente werden ausgeblendet."
     }
   },
@@ -6924,7 +6924,7 @@
       "settingsLink": "Umfang der KI-Erkenntnisse",
       "reason": {
         "all_sites": "Für alle Standorte an",
-        "selected": "An: im Umfang der KI-Erkenntnisse ausgewählt",
+        "selected": "An, weil im Umfang der KI-Erkenntnisse ausgewählt",
         "feature_off": "Aus, weil die systemgesteuerte KI ausgeschaltet ist",
         "no_site": "Aus, weil die Ladestation keinen Standort hat und nur ausgewählte Standorte analysiert werden",
         "site_not_selected": "Aus, weil der Standort im Umfang der KI-Erkenntnisse nicht ausgewählt ist",

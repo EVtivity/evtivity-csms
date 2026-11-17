@@ -1303,7 +1303,7 @@
     "isSimulator": "模擬充電站",
     "isSimulatorHelp": "模擬充電站由充電樁模擬器載入用於測試。",
     "usesUnits": "此充電樁有多個實體單元",
-    "usesUnitsHelp": "適用於由多個充電箱組成的一個 OCPP 充電樁，例如主機和擴充機。接著在 EVSE 與連接器分頁中將其 EVSE 分組為單元。只有在充電樁沒有單元時才能關閉。",
+    "usesUnitsHelp": "如果一個 OCPP 充電樁由多個充電箱組成（例如主機和擴充機），請勾選此項。接著在 EVSE 與連接器分頁中將其 EVSE 分組為單元。只有在充電樁沒有單元時才能取消勾選。",
     "allTypes": "所有型別",
     "simulatorOnly": "模擬器",
     "realOnly": "真實充電站",
@@ -3976,7 +3976,7 @@
       "description": "允許 MCP 用戶端使用具有 MCP 存取權的 API 金鑰呼叫 AI 工具。用戶端預設只讀。只有在您允許時才會執行寫入。",
       "enabled": "開啟 MCP 伺服器",
       "allowWrites": "允許寫入",
-      "allowWritesHint": "關閉：MCP 用戶端只讀。開啟：寫入工具（充電樁命令）會立即執行，使用 API 金鑰的權限和充電站。",
+      "allowWritesHint": "未允許寫入時，MCP 用戶端只能讀取。允許寫入後，寫入工具（充電樁命令）會立即執行，使用 API 金鑰的權限和充電站。",
       "rateLimitPerMinute": "每個 API 金鑰每分鐘呼叫次數",
       "dailyCallsPerKey": "每個 API 金鑰每天呼叫次數",
       "allowedOrigins": "允許的來源",
@@ -4215,20 +4215,20 @@
     "rfidCards": "RFID 卡",
     "rfidCardsDescription": "決定駕駛員自行管理 RFID 卡，還是由營運商管理。",
     "rfidSelfServiceEnabled": "駕駛員管理自己的 RFID 卡",
-    "rfidSelfServiceEnabledDesc": "開啟：駕駛員在入口網站與行動應用程式中新增、重新命名、停用、重新啟用及移除自己的 RFID 卡。關閉：駕駛員只能檢視自己的卡，由營運商在權杖頁面管理。",
+    "rfidSelfServiceEnabledDesc": "允許駕駛員在入口網站與行動應用程式中新增、重新命名、停用、重新啟用及移除自己的 RFID 卡。此設定關閉時，駕駛員只能檢視自己的卡，由營運商在權杖頁面管理。",
     "rfidSelfServiceOffEffect": "駕駛員將無法再新增、重新命名、停用、重新啟用或移除 RFID 卡，如需停用遺失的卡需聯絡您。現有的卡繼續可用。",
     "updateCheck": {
       "title": "更新檢查",
       "description": "有更新的 EVtivity CSMS 版本發布時通知管理員。",
       "enabled": "檢查新版本",
-      "enabledDesc": "開啟：伺服器每天從 evtivity.com 讀取一次最新版本號，有更新版本發布時，管理員會在儀表板上看到通知。只有伺服器的 IP 位址會到達 evtivity.com，瀏覽器從不存取它。關閉：不傳送任何內容。",
+      "enabledDesc": "伺服器每天從 evtivity.com 讀取一次最新版本號，有更新版本發布時，管理員會在儀表板上看到通知。只有伺服器的 IP 位址會到達 evtivity.com，瀏覽器從不存取它。此設定關閉時，不傳送任何內容。",
       "offEffect": "伺服器不再從 evtivity.com 讀取最新版本，有更新版本發布時管理員也不會再看到通知。"
     },
     "station": {
       "title": "充電樁",
       "description": "適用於所有充電樁的設定。",
       "unitsEnabled": "啟用充電樁單元",
-      "unitsEnabledDesc": "開啟：充電樁可以將其 EVSE 分組為實體單元，例如同一個 OCPP 連線下的主機和擴充箱。每個充電樁隨後都有使用充電樁單元開關。關閉：任何充電樁都不能使用單元。只有在沒有充電樁使用單元時才能關閉。",
+      "unitsEnabledDesc": "允許充電樁將其 EVSE 分組為實體單元，例如同一個 OCPP 連線下的主機和擴充箱。每個充電樁隨後都有一個核取方塊，用於表示它有多個實體單元。此設定關閉時，任何充電樁都不能使用單元。只有在沒有充電樁使用單元時才能關閉此設定。",
       "unitsOffEffect": "任何充電樁都不能使用單元，使用充電樁單元開關和所有單元控制項都會隱藏。"
     }
   },
@@ -6924,7 +6924,7 @@
       "settingsLink": "AI 洞察範圍",
       "reason": {
         "all_sites": "對所有充電站開啟",
-        "selected": "開啟：已在 AI 洞察範圍中選取",
+        "selected": "已開啟，因為已在 AI 洞察範圍中選取",
         "feature_off": "已關閉，因為系統發起的 AI 已關閉",
         "no_site": "已關閉，因為該充電樁沒有充電站且僅分析所選充電站",
         "site_not_selected": "已關閉，因為該充電站未在 AI 洞察範圍中選取",

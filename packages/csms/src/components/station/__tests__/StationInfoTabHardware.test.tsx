@@ -121,32 +121,34 @@ describe('StationInfoTab station hardware fields', () => {
   );
 });
 
-describe('StationInfoTab Uses Station Units switch', () => {
-  it('hides the switch while Enable Station Units is off for a station without units', async () => {
+describe('StationInfoTab Uses Station Units checkbox', () => {
+  it('hides the checkbox while Enable Station Units is off for a station without units', async () => {
     perms.add('stations:write');
     renderTab(false, { ...STATION, usesUnits: false }, { stationUnitsEnabled: false });
     fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith('/v1/portal/features');
     });
-    expect(screen.queryByRole('switch', { name: 'stations.usesUnits' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'stations.usesUnits' })).toBeNull();
   });
 
-  it('shows the switch, off, while Enable Station Units is on', async () => {
+  it('shows the checkbox, unchecked, while Enable Station Units is on', async () => {
     perms.add('stations:write');
     renderTab(false, { ...STATION, usesUnits: false }, { stationUnitsEnabled: true });
     fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
-    const toggle = await screen.findByRole('switch', { name: 'stations.usesUnits' });
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    const checkbox = await screen.findByRole<HTMLInputElement>('checkbox', {
+      name: 'stations.usesUnits',
+    });
+    expect(checkbox.checked).toBe(false);
   });
 
-  it('sends the switch only when it changed, and shows the refusal of a station with units', async () => {
+  it('sends the checkbox only when it changed, and shows the refusal of a station with units', async () => {
     perms.add('stations:write');
     renderTab(false, { ...STATION, usesUnits: true, unitCount: 8 });
     fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
-    const toggle = screen.getByRole('switch', { name: 'stations.usesUnits' });
-    expect(toggle.getAttribute('aria-checked')).toBe('true');
-    fireEvent.submit(toggle.closest('form') as HTMLFormElement);
+    const checkbox = screen.getByRole<HTMLInputElement>('checkbox', { name: 'stations.usesUnits' });
+    expect(checkbox.checked).toBe(true);
+    fireEvent.submit(checkbox.closest('form') as HTMLFormElement);
     await waitFor(() => {
       expect(apiMock.patch).toHaveBeenCalled();
     });
@@ -157,7 +159,7 @@ describe('StationInfoTab Uses Station Units switch', () => {
       new ApiError(409, { error: 'Delete the units first', code: 'STATION_UNITS_IN_USE' }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'common.edit' }));
-    const again = screen.getByRole('switch', { name: 'stations.usesUnits' });
+    const again = screen.getByRole<HTMLInputElement>('checkbox', { name: 'stations.usesUnits' });
     fireEvent.click(again);
     fireEvent.submit(again.closest('form') as HTMLFormElement);
     await waitFor(() => {

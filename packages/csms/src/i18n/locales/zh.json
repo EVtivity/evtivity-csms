@@ -1303,7 +1303,7 @@
     "isSimulator": "模拟充电桩",
     "isSimulatorHelp": "模拟充电桩由充电桩模拟器加载用于测试。",
     "usesUnits": "此充电桩有多个物理单元",
-    "usesUnitsHelp": "适用于由多个充电箱组成的一个 OCPP 充电桩，例如主机和扩展机。然后在 EVSE 与连接器选项卡中将其 EVSE 分组为单元。只有在充电桩没有单元时才能关闭。",
+    "usesUnitsHelp": "如果一个 OCPP 充电桩由多个充电箱组成（例如主机和扩展机），请勾选此项。然后在 EVSE 与连接器选项卡中将其 EVSE 分组为单元。只有在充电桩没有单元时才能取消勾选。",
     "allTypes": "所有类型",
     "simulatorOnly": "模拟器",
     "realOnly": "真实充电桩",
@@ -3976,7 +3976,7 @@
       "description": "允许 MCP 客户端使用具有 MCP 访问权限的 API 密钥调用 AI 工具。客户端默认只读。只有在您允许时才会执行写入。",
       "enabled": "开启 MCP 服务器",
       "allowWrites": "允许写入",
-      "allowWritesHint": "关闭：MCP 客户端只读。开启：写入工具（充电桩命令）会立即执行，使用 API 密钥的权限和充电站。",
+      "allowWritesHint": "未允许写入时，MCP 客户端只能读取。允许写入后，写入工具（充电桩命令）会立即执行，使用 API 密钥的权限和充电站。",
       "rateLimitPerMinute": "每个 API 密钥每分钟调用次数",
       "dailyCallsPerKey": "每个 API 密钥每天调用次数",
       "allowedOrigins": "允许的来源",
@@ -4215,20 +4215,20 @@
     "rfidCards": "RFID 卡",
     "rfidCardsDescription": "决定驾驶员自行管理 RFID 卡，还是由运营商管理。",
     "rfidSelfServiceEnabled": "驾驶员管理自己的 RFID 卡",
-    "rfidSelfServiceEnabledDesc": "开启：驾驶员在门户和移动应用中添加、重命名、停用、重新启用和移除自己的 RFID 卡。关闭：驾驶员只能查看自己的卡，由运营商在令牌页面管理。",
+    "rfidSelfServiceEnabledDesc": "允许驾驶员在门户和移动应用中添加、重命名、停用、重新启用和移除自己的 RFID 卡。此设置关闭时，驾驶员只能查看自己的卡，由运营商在令牌页面管理。",
     "rfidSelfServiceOffEffect": "驾驶员将无法再添加、重命名、停用、重新启用或移除 RFID 卡，如需停用丢失的卡需联系您。现有的卡继续可用。",
     "updateCheck": {
       "title": "更新检查",
       "description": "有更新的 EVtivity CSMS 版本发布时通知管理员。",
       "enabled": "检查新版本",
-      "enabledDesc": "开启：服务器每天从 evtivity.com 读取一次最新版本号，有更新版本发布时，管理员会在仪表板上看到通知。只有服务器的 IP 地址会到达 evtivity.com，浏览器从不访问它。关闭：不发送任何内容。",
+      "enabledDesc": "服务器每天从 evtivity.com 读取一次最新版本号，有更新版本发布时，管理员会在仪表板上看到通知。只有服务器的 IP 地址会到达 evtivity.com，浏览器从不访问它。此设置关闭时，不发送任何内容。",
       "offEffect": "服务器不再从 evtivity.com 读取最新版本，有更新版本发布时管理员也不会再看到通知。"
     },
     "station": {
       "title": "充电桩",
       "description": "适用于所有充电桩的设置。",
       "unitsEnabled": "启用充电桩单元",
-      "unitsEnabledDesc": "开启：充电桩可以将其 EVSE 分组为物理单元，例如同一个 OCPP 连接下的主机和扩展箱。每个充电桩随后都有使用充电桩单元开关。关闭：任何充电桩都不能使用单元。只有在没有充电桩使用单元时才能关闭。",
+      "unitsEnabledDesc": "允许充电桩将其 EVSE 分组为物理单元，例如同一个 OCPP 连接下的主机和扩展箱。每个充电桩随后都有一个复选框，用于表示它有多个物理单元。此设置关闭时，任何充电桩都不能使用单元。只有在没有充电桩使用单元时才能关闭此设置。",
       "unitsOffEffect": "任何充电桩都不能使用单元，使用充电桩单元开关和所有单元控件都会隐藏。"
     }
   },
@@ -6924,7 +6924,7 @@
       "settingsLink": "AI 洞察范围",
       "reason": {
         "all_sites": "对所有充电站开启",
-        "selected": "开启：已在 AI 洞察范围中选中",
+        "selected": "已开启，因为已在 AI 洞察范围中选中",
         "feature_off": "已关闭，因为系统发起的 AI 已关闭",
         "no_site": "已关闭，因为该充电桩没有充电站且仅分析所选充电站",
         "site_not_selected": "已关闭，因为该充电站未在 AI 洞察范围中选中",

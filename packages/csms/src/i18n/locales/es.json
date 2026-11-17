@@ -1303,7 +1303,7 @@
     "isSimulator": "Estación simuladora",
     "isSimulatorHelp": "Las estaciones simuladoras son cargadas por el simulador de estaciones de carga para pruebas.",
     "usesUnits": "Esta estación tiene varias unidades físicas",
-    "usesUnitsHelp": "Actívalo para una estación OCPP formada por varias cajas de carga, como una maestra con extensiones. Después agrupas sus EVSE en unidades en la pestaña EVSE y Conectores. Solo se puede desactivar mientras la estación no tiene unidades.",
+    "usesUnitsHelp": "Márquela para una estación OCPP formada por varias cajas de carga, como una maestra con extensiones. Después agrupe sus EVSE en unidades en la pestaña EVSE y Conectores. Solo se puede desmarcar mientras la estación no tiene unidades.",
     "allTypes": "Todos los tipos",
     "simulatorOnly": "Simuladores",
     "realOnly": "Estaciones reales",
@@ -3976,7 +3976,7 @@
       "description": "Permite a los clientes MCP usar las herramientas de IA con una clave de API con acceso MCP. Los clientes solo leen de forma predeterminada. Las escrituras solo se ejecutan si las permites.",
       "enabled": "Activar el servidor MCP",
       "allowWrites": "Permitir escrituras",
-      "allowWritesHint": "Desactivado: los clientes MCP solo leen. Activado: las herramientas de escritura (comandos de estación) se ejecutan al momento, con los permisos y sitios de la clave de API.",
+      "allowWritesHint": "Los clientes MCP solo pueden leer mientras no se permitan las escrituras. Cuando se permiten, las herramientas de escritura (comandos de estación) se ejecutan al momento, con los permisos y sitios de la clave de API.",
       "rateLimitPerMinute": "Llamadas por clave de API y minuto",
       "dailyCallsPerKey": "Llamadas por clave de API y día",
       "allowedOrigins": "Orígenes permitidos",
@@ -4215,20 +4215,20 @@
     "rfidCards": "Tarjetas RFID",
     "rfidCardsDescription": "Decida si los conductores gestionan sus propias tarjetas RFID o las gestiona el operador.",
     "rfidSelfServiceEnabled": "Los Conductores Gestionan Sus Tarjetas RFID",
-    "rfidSelfServiceEnabledDesc": "Activado: los conductores añaden, renombran, desactivan, reactivan y eliminan sus propias tarjetas RFID en el portal y la aplicación móvil. Desactivado: los conductores solo ven sus tarjetas y los operadores las gestionan en la página Tokens.",
+    "rfidSelfServiceEnabledDesc": "Permite a los conductores añadir, renombrar, desactivar, reactivar y eliminar sus propias tarjetas RFID en el portal y la aplicación móvil. Mientras este ajuste está desactivado, los conductores solo ven sus tarjetas y los operadores las gestionan en la página Tokens.",
     "rfidSelfServiceOffEffect": "Los conductores ya no pueden añadir, renombrar, desactivar, reactivar ni eliminar tarjetas RFID, y le contactan para bloquear una tarjeta perdida. Sus tarjetas existentes siguen funcionando.",
     "updateCheck": {
       "title": "Comprobación de Actualizaciones",
       "description": "Avisar a los administradores cuando haya una versión más reciente de EVtivity CSMS.",
       "enabled": "Buscar Nuevas Versiones",
-      "enabledDesc": "Activado: el servidor lee una vez al día el número de la última versión en evtivity.com, y los administradores ven un aviso en el panel cuando hay una versión más reciente. Solo la dirección IP del servidor llega a evtivity.com; los navegadores nunca lo contactan. Desactivado: no se envía nada.",
+      "enabledDesc": "El servidor lee una vez al día el número de la última versión en evtivity.com, y los administradores ven un aviso en el panel cuando hay una versión más reciente. Solo la dirección IP del servidor llega a evtivity.com. Los navegadores nunca lo contactan. Mientras este ajuste está desactivado, no se envía nada.",
       "offEffect": "El servidor deja de leer la última versión en evtivity.com y los administradores ya no ven un aviso cuando hay una versión más reciente."
     },
     "station": {
       "title": "Estación",
       "description": "Configuración que se aplica a todas las estaciones.",
       "unitsEnabled": "Habilitar Unidades de Estación",
-      "unitsEnabledDesc": "Activado: una estación puede agrupar sus EVSE en unidades físicas, por ejemplo una caja principal y sus extensiones con una sola conexión OCPP. Cada estación tiene entonces el interruptor Usa Unidades de Estación. Desactivado: ninguna estación puede usar unidades. Solo se puede desactivar mientras ninguna estación use unidades.",
+      "unitsEnabledDesc": "Permite que una estación agrupe sus EVSE en unidades físicas, por ejemplo una caja principal y sus extensiones con una sola conexión OCPP. Cada estación tiene entonces una casilla para indicar que tiene varias unidades físicas. Mientras este ajuste está desactivado, ninguna estación puede usar unidades. Solo se puede desactivar mientras ninguna estación use unidades.",
       "unitsOffEffect": "Ninguna estación puede usar unidades, y se ocultan el interruptor Usa Unidades de Estación y todos los controles de unidades."
     }
   },
@@ -6924,7 +6924,7 @@
       "settingsLink": "Alcance de los Análisis de IA",
       "reason": {
         "all_sites": "Activado para todos los sitios",
-        "selected": "Activado: seleccionado en el alcance de los análisis de IA",
+        "selected": "Activado porque está seleccionado en el alcance de los análisis de IA",
         "feature_off": "Desactivado porque la IA iniciada por el sistema está desactivada",
         "no_site": "Desactivado porque la estación no tiene sitio y solo se analizan los sitios seleccionados",
         "site_not_selected": "Desactivado porque el sitio no está seleccionado en el alcance de los análisis de IA",

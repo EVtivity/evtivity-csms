@@ -148,12 +148,12 @@ describe('StationCreate password rules', () => {
   });
 });
 
-describe('StationCreate Uses Station Units switch', () => {
-  it('hides the switch and sends no usesUnits while Enable Station Units is off', async () => {
+describe('StationCreate Uses Station Units checkbox', () => {
+  it('hides the checkbox and sends no usesUnits while Enable Station Units is off', async () => {
     postMock.mockResolvedValue({ id: 'sta_1', stationId: 'CS-1' });
     renderCreate({ stationUnitsEnabled: false });
     await fillRequired('ocpp1.6', 'a'.repeat(16));
-    expect(screen.queryByRole('switch', { name: 'stations.usesUnits' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'stations.usesUnits' })).toBeNull();
     submit();
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith(
@@ -163,12 +163,14 @@ describe('StationCreate Uses Station Units switch', () => {
     });
   });
 
-  it('sends the switch off by default and on once turned on', async () => {
+  it('sends the checkbox unchecked by default and checked once checked', async () => {
     postMock.mockResolvedValue({ id: 'sta_1', stationId: 'CS-1' });
     renderCreate({ stationUnitsEnabled: true });
     await fillRequired('ocpp1.6', 'a'.repeat(16));
-    const toggle = await screen.findByRole('switch', { name: 'stations.usesUnits' });
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    const checkbox = await screen.findByRole<HTMLInputElement>('checkbox', {
+      name: 'stations.usesUnits',
+    });
+    expect(checkbox.checked).toBe(false);
     submit();
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith(
@@ -177,8 +179,8 @@ describe('StationCreate Uses Station Units switch', () => {
       );
     });
     postMock.mockClear();
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
     submit();
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith(

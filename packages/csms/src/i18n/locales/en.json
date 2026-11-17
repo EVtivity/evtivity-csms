@@ -1304,7 +1304,7 @@
     "isSimulator": "Simulator station",
     "isSimulatorHelp": "Simulator stations are loaded by the charging station simulator for testing.",
     "usesUnits": "This station has multiple physical units",
-    "usesUnitsHelp": "Turn on for one OCPP station built from several charger boxes, such as a master with extenders. You then group its EVSEs into units on the EVSE & Connectors tab. It can be turned off only while the station has no units.",
+    "usesUnitsHelp": "Check this for one OCPP station built from several charger boxes, such as a master with extenders. You then group its EVSEs into units on the EVSE & Connectors tab. You can uncheck it only while the station has no units.",
     "allTypes": "All Types",
     "simulatorOnly": "Simulators",
     "realOnly": "Real Stations",
@@ -3976,7 +3976,7 @@
       "description": "Lets MCP clients use the AI tools with an API key that has MCP access. Clients read by default. Writes run only when you allow them.",
       "enabled": "Turn on the MCP server",
       "allowWrites": "Allow Writes",
-      "allowWritesHint": "Off: MCP clients only read. On: write tools (station commands) run at once, with the permissions and sites of the API key.",
+      "allowWritesHint": "MCP clients can only read unless writes are allowed. When writes are allowed, write tools (station commands) run at once, with the permissions and sites of the API key.",
       "rateLimitPerMinute": "Calls per API key per minute",
       "dailyCallsPerKey": "Calls per API key per day",
       "allowedOrigins": "Allowed origins",
@@ -4215,20 +4215,20 @@
     "rfidCards": "RFID Cards",
     "rfidCardsDescription": "Decide whether drivers manage their own RFID cards or the operator manages them.",
     "rfidSelfServiceEnabled": "Drivers Manage Their RFID Cards",
-    "rfidSelfServiceEnabledDesc": "On: drivers add, rename, deactivate, reactivate and remove their own RFID cards in the portal and the mobile app. Off: drivers only see their cards, and operators manage them on the Tokens page.",
+    "rfidSelfServiceEnabledDesc": "Lets drivers add, rename, deactivate, reactivate and remove their own RFID cards in the portal and the mobile app. While this setting is off, drivers only see their cards, and operators manage them on the Tokens page.",
     "rfidSelfServiceOffEffect": "Drivers can no longer add, rename, deactivate, reactivate or remove RFID cards, and contact you to block a lost card. Their existing cards keep working.",
     "updateCheck": {
       "title": "Update Check",
       "description": "Tell admins when a newer EVtivity CSMS release is out.",
       "enabled": "Check for New Releases",
-      "enabledDesc": "On: the server reads the latest release number from evtivity.com once a day, and admins see a notice on the dashboard when a newer release is out. Only the server's IP address reaches evtivity.com; browsers never contact it. Off: nothing is sent.",
+      "enabledDesc": "The server reads the latest release number from evtivity.com once a day, and admins see a notice on the dashboard when a newer release is out. Only the server's IP address reaches evtivity.com. Browsers never contact it. While this setting is off, nothing is sent.",
       "offEffect": "The server stops reading the latest release from evtivity.com, and admins no longer see a notice when a newer release is out."
     },
     "station": {
       "title": "Station",
       "description": "Settings that apply to every station.",
       "unitsEnabled": "Enable Station Units",
-      "unitsEnabledDesc": "On: a station can group its EVSEs into physical units, for example a master box and its extenders under one OCPP connection. Each station then has a Uses Station Units switch. Off: no station can use units. It can be turned off only while no station uses units.",
+      "unitsEnabledDesc": "Lets a station group its EVSEs into physical units, such as a master box and its extenders under one OCPP connection. Each station then has a checkbox to say it has multiple physical units. While this setting is off, no station can use units. You can turn it off only while no station uses units.",
       "unitsOffEffect": "No station can use units, and the Uses Station Units switch and every unit control are hidden."
     }
   },
@@ -6924,7 +6924,7 @@
       "settingsLink": "AI Insights Scope",
       "reason": {
         "all_sites": "On for all sites",
-        "selected": "On: selected in the AI insights scope",
+        "selected": "On because it is selected in the AI insights scope",
         "feature_off": "Off because system-initiated AI is off",
         "no_site": "Off because the station has no site and only selected sites are analyzed",
         "site_not_selected": "Off because the site is not selected in the AI insights scope",

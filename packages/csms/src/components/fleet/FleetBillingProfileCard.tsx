@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { LanguageSelect, LANGUAGES } from '@/components/ui/language-select';
-import { Toggle } from '@/components/ui/toggle';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
@@ -287,18 +287,18 @@ export function FleetBillingProfileCard({
             </div>
           </div>
           <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <Toggle
+            <div className="flex items-center gap-2">
+              <Checkbox
                 id="billing-auto-invoice"
                 checked={form.autoInvoice}
-                aria-label={t('fleets.billingProfile.autoInvoice')}
-                onCheckedChange={(checked) => {
-                  set('autoInvoice', checked);
+                aria-describedby="billing-auto-invoice-help"
+                onChange={(e) => {
+                  set('autoInvoice', e.target.checked);
                 }}
               />
               <Label htmlFor="billing-auto-invoice">{t('fleets.billingProfile.autoInvoice')}</Label>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p id="billing-auto-invoice-help" className="text-xs text-muted-foreground">
               {t('fleets.billingProfile.autoInvoiceHelp')}
             </p>
           </div>
