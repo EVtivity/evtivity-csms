@@ -64,4 +64,12 @@ describe('classifySessionPayment', () => {
     expect(classifySessionPayment({ ...none, account: true })).toBe('anonymous');
     expect(classifySessionPayment({ ...none, account: true, guestSession: true })).toBe('guest');
   });
+
+  it('bills a fleet card session without a driver on account, prepaid first', () => {
+    expect(classifySessionPayment({ ...none, account: true, fleetCard: true })).toBe('account');
+    expect(classifySessionPayment({ ...none, fleetCard: true })).toBe('anonymous');
+    expect(classifySessionPayment({ ...none, account: true, fleetCard: true, prepaid: true })).toBe(
+      'prepaid',
+    );
+  });
 });

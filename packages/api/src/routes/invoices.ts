@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, count, inArray } from 'drizzle-orm';
 import {
@@ -34,6 +34,7 @@ import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { requireAllSiteAccess, userCanAccessSite } from '../lib/site-access.js';
+import { getUserAccessScope, type UserAccess } from '../lib/fleet-scope.js';
 
 export const invoiceListItem = z
   .object({
@@ -580,6 +581,49 @@ const ACCOUNT_SEND_REFUSALS = {
 // INVOICE_NOT_FOUND on every invoice route, as for a missing invoice (P11).
 const invoiceAccessDenied = { error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' } as const;
 
+/**
+ * Who reads one invoice: a user with access to every site, or a fleet user
+ * (checked per invoice by invoiceReadable). Returns null after a 404 was sent.
+ */
+async function invoiceReader(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<UserAccess | null> {
+  const { userId } = request.user as { userId: string };
+  const access = await getUserAccessScope(userId);
+  if (access.kind === 'fleets') return access;
+  return (await requireAllSiteAccess(request, reply, invoiceAccessDenied)) ? access : null;
+}
+
+/** A fleet user reads only fleet invoices of its fleets and their credit notes, never member invoices. */
+function invoiceReadable(
+  access: UserAccess,
+  invoice: { fleetId: string | null; memberBilled: boolean },
+): boolean {
+  if (access.kind === 'sites') return true;
+  return (
+    invoice.fleetId != null && !invoice.memberBilled && access.fleetIds.includes(invoice.fleetId)
+  );
+}
+
+/**
+ * A fleet user never gets a driver's email address, the payment reference an
+ * operator recorded or the free-form invoice metadata.
+ */
+function withoutDriverContact<
+  T extends {
+    invoice: { paymentReference: string | null; metadata: unknown };
+    driver: { email: string | null } | null;
+  },
+>(access: UserAccess, result: T): T {
+  if (access.kind === 'sites') return result;
+  return {
+    ...result,
+    invoice: { ...result.invoice, paymentReference: null, metadata: null },
+    driver: result.driver == null ? null : { ...result.driver, email: null },
+  };
+}
+
 const printLogoResponse = z
   .object({
     logo: z
@@ -665,6 +709,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
     '/invoices/:id',
     {
       onRequest: [authorize('payments:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Invoices'],
         summary: 'Get an invoice with line items',
@@ -678,16 +723,20 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
+      const access = await invoiceReader(request, reply);
+      if (access == null) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const result = await getInvoice(id);
 
-      if (result == null) {
+      if (result == null || !invoiceReadable(access, result.invoice)) {
         await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
         return;
       }
 
-      return { ...result, lineItems: await withSessionLabels(result.lineItems) };
+      return {
+        ...withoutDriverContact(access, result),
+        lineItems: await withSessionLabels(result.lineItems),
+      };
     },
   );
 
@@ -1086,18 +1135,19 @@ export function invoiceRoutes(app: FastifyInstance): void {
     '/invoices/print-logo',
     {
       onRequest: [authorize('payments:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Invoices'],
         summary: 'Get the logo of the printed invoice',
         description:
-          'The logo the invoice PDF draws (pdf.logo, or the default logo when it is empty or unusable), as a PNG or JPEG data URI, so the printed invoice page shows the same image as the PDF. The CSMS shows it only in the print layout. Invoices span sites, so a user restricted to some sites gets 404 INVOICE_NOT_FOUND.',
+          'The logo the invoice PDF draws (pdf.logo, or the default logo when it is empty or unusable), as a PNG or JPEG data URI, so the printed invoice page shows the same image as the PDF. The CSMS shows it only in the print layout. Invoices span sites, so a user restricted to some sites gets 404 INVOICE_NOT_FOUND; a fleet user gets it to print its fleet invoices.',
         operationId: 'getInvoicePrintLogo',
         security: [{ bearerAuth: [] }],
         response: { 200: zodSchema(printLogoResponse), 404: invoiceNotFound },
       },
     },
     async (request, reply) => {
-      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
+      if ((await invoiceReader(request, reply)) == null) return;
       const { logo } = await loadPdfBranding();
       return { logo: imageDataUri(logo) };
     },
@@ -1108,6 +1158,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
     '/invoices/:id/pdf',
     {
       onRequest: [authorize('payments:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Invoices'],
         summary: 'Download an invoice as a PDF',
@@ -1120,11 +1171,12 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
+      const access = await invoiceReader(request, reply);
+      if (access == null) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const result = await getInvoice(id);
 
-      if (result == null) {
+      if (result == null || !invoiceReadable(access, result.invoice)) {
         await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
         return;
       }
@@ -1143,6 +1195,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
     '/invoices/:id/download',
     {
       onRequest: [authorize('payments:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Invoices'],
         summary: 'Download an invoice as JSON',
@@ -1153,11 +1206,12 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
+      const access = await invoiceReader(request, reply);
+      if (access == null) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const result = await getInvoice(id);
 
-      if (result == null) {
+      if (result == null || !invoiceReadable(access, result.invoice)) {
         await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
         return;
       }
@@ -1168,7 +1222,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
           'Content-Disposition',
           `attachment; filename="${result.invoice.invoiceNumber}.json"`,
         )
-        .send(result);
+        .send(withoutDriverContact(access, result));
     },
   );
 }

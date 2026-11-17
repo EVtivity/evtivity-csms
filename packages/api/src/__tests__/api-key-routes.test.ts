@@ -11,6 +11,10 @@ const mockApiKeyService = vi.hoisted(() => ({
   revokeApiKey: vi.fn(),
 }));
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('../services/api-key.service.js', () => mockApiKeyService);
 
 let dbResults: unknown[][] = [];

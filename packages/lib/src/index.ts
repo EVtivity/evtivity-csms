@@ -644,7 +644,17 @@ export {
   hasPermission,
   isSubsetOf,
   hasAnySettingsPermission,
+  FLEET_USER_PERMISSIONS,
+  FLEET_MANAGER_DEFAULTS,
+  withinFleetUserPermissions,
+  fleetUserPermissionsOutside,
 } from './permissions.js';
+export {
+  USER_ACCESS_SCOPES,
+  FLEET_MANAGER_ROLE_NAME,
+  isUserAccessScope,
+} from './user-access-scope.js';
+export type { UserAccessScope } from './user-access-scope.js';
 export type {
   Permission,
   PermissionAction,
@@ -990,3 +1000,12 @@ export type {
   TariffSiteScope,
 } from './tariff-scope.js';
 export type { ConnectorPowerInput, ConnectorType } from './connector-power.js';
+export {
+  CARD_MONTHLY_LIMIT_REASON,
+  FLEET_CARD_MONTHLY_LIMIT_MAX_CENTS,
+  FLEET_CARD_DEACTIVATE_REASON,
+  FLEET_CARD_RELEASE_REASON,
+  cardMonthlyRemainingCents,
+  isUnassignedFleetCard,
+  isUnbillableFleetCard,
+} from './fleet-card.js';

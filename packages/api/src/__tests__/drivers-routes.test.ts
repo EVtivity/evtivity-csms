@@ -86,6 +86,8 @@ vi.mock('@evtivity/database', () => ({
   client: {},
   drivers: {},
   driverTokens: {},
+  fleets: {},
+  fleetDrivers: {},
   vehicles: {},
   // Read by the list sort definitions the routes import.
   chargingStations: {},
@@ -184,7 +186,11 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   setPubSub: vi.fn(),
 }));
 
+const fleetCardsPerm = vi.hoisted(() => ({ granted: true }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    Promise.resolve(permission !== 'fleetCards:write' || fleetCardsPerm.granted),
   authorize:
     () =>
     async (

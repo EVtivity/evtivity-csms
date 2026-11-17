@@ -17,6 +17,7 @@ import {
 import { useListSort, type ListSort } from '@/hooks/use-list-sort';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { useIsFleetUser } from '@/lib/auth';
 
 interface FleetVehiclesTabProps {
   fleetId: string;
@@ -31,6 +32,8 @@ export function FleetVehiclesTab({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  // A fleet user has no driver or vehicle pages and never sees a VIN.
+  const isFleetUser = useIsFleetUser();
 
   const [page, setPage] = useState(1);
   const [removeDriverId, setRemoveDriverId] = useState<string | null>(null);
@@ -75,7 +78,7 @@ export function FleetVehiclesTab({
     <>
       <TabPanel
         title={t('fleets.vehicles')}
-        description={t('fleets.addVehicleNote')}
+        description={isFleetUser ? undefined : t('fleets.addVehicleNote')}
         actions={
           canManageMembers ? (
             <CreateButton
@@ -99,9 +102,13 @@ export function FleetVehiclesTab({
           onRetry={() => {
             void refetch();
           }}
-          onRowClick={(vehicle) => {
-            void navigate(`/drivers/${vehicle.driverId}/vehicles/${vehicle.id}`);
-          }}
+          {...(isFleetUser
+            ? { hideVin: true, plainDriver: true }
+            : {
+                onRowClick: (vehicle: { id: string; driverId: string }): void => {
+                  void navigate(`/drivers/${vehicle.driverId}/vehicles/${vehicle.id}`);
+                },
+              })}
           {...(canManageMembers
             ? {
                 onDelete: (vehicle: { driverId: string }): void => {

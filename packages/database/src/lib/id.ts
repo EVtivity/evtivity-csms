@@ -32,6 +32,7 @@ export const ID_PREFIXES = {
   configTemplate: 'ctm',
   configTemplatePush: 'ctp',
   userSiteAssignment: 'usa',
+  userFleetAssignment: 'ufa',
   fleetReservation: 'frs',
   cssStation: 'css',
   cssEvse: 'cev',

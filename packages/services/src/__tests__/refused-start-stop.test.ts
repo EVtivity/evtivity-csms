@@ -72,12 +72,22 @@ describe('enqueueRefusedStartStop', () => {
   it('adds one delayed job per session to the payment stop queue', async () => {
     await enqueueRefusedStartStop(target);
     expect(jobQueue).toHaveBeenCalledWith(PAYMENT_STOP_QUEUE, PAYMENT_STOP_JOB_OPTIONS);
-    expect(add).toHaveBeenCalledWith('refused-start-stop', target, {
-      jobId: 'refused-start-stop.sess-1',
-      delay: REFUSED_START_STOP_GRACE_MS,
-    });
+    expect(add).toHaveBeenCalledWith(
+      'refused-start-stop',
+      { ...target, message: 'account_credit_limit' },
+      { jobId: 'refused-start-stop.sess-1', delay: REFUSED_START_STOP_GRACE_MS },
+    );
     expect(REFUSED_START_STOP_GRACE_MS).toBe(30_000);
     expect(refusedStartStopJobId('sess-1')).not.toContain(':');
+  });
+
+  it('carries the card monthly limit message for a start the card limit refused', async () => {
+    await enqueueRefusedStartStop(target, 'card_monthly_limit');
+    expect(add).toHaveBeenCalledWith(
+      'refused-start-stop',
+      { ...target, message: 'card_monthly_limit' },
+      { jobId: 'refused-start-stop.sess-1', delay: REFUSED_START_STOP_GRACE_MS },
+    );
   });
 
   it('throws when the job cannot be added, so the caller stops at once', async () => {

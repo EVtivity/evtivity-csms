@@ -12,6 +12,7 @@ const asJson = (v: unknown): JSONValue => v as JSONValue;
 const sessionChargingKind = (v: unknown): 'ac' | 'dc' | null =>
   v === 'ac' || v === 'dc' ? v : null;
 import {
+  cardLimitBindsSession,
   client,
   isSplitBillingEnabled,
   getOfflineCommandTtlHours,
@@ -1907,9 +1908,12 @@ export function registerProjections(
             // The reason from how the session is paid: an account session
             // (its ceiling is the fleet credit it reserved), a prepaid token's
             // credit, or a guest's hold (no driver token).
+            const tokenId = session.token_id as string | null;
             const reason = ceilingStopReason({
               billingMode: session.billing_mode as string | null,
-              tokenId: session.token_id as string | null,
+              tokenId,
+              cardLimitBound:
+                tokenId != null && (await ceilingIsCardLimit(sql, sessionId, ceilingCents, logger)),
             });
             logger.info(
               {
@@ -3629,4 +3633,23 @@ export function registerProjections(
       VALUES (${stationUuid}, ${requestId}, ${tbc}, ${derControl != null ? sql.json(asJson(derControl)) : null})
     `;
   });
+}
+
+/**
+ * True when a session's cost ceiling is its fleet card's monthly limit (the
+ * stop then names the card limit). A failed read counts as false (warn): the
+ * session still stops at its ceiling, under the reason of how it is paid.
+ */
+async function ceilingIsCardLimit(
+  sql: postgres.Sql,
+  sessionId: string,
+  ceilingCents: number,
+  log: Pick<ProjectionDeps['logger'], 'warn'>,
+): Promise<boolean> {
+  try {
+    return await cardLimitBindsSession(sql, sessionId, ceilingCents);
+  } catch (err) {
+    log.warn({ err, sessionId }, 'Fleet card monthly limit read failed at the cost ceiling');
+    return false;
+  }
 }

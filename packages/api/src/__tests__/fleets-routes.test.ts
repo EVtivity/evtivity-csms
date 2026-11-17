@@ -3,6 +3,10 @@
 
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('../lib/site-access.js', async () =>
   (await import('./helpers/site-access-mock.js')).siteAccessMock(),
 );
@@ -45,6 +49,9 @@ const mockFleetService = vi.hoisted(() => ({
   removeStationFromFleet: vi.fn(),
   getFleetVehicles: vi.fn(),
   getFleetSessions: vi.fn(),
+  getFleetSession: vi.fn(),
+  listFleetSessionsForExport: vi.fn(),
+  FLEET_SESSION_EXPORT_MAX_ROWS: 50000,
   getFleetMetrics: vi.fn(),
   getFleetEnergyHistory: vi.fn(),
   getFleetPricingGroup: vi.fn(),
@@ -139,6 +146,7 @@ vi.mock('@evtivity/database', () => {
     pricingGroups: {},
     // Read by the list sort definitions the routes import.
     fleets: {},
+    driverTokens: {},
     vehicles: {},
     chargingSessions: {},
     fleetAuditLog: { name: 'fleet_audit_log' },
@@ -162,7 +170,9 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: vi.fn(() => Promise.resolve(heldPayments.read)),
 }));
+const heldPayments = vi.hoisted(() => ({ read: true }));
 
 import { registerAuth } from '../plugins/auth.js';
 import { fleetRoutes } from '../routes/fleets.js';
@@ -172,6 +182,7 @@ import {
   setMockStationSites,
   setMockUserSiteIds,
 } from './helpers/site-access-mock.js';
+import { resetFleetScopeMock, setMockUserAccess } from './helpers/fleet-scope-mock.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -254,7 +265,7 @@ describe('Fleet routes - handler logic', () => {
 
       expect(mockFleetService.listFleets).toHaveBeenCalledWith(
         expect.objectContaining({ search: 'test' }),
-        null,
+        { kind: 'sites', siteIds: null },
       );
     });
 
@@ -270,7 +281,7 @@ describe('Fleet routes - handler logic', () => {
           expect(response.statusCode, `${sort} ${order}`).toBe(200);
           expect(mockFleetService.listFleets).toHaveBeenLastCalledWith(
             expect.objectContaining({ sort, order }),
-            null,
+            { kind: 'sites', siteIds: null },
           );
         }
       }
@@ -909,6 +920,22 @@ describe('Fleet routes - handler logic', () => {
       expect(response.json().code).toBe('FLEET_HAS_RESERVATIONS');
     });
 
+    it('returns 409 FLEET_HAS_CARDS while the fleet owns RFID cards', async () => {
+      const { AppError } = await import('@evtivity/lib');
+      mockFleetService.deleteFleet.mockRejectedValue(
+        new AppError('The fleet owns RFID cards', 409, 'FLEET_HAS_CARDS'),
+      );
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/fleets/${VALID_FLEET_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('FLEET_HAS_CARDS');
+    });
+
     it('deletes fleet and returns it', async () => {
       const fleet = {
         id: VALID_FLEET_ID,
@@ -1016,12 +1043,37 @@ describe('Fleet routes - handler logic', () => {
             headers: { authorization: 'Bearer ' + token },
           });
           expect(response.statusCode, `${sort} ${order}`).toBe(200);
-          expect(mockFleetService.getFleetDrivers).toHaveBeenLastCalledWith(VALID_FLEET_ID, 1, 10, {
-            sort,
-            order,
-          });
+          expect(mockFleetService.getFleetDrivers).toHaveBeenLastCalledWith(
+            VALID_FLEET_ID,
+            1,
+            10,
+            {
+              sort,
+              order,
+            },
+            { kind: 'sites', siteIds: null },
+            { search: undefined, active: false },
+          );
         }
       }
+    });
+
+    it('passes the member search and the active filter to the service', async () => {
+      mockFleetService.getFleetDrivers.mockResolvedValue({ data: [], total: 0 });
+      const response = await app.inject({
+        method: 'GET',
+        url: `/fleets/${VALID_FLEET_ID}/drivers?search=Ana&active=true&limit=10`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockFleetService.getFleetDrivers).toHaveBeenLastCalledWith(
+        VALID_FLEET_ID,
+        1,
+        10,
+        expect.any(Object),
+        { kind: 'sites', siteIds: null },
+        { search: 'Ana', active: true },
+      );
     });
 
     it('refuses a sort key it does not offer and an unknown order', async () => {
@@ -1102,6 +1154,12 @@ describe('Fleet routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().driverId).toBe('drv_000000000001');
+      // The member's fleet cards are taken back in the caller's name.
+      expect(mockFleetService.removeDriverFromFleet).toHaveBeenCalledWith(
+        VALID_FLEET_ID,
+        'drv_000000000001',
+        expect.objectContaining({ type: 'operator' }),
+      );
       expect(mockFleetService.notifyMemberLeft).toHaveBeenCalledWith(record, expect.anything());
       expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
         { table: { name: 'driver_audit_log' }, idColumn: 'driver_id' },
@@ -1308,6 +1366,7 @@ describe('Fleet routes - handler logic', () => {
             1,
             10,
             { sort, order },
+            { kind: 'sites', siteIds: null },
           );
         }
       }
@@ -1372,10 +1431,49 @@ describe('Fleet routes - handler logic', () => {
         headers: { authorization: 'Bearer ' + token },
       });
 
-      expect(mockFleetService.getFleetSessions).toHaveBeenCalledWith(VALID_FLEET_ID, 2, 5, null, {
-        sort: undefined,
-        order: undefined,
+      expect(mockFleetService.getFleetSessions).toHaveBeenCalledWith(
+        VALID_FLEET_ID,
+        2,
+        5,
+        { kind: 'sites', siteIds: null },
+        {
+          sort: undefined,
+          order: undefined,
+        },
+        { from: null, to: null, driverId: undefined, tokenId: undefined },
+      );
+    });
+
+    it('passes the date range, member and card filters to the service', async () => {
+      mockFleetService.getFleetSessions.mockResolvedValue({ data: [], total: 0 });
+      const response = await app.inject({
+        method: 'GET',
+        url: `/fleets/${VALID_FLEET_ID}/sessions?from=2026-11-01T00:00:00.000Z&to=2026-11-10T23:59:59.999Z&driverId=drv_000000000001&tokenId=dtk_000000000001`,
+        headers: { authorization: 'Bearer ' + token },
       });
+      expect(response.statusCode).toBe(200);
+      expect(mockFleetService.getFleetSessions.mock.calls[0]?.[5]).toEqual({
+        from: new Date('2026-11-01T00:00:00.000Z'),
+        to: new Date('2026-11-10T23:59:59.999Z'),
+        driverId: 'drv_000000000001',
+        tokenId: 'dtk_000000000001',
+      });
+    });
+
+    it('refuses a range that ends before it starts and an id of another kind', async () => {
+      const reversed = await app.inject({
+        method: 'GET',
+        url: `/fleets/${VALID_FLEET_ID}/sessions?from=2026-11-10T00:00:00.000Z&to=2026-11-01T00:00:00.000Z`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(reversed.statusCode).toBe(400);
+      const wrongId = await app.inject({
+        method: 'GET',
+        url: `/fleets/${VALID_FLEET_ID}/sessions?tokenId=drv_000000000001`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(wrongId.statusCode).toBe(400);
+      expect(mockFleetService.getFleetSessions).not.toHaveBeenCalled();
     });
 
     it('accepts every session sort key in both directions and passes it on', async () => {
@@ -1400,8 +1498,9 @@ describe('Fleet routes - handler logic', () => {
             VALID_FLEET_ID,
             1,
             10,
-            null,
+            { kind: 'sites', siteIds: null },
             { sort, order },
+            { from: null, to: null, driverId: undefined, tokenId: undefined },
           );
         }
       }
@@ -1485,7 +1584,10 @@ describe('Fleet routes - handler logic', () => {
         headers: { authorization: 'Bearer ' + token },
       });
 
-      expect(mockFleetService.getFleetMetrics).toHaveBeenCalledWith(VALID_FLEET_ID, 6, null);
+      expect(mockFleetService.getFleetMetrics).toHaveBeenCalledWith(VALID_FLEET_ID, 6, {
+        kind: 'sites',
+        siteIds: null,
+      });
     });
   });
 
@@ -1521,7 +1623,10 @@ describe('Fleet routes - handler logic', () => {
         headers: { authorization: 'Bearer ' + token },
       });
 
-      expect(mockFleetService.getFleetEnergyHistory).toHaveBeenCalledWith(VALID_FLEET_ID, 30, null);
+      expect(mockFleetService.getFleetEnergyHistory).toHaveBeenCalledWith(VALID_FLEET_ID, 30, {
+        kind: 'sites',
+        siteIds: null,
+      });
     });
   });
 
@@ -1765,18 +1870,19 @@ describe('Fleet routes - handler logic', () => {
         VALID_FLEET_ID,
         1,
         expect.any(Number),
-        [OWN_SITE],
+        { kind: 'sites', siteIds: [OWN_SITE] },
+        expect.any(Object),
         expect.any(Object),
       );
       expect(mockFleetService.getFleetMetrics).toHaveBeenCalledWith(
         VALID_FLEET_ID,
         expect.any(Number),
-        [OWN_SITE],
+        { kind: 'sites', siteIds: [OWN_SITE] },
       );
       expect(mockFleetService.getFleetEnergyHistory).toHaveBeenCalledWith(
         VALID_FLEET_ID,
         expect.any(Number),
-        [OWN_SITE],
+        { kind: 'sites', siteIds: [OWN_SITE] },
       );
     });
   });
@@ -1816,7 +1922,10 @@ describe('Fleet routes - site-restricted user (owner decision 2026-10-09)', () =
     setMockUserSiteIds(['sit_a']);
     mockFleetService.listFleets.mockResolvedValue({ data: [], total: 0 });
     await app.inject({ method: 'GET', url: '/fleets', headers: auth() });
-    expect(mockFleetService.listFleets).toHaveBeenCalledWith(expect.anything(), ['sit_a']);
+    expect(mockFleetService.listFleets).toHaveBeenCalledWith(expect.anything(), {
+      kind: 'sites',
+      siteIds: ['sit_a'],
+    });
   });
 
   it('GET /fleets/:id omits the billing profile and credit limit for a restricted user', async () => {
@@ -1958,5 +2067,399 @@ describe('Fleet feature toggle guard', () => {
     expect(response.statusCode).toBe(403);
     expect(response.json().code).toBe('FLEET_DISABLED');
     await guardApp.close();
+  });
+});
+
+describe('Fleet routes - fleet user (access scope fleets)', () => {
+  const OTHER_FLEET_ID = 'flt_000000000099';
+  const FLEET_READER = { kind: 'fleets', fleetIds: [VALID_FLEET_ID], paymentsRead: true };
+  let app: FastifyInstance;
+  let token: string;
+  const auth = () => ({ authorization: 'Bearer ' + token });
+  const fleet = {
+    id: VALID_FLEET_ID,
+    name: 'Fleet A',
+    description: null,
+    accountBillingEnabled: true,
+    ...BILLING_PROFILE,
+    creditLimitCents: 5000,
+    creditLimitWarningPercent: 80,
+    accountInvoiceRecipient: 'fleet',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  beforeAll(async () => {
+    app = await buildApp();
+    token = app.jwt.sign({ userId: VALID_USER_ID, roleId: VALID_ROLE_ID });
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSiteAccessMock();
+    resetFleetScopeMock();
+    // A fleet user has no sites (getUserSiteIds answers []).
+    setMockUserSiteIds([]);
+    setMockUserAccess(VALID_USER_ID, { kind: 'fleets', fleetIds: [VALID_FLEET_ID] });
+  });
+
+  it('exports the fleet sessions without RFID card values, and refuses another fleet', async () => {
+    mockFleetService.listFleetSessionsForExport.mockResolvedValue([
+      {
+        id: 'ses_000000000001',
+        status: 'completed',
+        startedAt: new Date('2026-11-02T10:00:00Z'),
+        endedAt: null,
+        energyDeliveredWh: 1000,
+        siteName: 'Depot',
+        stationName: 'CS-1',
+        unitName: null,
+        evseId: 1,
+        connectorId: 1,
+        connectorType: 'CCS2',
+        driverName: 'Ana Lopez',
+        cardLabel: null,
+        idToken: null,
+        transactionId: null,
+        currentCostCents: null,
+        finalCostCents: 500,
+        currency: 'USD',
+      },
+    ]);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/sessions/export?driverId=drv_000000000001`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.body).toContain('ses_000000000001');
+    expect(res.body).toContain('cost,currency');
+    expect(res.body).not.toContain('rfidCard');
+    const [fleetArg, reader, filters] = mockFleetService.listFleetSessionsForExport.mock
+      .calls[0] as [string, unknown, { driverId: string; from: Date; to: Date }];
+    expect(fleetArg).toBe(VALID_FLEET_ID);
+    expect(reader).toEqual(FLEET_READER);
+    expect(filters.driverId).toBe('drv_000000000001');
+    expect(filters.to.getTime() - filters.from.getTime()).toBe(366 * 86_400_000);
+
+    const other = await app.inject({
+      method: 'GET',
+      url: `/fleets/${OTHER_FLEET_ID}/sessions/export`,
+      headers: auth(),
+    });
+    expect(other.statusCode).toBe(404);
+    expect(other.json().code).toBe('FLEET_NOT_FOUND');
+
+    const tooLong = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/sessions/export?from=2025-01-01T00:00:00Z&to=2026-11-01T00:00:00Z`,
+      headers: auth(),
+    });
+    expect(tooLong.statusCode).toBe(400);
+  });
+
+  it('lists only the assigned fleets through the fleet reader', async () => {
+    mockFleetService.listFleets.mockResolvedValue({ data: [], total: 0 });
+    const res = await app.inject({ method: 'GET', url: '/fleets', headers: auth() });
+    expect(res.statusCode).toBe(200);
+    expect(mockFleetService.listFleets).toHaveBeenCalledWith(expect.anything(), FLEET_READER);
+  });
+
+  it('reads its own fleet without the billing profile and credit fields', async () => {
+    mockFleetService.getFleet.mockResolvedValue(fleet);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.name).toBe('Fleet A');
+    expect(body).not.toHaveProperty('billingContactEmails');
+    expect(body).not.toHaveProperty('creditLimitCents');
+    expect(body).not.toHaveProperty('accountInvoiceRecipient');
+  });
+
+  it.each([
+    '',
+    '/drivers',
+    '/vehicles',
+    '/sessions',
+    '/metrics',
+    '/energy-history',
+    '/credit-limit',
+  ])('answers 404 FLEET_NOT_FOUND for another fleet on GET /fleets/:id%s', async (suffix) => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${OTHER_FLEET_ID}${suffix}`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('FLEET_NOT_FOUND');
+    expect(mockFleetService.getFleet).not.toHaveBeenCalled();
+    expect(mockFleetService.getFleetDrivers).not.toHaveBeenCalled();
+    expect(mockFleetService.getFleetVehicles).not.toHaveBeenCalled();
+    expect(mockFleetService.getFleetSessions).not.toHaveBeenCalled();
+    expect(mockFleetService.getFleetMetrics).not.toHaveBeenCalled();
+    expect(mockFleetService.getFleetEnergyHistory).not.toHaveBeenCalled();
+    expect(mockFleetService.getFleetCreditLimit).not.toHaveBeenCalled();
+  });
+
+  it('refuses to sort by a field a fleet user is not shown, before any read', async () => {
+    for (const url of [
+      `/fleets/${VALID_FLEET_ID}/drivers?sort=email`,
+      `/fleets/${VALID_FLEET_ID}/drivers?sort=phone&order=desc`,
+      `/fleets/${VALID_FLEET_ID}/vehicles?sort=vin`,
+    ]) {
+      const res = await app.inject({ method: 'GET', url, headers: auth() });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+    }
+    expect(mockFleetService.getFleetDrivers).not.toHaveBeenCalled();
+    expect(mockFleetService.getFleetVehicles).not.toHaveBeenCalled();
+    // Cost is shown with payments:read, so it sorts then, and not without it.
+    mockFleetService.getFleetSessions.mockResolvedValue({ data: [], total: 0 });
+    const withPayments = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/sessions?sort=cost`,
+      headers: auth(),
+    });
+    expect(withPayments.statusCode).toBe(200);
+    heldPayments.read = false;
+    try {
+      const without = await app.inject({
+        method: 'GET',
+        url: `/fleets/${VALID_FLEET_ID}/sessions?sort=cost`,
+        headers: auth(),
+      });
+      expect(without.statusCode).toBe(400);
+    } finally {
+      heldPayments.read = true;
+    }
+    mockFleetService.getFleetDrivers.mockResolvedValue({ data: [], total: 0 });
+    const byName = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/drivers?sort=name`,
+      headers: auth(),
+    });
+    expect(byName.statusCode).toBe(200);
+  });
+
+  it('lists the members of its fleet with the fleet reader (no contact fields)', async () => {
+    mockFleetService.getFleetDrivers.mockResolvedValue({
+      data: [{ id: VALID_SECONDARY_ID, firstName: 'Ana', lastName: 'Lee', isActive: true }],
+      total: 1,
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/drivers`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data[0]).toEqual({
+      id: VALID_SECONDARY_ID,
+      firstName: 'Ana',
+      lastName: 'Lee',
+      isActive: true,
+    });
+    expect(mockFleetService.getFleetDrivers).toHaveBeenCalledWith(
+      VALID_FLEET_ID,
+      1,
+      expect.any(Number),
+      expect.any(Object),
+      FLEET_READER,
+      { search: undefined, active: false },
+    );
+  });
+
+  it('reads the sessions, metrics and energy history of its fleet as a fleet reader', async () => {
+    mockFleetService.getFleetSessions.mockResolvedValue({ data: [], total: 0 });
+    mockFleetService.getFleetMetrics.mockResolvedValue({
+      totalSessions: 0,
+      completedSessions: 0,
+      faultedSessions: 0,
+      sessionSuccessPercent: 100,
+      totalEnergyWh: 0,
+      avgSessionDurationMinutes: 0,
+      activeDrivers: 0,
+      totalDrivers: 0,
+      totalVehicles: 0,
+      periodMonths: 6,
+    });
+    mockFleetService.getFleetEnergyHistory.mockResolvedValue([]);
+    for (const suffix of ['/sessions', '/metrics', '/energy-history']) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/fleets/${VALID_FLEET_ID}${suffix}`,
+        headers: auth(),
+      });
+      expect(res.statusCode).toBe(200);
+    }
+    expect(mockFleetService.getFleetSessions).toHaveBeenCalledWith(
+      VALID_FLEET_ID,
+      1,
+      expect.any(Number),
+      FLEET_READER,
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(mockFleetService.getFleetMetrics).toHaveBeenCalledWith(
+      VALID_FLEET_ID,
+      expect.any(Number),
+      FLEET_READER,
+    );
+    expect(mockFleetService.getFleetEnergyHistory).toHaveBeenCalledWith(
+      VALID_FLEET_ID,
+      expect.any(Number),
+      FLEET_READER,
+    );
+  });
+
+  it('reads the credit limit of its own fleet without access to every site', async () => {
+    mockFleetService.getFleetCreditLimit.mockResolvedValue({
+      creditLimitCents: 5000,
+      warningPercent: 80,
+      exposure: {
+        unbilledCents: 0,
+        invoicedCents: 0,
+        runningCents: 0,
+        totalCents: 0,
+        currency: 'EUR',
+      },
+      level: 'ok',
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/credit-limit`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().creditLimitCents).toBe(5000);
+  });
+
+  it('marks exactly the fleet user read routes as fleet scope', () => {
+    const scoped: string[] = [];
+    const probe = Fastify();
+    probe.addHook('onRoute', (route) => {
+      const config = route.config as { fleetScope?: boolean } | undefined;
+      if (config?.fleetScope === true && route.method !== 'HEAD') {
+        scoped.push(`${String(route.method)} ${route.url}`);
+      }
+    });
+    fleetRoutes(probe);
+    expect(scoped.sort()).toEqual(
+      [
+        'GET /fleets',
+        'GET /fleets/:id',
+        'GET /fleets/:id/credit-limit',
+        'GET /fleets/:id/drivers',
+        'GET /fleets/:id/energy-history',
+        'GET /fleets/:id/metrics',
+        'GET /fleets/:id/sessions',
+        'GET /fleets/:id/sessions/:sessionId',
+        'GET /fleets/:id/sessions/export',
+        'GET /fleets/:id/vehicles',
+      ].sort(),
+    );
+  });
+});
+
+describe('Fleet routes - reduced session view for fleet users', () => {
+  const SESSION_ID = 'ses_000000000001';
+  let app: FastifyInstance;
+  let token: string;
+  const auth = () => ({ authorization: 'Bearer ' + token });
+  const view = {
+    id: SESSION_ID,
+    status: 'completed',
+    startedAt: '2026-01-01T10:00:00.000Z',
+    endedAt: '2026-01-01T11:00:00.000Z',
+    energyDeliveredWh: 12000,
+    siteName: 'Depot',
+    stationName: 'CS-1',
+    unitName: null,
+    evseId: 1,
+    connectorId: 1,
+    connectorType: 'CCS2',
+    driverName: null,
+    cardLabel: 'Van 12',
+  };
+
+  beforeAll(async () => {
+    app = await buildApp();
+    token = app.jwt.sign({ userId: VALID_USER_ID, roleId: VALID_ROLE_ID });
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSiteAccessMock();
+    resetFleetScopeMock();
+    heldPayments.read = false;
+    setMockUserSiteIds([]);
+    setMockUserAccess(VALID_USER_ID, { kind: 'fleets', fleetIds: [VALID_FLEET_ID] });
+  });
+  afterAll(() => {
+    heldPayments.read = true;
+  });
+
+  it('reads a session of its fleet without the cost when it lacks payments:read', async () => {
+    mockFleetService.getFleetSession.mockResolvedValue(view);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/sessions/${SESSION_ID}`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(view);
+    expect(mockFleetService.getFleetSession).toHaveBeenCalledWith(
+      VALID_FLEET_ID,
+      SESSION_ID,
+      { kind: 'fleets', fleetIds: [VALID_FLEET_ID], paymentsRead: false },
+      false,
+    );
+  });
+
+  it('answers 404 SESSION_NOT_FOUND for a session outside its fleet session list', async () => {
+    mockFleetService.getFleetSession.mockResolvedValue(null);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/sessions/${SESSION_ID}`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('SESSION_NOT_FOUND');
+  });
+
+  it('answers 404 FLEET_NOT_FOUND for a session of another fleet', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/flt_000000000099/sessions/${SESSION_ID}`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('FLEET_NOT_FOUND');
+    expect(mockFleetService.getFleetSession).not.toHaveBeenCalled();
+  });
+
+  it('passes the fleet reader to the vehicle list', async () => {
+    mockFleetService.getFleetVehicles.mockResolvedValue({ data: [], total: 0 });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/${VALID_FLEET_ID}/vehicles`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockFleetService.getFleetVehicles).toHaveBeenCalledWith(
+      VALID_FLEET_ID,
+      1,
+      expect.any(Number),
+      expect.any(Object),
+      { kind: 'fleets', fleetIds: [VALID_FLEET_ID], paymentsRead: false },
+    );
   });
 });

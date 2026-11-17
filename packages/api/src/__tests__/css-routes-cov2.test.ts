@@ -21,6 +21,7 @@ function makeChain() {
     'select',
     'from',
     'where',
+    'for',
     'orderBy',
     'limit',
     'offset',
@@ -420,6 +421,58 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
     });
 
+    it('refuses a model or serial number change of a station that reported them', async () => {
+      setupDbResults(
+        [{ id: 'css_1', targetUrl: 'ws://localhost:3003', enabled: true }],
+        [
+          {
+            id: 'cs_1',
+            ocppProtocol: 'ocpp2.1',
+            model: 'Booted',
+            serialNumber: 'SN-1',
+            modelReportedAt: '2026-11-01T00:00:00.000Z',
+            serialNumberReportedAt: '2026-11-01T00:00:00.000Z',
+            firmwareVersion: '1.0',
+          },
+        ],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/css/stations/SIM-1',
+        headers: headers(),
+        payload: { serialNumber: 'SN-OTHER' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({
+        code: 'STATION_REPORTED_FIELD_LOCKED',
+        field: 'serialNumber',
+      });
+      expect(setCalls()).toHaveLength(0);
+    });
+
+    it('refuses the change when a boot reported the model after the first check (locked row)', async () => {
+      const unreported = {
+        model: null,
+        serialNumber: null,
+        modelReportedAt: null,
+        serialNumberReportedAt: null,
+      };
+      setupDbResults(
+        [{ id: 'css_1', targetUrl: 'ws://localhost:3003', enabled: true }],
+        [{ id: 'cs_1', ocppProtocol: 'ocpp2.1', firmwareVersion: '1.0', ...unreported }],
+        [{ ...unreported, model: 'Booted', modelReportedAt: '2026-11-01T00:00:00.000Z' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/css/stations/SIM-1',
+        headers: headers(),
+        payload: { model: 'Other' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: 'STATION_REPORTED_FIELD_LOCKED', field: 'model' });
+      expect(setCalls()).toHaveLength(0);
+    });
+
     it('moves a simulator station to OCPP 2.0.1 and refuses an unknown protocol', async () => {
       setupDbResults(
         [{ id: 'css_1', targetUrl: 'ws://localhost:3003', enabled: true }],
@@ -454,8 +507,8 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
     });
 
     it('routes protocol fields to charging_stations, credentials to the security service and the rest to css_stations', async () => {
-      // existing lookup, paired charging_stations lookup, charging_stations update,
-      // css_stations update returning
+      // existing lookup, paired charging_stations lookup, the locked reported
+      // fields, charging_stations update, css_stations update returning
       mockAuditStationChange.mockClear();
       setupDbResults(
         [{ id: 'css_1', targetUrl: 'ws://localhost:3003', enabled: true }],
@@ -468,6 +521,7 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
             firmwareVersion: '1.0',
           },
         ],
+        [{ model: 'M1', serialNumber: null, modelReportedAt: null, serialNumberReportedAt: null }],
         [],
         [{ ...STATION_ROW, password: 'pw-1234567890abcd', enabled: false }],
       );

@@ -350,6 +350,15 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // Member invoices: money and personal data, never through the assistant.
   createMemberInvoice: N,
   createMemberInvoiceBatch: N,
+  // Fleet RFID cards: billed to the fleet account, never through the assistant.
+  listFleetCards: N,
+  listFleetCardHistory: N,
+  importFleetCards: N,
+  // Fleet users are company-wide accounts, read on the fleet page only.
+  listFleetManagers: N,
+  createFleetCard: N,
+  updateFleetCard: N,
+  deactivateFleetCard: N,
   // Moves sessions between the fleet and member invoices: billing, never through the assistant.
   moveFleetBillingRecipient: N,
   deleteFleet: W,
@@ -357,6 +366,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   getFleetCreditLimit: R,
   getFleetEnergyHistory: R,
   getFleetMetrics: R,
+  getFleetMetricsSummary: R,
   getFleetNeighbors: N,
   getFleetPricingGroup: R,
   listAvailableFleetVehicles: R,
@@ -364,6 +374,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   listFleetInvoices: R,
   listFleetReservations: R,
   listFleetSessions: R,
+  getFleetSession: R,
+  exportFleetSessions: N,
   listFleetStations: R,
   listFleetVehicles: R,
   listFleets: R,
@@ -1137,8 +1149,10 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   updateSupportCase: W,
   // Tokens
   bulkSetTokensActive: W,
-  // A prepaid balance is stored value that pays for charging.
-  createToken: write({ omit: ['prepaidBalanceCents'] }),
+  // A prepaid balance is stored value that pays for charging, a fleet card's
+  // monthly limit decides how much it may spend, and a card's fleet decides
+  // whose account its sessions charge.
+  createToken: write({ omit: ['prepaidBalanceCents', 'monthlyLimitCents', 'fleetId'] }),
   deleteToken: W,
   exportTokens: N,
   getToken: R,
@@ -1148,7 +1162,9 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   listAuthorizeAttempts: R,
   listTokenSessions: R,
   listTokens: R,
-  updateToken: write({ omit: ['prepaidBalanceCents', 'expectedPrepaidBalanceCents'] }),
+  updateToken: write({
+    omit: ['prepaidBalanceCents', 'expectedPrepaidBalanceCents', 'monthlyLimitCents', 'fleetId'],
+  }),
   // Transactions
   getTransactionById: R,
   getTransactionsBySession: R,
@@ -1390,6 +1406,7 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   getFleetCreditLimit: true,
   getFleetEnergyHistory: true,
   getFleetMetrics: true,
+  getFleetMetricsSummary: true,
   getFleetPricingGroup: true,
   listAvailableFleetVehicles: true,
   listFleetDrivers: true,
@@ -1397,6 +1414,7 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   listFleetReservations: true,
   listFleets: true,
   listFleetSessions: true,
+  getFleetSession: true,
   listFleetStations: true,
   listFleetVehicles: true,
   previewFleetInvoice: true,

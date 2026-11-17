@@ -90,6 +90,10 @@ export async function applyDriverDeactivation(
     ctx.log.warn({ err, driverId }, 'Removing the passkeys of a deactivated driver failed');
   }
 
+  // The fleet cards go back to their fleets first (suspended, no revocation),
+  // so the fleet can hand them out again; the bulk step below would block them.
+  await tokenService.releaseMemberFleetCards({ driverId }, tokenActor(ctx.actor));
+
   const activeTokens = await db
     .select({ id: driverTokens.id })
     .from(driverTokens)

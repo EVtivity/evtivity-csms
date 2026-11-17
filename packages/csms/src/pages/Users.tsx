@@ -28,6 +28,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { useListSort } from '@/hooks/use-list-sort';
 import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import { api } from '@/lib/api';
+import { useHasAllSiteAccess } from '@/lib/auth';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import {
@@ -45,6 +46,7 @@ import {
 } from '@/components/FactorProofField';
 import { useMfaStatus } from '@/components/profile/mfa-status';
 import { getErrorMessage } from '@/lib/error-message';
+import { roleLabel } from '@/lib/role-label';
 
 interface User {
   id: string;
@@ -54,6 +56,11 @@ interface User {
   roleId: string;
   hasAllSiteAccess: boolean;
   siteCount: number | null;
+  /** `fleets` for a fleet user; `fleetCount` is then its fleet count. */
+  accessScope?: 'sites' | 'fleets';
+  fleetCount?: number | null;
+  /** The names of a fleet user's fleets, by name. */
+  fleetNames?: string[] | null;
   isActive: boolean;
   mustResetPassword: boolean;
   lastLoginAt: string | null;
@@ -69,12 +76,30 @@ interface Role {
 /** The sort keys of `GET /v1/users` (`userListSort` in the API). */
 const USER_SORT_KEYS = ['name', 'email', 'role', 'status', 'lastLoginAt', 'createdAt'] as const;
 
+/** A fleet user's fleets by name on one line, all of them in the title; the count without names. */
+function FleetNamesCell({ user }: { user: User }): React.JSX.Element {
+  const { t } = useTranslation();
+  const names = user.fleetNames ?? [];
+  if (names.length === 0) {
+    return <>{t('users.access.fleetsCount', { count: user.fleetCount ?? 0 })}</>;
+  }
+  const text = names.join(', ');
+  return (
+    <span className="block truncate" title={text}>
+      {text}
+    </span>
+  );
+}
+
 export function UsersPage(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [filterRoleId, setFilterRoleId] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterAccess, setFilterAccess] = useState('');
+  // A site-restricted user never sees a fleet user, so it gets no access filter.
+  const showAccessFilter = useHasAllSiteAccess();
   const listSort = useListSort(USER_SORT_KEYS);
 
   const {
@@ -89,6 +114,7 @@ export function UsersPage(): React.JSX.Element {
   } = usePaginatedQuery<User>('users', '/v1/users', {
     roleId: filterRoleId,
     status: filterStatus,
+    accessScope: filterAccess,
     ...listSort.params,
   });
 
@@ -136,7 +162,8 @@ export function UsersPage(): React.JSX.Element {
   }
 
   function getRoleName(id: string): string {
-    return roles?.find((r) => r.id === id)?.name ?? id;
+    const name = roles?.find((r) => r.id === id)?.name;
+    return name != null ? roleLabel(name, t) : id;
   }
 
   return (
@@ -177,7 +204,7 @@ export function UsersPage(): React.JSX.Element {
                 <option value="">{t('users.allRoles')}</option>
                 {roles?.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.name}
+                    {roleLabel(r.name, t)}
                   </option>
                 ))}
               </Select>
@@ -196,9 +223,28 @@ export function UsersPage(): React.JSX.Element {
                 <option value="inactive">{t('common.inactive')}</option>
               </Select>
             </div>
+            {showAccessFilter && (
+              <div className="space-y-2">
+                <Label className="leading-6">{t('users.access.label')}</Label>
+                <Select
+                  aria-label={t('users.access.label')}
+                  value={filterAccess}
+                  onChange={(e) => {
+                    setFilterAccess(e.target.value);
+                  }}
+                >
+                  <option value="">{t('users.access.allScopes')}</option>
+                  <option value="sites">{t('users.access.sites')}</option>
+                  <option value="fleets">{t('users.access.fleets')}</option>
+                </Select>
+              </div>
+            )}
           </>
         );
-        const activeFilterCount = (filterRoleId !== '' ? 1 : 0) + (filterStatus !== '' ? 1 : 0);
+        const activeFilterCount =
+          (filterRoleId !== '' ? 1 : 0) +
+          (filterStatus !== '' ? 1 : 0) +
+          (filterAccess !== '' ? 1 : 0);
         return (
           <Card>
             <CardContent className="p-4">
@@ -209,13 +255,16 @@ export function UsersPage(): React.JSX.Element {
                   onClearAll={() => {
                     setFilterRoleId('');
                     setFilterStatus('');
+                    setFilterAccess('');
                   }}
                 >
                   {filters}
                 </FilterPopover>
               </div>
               <div className="hidden items-end gap-4 md:flex">
-                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+                <div
+                  className={`grid flex-1 grid-cols-1 gap-4 ${showAccessFilter ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}
+                >
                   <div className="space-y-2">
                     <Label className="leading-6">{t('users.search')}</Label>
                     {searchInput}
@@ -242,7 +291,7 @@ export function UsersPage(): React.JSX.Element {
                 <SortableTableHead sortKey="role" sort={listSort}>
                   {t('users.role')}
                 </SortableTableHead>
-                <TableHead>{t('users.siteAccessColumn')}</TableHead>
+                <TableHead>{t('users.access.label')}</TableHead>
                 <SortableTableHead sortKey="status" sort={listSort}>
                   {t('common.status')}
                 </SortableTableHead>
@@ -296,10 +345,14 @@ export function UsersPage(): React.JSX.Element {
                   <TableCell>
                     <Badge variant="secondary">{getRoleName(user.roleId)}</Badge>
                   </TableCell>
-                  <TableCell className="text-sm">
-                    {user.hasAllSiteAccess
-                      ? t('users.allSites')
-                      : t('users.sitesCount', { count: user.siteCount ?? 0 })}
+                  <TableCell className="max-w-64 text-sm">
+                    {user.accessScope === 'fleets' ? (
+                      <FleetNamesCell user={user} />
+                    ) : user.hasAllSiteAccess ? (
+                      t('users.allSites')
+                    ) : (
+                      t('users.sitesCount', { count: user.siteCount ?? 0 })
+                    )}
                   </TableCell>
                   <TableCell>
                     {user.mustResetPassword ? (

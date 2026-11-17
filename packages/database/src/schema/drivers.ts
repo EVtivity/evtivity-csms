@@ -225,10 +225,11 @@ export const driverTokens = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     revokedReason: varchar('revoked_reason', { length: 100 }),
-    // Who deactivated the token: 'operator', 'driver' or 'system'. Null while
-    // active. A driver may reactivate only a token the driver deactivated.
+    // Who deactivated the token: 'operator', 'driver', 'system' or 'fleet' (a fleet
+    // user). Null while active. A driver may reactivate only a token the driver
+    // deactivated.
     deactivatedBy: varchar('deactivated_by', { length: 10 }).$type<
-      'operator' | 'driver' | 'system'
+      'operator' | 'driver' | 'system' | 'fleet'
     >(),
     // Prepaid credit in cents of the company currency (OCPP 2.1 C17). Null
     // means the token is not prepaid. Zero or less is answered NoCredit.
@@ -237,6 +238,12 @@ export const driverTokens = pgTable(
     // vehicle of the token's driver; the session started with the card charges
     // that vehicle (route-aware charging).
     vehicleId: text('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
+    // The fleet that owns this card (a fleet RFID card), null for a driver's own card.
+    // A fleet that still owns cards cannot be deleted.
+    fleetId: text('fleet_id').references(() => fleets.id, { onDelete: 'restrict' }),
+    // The most a fleet card may cost in one calendar month of the system
+    // timezone, in cents of the company currency. Null means no limit.
+    monthlyLimitCents: integer('monthly_limit_cents'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -245,10 +252,17 @@ export const driverTokens = pgTable(
     index('idx_driver_tokens_driver_id').on(table.driverId),
     index('idx_driver_tokens_expires_at').on(table.expiresAt),
     index('idx_driver_tokens_vehicle_id').on(table.vehicleId),
+    index('idx_driver_tokens_fleet_id')
+      .on(table.fleetId)
+      .where(sql`${table.fleetId} IS NOT NULL`),
     uniqueIndex('uq_driver_tokens_id_token_type').on(table.idToken, table.tokenType),
     check(
       'driver_tokens_deactivated_by_check',
-      sql`${table.deactivatedBy} IS NULL OR ${table.deactivatedBy} IN ('operator', 'driver', 'system')`,
+      sql`${table.deactivatedBy} IS NULL OR ${table.deactivatedBy} IN ('operator', 'driver', 'system', 'fleet')`,
+    ),
+    check(
+      'driver_tokens_monthly_limit_check',
+      sql`${table.monthlyLimitCents} IS NULL OR ${table.monthlyLimitCents} > 0`,
     ),
   ],
 );
@@ -524,6 +538,30 @@ export const fleetCreditLimitNotices = pgTable(
       columns: [table.fleetId, table.periodStart, table.kind],
     }),
     check('fleet_credit_limit_notices_kind_check', sql`${table.kind} IN ('warning', 'reached')`),
+  ],
+);
+
+/**
+ * One row per fleet RFID card, calendar month (system timezone) and monthly
+ * limit: the claim that sends the member holding the card
+ * token.MonthlyLimitReached once per month and limit (a raised limit that is
+ * reached again notifies again).
+ */
+export const cardMonthlyLimitNotices = pgTable(
+  'card_monthly_limit_notices',
+  {
+    tokenId: text('token_id')
+      .notNull()
+      .references(() => driverTokens.id, { onDelete: 'cascade' }),
+    periodStart: date('period_start').notNull(),
+    limitCents: integer('limit_cents').notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'card_monthly_limit_notices_pkey',
+      columns: [table.tokenId, table.periodStart, table.limitCents],
+    }),
   ],
 );
 

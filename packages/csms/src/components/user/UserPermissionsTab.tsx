@@ -10,6 +10,7 @@ import { SaveButton } from '@/components/save-button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { EmptyState } from '@/components/ui/content-state';
 import { PermissionEditor } from '@/components/PermissionEditor';
+import { FLEET_USER_PERMISSIONS } from '@evtivity/lib/permissions';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import {
@@ -25,11 +26,14 @@ export interface UserPermissionsTabProps {
   userId: string;
   /** False when the user holds permissions the operator lacks: the API refuses the change. */
   canEdit: boolean;
+  /** A fleet user: only the fleet user permissions are offered. */
+  fleetUser?: boolean;
 }
 
 export function UserPermissionsTab({
   userId,
   canEdit,
+  fleetUser = false,
 }: UserPermissionsTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const savedToast = useSavedToast();
@@ -114,6 +118,7 @@ export function UserPermissionsTab({
             value={editingPermissions ? editPermissions : userPermissions}
             onChange={setEditPermissions}
             disabled={!editingPermissions}
+            allowed={fleetUser ? FLEET_USER_PERMISSIONS : undefined}
           />
           {needsProof && (
             <FactorProofField

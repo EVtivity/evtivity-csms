@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { readBillTo } from '../fleet-invoice';
+import { groupLinesByDriver, readBillTo } from '../fleet-invoice';
 
 describe('readBillTo', () => {
   it('reads the fleet bill-to block with its tax ID', () => {
@@ -49,5 +49,26 @@ describe('readBillTo', () => {
   it('returns null on a driver invoice', () => {
     expect(readBillTo(null)).toBeNull();
     expect(readBillTo({ street: 'x' })).toBeNull();
+  });
+});
+
+describe('groupLinesByDriver', () => {
+  const lineOf = (totalCents: number, metadata: Record<string, unknown>) => ({
+    totalCents,
+    metadata,
+  });
+
+  it('keeps the fleet RFID card sessions in their own group, apart from a deleted driver', () => {
+    const groups = groupLinesByDriver([
+      lineOf(100, { driverId: 'drv_a', driverName: 'Anna Berg' }),
+      lineOf(200, { driverName: '', fleetCard: true }),
+      lineOf(300, { driverName: '' }),
+      lineOf(400, { driverName: '', fleetCard: true }),
+    ]);
+    expect(groups.map((g) => [g.driverId, g.fleetCards, g.items.length, g.netCents])).toEqual([
+      ['drv_a', false, 1, 100],
+      [null, true, 2, 600],
+      [null, false, 1, 300],
+    ]);
   });
 });

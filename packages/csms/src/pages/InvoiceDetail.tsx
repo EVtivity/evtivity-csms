@@ -29,7 +29,7 @@ import {
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { ApiError } from '@/lib/api';
-import { useHasPermission } from '@/lib/auth';
+import { useHasPermission, useIsFleetUser } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents, formatTaxPercent } from '@/lib/formatting';
 import { describeInvoiceLine } from '@/lib/invoice-lines';
@@ -140,6 +140,8 @@ export function InvoiceDetail(): React.JSX.Element {
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('payments:write');
   const canReadAudit = useHasPermission('audit:read');
+  // A fleet user reads its fleet invoices only: no session, driver or invoice list pages.
+  const isFleetUser = useIsFleetUser();
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyPanelId = useId();
   const [voidOpen, setVoidOpen] = useState(false);
@@ -329,13 +331,21 @@ export function InvoiceDetail(): React.JSX.Element {
         <TableCell>{describeInvoiceLine(item, t, i18n.language)}</TableCell>
         <TableCell>
           {item.sessionId != null ? (
-            <Link to={`/sessions/${item.sessionId}`} className="text-link hover:underline">
-              {sessionLabel(
+            isFleetUser ? (
+              sessionLabel(
                 t,
                 { stationOcppId: item.sessionStationOcppId, startedAt: item.sessionStartedAt },
                 timezone,
-              )}
-            </Link>
+              )
+            ) : (
+              <Link to={`/sessions/${item.sessionId}`} className="text-link hover:underline">
+                {sessionLabel(
+                  t,
+                  { stationOcppId: item.sessionStationOcppId, startedAt: item.sessionStartedAt },
+                  timezone,
+                )}
+              </Link>
+            )
           ) : (
             '--'
           )}
@@ -382,7 +392,9 @@ export function InvoiceDetail(): React.JSX.Element {
             )}
           </Badge>
           <div className="print-hidden ml-auto">
-            <EntityNavButtons resource="invoices" basePath="/invoices" currentId={id} />
+            {!isFleetUser && (
+              <EntityNavButtons resource="invoices" basePath="/invoices" currentId={id} />
+            )}
           </div>
         </div>
         <div
@@ -752,13 +764,18 @@ export function InvoiceDetail(): React.JSX.Element {
                 <TableBody>
                   {driverGroups != null
                     ? driverGroups.map((group) => {
-                        const name =
-                          group.driverName !== '' ? group.driverName : t('invoices.unknownDriver');
+                        const name = group.fleetCards
+                          ? t('invoices.fleetCards')
+                          : group.driverName !== ''
+                            ? group.driverName
+                            : t('invoices.unknownDriver');
                         return (
-                          <Fragment key={group.driverId ?? 'unknown'}>
+                          <Fragment
+                            key={group.driverId ?? (group.fleetCards ? 'fleet-cards' : 'unknown')}
+                          >
                             <TableRow data-testid="invoice-driver-group">
                               <TableCell colSpan={6} className="font-semibold">
-                                {group.driverId != null ? (
+                                {group.driverId != null && !isFleetUser ? (
                                   <Link
                                     to={`/drivers/${group.driverId}`}
                                     className="text-link hover:underline"

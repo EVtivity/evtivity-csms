@@ -91,6 +91,9 @@ export const DRIVER_TOKEN_EVENTS = [
   'token.Removed',
   'token.Deactivated',
   'token.Reactivated',
+  'token.FleetCardAssigned',
+  'token.FleetCardTakenBack',
+  'token.MonthlyLimitReached',
 ] as const;
 
 export const DRIVER_MFA_EVENTS = ['mfa.VerificationCode'] as const;
@@ -132,6 +135,7 @@ export const MFA_EVENT_TYPES = DRIVER_MFA_EVENTS;
 // System/operator-facing events: notifications sent to operators/admins
 export const OPERATOR_ACCOUNT_EVENTS = [
   'operator.UserCreated',
+  'operator.FleetManagerInvite',
   'operator.ForgotPassword',
   'operator.PasswordChanged',
 ] as const;
@@ -156,6 +160,13 @@ export const FLEET_BILLING_SYSTEM_EVENTS = [
   'fleet.CreditLimitWarning',
   'fleet.CreditLimitReached',
   'fleet.InvoiceRunFailed',
+] as const;
+
+// Fleet manager notices: sent to a fleet's fleet users who may read its payments
+export const FLEET_MANAGER_EVENTS = [
+  'fleet.ManagerCreditLimitWarning',
+  'fleet.ManagerCreditLimitReached',
+  'fleet.ManagerInvoiceIssued',
 ] as const;
 
 // Depot departure alerts: sent to the operators who manage fleets at the depot
@@ -190,6 +201,7 @@ export const OPERATOR_EVENT_TYPES = [
   ...OPERATOR_PAYMENT_TERMINAL_EVENTS,
   ...SITE_HOST_EVENTS,
   ...FLEET_BILLING_SYSTEM_EVENTS,
+  ...FLEET_MANAGER_EVENTS,
   ...FLEET_DEPARTURE_EVENTS,
   ...FLEET_INVOICE_EVENTS,
   ...OPERATOR_AI_EVENTS,
@@ -1042,6 +1054,35 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
     { name: 'reactivatedBy', description: 'Who reactivated (driver, operator, system)' },
   ],
+  'token.FleetCardAssigned': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
+    { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
+    { name: 'label', description: 'RFID card label the fleet gave it (empty when none)' },
+    { name: 'fleetName', description: 'Fleet that owns the RFID card' },
+  ],
+  'token.FleetCardTakenBack': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
+    { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
+    { name: 'label', description: 'RFID card label the fleet gave it (empty when none)' },
+    { name: 'fleetName', description: 'Fleet that owns the RFID card' },
+  ],
+  'token.MonthlyLimitReached': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
+    { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
+    { name: 'label', description: 'RFID card label the fleet gave it (empty when none)' },
+    { name: 'fleetName', description: 'Fleet that owns the RFID card' },
+    { name: 'limitFormatted', description: 'Monthly spending limit of the RFID card' },
+    { name: 'stationId', description: 'Station where the RFID card was refused or stopped' },
+  ],
   'session.EndRequestFailed': [
     { name: 'firstName', description: 'Operator first name' },
     { name: 'lastName', description: 'Operator last name' },
@@ -1101,6 +1142,54 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'limitCents', description: 'Credit limit in cents' },
     { name: 'warningPercent', description: 'Warning percent of the credit limit (e.g. 80)' },
     { name: 'currency', description: 'Currency code' },
+  ],
+  'fleet.ManagerCreditLimitWarning': [
+    { name: 'firstName', description: 'Fleet user first name' },
+    { name: 'lastName', description: 'Fleet user last name' },
+    { name: 'fleetName', description: 'Fleet name' },
+    {
+      name: 'exposureFormatted',
+      description:
+        'Open amount on account (unbilled, invoiced unpaid and running sessions) with currency',
+    },
+    { name: 'limitFormatted', description: 'Credit limit with currency' },
+    { name: 'exposureCents', description: 'Open amount on account in cents' },
+    { name: 'limitCents', description: 'Credit limit in cents' },
+    { name: 'warningPercent', description: 'Warning percent of the credit limit (e.g. 80)' },
+    { name: 'currency', description: 'Currency code' },
+  ],
+  'fleet.ManagerCreditLimitReached': [
+    { name: 'firstName', description: 'Fleet user first name' },
+    { name: 'lastName', description: 'Fleet user last name' },
+    { name: 'fleetName', description: 'Fleet name' },
+    {
+      name: 'exposureFormatted',
+      description:
+        'Open amount on account (unbilled, invoiced unpaid and running sessions) with currency',
+    },
+    { name: 'limitFormatted', description: 'Credit limit with currency' },
+    { name: 'exposureCents', description: 'Open amount on account in cents' },
+    { name: 'limitCents', description: 'Credit limit in cents' },
+    { name: 'warningPercent', description: 'Warning percent of the credit limit (e.g. 80)' },
+    { name: 'currency', description: 'Currency code' },
+  ],
+  'fleet.ManagerInvoiceIssued': [
+    { name: 'firstName', description: 'Fleet user first name' },
+    { name: 'lastName', description: 'Fleet user last name' },
+    { name: 'fleetName', description: 'Fleet name' },
+    { name: 'invoiceNumber', description: 'Invoice number (INV-YYYYMM-NNNN)' },
+    {
+      name: 'periodLabel',
+      description: 'Billed month in the fleet invoice language (e.g. September 2026)',
+    },
+    { name: 'sessionCount', description: 'Number of charging sessions on the invoice' },
+    { name: 'issuedAt', description: 'Issued timestamp' },
+    { name: 'dueAt', description: 'Due timestamp' },
+    { name: 'total', description: 'Invoice total with currency (e.g. $412.50)' },
+    { name: 'totalCents', description: 'Invoice total in cents' },
+    { name: 'currency', description: 'Currency code' },
+    { name: 'invoiceUrl', description: 'Link to the invoice in the CSMS' },
+    { name: 'companyName', description: 'Company name' },
   ],
   'invoice.FleetInvoice': [
     { name: 'fleetName', description: 'Fleet name' },
@@ -1290,6 +1379,14 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'lastName', description: 'User last name' },
     { name: 'email', description: 'User email address' },
     { name: 'setPasswordUrl', description: 'URL to set the account password (expires in 24h)' },
+  ],
+  'operator.FleetManagerInvite': [
+    { name: 'firstName', description: 'User first name' },
+    { name: 'lastName', description: 'User last name' },
+    { name: 'email', description: 'User email address' },
+    { name: 'setPasswordUrl', description: 'URL to set the account password (expires in 24h)' },
+    { name: 'fleetNames', description: 'Names of the fleets the user manages' },
+    { name: 'fleetCount', description: 'Number of fleets the user manages' },
   ],
   'operator.ForgotPassword': [
     { name: 'firstName', description: 'User first name' },

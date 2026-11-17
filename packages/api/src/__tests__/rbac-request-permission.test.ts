@@ -8,6 +8,10 @@ const { permissionRows } = vi.hoisted(() => ({
   permissionRows: { rows: [] as Array<{ permission: string }> },
 }));
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('@evtivity/database', () => {
   const chain = {
     from: () => chain,

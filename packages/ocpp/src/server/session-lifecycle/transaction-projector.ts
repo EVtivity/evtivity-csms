@@ -155,6 +155,8 @@ interface StartedContext {
   tokenLookup: {
     id: string;
     driverId: string | null;
+    /** The fleet of a fleet card no member holds (billed on account to it); else null. */
+    fleetCardFleetId: string | null;
     /** The credit a prepaid token's session may spend (its cost ceiling); null when not prepaid. */
     prepaidCreditCents: number | null;
   } | null;
@@ -717,11 +719,7 @@ export class TransactionProjector {
     let guestHasHold = false;
     let guestEmail: string | null = null;
     let guestLanguage: string | null = null;
-    let tokenLookup: {
-      id: string;
-      driverId: string | null;
-      prepaidCreditCents: number | null;
-    } | null = null;
+    let tokenLookup: StartedContext['tokenLookup'] = null;
     // The tariff snapshotted on the session (null: no tariff applies).
     let sessionTariff: TariffPriceSnapshot | null = null;
 
@@ -773,6 +771,7 @@ export class TransactionProjector {
           tokenLookup = await this.linkDriverToken(sessionId, {
             id: r.id,
             driverId: r.driverId,
+            fleetId: r.fleetId,
             prepaid: r.prepaidBalanceCents != null,
           });
         }
@@ -840,6 +839,8 @@ export class TransactionProjector {
       // tariff), so a Started replayed from an offline queue is priced from
       // its own start (finding B5).
       const tariffDriverUuid = driverUuid;
+      // A fleet card no member holds is priced by its fleet's pricing group.
+      const tariffFleetUuid = driverUuid == null ? (tokenLookup?.fleetCardFleetId ?? null) : null;
       const tariffAt = eventTimeAtMostNow(timestamp);
       // The charging kind from the session's EVSE (or the named connector of
       // a mixed EVSE); unknown resolves the Both tariffs only (D-E).
@@ -848,7 +849,13 @@ export class TransactionProjector {
       );
       const tariff = await tx.attempt.memo('started:tariff', () =>
         resolveStationTariff(
-          { stationUuid, driverUuid: tariffDriverUuid, at: tariffAt, chargingKind },
+          {
+            stationUuid,
+            driverUuid: tariffDriverUuid,
+            fleetUuid: tariffFleetUuid,
+            at: tariffAt,
+            chargingKind,
+          },
           this.deps.sql,
         ),
       );
@@ -938,18 +945,20 @@ export class TransactionProjector {
    */
   private async linkDriverToken(
     sessionId: string,
-    token: { id: string; driverId: string | null; prepaid: boolean },
+    token: { id: string; driverId: string | null; fleetId: string | null; prepaid: boolean },
   ): Promise<NonNullable<StartedContext['tokenLookup']>> {
-    if (token.prepaid) {
+    // A fleet card is billed to its fleet, whoever holds it, never from a balance.
+    const fleetCardFleetId = token.fleetId;
+    if (token.prepaid && fleetCardFleetId == null) {
       const prepaidCreditCents = await this.linkPrepaidToken(sessionId, token.id);
-      return { id: token.id, driverId: token.driverId, prepaidCreditCents };
+      return { id: token.id, driverId: token.driverId, fleetCardFleetId, prepaidCreditCents };
     }
     await this.deps.sql`
       UPDATE charging_sessions
       SET token_id = ${token.id}, updated_at = now()
       WHERE id = ${sessionId}
     `;
-    return { id: token.id, driverId: token.driverId, prepaidCreditCents: null };
+    return { id: token.id, driverId: token.driverId, fleetCardFleetId, prepaidCreditCents: null };
   }
 
   /**
@@ -1169,6 +1178,7 @@ export class TransactionProjector {
         SELECT cs.reservation_id, cs.started_at,
                cs.driver_id AS remote_start_driver_id,
                dt.id AS token_id, dt.driver_id AS token_driver_id,
+               dt.fleet_id AS token_fleet_id,
                dt.prepaid_balance_cents IS NOT NULL AS prepaid,
                -- A token one connected partner owns at this station starts a
                -- roaming session; the same rule as isStartableOcpiToken
@@ -1230,6 +1240,7 @@ export class TransactionProjector {
             ? {
                 id: row.token_id as string,
                 driverId: (row.token_driver_id as string | null) ?? null,
+                fleetId: (row.token_fleet_id as string | null) ?? null,
                 prepaid: row.prepaid === true,
               }
             : null,
@@ -1301,6 +1312,17 @@ export class TransactionProjector {
     );
 
     const siteId = await this.deps.lookups.resolveSiteId(stationUuid);
+    if (driverUuid == null && tokenLookup?.fleetCardFleetId != null) {
+      // A fleet card no member holds: its fleet's pricing group prices the
+      // session from its start, as for a driver linked after the start.
+      await repriceSessionForDriver(this.deps.sql, {
+        sessionId,
+        stationUuid,
+        driverUuid: null,
+        fleetUuid: tokenLookup.fleetCardFleetId,
+        basis: await getCompanyTaxBasis(),
+      });
+    }
     if (driverUuid != null) {
       // The session was snapshotted at Started without a driver: the tariff
       // of the driver (driver or fleet pricing group) prices it from its
@@ -1377,6 +1399,8 @@ export class TransactionProjector {
           guestHasHold: guest?.hasHold ?? false,
           guestEmail: guest?.email ?? null,
           guestLanguage: guest?.language ?? null,
+          fleetCardFleetId: tokenLookup?.fleetCardFleetId ?? null,
+          tokenId: tokenLookup?.id ?? null,
           prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
           reserved: pending.reserved,
           sessionTariff,
@@ -1678,6 +1702,8 @@ export class TransactionProjector {
               guestHasHold,
               guestEmail,
               guestLanguage,
+              fleetCardFleetId: tokenLookup?.fleetCardFleetId ?? null,
+              tokenId: tokenLookup?.id ?? null,
               prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
               reserved: linkedReservationId != null,
               sessionTariff,

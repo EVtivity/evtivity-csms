@@ -13,7 +13,7 @@ function setupDbResults(...results: unknown[][]) {
 }
 function makeChain() {
   const chain: Record<string, unknown> = {};
-  for (const m of ['from', 'where', 'orderBy']) {
+  for (const m of ['from', 'leftJoin', 'where', 'orderBy']) {
     chain[m] = vi.fn(() => chain);
   }
   chain['then'] = (resolve?: (v: unknown) => unknown, reject?: (r: unknown) => unknown) => {
@@ -27,6 +27,7 @@ function makeChain() {
 vi.mock('@evtivity/database', () => ({
   db: { select: vi.fn(() => makeChain()) },
   driverTokens: {},
+  fleets: {},
   isDriverRfidSelfServiceEnabled: vi.fn(async () => true),
 }));
 
@@ -44,8 +45,9 @@ const { DuplicateTokenError, TokenReactivationBlockedError, PncContractTokenErro
     PncContractTokenError: class PncContractTokenError extends Error {},
   }),
 );
-const { RfidSelfServiceDisabledError } = vi.hoisted(() => ({
+const { RfidSelfServiceDisabledError, TokenManagedByFleetError } = vi.hoisted(() => ({
   RfidSelfServiceDisabledError: class RfidSelfServiceDisabledError extends Error {},
+  TokenManagedByFleetError: class TokenManagedByFleetError extends Error {},
 }));
 
 vi.mock('../services/token.service.js', () => ({
@@ -57,6 +59,7 @@ vi.mock('../services/token.service.js', () => ({
   TokenReactivationBlockedError,
   PncContractTokenError,
   RfidSelfServiceDisabledError,
+  TokenManagedByFleetError,
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -310,6 +313,67 @@ describe('Portal token routes, uncovered paths', () => {
       });
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('TOKEN_BLOCKED_BY_OPERATOR');
+    });
+  });
+
+  describe('fleet cards', () => {
+    const fleetCard = (over: Record<string, unknown> = {}) =>
+      ownToken({ fleetId: 'flt_000000000001', fleetName: 'Acme Vans', ...over });
+
+    it('GET marks a fleet card as managed by its fleet', async () => {
+      setupDbResults([fleetCard(), ownToken({ id: 'dtk_000000000002' })]);
+      const res = await app.inject({ method: 'GET', url: '/portal/tokens', headers: auth });
+      expect(res.statusCode).toBe(200);
+      const [fleet, own] = res.json();
+      expect(fleet).toMatchObject({ managedByFleet: true, fleetName: 'Acme Vans' });
+      expect(own).toMatchObject({ managedByFleet: false, fleetName: null });
+    });
+
+    it('PATCH and DELETE of a fleet card answer 403 TOKEN_MANAGED_BY_FLEET and change nothing', async () => {
+      setupDbResults([fleetCard()]);
+      let res = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: 'Mine' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('TOKEN_MANAGED_BY_FLEET');
+
+      setupDbResults([fleetCard()]);
+      res = await app.inject({
+        method: 'DELETE',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('TOKEN_MANAGED_BY_FLEET');
+      expect(updateTokenMock).not.toHaveBeenCalled();
+    });
+
+    it('answers 403 when the token service refuses a fleet card the route read as the driver own', async () => {
+      setupDbResults([ownToken()]);
+      updateTokenMock.mockRejectedValueOnce(new TokenManagedByFleetError());
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: 'Mine' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('TOKEN_MANAGED_BY_FLEET');
+    });
+
+    it('POST answers 403 when re-adding a fleet card', async () => {
+      createTokenMock.mockRejectedValueOnce(new TokenManagedByFleetError());
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/tokens',
+        headers: auth,
+        payload: { idToken: 'CARD-0001' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('TOKEN_MANAGED_BY_FLEET');
     });
   });
 

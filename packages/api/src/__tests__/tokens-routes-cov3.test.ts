@@ -13,6 +13,11 @@ const { state, svc, selectDistinctMock } = vi.hoisted(() => {
   class VehicleIdTokenInUseError extends Error {}
   class PrepaidBalanceConflictError extends Error {}
   class PrepaidBalanceExpectedError extends Error {}
+  class TokenFleetNotFoundError extends Error {}
+  class FleetCardNotBillableError extends Error {}
+  class FleetCardDriverNotMemberError extends Error {}
+  class FleetCardSiteScopeError extends Error {}
+  class FleetCardPermissionError extends Error {}
   // A plain function (not a mock) so the per-test mockReset keeps it.
   function tokenActorOf(actor: { actorUserId: string | null }) {
     return { type: 'operator', userId: actor.actorUserId };
@@ -27,6 +32,12 @@ const { state, svc, selectDistinctMock } = vi.hoisted(() => {
       VehicleIdTokenInUseError,
       PrepaidBalanceConflictError,
       PrepaidBalanceExpectedError,
+      TokenFleetNotFoundError,
+      FleetCardNotBillableError,
+      FleetCardDriverNotMemberError,
+      FleetCardSiteScopeError,
+      FleetCardPermissionError,
+      anyFleetCard: vi.fn(() => Promise.resolve(false)),
       tokenActorOf,
       listTokens: vi.fn(),
       getToken: vi.fn(),
@@ -64,7 +75,11 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
+const fleetCardsPerm = vi.hoisted(() => ({ granted: true }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    Promise.resolve(permission !== 'fleetCards:write' || fleetCardsPerm.granted),
   authorize:
     () =>
     async (
@@ -105,6 +120,10 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@evtivity/services/company-currency', () => ({ sessionCurrencySql: vi.fn() }));
 
 vi.mock('../services/token.service.js', () => svc);
+vi.mock('../lib/site-access.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/site-access.js')>()),
+  isAllSiteUser: vi.fn(() => Promise.resolve(true)),
+}));
 
 import { registerAuth } from '../plugins/auth.js';
 import { tokenRoutes } from '../routes/tokens.js';
@@ -126,6 +145,7 @@ function token(overrides: Record<string, unknown> = {}): Record<string, unknown>
     deactivatedBy: null,
     prepaidBalanceCents: null,
     vehicleId: null,
+    fleetId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -150,9 +170,98 @@ describe('token routes error mapping (cov3)', () => {
 
   beforeEach(() => {
     setupDbResults();
+    fleetCardsPerm.granted = true;
     for (const fn of Object.values(svc)) {
       if (typeof fn === 'function' && 'mockReset' in fn) fn.mockReset();
     }
+  });
+
+  describe('fleet RFID cards need fleetCards:write', () => {
+    const refused = { code: 'INSUFFICIENT_PERMISSIONS' };
+
+    it.each([
+      ['a fleet', { fleetId: 'flt_000000000001' }],
+      ['a monthly limit', { monthlyLimitCents: 5000 }],
+    ])('refuses POST /tokens with %s, before any write', async (_name, extra) => {
+      fleetCardsPerm.granted = false;
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tokens',
+        headers: auth,
+        payload: { idToken: 'RFID-1', tokenType: 'ISO14443', ...extra },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject(refused);
+      expect(svc.createToken).not.toHaveBeenCalled();
+    });
+
+    it('refuses PATCH, DELETE and bulk-active of a fleet card', async () => {
+      fleetCardsPerm.granted = false;
+      svc.anyFleetCard.mockResolvedValue(true);
+      const requests: { method: 'PATCH' | 'DELETE' | 'POST'; url: string; payload?: object }[] = [
+        { method: 'PATCH', url: `/tokens/${TOKEN_ID}`, payload: { label: 'Van 1' } },
+        { method: 'DELETE', url: `/tokens/${TOKEN_ID}` },
+        {
+          method: 'POST',
+          url: '/tokens/bulk-active',
+          payload: { ids: [TOKEN_ID], isActive: false },
+        },
+      ];
+      for (const request of requests) {
+        const res = await app.inject({ ...request, headers: auth });
+        expect(res.statusCode).toBe(403);
+        expect(res.json()).toMatchObject(refused);
+      }
+      expect(svc.updateToken).not.toHaveBeenCalled();
+      expect(svc.deleteToken).not.toHaveBeenCalled();
+      expect(svc.bulkSetActive).not.toHaveBeenCalled();
+    });
+
+    it('refuses giving a card a fleet or a monthly limit through PATCH', async () => {
+      fleetCardsPerm.granted = false;
+      svc.anyFleetCard.mockResolvedValue(false);
+      for (const payload of [{ fleetId: 'flt_000000000001' }, { monthlyLimitCents: 100 }]) {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/tokens/${TOKEN_ID}`,
+          headers: auth,
+          payload,
+        });
+        expect(res.statusCode).toBe(403);
+      }
+      expect(svc.updateToken).not.toHaveBeenCalled();
+    });
+
+    it('keeps an ordinary edit of a card without a fleet on drivers:write, telling the service', async () => {
+      fleetCardsPerm.granted = false;
+      svc.anyFleetCard.mockResolvedValue(false);
+      svc.updateToken.mockResolvedValue(token({ label: 'Spare' }));
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: 'Spare' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(svc.updateToken).toHaveBeenCalledWith(
+        TOKEN_ID,
+        { label: 'Spare' },
+        expect.anything(),
+        { fleetCardsWrite: false },
+      );
+    });
+
+    it('maps the token service refusal to 403 INSUFFICIENT_PERMISSIONS', async () => {
+      svc.createToken.mockRejectedValueOnce(new svc.FleetCardPermissionError());
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tokens',
+        headers: auth,
+        payload: { idToken: 'RFID-1', tokenType: 'ISO14443' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject(refused);
+    });
   });
 
   const pnc = (): Error => new svc.PncContractTokenError();
@@ -177,6 +286,7 @@ describe('token routes error mapping (cov3)', () => {
         [TOKEN_ID],
         true,
         expect.objectContaining({ userId: USER_ID }),
+        { fleetCardsWrite: true },
       );
     },
   );
@@ -199,6 +309,9 @@ describe('token routes error mapping (cov3)', () => {
     [pnc, 409, 'PNC_CONTRACT_TOKEN_LOCKED'],
     [() => new svc.VehicleIdTokenInUseError(), 409, 'VEHICLE_ID_IN_USE'],
     [() => new svc.DuplicateTokenError(), 409, 'TOKEN_DUPLICATE'],
+    [() => new svc.TokenFleetNotFoundError(), 404, 'FLEET_NOT_FOUND'],
+    [() => new svc.FleetCardNotBillableError(), 409, 'FLEET_CARD_NOT_BILLABLE'],
+    [() => new svc.FleetCardDriverNotMemberError(), 400, 'FLEET_CARD_DRIVER_NOT_MEMBER'],
   ] as const)('POST /tokens maps a service error (case %#)', async (make, status, code) => {
     svc.createToken.mockRejectedValueOnce(make());
     const res = await app.inject({
@@ -230,6 +343,9 @@ describe('token routes error mapping (cov3)', () => {
     [() => new svc.PrepaidBalanceConflictError(), 409, 'PREPAID_BALANCE_CONFLICT'],
     [() => new svc.VehicleIdTokenInUseError(), 409, 'VEHICLE_ID_IN_USE'],
     [() => new svc.DuplicateTokenError(), 409, 'TOKEN_DUPLICATE'],
+    [() => new svc.TokenFleetNotFoundError(), 404, 'FLEET_NOT_FOUND'],
+    [() => new svc.FleetCardNotBillableError(), 409, 'FLEET_CARD_NOT_BILLABLE'],
+    [() => new svc.FleetCardDriverNotMemberError(), 400, 'FLEET_CARD_DRIVER_NOT_MEMBER'],
   ] as const)('PATCH /tokens/:id maps a service error (case %#)', async (make, status, code) => {
     svc.updateToken.mockRejectedValueOnce(make());
     const res = await app.inject({
@@ -244,6 +360,7 @@ describe('token routes error mapping (cov3)', () => {
       TOKEN_ID,
       expect.objectContaining({ label: 'Pool card' }),
       expect.objectContaining({ userId: USER_ID }),
+      { fleetCardsWrite: true },
     );
   });
 

@@ -118,13 +118,17 @@ describe('loadStationPricing', () => {
       expect(calls[0]?.values).toEqual([
         'drv_1',
         'drv_1',
+        // No fleet card step for a session with a driver.
+        '',
         'sta_1',
         'sta_1',
         'America/New_York',
         'sta_1',
       ]);
       // driver > fleet (oldest membership) > station > site > default.
-      expect(calls[0]?.text).toContain('ORDER BY fd.created_at ASC, fd.id ASC');
+      expect(calls[0]?.text).toContain(
+        'ORDER BY g.joined_at ASC NULLS LAST, g.member_id ASC NULLS LAST, g.assignment_id ASC',
+      );
       expect(calls[0]?.text).toContain('ORDER BY c.priority, t.id');
     }
   });
@@ -133,6 +137,28 @@ describe('loadStationPricing', () => {
     const { sql, calls } = makeSql([]);
     expect(await loadStationPricing({ stationUuid: 'sta_1', driverUuid: null }, sql)).toBeNull();
     expect(calls[0]?.values.slice(0, 2)).toEqual(['', '']);
+  });
+
+  it("prices a fleet card session without a driver at the fleet step of the card's fleet", async () => {
+    const { sql, calls } = makeSql([
+      ['WITH driver_group', pricingRows([DEFAULT_TARIFF], { ...GROUP, group_priority: 2 })],
+    ]);
+    const pricing = await loadStationPricing(
+      { stationUuid: 'sta_1', driverUuid: null, fleetUuid: 'flt_1' },
+      sql,
+    );
+    expect(pricing?.group.source).toBe('fleet');
+    expect(calls[0]?.values.slice(0, 3)).toEqual(['', '', 'flt_1']);
+    expect(calls[0]?.text).toContain('WHERE pgf.fleet_id = ?');
+  });
+
+  it("ignores the card's fleet when the session has a driver", async () => {
+    const { sql, calls } = makeSql([]);
+    await loadStationPricing(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', fleetUuid: 'flt_1' },
+      sql,
+    );
+    expect(calls[0]?.values.slice(0, 3)).toEqual(['drv_1', 'drv_1', '']);
   });
 
   it('lists a group without active tariffs in the chain and skips it as the group', async () => {

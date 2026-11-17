@@ -34,6 +34,7 @@ import { INSIGHT_VISIBLE_STATUSES } from '@evtivity/lib/ai-insights';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
+import { getUserAccessScope } from '../lib/fleet-scope.js';
 import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
 import { insightFeatureGateSql } from '../lib/ai-insight-scope.js';
 import type { ErrorCode } from '../lib/error-codes.generated.js';
@@ -92,6 +93,8 @@ interface NeighborTarget {
   // A feature switch the resource's other routes check first: it answers
   // (400) and returns false while the feature is off, before any read.
   featureGate?: (reply: FastifyReply) => Promise<boolean>;
+  // Opens the route to fleet users: their scope over the assigned fleets.
+  fleetScopeWhere?: (fleetIds: string[]) => SQL;
 }
 
 const TARGETS: NeighborTarget[] = [
@@ -192,6 +195,8 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'FLEET_NOT_FOUND',
     idColumn: fleets.id,
     createdAtColumn: fleets.createdAt,
+    fleetScopeWhere: (fleetIds) =>
+      fleetIds.length > 0 ? inArray(fleets.id, fleetIds) : sql`false`,
   },
   {
     path: '/users/:id/neighbors',
@@ -389,6 +394,7 @@ export function entityNeighborRoutes(app: FastifyInstance): void {
           authorize(target.permission),
           ...(target.featureGate != null ? [featureGateHook(target.featureGate)] : []),
         ],
+        ...(target.fleetScopeWhere != null ? { config: { fleetScope: true } } : {}),
         schema: {
           tags: [target.tag],
           summary: 'Get previous and next entity IDs in default list order',
@@ -416,7 +422,13 @@ export function entityNeighborRoutes(app: FastifyInstance): void {
         ) {
           return;
         }
-        if (target.scopeWhere != null) {
+        const access =
+          target.fleetScopeWhere != null
+            ? await getUserAccessScope((request.user as JwtPayload).userId)
+            : null;
+        if (access?.kind === 'fleets' && target.fleetScopeWhere != null) {
+          scope = target.fleetScopeWhere(access.fleetIds);
+        } else if (target.scopeWhere != null) {
           const { userId } = request.user as JwtPayload;
           const siteIds = await getUserSiteIds(userId);
           if (siteIds != null && siteIds.length === 0 && target.scopeServesNoSites !== true) {

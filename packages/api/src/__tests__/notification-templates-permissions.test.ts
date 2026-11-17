@@ -147,6 +147,7 @@ describe('security notification templates', () => {
   it.each([
     'operator.ForgotPassword',
     'operator.UserCreated',
+    'operator.FleetManagerInvite',
     'driver.ForgotPassword',
     'driver.PortalInvite',
     'driver.AccountVerification',

@@ -107,6 +107,7 @@ function detail(overrides: Partial<InvoiceDetail> = {}): InvoiceDetail {
       language: null,
       sentAt: null,
       overdueNoticeSentAt: null,
+      fleetManagersNotifiedAt: null,
       issuedAt: now,
       dueAt: now,
       currency: 'USD',

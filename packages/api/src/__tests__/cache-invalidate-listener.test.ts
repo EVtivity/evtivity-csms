@@ -19,6 +19,7 @@ const { handlers, mocks } = vi.hoisted(() => ({
     closeDriverEventStreams: vi.fn(),
     clearSimCaches: vi.fn(),
     clearDriverRfidSelfServiceCache: vi.fn(),
+    clearAiSettingsCache: vi.fn(),
   },
 }));
 
@@ -39,6 +40,7 @@ vi.mock('@evtivity/database', () => ({
   clearStationMessageSettingsCache: mocks.clearStationMessageSettingsCache,
   clearSystemSettingsCache: mocks.clearSystemSettingsCache,
   clearDriverRfidSelfServiceCache: mocks.clearDriverRfidSelfServiceCache,
+  clearAiSettingsCache: mocks.clearAiSettingsCache,
 }));
 vi.mock('../middleware/rbac.js', () => ({
   clearPermissionCacheLocal: mocks.clearPermissionCacheLocal,
@@ -98,6 +100,13 @@ describe('startCacheInvalidateListener', () => {
 
     expect(mocks.clearDriverRfidSelfServiceCache).toHaveBeenCalledTimes(1);
     expect(mocks.clearSimCaches).not.toHaveBeenCalled();
+  });
+
+  it('drops the cached AI settings on ai_settings', async () => {
+    await deliver({ kind: 'ai_settings' });
+
+    expect(mocks.clearAiSettingsCache).toHaveBeenCalledTimes(1);
+    expect(mocks.clearDriverRfidSelfServiceCache).not.toHaveBeenCalled();
   });
 
   it('clears one user entry for a per-user kind', async () => {

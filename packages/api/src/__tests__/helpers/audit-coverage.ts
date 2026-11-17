@@ -139,6 +139,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'services/src/support-case.service.ts',
   },
   'DELETE /tokens/:id': { audited: 'token', service: 'api/src/services/token.service.ts' },
+  'DELETE /fleets/:id/cards/:tokenId': {
+    audited: 'token',
+    service: 'api/src/services/token.service.ts',
+  },
   'DELETE /users/:id': { audited: 'user' },
   'DELETE /users/:id/api-keys/:keyId': { audited: 'api_key' },
   'DELETE /users/me/chatbot-ai-config': { audited: 'user' },
@@ -254,6 +258,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'services/src/support-case.service.ts',
   },
   'PATCH /tokens/:id': { audited: 'token', service: 'api/src/services/token.service.ts' },
+  'PATCH /fleets/:id/cards/:tokenId': {
+    audited: 'token',
+    service: 'api/src/services/token.service.ts',
+  },
   'PATCH /users/:id': { audited: 'user' },
   'POST /payment-terminal-transactions/:id/void': {
     audited: 'payment_terminal',
@@ -793,6 +801,11 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'services/src/support-case.service.ts',
   },
   'POST /tokens': { audited: 'token', service: 'api/src/services/token.service.ts' },
+  'POST /fleets/:id/cards': { audited: 'token', service: 'api/src/services/token.service.ts' },
+  'POST /fleets/:id/cards/import': {
+    audited: 'token',
+    service: 'api/src/services/token.service.ts',
+  },
   'POST /tokens/bulk-active': { audited: 'token', service: 'api/src/services/token.service.ts' },
   'POST /tokens/import': { audited: 'token', service: 'api/src/services/token.service.ts' },
   'POST /users': { audited: 'user' },

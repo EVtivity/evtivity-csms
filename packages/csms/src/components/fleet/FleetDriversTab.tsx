@@ -15,7 +15,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
-import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission, useIsFleetUser } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { useUserTimezone } from '@/lib/timezone';
 import type { AvatarData } from '@/components/AccountAvatar';
@@ -41,6 +41,9 @@ interface FleetDriversTabProps {
   canManageMembers?: boolean;
 }
 
+/** The member columns a fleet user gets: the API leaves out contact data and dates. */
+const FLEET_USER_MEMBER_COLUMNS = { email: false, phone: false, created: false };
+
 export function FleetDriversTab({
   fleetId,
   accountBillingEnabled = false,
@@ -63,6 +66,8 @@ export function FleetDriversTab({
   const canWritePayments = useHasPermission('payments:write');
   // The member opt-out applies at every site: all-site users only.
   const hasAllSiteAccess = useHasAllSiteAccess();
+  // A fleet user sees the members' names and status only, with no driver pages.
+  const isFleetUser = useIsFleetUser();
   const limit = 10;
   const urlSort = useListSort(DRIVER_SORT_KEYS);
   // A new sort starts again at page 1.
@@ -125,13 +130,17 @@ export function FleetDriversTab({
       <TabPanel
         title={t('fleets.drivers')}
         description={
-          <>
-            <span className="block">{t('fleets.addDriverNote')}</span>
-            {!accountBillingEnabled && (
-              <span className="block">{t('fleets.billing.memberNoteOff')}</span>
-            )}
-            {!canManageMembers && <span className="block">{t('fleets.membersAllSitesOnly')}</span>}
-          </>
+          isFleetUser ? undefined : (
+            <>
+              <span className="block">{t('fleets.addDriverNote')}</span>
+              {!accountBillingEnabled && (
+                <span className="block">{t('fleets.billing.memberNoteOff')}</span>
+              )}
+              {!canManageMembers && (
+                <span className="block">{t('fleets.membersAllSitesOnly')}</span>
+              )}
+            </>
+          )
         }
         actions={
           canManageMembers ? (
@@ -157,28 +166,36 @@ export function FleetDriversTab({
           onRetry={() => {
             void refetch();
           }}
-          extraColumn={{
-            header: t('fleets.billing.memberColumn'),
-            render: (driver) => {
-              const member = driver as FleetDriver;
-              const onAccount = member.accountBillingOptOut !== true;
-              return (
-                <Toggle
-                  size="sm"
-                  checked={onAccount}
-                  disabled={
-                    !canWrite || !canWritePayments || !hasAllSiteAccess || billingMutation.isPending
-                  }
-                  aria-label={t('fleets.billing.memberColumn')}
-                  data-testid={`member-billing-${driver.id}`}
-                  onCheckedChange={() => {
-                    setBillingChange({ driverId: driver.id, optOut: onAccount });
-                  }}
-                />
-              );
-            },
-          }}
-          {...(canManageMembers
+          {...(isFleetUser ? { linkRows: false, visibility: FLEET_USER_MEMBER_COLUMNS } : {})}
+          {...(isFleetUser
+            ? {}
+            : {
+                extraColumn: {
+                  header: t('fleets.billing.memberColumn'),
+                  render: (driver) => {
+                    const member = driver as FleetDriver;
+                    const onAccount = member.accountBillingOptOut !== true;
+                    return (
+                      <Toggle
+                        size="sm"
+                        checked={onAccount}
+                        disabled={
+                          !canWrite ||
+                          !canWritePayments ||
+                          !hasAllSiteAccess ||
+                          billingMutation.isPending
+                        }
+                        aria-label={t('fleets.billing.memberColumn')}
+                        data-testid={`member-billing-${driver.id}`}
+                        onCheckedChange={() => {
+                          setBillingChange({ driverId: driver.id, optOut: onAccount });
+                        }}
+                      />
+                    );
+                  },
+                },
+              })}
+          {...(canManageMembers && !isFleetUser
             ? {
                 onRemove: (driverId: string): void => {
                   setRemoveDriverId(driverId);

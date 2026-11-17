@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and } from 'drizzle-orm';
 import { db, isDriverRfidSelfServiceEnabled } from '@evtivity/database';
-import { driverTokens } from '@evtivity/database';
+import { driverTokens, fleets } from '@evtivity/database';
 import { PORTAL_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 import { isVehicleShapedTokenValue } from '@evtivity/lib/vehicle-id';
 import * as tokenService from '../../services/token.service.js';
@@ -43,6 +43,15 @@ const tokenItem = z
       .describe(
         'True when the operator deactivated the token: only the operator can reactivate it',
       ),
+    managedByFleet: z
+      .boolean()
+      .describe(
+        'True for a fleet RFID card: the fleet manages it and the driver cannot change it (403 TOKEN_MANAGED_BY_FLEET)',
+      ),
+    fleetName: z
+      .string()
+      .nullable()
+      .describe('Name of the fleet that manages the card, null for the driver own card'),
     createdAt: z.coerce.date().describe('Timestamp the token was registered'),
   })
   .loose();
@@ -89,6 +98,8 @@ const portalTokenColumns = {
   isActive: driverTokens.isActive,
   expiresAt: driverTokens.expiresAt,
   deactivatedBy: driverTokens.deactivatedBy,
+  fleetId: driverTokens.fleetId,
+  fleetName: fleets.name,
   createdAt: driverTokens.createdAt,
 };
 
@@ -101,6 +112,8 @@ interface PortalTokenRow {
   isActive: boolean;
   expiresAt: Date | null;
   deactivatedBy: string | null;
+  fleetId: string | null;
+  fleetName?: string | null;
   createdAt: Date;
 }
 
@@ -115,6 +128,8 @@ function toPortalToken(row: PortalTokenRow) {
     isActive: row.isActive,
     expiresAt: row.expiresAt,
     blockedByOperator: !row.isActive && row.deactivatedBy !== 'driver',
+    managedByFleet: row.fleetId != null,
+    fleetName: row.fleetName ?? null,
     createdAt: row.createdAt,
   };
 }
@@ -124,6 +139,7 @@ async function findOwnToken(id: string, driverId: string): Promise<PortalTokenRo
   const [row] = await db
     .select(portalTokenColumns)
     .from(driverTokens)
+    .leftJoin(fleets, eq(driverTokens.fleetId, fleets.id))
     .where(and(eq(driverTokens.id, id), eq(driverTokens.driverId, driverId)));
   return row ?? null;
 }
@@ -131,6 +147,11 @@ async function findOwnToken(id: string, driverId: string): Promise<PortalTokenRo
 const SELF_SERVICE_DISABLED = {
   error: 'Your operator manages your RFID cards',
   code: 'RFID_SELF_SERVICE_DISABLED',
+} as const;
+
+const MANAGED_BY_FLEET = {
+  error: 'The fleet manages this RFID card',
+  code: 'TOKEN_MANAGED_BY_FLEET',
 } as const;
 
 const SELF_SERVICE_RULE =
@@ -166,6 +187,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       const rows = await db
         .select(portalTokenColumns)
         .from(driverTokens)
+        .leftJoin(fleets, eq(driverTokens.fleetId, fleets.id))
         .where(eq(driverTokens.driverId, driverId))
         .orderBy(desc(driverTokens.createdAt), desc(driverTokens.id));
       return rows.map(toPortalToken);
@@ -195,6 +217,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
           403: errorWith('The operator deactivated this card, or manages the cards', [
             ERROR_CODES.TOKEN_BLOCKED_BY_OPERATOR,
             ERROR_CODES.RFID_SELF_SERVICE_DISABLED,
+            ERROR_CODES.TOKEN_MANAGED_BY_FLEET,
           ]),
           409: errorResponse,
           429: errorResponse,
@@ -221,6 +244,10 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       } catch (err) {
         if (err instanceof tokenService.RfidSelfServiceDisabledError) {
           await reply.status(403).send(SELF_SERVICE_DISABLED);
+          return;
+        }
+        if (err instanceof tokenService.TokenManagedByFleetError) {
+          await reply.status(403).send(MANAGED_BY_FLEET);
           return;
         }
         // Only a card already on this driver's account can be operator
@@ -275,7 +302,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         tags: ['Portal Tokens'],
         summary: 'Update RFID card status or label',
         description:
-          'Deactivates, reactivates or renames one of the driver cards. The driver can reactivate only a card the driver deactivated: a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Renaming changes no status and works on any own card. A body without isActive and label answers 400.' +
+          'Deactivates, reactivates or renames one of the driver cards. The driver can reactivate only a card the driver deactivated: a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Renaming changes no status and works on any own card except a fleet card: a card a fleet manages answers 403 TOKEN_MANAGED_BY_FLEET. A body without isActive and label answers 400.' +
           SELF_SERVICE_RULE,
         operationId: 'portalUpdateToken',
         security: [{ bearerAuth: [] }],
@@ -287,6 +314,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
           403: errorWith('The operator deactivated this card, or manages the cards', [
             ERROR_CODES.TOKEN_BLOCKED_BY_OPERATOR,
             ERROR_CODES.RFID_SELF_SERVICE_DISABLED,
+            ERROR_CODES.TOKEN_MANAGED_BY_FLEET,
           ]),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
         },
@@ -311,6 +339,10 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
         return;
       }
+      if (own.fleetId != null) {
+        await reply.status(403).send(MANAGED_BY_FLEET);
+        return;
+      }
       // Only what changes is sent: no change means no audit row and no
       // notification.
       const changes: { isActive?: boolean; label?: string | null } = {};
@@ -332,6 +364,10 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       } catch (err) {
         if (err instanceof tokenService.RfidSelfServiceDisabledError) {
           await reply.status(403).send(SELF_SERVICE_DISABLED);
+          return;
+        }
+        if (err instanceof tokenService.TokenManagedByFleetError) {
+          await reply.status(403).send(MANAGED_BY_FLEET);
           return;
         }
         if (err instanceof tokenService.PncContractTokenError) {
@@ -370,14 +406,17 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Tokens'],
         summary: 'Deactivate (soft-delete) an RFID card',
-        description: 'Removes one of the driver cards by deactivating it.' + SELF_SERVICE_RULE,
+        description:
+          'Removes one of the driver cards by deactivating it. A card a fleet manages answers 403 TOKEN_MANAGED_BY_FLEET.' +
+          SELF_SERVICE_RULE,
         operationId: 'portalDeleteToken',
         security: [{ bearerAuth: [] }],
         params: zodSchema(tokenParams),
         response: {
           200: successResponse,
-          403: errorWith('The operator manages the cards', [
+          403: errorWith('The operator or a fleet manages the card', [
             ERROR_CODES.RFID_SELF_SERVICE_DISABLED,
+            ERROR_CODES.TOKEN_MANAGED_BY_FLEET,
           ]),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
         },
@@ -394,6 +433,10 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
         return;
       }
+      if (own.fleetId != null) {
+        await reply.status(403).send(MANAGED_BY_FLEET);
+        return;
+      }
       // Already inactive: nothing to remove, and an operator's reason and
       // block stay as they are.
       if (!own.isActive) return { success: true };
@@ -407,6 +450,10 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       } catch (err) {
         if (err instanceof tokenService.RfidSelfServiceDisabledError) {
           await reply.status(403).send(SELF_SERVICE_DISABLED);
+          return;
+        }
+        if (err instanceof tokenService.TokenManagedByFleetError) {
+          await reply.status(403).send(MANAGED_BY_FLEET);
           return;
         }
         throw err;

@@ -16,6 +16,7 @@ import {
   userAuditLog,
 } from '@evtivity/database';
 import { generateId, permissionCatalog } from '@evtivity/lib';
+import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
 import { config as apiConfig } from '../lib/config.js';
 import { errorWith } from '../lib/response-schemas.js';
 import { linkSsoSubject, rememberPendingSsoLink } from '../lib/sso-link.js';
@@ -421,7 +422,9 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         .where(eq(roles.id, config.defaultRoleId))
         .limit(1);
 
-      if (defaultRole == null) {
+      // A stored Fleet Manager default (set around the settings route) never
+      // provisions a fleet user: SSO users have the site scope.
+      if (defaultRole == null || defaultRole.name === FLEET_MANAGER_ROLE_NAME) {
         await reply.redirect('/login?error=sso_config_error');
         return;
       }

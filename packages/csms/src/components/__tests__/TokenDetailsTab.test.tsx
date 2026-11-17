@@ -28,7 +28,14 @@ vi.mock('@/hooks/use-company-currency', () => ({
   useCompanyCurrency: () => ({ currency: 'USD', isError: false, refetch: vi.fn() }),
 }));
 vi.mock('@/components/driver-combobox', () => ({ DriverCombobox: () => null }));
+vi.mock('@/components/token/TokenFleetSelect', () => ({ TokenFleetSelect: () => null }));
 vi.mock('@/lib/timezone', () => ({ formatDateTime: (value: string) => value }));
+const access = vi.hoisted(() => ({ fleetCardsWrite: true, allSites: true }));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: (permission: string) =>
+    permission === 'fleetCards:write' ? access.fleetCardsWrite : true,
+  useHasAllSiteAccess: () => access.allSites,
+}));
 
 import { TokenDetailsTab } from '../token/TokenDetailsTab';
 
@@ -69,6 +76,30 @@ function renderTab(
 afterEach(() => {
   cleanup();
   patchMock.mockReset();
+  access.fleetCardsWrite = true;
+  access.allSites = true;
+});
+
+describe('TokenDetailsTab fleet card access', () => {
+  it('offers no edit or delete of a fleet card without fleetCards:write', () => {
+    access.fleetCardsWrite = false;
+    renderTab(null, { fleetId: 'flt_1' });
+    expect(screen.queryByText('common.edit')).toBeNull();
+    expect(screen.queryByText('common.delete')).toBeNull();
+  });
+
+  it('offers no edit of a fleet card to a site-restricted operator', () => {
+    access.allSites = false;
+    renderTab(null, { fleetId: 'flt_1' });
+    expect(screen.queryByText('common.edit')).toBeNull();
+  });
+
+  it('keeps edit and delete of a card without a fleet', () => {
+    access.fleetCardsWrite = false;
+    renderTab(null);
+    expect(screen.getByText('common.edit')).toBeTruthy();
+    expect(screen.getByText('common.delete')).toBeTruthy();
+  });
 });
 
 describe('TokenDetailsTab prepaid balance', () => {

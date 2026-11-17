@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { zodSchema } from '../lib/zod-schema.js';
 import {
@@ -14,7 +14,8 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { createApiKey, listApiKeys, revokeApiKey } from '../services/api-key.service.js';
-import { permissionCatalog } from '@evtivity/lib';
+import { fleetUserPermissionsOutside, permissionCatalog } from '@evtivity/lib';
+import { isFleetUser } from '../lib/fleet-scope.js';
 import {
   canAdministerUser,
   canGrantPermissions,
@@ -51,6 +52,42 @@ const proofErrorFields = {
     .optional()
     .describe('A missing or wrong proof: the proof kinds the account accepts'),
 };
+
+/** The 400 body field of a fleet user key scope refusal. */
+const fleetPermissionErrorFields = {
+  details: z
+    .object({
+      permissions: z
+        .array(z.string())
+        .describe(
+          'The permissions outside the fleet user list (FLEET_USER_PERMISSION_NOT_ALLOWED)',
+        ),
+    })
+    .loose()
+    .optional()
+    .describe('With FLEET_USER_PERMISSION_NOT_ALLOWED: the refused permissions'),
+};
+
+/**
+ * True after answering 400 FLEET_USER_PERMISSION_NOT_ALLOWED: a key of a fleet
+ * user holds only the fleet user permissions.
+ */
+async function refuseFleetUserKeyScope(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  permissions: readonly string[],
+): Promise<boolean> {
+  const { userId } = request.user as JwtPayload;
+  if (!(await isFleetUser(userId))) return false;
+  const outside = fleetUserPermissionsOutside(permissions);
+  if (outside.length === 0) return false;
+  await reply.status(400).send({
+    error: `A fleet user's API key cannot hold: ${outside.join(', ')}`,
+    code: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
+    details: { permissions: outside },
+  });
+  return true;
+}
 
 const PROOF_ERROR_CODES = [
   ERROR_CODES.MFA_CODE_INVALID,
@@ -138,7 +175,9 @@ const apiKeyCreatedItem = z
   })
   .loose();
 
-const idParams = z.object({ id: z.coerce.number().int().min(1) });
+const idParams = z.object({
+  id: z.coerce.number().int().min(1).describe('API key ID'),
+});
 
 const userIdParams = z.object({ id: ID_PARAMS.userId.describe('User ID') });
 
@@ -197,6 +236,8 @@ export function apiKeyRoutes(app: FastifyInstance): void {
     '/api-keys',
     {
       onRequest: [authorize('settings.apiKeys:read')],
+      // A fleet user manages its own keys; each key keeps the user's fleet scope.
+      config: { fleetScope: true, fleetSelfService: true },
       schema: {
         tags: ['API Keys'],
         summary: 'List active API keys for the current user',
@@ -215,6 +256,7 @@ export function apiKeyRoutes(app: FastifyInstance): void {
     '/api-keys',
     {
       onRequest: [authorize('settings.apiKeys:write')],
+      config: { fleetScope: true, fleetSelfService: true },
       schema: {
         tags: ['API Keys'],
         summary: 'Create a new API key',
@@ -226,9 +268,14 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(apiKeyCreatedItem),
           400: errorWith(
-            'Invalid request, or a missing or wrong proof',
-            [ERROR_CODES.INVALID_PERMISSIONS, ERROR_CODES.VALIDATION_ERROR, ...PROOF_ERROR_CODES],
-            proofErrorFields,
+            'Invalid request, a permission a fleet user cannot hold, or a missing or wrong proof',
+            [
+              ERROR_CODES.INVALID_PERMISSIONS,
+              ERROR_CODES.FLEET_USER_PERMISSION_NOT_ALLOWED,
+              ERROR_CODES.VALIDATION_ERROR,
+              ...PROOF_ERROR_CODES,
+            ],
+            { ...proofErrorFields, ...fleetPermissionErrorFields },
           ),
           403: errorWith('Permissions exceed own', [ERROR_CODES.PERMISSIONS_EXCEED_OWN]),
           409: errorWith('Duplicate api key name', [ERROR_CODES.DUPLICATE_API_KEY_NAME]),
@@ -298,6 +345,8 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (await refuseFleetUserKeyScope(request, reply, body.permissions)) return;
+
       // The request's effective permissions, API key scope included: a key
       // never mints a key beyond its own scope.
       if (!(await canGrantPermissions(request, body.permissions))) {
@@ -366,6 +415,7 @@ export function apiKeyRoutes(app: FastifyInstance): void {
     '/api-keys/:id',
     {
       onRequest: [authorize('settings.apiKeys:write')],
+      config: { fleetScope: true, fleetSelfService: true },
       schema: {
         tags: ['API Keys'],
         summary: 'Revoke an API key',
@@ -412,6 +462,7 @@ export function apiKeyRoutes(app: FastifyInstance): void {
     '/api-keys/:id',
     {
       onRequest: [authorize('settings.apiKeys:write')],
+      config: { fleetScope: true, fleetSelfService: true },
       schema: {
         tags: ['API Keys'],
         summary: 'Update API key permissions',
@@ -424,9 +475,14 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         response: {
           200: successResponse,
           400: errorWith(
-            'Invalid permissions, or a missing or wrong proof',
-            [ERROR_CODES.INVALID_PERMISSIONS, ERROR_CODES.VALIDATION_ERROR, ...PROOF_ERROR_CODES],
-            proofErrorFields,
+            'Invalid permissions, a permission a fleet user cannot hold, or a missing or wrong proof',
+            [
+              ERROR_CODES.INVALID_PERMISSIONS,
+              ERROR_CODES.FLEET_USER_PERMISSION_NOT_ALLOWED,
+              ERROR_CODES.VALIDATION_ERROR,
+              ...PROOF_ERROR_CODES,
+            ],
+            { ...proofErrorFields, ...fleetPermissionErrorFields },
           ),
           403: errorWith('Permissions exceed own', [ERROR_CODES.PERMISSIONS_EXCEED_OWN]),
           404: errorWith('Api key not found', [ERROR_CODES.API_KEY_NOT_FOUND]),
@@ -467,6 +523,8 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         });
         return;
       }
+
+      if (await refuseFleetUserKeyScope(request, reply, body.permissions)) return;
 
       // The request's effective permissions, API key scope included: a key
       // never widens a key beyond its own scope.

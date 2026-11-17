@@ -20,6 +20,8 @@ import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 export type AccountInvoiceRecipient = 'fleet' | 'member';
 
 export interface FleetBillingTabProps {
+  /** Shows whether the fleet is charged on account, with no switch or recipient choice (fleet users). */
+  readOnly?: boolean;
   fleet: {
     id: string;
     accountBillingEnabled?: boolean;
@@ -61,7 +63,10 @@ type PendingChange =
  * older process is connected but one ran until recently, it names the time the
  * change is allowed from, in the user's time zone and language.
  */
-export function FleetBillingTab({ fleet }: FleetBillingTabProps): React.JSX.Element {
+export function FleetBillingTab({
+  fleet,
+  readOnly = false,
+}: FleetBillingTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -138,6 +143,26 @@ export function FleetBillingTab({ fleet }: FleetBillingTabProps): React.JSX.Elem
                 : t('fleets.billing.recipientConfirmFleet'),
             confirmLabel: t('fleets.billing.recipientChange'),
           };
+
+  if (readOnly) {
+    return (
+      <TabPanel
+        data-testid="fleet-billing"
+        title={t('fleets.billingTab')}
+        bodyClassName="space-y-3 text-sm"
+      >
+        <div className="flex items-center gap-3">
+          <span className="font-medium">{t('fleets.billing.chargeOnAccount')}</span>
+          <Badge variant={enabled ? 'success' : 'outline'}>
+            {enabled ? t('fleets.billing.on') : t('fleets.billing.off')}
+          </Badge>
+        </div>
+        <p className="text-muted-foreground">
+          {enabled ? t('fleets.billing.helpOn') : t('fleets.billing.helpOff')}
+        </p>
+      </TabPanel>
+    );
+  }
 
   return (
     <TabPanel

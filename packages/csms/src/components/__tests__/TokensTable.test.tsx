@@ -40,6 +40,8 @@ const TOKENS: Token[] = [
   {
     id: 'tok_internal_2',
     driverId: null,
+    fleetId: 'flt_internal_1',
+    fleetName: 'Acme Vans',
     idToken: 'RFID-0002',
     tokenType: 'ISO14443',
     label: null,
@@ -86,5 +88,15 @@ describe('TokensTable', () => {
     const second = screen.getByTestId('token-row-tok_internal_2');
     expect(within(second).getByTestId('token-label-cell').textContent).toBe('');
     expect(document.body.textContent).not.toContain('tok_internal_1');
+  });
+
+  it('names the fleet that owns a card in a Fleet column, linked to the fleet', () => {
+    renderTable();
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toContain('tokens.fleet');
+    const fleetCard = screen.getByTestId('token-row-tok_internal_2');
+    const link = within(fleetCard).getByRole('link', { name: 'Acme Vans' });
+    expect(link.getAttribute('href')).toBe('/fleets/flt_internal_1');
+    expect(document.body.textContent).not.toContain('flt_internal_1');
   });
 });

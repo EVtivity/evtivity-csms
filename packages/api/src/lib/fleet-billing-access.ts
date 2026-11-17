@@ -5,6 +5,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { db, fleets } from '@evtivity/database';
 import { isAllSiteUser, requireAllSiteAccess } from './site-access.js';
+import { isFleetUser, requireFleetAccess } from './fleet-scope.js';
 
 const FLEET_NOT_FOUND = { error: 'Fleet not found', code: 'FLEET_NOT_FOUND' } as const;
 
@@ -21,6 +22,22 @@ export async function refuseSiteRestrictedFleetBilling(
   reply: FastifyReply,
 ): Promise<boolean> {
   return !(await requireAllSiteAccess(request, reply, FLEET_NOT_FOUND));
+}
+
+/**
+ * The fleet billing reads a fleet user may make (credit limit, invoice preview,
+ * invoice list): a fleet user reaches only its assigned fleets (else 404
+ * FLEET_NOT_FOUND), an operator needs access to every site as above. Returns
+ * true when the reply was sent.
+ */
+export async function refuseFleetBillingRead(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  fleetId: string,
+): Promise<boolean> {
+  const { userId } = request.user as { userId: string };
+  if (await isFleetUser(userId)) return !(await requireFleetAccess(request, reply, fleetId));
+  return refuseSiteRestrictedFleetBilling(request, reply);
 }
 
 /**

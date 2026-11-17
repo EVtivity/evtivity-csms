@@ -30,6 +30,7 @@ const EXPECTED_STATES: StationMessageState[] = [
   'unauthorized',
   'prepaid_exhausted',
   'account_credit_limit',
+  'card_monthly_limit',
   'terminal_card',
   'terminal_result',
   'terminal_receipt',

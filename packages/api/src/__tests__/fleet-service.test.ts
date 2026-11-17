@@ -108,14 +108,19 @@ vi.mock('@evtivity/database', () => ({
       return fn(tx);
     }),
   },
-  fleets: {},
+  fleets: { id: 'fleets.id' },
   fleetDrivers: {},
   fleetStations: {},
   fleetReservations: {},
   drivers: {},
   vehicles: {},
   chargingStations: {},
-  chargingSessions: {},
+  chargingSessions: {
+    billingFleetId: 'charging_sessions.billing_fleet_id',
+    startedAt: 'charging_sessions.started_at',
+    driverId: 'charging_sessions.driver_id',
+    tokenId: 'charging_sessions.token_id',
+  },
   sites: {},
   pricingGroupFleets: {},
   pricingGroups: {},
@@ -147,7 +152,26 @@ vi.mock('drizzle-orm', () => ({
   gte: vi.fn(),
   count: vi.fn(),
   ne: vi.fn(),
+  inArray: vi.fn(),
 }));
+
+const { releaseCardsMock, cardsAfterCommitMock, markCardListsMock } = vi.hoisted(() => ({
+  releaseCardsMock: vi.fn(),
+  cardsAfterCommitMock: vi.fn(),
+  markCardListsMock: vi.fn(),
+}));
+vi.mock('../services/token.service.js', () => ({
+  releaseMemberFleetCards: releaseCardsMock,
+  markFleetCardListsChanged: markCardListsMock,
+}));
+
+beforeEach(() => {
+  cardsAfterCommitMock.mockReset().mockResolvedValue(undefined);
+  releaseCardsMock
+    .mockReset()
+    .mockResolvedValue({ released: 0, afterCommit: cardsAfterCommitMock });
+  markCardListsMock.mockReset().mockResolvedValue(undefined);
+});
 
 import {
   listFleets,
@@ -164,6 +188,9 @@ import {
   getFleetVehicles,
   searchAvailableVehicles,
   getFleetSessions,
+  fleetSessionFilterConditions,
+  listFleetSessionsForExport,
+  getFleetSession,
   getFleetMetrics,
   getFleetEnergyHistory,
   getFleetPricingGroup,
@@ -182,6 +209,15 @@ import {
   diffBillingProfile,
 } from '../services/fleet.service.js';
 import type { FleetBillingProfile } from '../services/fleet.service.js';
+import type { FleetReader } from '../lib/fleet-reader.js';
+import {
+  eq as drizzleEq,
+  gte as drizzleGte,
+  ilike as drizzleIlike,
+  inArray as drizzleInArray,
+  or as drizzleOr,
+  sql as drizzleSql,
+} from 'drizzle-orm';
 import { db } from '@evtivity/database';
 
 beforeEach(() => {
@@ -273,7 +309,7 @@ describe('updateFleet', () => {
 describe('deleteFleet', () => {
   it('returns deleted fleet when found', async () => {
     const fleet = { id: 'f1', name: 'Deleted' };
-    setupDbResults([], [], [fleet]);
+    setupDbResults([], [], [], [fleet]);
 
     const result = await deleteFleet('f1');
 
@@ -281,7 +317,7 @@ describe('deleteFleet', () => {
   });
 
   it('returns null when not found', async () => {
-    setupDbResults([], [], []);
+    setupDbResults([], [], [], []);
 
     const result = await deleteFleet('nonexistent');
 
@@ -320,8 +356,30 @@ describe('deleteFleet', () => {
     expect(db.delete).not.toHaveBeenCalled();
   });
 
+  it('refuses with 409 FLEET_HAS_CARDS while the fleet owns RFID cards', async () => {
+    setupDbResults([], [], [{ id: 'dtk_1' }]);
+
+    await expect(deleteFleet('f1')).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'FLEET_HAS_CARDS',
+    });
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+
+  it('maps a card added between the check and the delete by constraint name', async () => {
+    setupDbResults([], [], []);
+    vi.mocked(db.delete).mockImplementationOnce(() => {
+      throw Object.assign(new Error('fk'), {
+        code: '23503',
+        constraint_name: 'driver_tokens_fleet_id_fleets_id_fk',
+      });
+    });
+
+    await expect(deleteFleet('f1')).rejects.toMatchObject({ code: 'FLEET_HAS_CARDS' });
+  });
+
   it('maps a fleet reservation added between the check and the delete by constraint name', async () => {
-    setupDbResults([], []);
+    setupDbResults([], [], []);
     vi.mocked(db.delete).mockImplementationOnce(() => {
       throw Object.assign(new Error('fk'), {
         code: '23503',
@@ -855,6 +913,33 @@ describe('getFleetDrivers', () => {
   });
 });
 
+describe('getFleetDrivers search', () => {
+  it('matches an operator search on the name and the email, escaped', async () => {
+    vi.mocked(drizzleIlike).mockClear();
+    setupDbResults([], [{ count: 0 }]);
+    await getFleetDrivers('f1', 1, 10, {}, undefined, { search: ' 50%_off ' });
+    const patterns = vi.mocked(drizzleIlike).mock.calls.map((c) => c[1]);
+    expect(patterns).toEqual(['%50\\%\\_off%', '%50\\%\\_off%', '%50\\%\\_off%']);
+  });
+
+  it('matches a fleet user search on the name only and filters active members', async () => {
+    vi.mocked(drizzleIlike).mockClear();
+    vi.mocked(drizzleEq).mockClear();
+    setupDbResults([], [{ count: 0 }]);
+    await getFleetDrivers(
+      'f1',
+      1,
+      10,
+      {},
+      { kind: 'fleets', fleetIds: ['f1'], paymentsRead: true },
+      { search: 'Ana', active: true },
+    );
+    // First and last name, no email: a search must not tell a fleet user an address.
+    expect(vi.mocked(drizzleIlike)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(drizzleEq).mock.calls.some((c) => c[1] === true)).toBe(true);
+  });
+});
+
 describe('addDriverToFleet', () => {
   it('returns created record', async () => {
     const record = { fleetId: 'f1', driverId: 'd1' };
@@ -871,9 +956,18 @@ describe('removeDriverFromFleet', () => {
     const record = { fleetId: 'f1', driverId: 'd1' };
     setupDbResults([record]);
 
-    const result = await removeDriverFromFleet('f1', 'd1');
+    const result = await removeDriverFromFleet('f1', 'd1', {
+      type: 'operator',
+      userId: 'usr_1',
+    });
 
     expect(result).toEqual(record);
+    expect(releaseCardsMock).toHaveBeenCalledWith(
+      { driverId: 'd1', fleetId: 'f1' },
+      { type: 'operator', userId: 'usr_1' },
+      expect.anything(),
+    );
+    expect(cardsAfterCommitMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when not found', async () => {
@@ -882,6 +976,7 @@ describe('removeDriverFromFleet', () => {
     const result = await removeDriverFromFleet('f1', 'd999');
 
     expect(result).toBeNull();
+    expect(releaseCardsMock).not.toHaveBeenCalled();
   });
 });
 
@@ -984,6 +1079,14 @@ describe('searchAvailableVehicles', () => {
 
     expect(result).toEqual([]);
   });
+  it('matches LIKE wildcards in the search only as typed', async () => {
+    setupDbResults([]);
+    vi.mocked(drizzleIlike).mockClear();
+    await searchAvailableVehicles('f1', '50%_off', 25);
+    const patterns = vi.mocked(drizzleIlike).mock.calls.map((c) => c[1]);
+    expect(patterns.length).toBeGreaterThan(0);
+    for (const pattern of patterns) expect(pattern).toBe('%50\\%\\_off%');
+  });
 });
 
 describe('getFleetSessions', () => {
@@ -991,7 +1094,7 @@ describe('getFleetSessions', () => {
     const sessions = [{ id: 'sess1', status: 'completed', energyDeliveredWh: 5000 }];
     setupDbResults(sessions, [{ count: 1 }]);
 
-    const result = await getFleetSessions('f1', 1, 10, null);
+    const result = await getFleetSessions('f1', 1, 10, { kind: 'sites', siteIds: null });
 
     expect(result.data).toEqual(sessions);
     expect(result.total).toBe(1);
@@ -1012,7 +1115,7 @@ describe('getFleetMetrics', () => {
     const vehicleStats = { totalVehicles: 4 };
     setupDbResults([sessionStats], [driverStats], [vehicleStats]);
 
-    const result = await getFleetMetrics('f1', 6, null);
+    const result = await getFleetMetrics('f1', 6, { kind: 'sites', siteIds: null });
 
     expect(result).toEqual({
       totalSessions: 10,
@@ -1031,7 +1134,7 @@ describe('getFleetMetrics', () => {
   it('returns defaults when no session data', async () => {
     setupDbResults([undefined], [undefined], [undefined]);
 
-    const result = await getFleetMetrics('f1', 3, null);
+    const result = await getFleetMetrics('f1', 3, { kind: 'sites', siteIds: null });
 
     expect(result.totalSessions).toBe(0);
     expect(result.sessionSuccessPercent).toBe(100);
@@ -1050,7 +1153,7 @@ describe('getFleetEnergyHistory', () => {
     ];
     setupDbResults(rows);
 
-    const result = await getFleetEnergyHistory('f1', 30, null);
+    const result = await getFleetEnergyHistory('f1', 30, { kind: 'sites', siteIds: null });
 
     expect(result).toEqual(rows);
   });
@@ -1333,5 +1436,261 @@ describe('fleet credit limit', () => {
 
     expect(fake.sets).toHaveLength(1);
     expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fleet readers', () => {
+  const FLEET_READER: FleetReader = { kind: 'fleets', fleetIds: ['f1'], paymentsRead: true };
+
+  /** The SQL template texts the service built, joined per call. */
+  function sqlTexts(): string[] {
+    return vi
+      .mocked(drizzleSql)
+      .mock.calls.map((call) => (call[0] as unknown as readonly string[]).join('?'));
+  }
+
+  beforeEach(() => {
+    vi.mocked(drizzleSql).mockClear();
+    vi.mocked(drizzleInArray).mockClear();
+    vi.mocked(drizzleOr).mockClear();
+  });
+
+  it('lists only the assigned fleets of a fleet user', async () => {
+    setupDbResults([], [{ count: 0 }]);
+    await listFleets(
+      { page: 1, limit: 10 },
+      { kind: 'fleets', fleetIds: ['f1', 'f2'], paymentsRead: true },
+    );
+    expect(drizzleInArray).toHaveBeenCalledWith('fleets.id', ['f1', 'f2']);
+  });
+
+  it('lists nothing for a fleet user without a fleet', async () => {
+    setupDbResults([], [{ count: 0 }]);
+    await listFleets({ page: 1, limit: 10 }, { kind: 'fleets', fleetIds: [], paymentsRead: true });
+    expect(drizzleInArray).not.toHaveBeenCalled();
+    expect(sqlTexts()).toContain('false');
+  });
+
+  it('gives a fleet user the name and status of each member only', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'd1',
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'j@d.com',
+          phone: '+15550100',
+          isActive: true,
+          accountBillingOptOut: false,
+          createdAt: new Date(),
+          avatarKind: null,
+          avatarOptions: null,
+          avatarS3Key: null,
+          avatarS3Bucket: null,
+          avatarUpdatedAt: null,
+        },
+      ],
+      [{ count: 1 }],
+    );
+    const result = await getFleetDrivers('f1', 1, 10, {}, FLEET_READER);
+    expect(result).toEqual({
+      data: [{ id: 'd1', firstName: 'John', lastName: 'Doe', isActive: true }],
+      total: 1,
+    });
+  });
+
+  it("reads an operator's fleet sessions from the members and the fleet's cards", async () => {
+    setupDbResults([], [{ count: 0 }]);
+    await getFleetSessions('f1', 1, 10, { kind: 'sites', siteIds: null });
+    expect(drizzleOr).toHaveBeenCalled();
+    const texts = sqlTexts();
+    expect(texts.some((t) => t.includes('from fleet_drivers where fleet_id'))).toBe(true);
+    expect(texts.some((t) => t.includes('from driver_tokens where fleet_id'))).toBe(true);
+  });
+
+  it("reads a fleet user's sessions as the fleet-paid sessions of the fleet", async () => {
+    setupDbResults([], [{ count: 0 }]);
+    await getFleetSessions('f1', 1, 10, FLEET_READER);
+    expect(drizzleInArray).toHaveBeenCalledWith('charging_sessions.billing_fleet_id', ['f1']);
+    const texts = sqlTexts();
+    expect(texts.some((t) => t.includes('from fleet_drivers'))).toBe(false);
+    expect(texts.some((t) => t.includes('from driver_tokens'))).toBe(false);
+  });
+
+  it('scopes the metrics and energy history of a fleet user the same way', async () => {
+    setupDbResults([{ totalSessions: 0 }], [{ totalDrivers: 0 }], [{ totalVehicles: 0 }]);
+    await getFleetMetrics('f1', 6, FLEET_READER);
+    setupDbResults([]);
+    await getFleetEnergyHistory('f1', 30, FLEET_READER);
+    expect(
+      vi
+        .mocked(drizzleInArray)
+        .mock.calls.filter((c) => (c[0] as unknown) === 'charging_sessions.billing_fleet_id'),
+    ).toHaveLength(2);
+  });
+});
+
+describe('fleet user fields', () => {
+  const READER: FleetReader = { kind: 'fleets', fleetIds: ['f1'], paymentsRead: false };
+  const sessionRow = {
+    id: 's1',
+    stationName: 'CS-1',
+    transactionId: 'tx-1',
+    status: 'completed',
+    energyDeliveredWh: 5000,
+    currentCostCents: 0,
+    finalCostCents: 900,
+    currency: 'EUR',
+  };
+
+  it('gives a fleet user the vehicles without the VIN', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'v1',
+          driverId: 'd1',
+          driverName: 'Ana Lee',
+          make: 'VW',
+          vin: 'WVW123',
+          licensePlate: 'B-1',
+        },
+      ],
+      [{ count: 1 }],
+    );
+    const result = await getFleetVehicles('f1', 1, 10, {}, READER);
+    expect(result.data).toEqual([
+      { id: 'v1', driverId: 'd1', driverName: 'Ana Lee', make: 'VW', licensePlate: 'B-1' },
+    ]);
+  });
+
+  it('keeps the VIN for an operator', async () => {
+    setupDbResults([{ id: 'v1', vin: 'WVW123' }], [{ count: 1 }]);
+    const result = await getFleetVehicles('f1', 1, 10, {});
+    expect(result.data).toEqual([{ id: 'v1', vin: 'WVW123' }]);
+  });
+
+  it('leaves the transaction id, and the cost without payments:read, out of fleet user rows', async () => {
+    setupDbResults([sessionRow], [{ count: 1 }]);
+    const without = await getFleetSessions('f1', 1, 10, READER);
+    expect(without.data).toEqual([
+      { id: 's1', stationName: 'CS-1', status: 'completed', energyDeliveredWh: 5000 },
+    ]);
+
+    setupDbResults([sessionRow], [{ count: 1 }]);
+    const withCost = await getFleetSessions('f1', 1, 10, { ...READER, paymentsRead: true });
+    expect(withCost.data[0]).toMatchObject({ finalCostCents: 900, currency: 'EUR' });
+    expect(withCost.data[0]).not.toHaveProperty('transactionId');
+  });
+
+  it('keeps every session field for an operator', async () => {
+    setupDbResults([sessionRow], [{ count: 1 }]);
+    const result = await getFleetSessions('f1', 1, 10, { kind: 'sites', siteIds: null });
+    expect(result.data).toEqual([sessionRow]);
+  });
+
+  it('reads one fleet session in the reduced view, with the cost only when asked', async () => {
+    const row = {
+      id: 's1',
+      status: 'completed',
+      energyDeliveredWh: 5000,
+      driverName: null,
+      cardLabel: 'Van 12',
+      currentCostCents: 0,
+      finalCostCents: 900,
+      currency: 'EUR',
+    };
+    setupDbResults([row]);
+    expect(await getFleetSession('f1', 's1', READER, false)).toEqual({
+      id: 's1',
+      status: 'completed',
+      energyDeliveredWh: 5000,
+      driverName: null,
+      cardLabel: 'Van 12',
+    });
+    setupDbResults([row]);
+    expect(await getFleetSession('f1', 's1', READER, true)).toEqual(row);
+    setupDbResults([]);
+    expect(await getFleetSession('f1', 's9', READER, true)).toBeNull();
+  });
+});
+
+describe('fleet session filters', () => {
+  function sqlTexts(): string[] {
+    return vi
+      .mocked(drizzleSql)
+      .mock.calls.map((call) => (call[0] as unknown as readonly string[]).join('?'));
+  }
+
+  beforeEach(() => {
+    vi.mocked(drizzleSql).mockClear();
+    vi.mocked(drizzleGte).mockClear();
+    vi.mocked(drizzleEq).mockClear();
+  });
+
+  it('adds no condition without a filter', () => {
+    fleetSessionFilterConditions('f1', {});
+    expect(drizzleGte).not.toHaveBeenCalled();
+    expect(drizzleEq).not.toHaveBeenCalled();
+    expect(sqlTexts()).toEqual([]);
+  });
+
+  it('bounds the start time on both sides', () => {
+    const from = new Date('2026-11-01T00:00:00Z');
+    const to = new Date('2026-11-10T23:59:59Z');
+    fleetSessionFilterConditions('f1', { from, to });
+    expect(drizzleGte).toHaveBeenCalledWith('charging_sessions.started_at', from);
+    const texts = sqlTexts();
+    expect(texts.some((t) => t.includes(' <= '))).toBe(true);
+  });
+
+  it('lists a driver only while the driver is a member of the fleet', () => {
+    fleetSessionFilterConditions('f1', { driverId: 'drv_1' });
+    expect(drizzleEq).toHaveBeenCalledWith('charging_sessions.driver_id', 'drv_1');
+    expect(
+      sqlTexts().some((t) =>
+        t.includes('select 1 from fleet_drivers where fleet_id = ? and driver_id = ?'),
+      ),
+    ).toBe(true);
+  });
+
+  it('lists a card only while the fleet owns it', () => {
+    fleetSessionFilterConditions('f1', { tokenId: 'dtk_1' });
+    expect(drizzleEq).toHaveBeenCalledWith('charging_sessions.token_id', 'dtk_1');
+    expect(
+      sqlTexts().some((t) =>
+        t.includes('select 1 from driver_tokens where id = ? and fleet_id = ?'),
+      ),
+    ).toBe(true);
+  });
+
+  it('drops the RFID card value and the transaction id from a fleet user export', async () => {
+    const row = { id: 'ses_1', idToken: 'AB12', transactionId: 'TX-1', driverName: 'Ana' };
+    setupDbResults([row]);
+    const fleetRows = await listFleetSessionsForExport(
+      'f1',
+      { kind: 'fleets', fleetIds: ['f1'], paymentsRead: true },
+      {},
+    );
+    expect(fleetRows).toEqual([{ ...row, idToken: null, transactionId: null }]);
+    setupDbResults([row]);
+    const operatorRows = await listFleetSessionsForExport(
+      'f1',
+      { kind: 'sites', siteIds: null },
+      {},
+    );
+    expect(operatorRows).toEqual([row]);
+  });
+
+  it('applies the filters to the list and its count', async () => {
+    setupDbResults([], [{ count: 0 }]);
+    await getFleetSessions(
+      'f1',
+      1,
+      10,
+      { kind: 'sites', siteIds: null },
+      {},
+      { driverId: 'drv_1' },
+    );
+    expect(drizzleEq).toHaveBeenCalledWith('charging_sessions.driver_id', 'drv_1');
   });
 });

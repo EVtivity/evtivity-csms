@@ -24,6 +24,7 @@ vi.mock('@/lib/auth', () => ({
   useHasPermission: (permission: string) => h.permissions.has(permission),
   useHasCompanyWidePermission: (permission: string) =>
     h.permissions.has(permission) && !h.permissions.has('site-restricted'),
+  useIsFleetUser: () => h.permissions.has('fleet-user'),
 }));
 vi.mock('@/lib/timezone', () => ({
   useUserTimezone: () => 'UTC',
@@ -231,6 +232,14 @@ describe('FleetInvoicesCard', () => {
     await waitFor(() => {
       expect(h.post).toHaveBeenCalledWith('/v1/invoices/inv_9/send', {});
     });
+  });
+
+  it('says how fleet invoices are issued while the fleet has none', async () => {
+    mockGet(preview(), []);
+    wrap();
+    const empty = await screen.findByTestId('empty-state');
+    expect(within(empty).getByText('fleets.invoices.empty.title')).toBeTruthy();
+    expect(within(empty).getByText('fleets.invoices.empty.description')).toBeTruthy();
   });
 
   it('requests the invoice list sorted by a column when its header is clicked', async () => {

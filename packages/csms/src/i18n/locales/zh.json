@@ -618,6 +618,33 @@
       "empty": "此时间范围内没有安全事件。",
       "noStations": "没有此严重程度事件的充电桩。",
       "criticalRow": "严重"
+    },
+    "fleet": {
+      "title": "车队",
+      "picker": "车队",
+      "allFleets": "正在显示所有车队。选择一个车队即可只看该车队。",
+      "oneFleet": "正在显示一个车队。清除选择即可查看所有车队。",
+      "sessions": "车队会话",
+      "sessionsInfo": "车队在日期范围内开始的会话。",
+      "energy": "车队电量",
+      "energyInfo": "这些会话输送的电量。",
+      "cost": "车队费用",
+      "costInfo": "这些会话以公司货币计的费用。",
+      "creditUsed": "已用信用额度",
+      "creditUsedInfo": "最接近信用额度的车队：其当前欠款（未开票、已开票和进行中的会话）占其额度的比例。选择单个车队时显示该车队自己的比例。",
+      "creditUsedOf": "{{used}} / {{limit}}",
+      "creditUsedFleet": "{{fleet}}：{{used}} / {{limit}}",
+      "noCreditLimit": "未设置信用额度",
+      "energyChart": "车队每日电量",
+      "energyChartInfo": "日期范围内车队会话每天输送的电量。",
+      "sessionsChart": "车队每日会话",
+      "sessionsChartInfo": "日期范围内每天开始的车队会话。",
+      "costChart": "车队每日费用",
+      "costChartInfo": "日期范围内车队会话的每日费用。",
+      "invoicesChart": "最新车队发票",
+      "invoicesInfo": "车队最新的发票和贷项通知单。",
+      "noInvoices": "暂无车队发票。",
+      "creditNote": "贷项通知单"
     }
   },
   "sites": {
@@ -1903,7 +1930,8 @@
       "not_held": "此会话开始时未进行银行卡预授权，因此未收取任何费用。当时支付已关闭或支付服务商不可用。",
       "viewInvoice": "查看发票",
       "openGuestTab": "打开访客会话",
-      "openPaymentSettings": "打开支付设置"
+      "openPaymentSettings": "打开支付设置",
+      "card_monthly_limit": "此车队 RFID 卡的每月消费限额在开始时拒绝了此会话，因此未收取任何费用。"
     },
     "noTransactionEvents": "无交易事件",
     "refund": "退款",
@@ -2282,6 +2310,12 @@
     "createUser": "创建用户",
     "searchPlaceholder": "搜索用户...",
     "role": "角色",
+    "roleNames": {
+      "admin": "管理员",
+      "operator": "操作员",
+      "viewer": "查看者",
+      "fleet_manager": "车队经理"
+    },
     "lastLogin": "上次登录",
     "allRoles": "所有角色",
     "allStatuses": "所有状态",
@@ -2327,6 +2361,7 @@
       "sessions": "会话",
       "drivers": "驾驶员",
       "fleets": "车队",
+      "fleetCards": "车队 RFID 卡",
       "reservations": "预约",
       "support": "工单管理",
       "payments": "支付",
@@ -2386,7 +2421,19 @@
     "ssoLinkWithdraw": "撤回",
     "ssoLinkProofHint": "请确认您的身份，以允许单点登录以此账户登录。",
     "ssoUnlink": "移除关联",
-    "ssoUnlinkProofHint": "请确认您的身份，以移除此账户与其身份提供商用户之间的关联。"
+    "ssoUnlinkProofHint": "请确认您的身份，以移除此账户与其身份提供商用户之间的关联。",
+    "access": {
+      "label": "访问权限",
+      "sites": "充电站",
+      "fleets": "车队",
+      "sitesDescription": "用户可查看下方勾选的充电站的充电桩、会话和数据。",
+      "fleetsDescription": "用户只能查看下方列出的车队：其会话、成员、发票和 RFID 卡，不能查看任何充电站。",
+      "fleetsCount": "{{count}} 个车队",
+      "noFleetsPicked": "尚未添加车队。请在下方搜索车队并添加。",
+      "removeFleet": "移除 {{name}}",
+      "unknownFleet": "车队",
+      "allScopes": "所有访问"
+    }
   },
   "profile": {
     "title": "个人资料",
@@ -2674,7 +2721,12 @@
       "recipientMember": "驾驶员",
       "billedTo": "开票对象",
       "sendMemberTitle": "发送驾驶员发票",
-      "sendMemberConfirm": "将 {{number}} 连同 PDF 发送给驾驶员？"
+      "sendMemberConfirm": "将 {{number}} 连同 PDF 发送给驾驶员？",
+      "empty": {
+        "title": "暂无发票",
+        "description": "车队发票开具后会显示在这里：开启自动月度发票后由每月运行开具，或在未开票会话中使用生成发票。",
+        "fleetUser": "运营商开具车队发票后会显示在这里，通常每月一次。"
+      }
     },
     "bookingStatus": {
       "scheduled": "已安排",
@@ -2816,6 +2868,122 @@
       "arrivalIncomplete": "请同时填写到达日期和时间，或都不填。",
       "arrivalBeforeDeparture": "预计到达时间必须早于出发时间。",
       "arrivalSocRange": "请输入 0 到 100 之间的整数。"
+    },
+    "cards": {
+      "title": "RFID 卡",
+      "description": "此车队拥有的 RFID 卡。没有成员持有的卡记入车队账户。",
+      "searchPlaceholder": "搜索卡或标签...",
+      "addCard": "添加 RFID 卡",
+      "value": "RFID 卡",
+      "member": "成员",
+      "noMember": "无成员",
+      "noCards": "没有 RFID 卡",
+      "status": {
+        "active": "有效",
+        "suspended": "已关闭",
+        "deactivated": "已停用"
+      },
+      "editCard": "编辑 RFID 卡",
+      "deactivate": "停用",
+      "deactivateTitle": "停用 RFID 卡？",
+      "deactivateDescription": "RFID 卡 {{value}} 将在所有充电桩停止工作，且无法再次开启。它仍保留在列表中。",
+      "labelHint": "用于识别此卡的可选名称，例如\"货车 12\"。",
+      "memberHint": "将卡交给车队的有效成员，或不指定成员，使其记入车队账户。",
+      "active": "有效",
+      "activeHint": "取消勾选可关闭此卡。之后可以再次开启。",
+      "lockedDeactivated": "此 RFID 卡已停用，无法再次开启。",
+      "lockedByOperator": "运营商已关闭此 RFID 卡。请联系运营商重新开启。",
+      "searchMembers": "搜索成员...",
+      "import": {
+        "open": "导入 CSV",
+        "title": "导入 RFID 卡",
+        "description": "从 CSV 文件向此车队添加多张 RFID 卡。每一行与单独添加一张卡相同，被拒绝的行不会更改任何内容。",
+        "columns": "列：idToken（卡值，必填）、tokenType（为空时为 ISO14443）、label、memberEmail（车队的有效成员）。最多 2000 行、512 KB。",
+        "columnsFleetUser": "列：idToken（卡值，必填）、tokenType（为空时为 ISO14443）和 label。memberEmail 列请留空：导入后在此处将卡分配给成员。最多 2000 行、512 KB。",
+        "template": "下载模板",
+        "chooseFile": "选择文件",
+        "chooseFirst": "请先选择一个 CSV 文件。",
+        "tooLarge": "文件大于 512 KB。",
+        "failed": "导入失败，请重试。",
+        "submit": "导入 CSV",
+        "created": "已添加：{{count}}",
+        "refused": "已拒绝：{{count}}",
+        "refusedRow": "第 {{row}} 行：{{field}}，{{reason}}",
+        "reasons": {
+          "missing": "缺失",
+          "invalid": "无效",
+          "duplicate": "已登记",
+          "not_found": "不是车队的有效成员"
+        }
+      },
+      "history": {
+        "open": "历史记录",
+        "title": "RFID 卡历史记录",
+        "description": "RFID 卡 {{value}} 属于此车队期间的更改，最新的在前。",
+        "empty": "尚无更改记录",
+        "by": "操作人：{{who}}",
+        "viaApiKey": "{{who}}（API 密钥）",
+        "someMember": "一名成员",
+        "noLabel": "无标签",
+        "reasonMemberLeft": "该成员已离开车队。",
+        "actor": {
+          "fleet_user": "车队管理员",
+          "operator": "运营商",
+          "driver": "驾驶员",
+          "system": "系统"
+        },
+        "change": {
+          "added": "已添加",
+          "moved_into_fleet": "已移入车队",
+          "moved_out_of_fleet": "已移出车队",
+          "given": "已分配给 {{member}}",
+          "taken_back": "已从 {{member}} 收回",
+          "renamed": "标签已从 {{from}} 改为 {{to}}",
+          "turned_off": "已关闭",
+          "turned_on": "已开启",
+          "deactivated": "已停用",
+          "changed": "已更改",
+          "deleted": "已删除",
+          "limit_changed": "每月限额已更改"
+        }
+      },
+      "monthlyLimit": {
+        "column": "本月",
+        "label": "每月限额",
+        "hint": "无论谁使用此卡充电，此卡在一个自然月内最多可花费的金额。超过限额的充电会被拒绝，会话达到限额时停止。留空表示不设限额。",
+        "invalid": "请输入 0.01 到 1,000,000.00 之间的金额，或留空。",
+        "none": "（无限额）",
+        "spentOfLimit": "{{spent}} / {{limit}}",
+        "thisMonth": "本月"
+      },
+      "empty": {
+        "title": "暂无 RFID 卡",
+        "description": "逐张添加车队的 RFID 卡，或从 CSV 文件一次导入多张。分配给成员的卡与该成员自己的卡一样充电。没有成员持有的卡记入车队账户。",
+        "readOnly": "车队的 RFID 卡添加后会显示在这里。"
+      }
+    },
+    "sessionDialog": {
+      "title": "充电会话",
+      "card": "RFID 卡标签"
+    },
+    "searchFleets": "搜索车队...",
+    "sessionFilters": {
+      "member": "成员",
+      "rfidCard": "RFID 卡",
+      "searchCards": "搜索 RFID 卡..."
+    },
+    "managers": {
+      "title": "车队经理",
+      "description": "在 CSMS 中管理此车队的车队用户。他们只能看到分配给自己的车队。",
+      "add": "添加车队经理",
+      "empty": "此车队未分配车队经理。",
+      "permissions": "权限",
+      "lastSignIn": "上次登录",
+      "neverSignedIn": "从未"
+    },
+    "sessionsEmpty": {
+      "none": "暂无会话。成员通过车队账户充电或使用车队的 RFID 卡后，会话会显示在这里。",
+      "filtered": "没有符合这些筛选条件的会话。"
     }
   },
   "tokens": {
@@ -2891,9 +3059,13 @@
     "deactivatedByValue": {
       "operator": "运营商",
       "driver": "驾驶员",
-      "system": "系统"
+      "system": "系统",
+      "fleet": "车队"
     },
-    "deactivationReason": "停用原因"
+    "deactivationReason": "停用原因",
+    "fleet": "车队",
+    "noFleet": "无车队",
+    "fleetHint": "拥有此 RFID 卡的车队。没有成员持有的卡记入车队账户，也可以将卡交给车队成员。"
   },
   "commands": {
     "advancedCommand": "高级命令",
@@ -4427,7 +4599,11 @@
       "security.RetentionLowered": "数据保留期已缩短",
       "security.PaymentTerminalSettingsChanged": "支付终端设置已更改",
       "fleet.DepotRequestsRefused": "巴士车场请求被拒绝",
-      "security.DepotSystemChanged": "巴士车场系统已更改"
+      "security.DepotSystemChanged": "巴士车场系统已更改",
+      "fleet.ManagerCreditLimitWarning": "车队经理信用额度预警",
+      "fleet.ManagerCreditLimitReached": "车队经理信用额度已达上限",
+      "fleet.ManagerInvoiceIssued": "车队经理新发票",
+      "operator.FleetManagerInvite": "车队经理邀请"
     },
     "templatePreviewInvalid": "模板存在错误：",
     "htmlPreview": "HTML 预览",
@@ -4448,7 +4624,8 @@
       "mandatory": "必需",
       "notConfigured": "未配置：此渠道不发送任何内容。",
       "explanation": "驾驶员会看到必需通知处于开启并锁定状态，并标明为您要求的通知。"
-    }
+    },
+    "fleetManagerEvents": "车队经理通知"
   },
   "reservations": {
     "title": "预约",
@@ -4652,6 +4829,7 @@
     "FAVORITE_NOT_FOUND": "未找到收藏",
     "FLEET_CREDIT_LIMIT_REACHED": "为您的会话付费的车队已达到信用额度。请联系您的车队管理员。",
     "FLEET_DISABLED": "车队已禁用",
+    "FLEET_USER_NO_FLEETS": "没有为您分配车队。请联系您的运营商。",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有旧版本的进程处于连接状态。请完成升级后再更改车队计费。",
     "FLEET_BILLING_VERSION_CHECK_STALE": "Worker 最近未运行版本检查，无法确认升级。请检查 Worker 是否正在运行，然后再更改车队计费。",
     "FLEET_BILLING_CONTACT_REQUIRED": "自动开具发票和发送发票邮件需要车队至少有一个账单联系人。",
@@ -4986,7 +5164,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "运营商要求在此渠道接收此通知，因此无法关闭",
     "STATION_UNITS_FEATURE_IN_USE": "仍有充电桩在使用单元。请先在每个充电桩上关闭使用充电桩单元，再关闭启用充电桩单元。",
     "STATION_UNITS_FEATURE_OFF": "充电桩单元已关闭。请先在设置 > 集成与功能中开启启用充电桩单元。",
-    "STATION_REPORTED_FIELD_LOCKED": "充电桩在启动时上报此值，因此无法在此更改。"
+    "STATION_REPORTED_FIELD_LOCKED": "充电桩在启动时上报此值，因此无法在此更改。",
+    "FLEET_CARD_DEACTIVATED": "此 RFID 卡已停用，无法重新启用",
+    "FLEET_CARD_NOT_BILLABLE": "该车队未启用账户计费，其 RFID 卡无法充电。请先为该车队启用账户计费",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "该驾驶员不是拥有此 RFID 卡的车队的有效成员",
+    "FLEET_HAS_CARDS": "该车队仍拥有 RFID 卡。请先将其从车队中移除。",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "车队用户不能拥有此权限",
+    "INVALID_FLEET_IDS": "一个或多个 fleetId 不存在",
+    "TOKEN_MANAGED_BY_FLEET": "此 RFID 卡属于您的车队。如需更改，请联系您的车队。"
   },
   "logs": {
     "title": "日志",
@@ -6197,7 +6382,8 @@
     "varTerminalAmount": "预授权或已付金额，以公司货币显示",
     "varPaymentApproved": "卡片获批时设置",
     "varPlugInAnyConnector": "驾驶员可以在任意连接器插枪时设置（整个充电桩的终端）",
-    "varReceiptUrl": "支付收据链接"
+    "varReceiptUrl": "支付收据链接",
+    "stateCardMonthlyLimit": "卡片每月限额已用完"
   },
   "audit": {
     "title": "审计日志",
@@ -6660,6 +6846,7 @@
     "taxId": "税号：{{id}}",
     "driverSubtotal": "{{driver}} 小计",
     "unknownDriver": "未知驾驶员",
+    "fleetCards": "车队 RFID 卡",
     "confirmResendFleet": "将此发票及其 PDF 通过电子邮件发送给车队账单联系人？",
     "sentAt": "已发送邮件",
     "overdueNoticeSentAt": "已发送付款提醒",
@@ -7821,5 +8008,13 @@
   "connectorTypeNames": {
     "other": "其他",
     "pantograph": "受电弓"
+  },
+  "fleetsOff": {
+    "title": "车队管理已关闭",
+    "message": "车队管理已关闭。请联系您的运营商。"
+  },
+  "noFleets": {
+    "title": "未分配车队",
+    "message": "没有为您分配车队。请联系您的运营商。"
   }
 }

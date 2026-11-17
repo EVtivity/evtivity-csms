@@ -37,6 +37,7 @@ describe('security template event list', () => {
     for (const type of [
       'operator.ForgotPassword',
       'operator.UserCreated',
+      'operator.FleetManagerInvite',
       'driver.ForgotPassword',
       'driver.AccountVerification',
       'driver.PortalInvite',

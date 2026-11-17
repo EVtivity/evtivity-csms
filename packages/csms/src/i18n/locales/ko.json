@@ -618,6 +618,33 @@
       "empty": "이 기간에 보안 이벤트가 없습니다.",
       "noStations": "이 심각도의 이벤트가 있는 충전소가 없습니다.",
       "criticalRow": "위험"
+    },
+    "fleet": {
+      "title": "차량대",
+      "picker": "차량대",
+      "allFleets": "모든 차량대을 표시합니다. 하나를 선택하면 그 차량대만 표시합니다.",
+      "oneFleet": "차량대 하나를 표시합니다. 선택을 지우면 모든 차량대을 표시합니다.",
+      "sessions": "차량대 세션",
+      "sessionsInfo": "기간 안에 시작된 차량대의 세션입니다.",
+      "energy": "차량대 에너지",
+      "energyInfo": "이 세션들이 공급한 에너지입니다.",
+      "cost": "차량대 비용",
+      "costInfo": "회사 통화로 표시한 이 세션들의 비용입니다.",
+      "creditUsed": "사용한 신용 한도",
+      "creditUsedInfo": "신용 한도에 가장 가까운 차량대: 지금 지불해야 하는 금액(청구 전, 청구됨, 진행 중인 세션)을 해당 한도 대비 비율로 표시합니다. 차량대 하나를 고르면 그 차량대의 비율을 표시합니다.",
+      "creditUsedOf": "{{limit}} 중 {{used}}",
+      "creditUsedFleet": "{{fleet}}: {{limit}} 중 {{used}}",
+      "noCreditLimit": "신용 한도 없음",
+      "energyChart": "일별 차량대 에너지",
+      "energyChartInfo": "기간 안의 차량대 세션이 하루에 공급한 에너지입니다.",
+      "sessionsChart": "일별 차량대 세션",
+      "sessionsChartInfo": "기간 안에 하루에 시작된 차량대 세션입니다.",
+      "costChart": "일별 차량대 비용",
+      "costChartInfo": "기간 안의 차량대 세션의 일별 비용입니다.",
+      "invoicesChart": "최근 차량대 청구서",
+      "invoicesInfo": "차량대의 최신 청구서와 대변 메모입니다.",
+      "noInvoices": "아직 차량대 청구서가 없습니다.",
+      "creditNote": "대변 메모"
     }
   },
   "sites": {
@@ -1903,7 +1930,8 @@
       "not_held": "이 세션이 시작될 때 카드 승인 보류가 이루어지지 않아 요금이 청구되지 않았습니다. 당시 결제가 꺼져 있었거나 결제 제공업체를 사용할 수 없었습니다.",
       "viewInvoice": "청구서 보기",
       "openGuestTab": "게스트 세션 열기",
-      "openPaymentSettings": "결제 설정 열기"
+      "openPaymentSettings": "결제 설정 열기",
+      "card_monthly_limit": "이 플릿 RFID 카드의 월 지출 한도로 인해 이 세션이 시작 시 거부되어 요금이 청구되지 않았습니다."
     },
     "noTransactionEvents": "거래 이벤트 없음",
     "refund": "환불",
@@ -2282,6 +2310,12 @@
     "createUser": "사용자 생성",
     "searchPlaceholder": "사용자 검색...",
     "role": "역할",
+    "roleNames": {
+      "admin": "관리자",
+      "operator": "운영자",
+      "viewer": "조회자",
+      "fleet_manager": "차량대 관리자"
+    },
     "lastLogin": "최근 로그인",
     "allRoles": "전체 역할",
     "allStatuses": "전체 상태",
@@ -2327,6 +2361,7 @@
       "sessions": "세션",
       "drivers": "운전자",
       "fleets": "차량대",
+      "fleetCards": "차량대 RFID 카드",
       "reservations": "예약",
       "support": "문의",
       "payments": "결제",
@@ -2386,7 +2421,19 @@
     "ssoLinkWithdraw": "철회",
     "ssoLinkProofHint": "싱글 사인온이 이 계정으로 로그인하도록 허용하려면 본인임을 확인하십시오.",
     "ssoUnlink": "연결 제거",
-    "ssoUnlinkProofHint": "이 계정과 ID 공급자 사용자 간의 연결을 제거하려면 본인임을 확인하십시오."
+    "ssoUnlinkProofHint": "이 계정과 ID 공급자 사용자 간의 연결을 제거하려면 본인임을 확인하십시오.",
+    "access": {
+      "label": "접근 권한",
+      "sites": "사이트",
+      "fleets": "차량대",
+      "sitesDescription": "사용자는 아래에서 선택한 사이트의 충전기, 세션 및 데이터를 봅니다.",
+      "fleetsDescription": "사용자는 아래 목록의 차량대만 봅니다: 그 세션, 회원, 청구서 및 RFID 카드이며 사이트는 보지 않습니다.",
+      "fleetsCount": "{{count}}개 차량대",
+      "noFleetsPicked": "아직 추가된 차량대가 없습니다. 아래에서 차량대를 검색해 추가하세요.",
+      "removeFleet": "{{name}} 제거",
+      "unknownFleet": "차량대",
+      "allScopes": "모든 접근"
+    }
   },
   "profile": {
     "title": "프로필",
@@ -2674,7 +2721,12 @@
       "recipientMember": "운전자",
       "billedTo": "청구 대상",
       "sendMemberTitle": "운전자 청구서 보내기",
-      "sendMemberConfirm": "{{number}}을(를) PDF와 함께 운전자에게 보내시겠습니까?"
+      "sendMemberConfirm": "{{number}}을(를) PDF와 함께 운전자에게 보내시겠습니까?",
+      "empty": {
+        "title": "아직 청구서가 없습니다",
+        "description": "차량대 청구서는 발행되면 여기에 표시됩니다. 자동 월간 청구서가 켜져 있으면 매월 월별 실행으로 발행되고, 미청구 세션에서 청구서 생성으로 발행할 수도 있습니다.",
+        "fleetUser": "운영자가 차량대 청구서를 발행하면 여기에 표시됩니다. 보통 한 달에 한 번입니다."
+      }
     },
     "bookingStatus": {
       "scheduled": "예약됨",
@@ -2816,6 +2868,122 @@
       "arrivalIncomplete": "도착 날짜와 시간을 모두 입력하거나 둘 다 비워 두세요.",
       "arrivalBeforeDeparture": "예상 도착은 출발 전이어야 합니다.",
       "arrivalSocRange": "0에서 100 사이의 정수를 입력하세요."
+    },
+    "cards": {
+      "title": "RFID 카드",
+      "description": "이 차량대가 소유한 RFID 카드입니다. 회원이 없는 카드는 차량대 계정으로 충전합니다.",
+      "searchPlaceholder": "카드 또는 라벨 검색...",
+      "addCard": "RFID 카드 추가",
+      "value": "RFID 카드",
+      "member": "회원",
+      "noMember": "회원 없음",
+      "noCards": "RFID 카드가 없습니다",
+      "status": {
+        "active": "활성",
+        "suspended": "꺼짐",
+        "deactivated": "비활성화됨"
+      },
+      "editCard": "RFID 카드 편집",
+      "deactivate": "비활성화",
+      "deactivateTitle": "RFID 카드를 비활성화하시겠습니까?",
+      "deactivateDescription": "RFID 카드 {{value}}는 모든 충전기에서 더 이상 작동하지 않으며 다시 켤 수 없습니다. 목록에는 남아 있습니다.",
+      "labelHint": "카드를 알아보기 위한 선택 이름입니다. 예: \"밴 12\".",
+      "memberHint": "카드를 차량대의 활성 회원에게 주거나, 회원 없이 두어 차량대 계정으로 충전하게 합니다.",
+      "active": "활성",
+      "activeHint": "카드를 끄려면 이 항목의 선택을 해제하세요. 나중에 다시 켤 수 있습니다.",
+      "lockedDeactivated": "이 RFID 카드는 비활성화되어 다시 켤 수 없습니다.",
+      "lockedByOperator": "운영자가 이 RFID 카드를 껐습니다. 다시 켜려면 운영자에게 문의하세요.",
+      "searchMembers": "회원 검색...",
+      "import": {
+        "open": "CSV 가져오기",
+        "title": "RFID 카드 가져오기",
+        "description": "CSV 파일로 이 차량대에 여러 RFID 카드를 추가합니다. 각 행은 카드 하나를 추가하는 것과 같으며, 거부된 행은 아무것도 바꾸지 않습니다.",
+        "columns": "열: idToken(카드 값, 필수), tokenType(비어 있으면 ISO14443), label, memberEmail(차량대의 활성 회원). 최대 2000행, 512KB.",
+        "columnsFleetUser": "열: idToken(카드 값, 필수), tokenType(비어 있으면 ISO14443), label. memberEmail 열은 비워 두십시오. 가져온 후 여기에서 카드를 멤버에게 지정하십시오. 최대 2000행, 512KB.",
+        "template": "템플릿 다운로드",
+        "chooseFile": "파일 선택",
+        "chooseFirst": "먼저 CSV 파일을 선택하세요.",
+        "tooLarge": "파일이 512KB보다 큽니다.",
+        "failed": "가져오기에 실패했습니다. 다시 시도하세요.",
+        "submit": "CSV 가져오기",
+        "created": "추가됨: {{count}}",
+        "refused": "거부됨: {{count}}",
+        "refusedRow": "{{row}}행: {{field}}, {{reason}}",
+        "reasons": {
+          "missing": "값 없음",
+          "invalid": "유효하지 않음",
+          "duplicate": "이미 등록됨",
+          "not_found": "차량대의 활성 회원이 아님"
+        }
+      },
+      "history": {
+        "open": "기록",
+        "title": "RFID 카드 기록",
+        "description": "RFID 카드 {{value}}이(가) 이 플릿에 속해 있던 동안의 변경 내역입니다. 최신 항목이 먼저 표시됩니다.",
+        "empty": "아직 기록된 변경 사항이 없습니다",
+        "by": "변경한 사람: {{who}}",
+        "viaApiKey": "{{who}} (API 키)",
+        "someMember": "회원",
+        "noLabel": "라벨 없음",
+        "reasonMemberLeft": "회원이 플릿을 떠났습니다.",
+        "actor": {
+          "fleet_user": "플릿 관리자",
+          "operator": "운영자",
+          "driver": "운전자",
+          "system": "시스템"
+        },
+        "change": {
+          "added": "추가됨",
+          "moved_into_fleet": "플릿으로 이동됨",
+          "moved_out_of_fleet": "플릿에서 이동됨",
+          "given": "{{member}}에게 지급됨",
+          "taken_back": "{{member}}에게서 회수됨",
+          "renamed": "라벨이 {{from}}에서 {{to}}(으)로 변경됨",
+          "turned_off": "꺼짐",
+          "turned_on": "켜짐",
+          "deactivated": "비활성화됨",
+          "changed": "변경됨",
+          "deleted": "삭제됨",
+          "limit_changed": "월 한도 변경"
+        }
+      },
+      "monthlyLimit": {
+        "column": "이번 달",
+        "label": "월 한도",
+        "hint": "누가 충전하든 이 카드가 한 달 동안 사용할 수 있는 최대 금액입니다. 한도를 넘는 충전 시작은 거부되며, 세션은 한도에 도달하면 중지됩니다. 한도가 없으면 비워 두세요.",
+        "invalid": "0.01에서 1,000,000.00 사이의 금액을 입력하거나 비워 두세요.",
+        "none": "(한도 없음)",
+        "spentOfLimit": "{{limit}} 중 {{spent}}",
+        "thisMonth": "이번 달"
+      },
+      "empty": {
+        "title": "아직 RFID 카드가 없습니다",
+        "description": "차량대의 RFID 카드를 하나씩 추가하거나 CSV 파일에서 한 번에 가져오세요. 구성원에게 지급한 카드는 구성원의 카드처럼 충전합니다. 구성원이 없는 카드는 차량대 계정으로 청구됩니다.",
+        "readOnly": "차량대의 RFID 카드가 추가되면 여기에 표시됩니다."
+      }
+    },
+    "sessionDialog": {
+      "title": "세션",
+      "card": "RFID 카드 라벨"
+    },
+    "searchFleets": "차량대 검색...",
+    "sessionFilters": {
+      "member": "회원",
+      "rfidCard": "RFID 카드",
+      "searchCards": "RFID 카드 검색..."
+    },
+    "managers": {
+      "title": "차량대 관리자",
+      "description": "CSMS에서 이 차량대를 관리하는 차량대 사용자입니다. 할당된 차량대만 볼 수 있습니다.",
+      "add": "차량대 관리자 추가",
+      "empty": "이 차량대에 할당된 차량대 관리자가 없습니다.",
+      "permissions": "권한",
+      "lastSignIn": "마지막 로그인",
+      "neverSignedIn": "없음"
+    },
+    "sessionsEmpty": {
+      "none": "아직 세션이 없습니다. 구성원이 차량대 계정으로 충전하거나 차량대의 RFID 카드를 사용하면 여기에 표시됩니다.",
+      "filtered": "이 필터에 맞는 세션이 없습니다."
     }
   },
   "tokens": {
@@ -2891,9 +3059,13 @@
     "deactivatedByValue": {
       "operator": "운영자",
       "driver": "운전자",
-      "system": "시스템"
+      "system": "시스템",
+      "fleet": "차량대"
     },
-    "deactivationReason": "비활성화 사유"
+    "deactivationReason": "비활성화 사유",
+    "fleet": "차량대",
+    "noFleet": "차량대 없음",
+    "fleetHint": "이 RFID 카드를 소유한 차량대입니다. 회원이 없는 카드는 차량대 계정으로 충전하며, 차량대 회원에게 카드를 줄 수 있습니다."
   },
   "commands": {
     "advancedCommand": "고급 명령",
@@ -4427,7 +4599,11 @@
       "security.RetentionLowered": "데이터 보존 기간 단축",
       "security.PaymentTerminalSettingsChanged": "결제 단말기 설정 변경됨",
       "fleet.DepotRequestsRefused": "버스 차고지 요청 거부됨",
-      "security.DepotSystemChanged": "버스 차고지 시스템 변경됨"
+      "security.DepotSystemChanged": "버스 차고지 시스템 변경됨",
+      "fleet.ManagerCreditLimitWarning": "차량대 관리자 신용 한도 경고",
+      "fleet.ManagerCreditLimitReached": "차량대 관리자 신용 한도 도달",
+      "fleet.ManagerInvoiceIssued": "차량대 관리자 새 청구서",
+      "operator.FleetManagerInvite": "차량대 관리자 초대"
     },
     "templatePreviewInvalid": "템플릿에 오류가 있습니다:",
     "htmlPreview": "HTML 미리보기",
@@ -4448,7 +4624,8 @@
       "mandatory": "필수",
       "notConfigured": "설정되지 않음: 이 채널로는 아무것도 보내지 않습니다.",
       "explanation": "운전자에게 필수 알림은 켜진 채로 잠겨 있으며 운영자가 요구한 알림으로 표시됩니다."
-    }
+    },
+    "fleetManagerEvents": "차량대 관리자 알림"
   },
   "reservations": {
     "title": "예약",
@@ -4652,6 +4829,7 @@
     "FAVORITE_NOT_FOUND": "즐겨찾기를 찾을 수 없습니다",
     "FLEET_CREDIT_LIMIT_REACHED": "세션 요금이 청구되는 차량대의 신용 한도에 도달했습니다. 차량대 관리자에게 문의하십시오.",
     "FLEET_DISABLED": "차량대가 사용 중지되었습니다",
+    "FLEET_USER_NO_FLEETS": "할당된 차량대가 없습니다. 운영자에게 문의하세요.",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "이전 릴리스의 프로세스가 아직 연결되어 있습니다. 업그레이드를 마친 후 차량대 청구를 변경하십시오.",
     "FLEET_BILLING_VERSION_CHECK_STALE": "워커의 버전 검사가 최근에 실행되지 않아 업그레이드를 확인할 수 없습니다. 워커가 실행 중인지 확인한 후 차량대 청구를 변경하십시오.",
     "FLEET_BILLING_CONTACT_REQUIRED": "자동 청구서 발행과 청구서 이메일 발송에는 차량대 청구 담당자가 한 명 이상 필요합니다.",
@@ -4986,7 +5164,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "운영자가 이 채널에서 이 알림을 필수로 지정했으므로 끌 수 없습니다",
     "STATION_UNITS_FEATURE_IN_USE": "아직 유닛을 사용하는 충전소가 있습니다. 충전소 유닛 활성화를 끄기 전에 모든 충전소에서 충전소 유닛 사용을 끄세요.",
     "STATION_UNITS_FEATURE_OFF": "충전소 유닛이 꺼져 있습니다. 먼저 설정 > 통합 및 기능에서 충전소 유닛 활성화를 켜세요.",
-    "STATION_REPORTED_FIELD_LOCKED": "충전소가 부팅할 때 이 값을 보고하므로 여기에서 변경할 수 없습니다."
+    "STATION_REPORTED_FIELD_LOCKED": "충전소가 부팅할 때 이 값을 보고하므로 여기에서 변경할 수 없습니다.",
+    "FLEET_CARD_DEACTIVATED": "이 RFID 카드는 비활성화되어 다시 켤 수 없습니다",
+    "FLEET_CARD_NOT_BILLABLE": "이 플릿은 계정 청구를 사용하지 않으므로 RFID 카드로 충전할 수 없습니다. 먼저 플릿의 계정 청구를 켜십시오",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "운전자가 이 RFID 카드를 소유한 플릿의 활성 멤버가 아닙니다",
+    "FLEET_HAS_CARDS": "이 플릿은 아직 RFID 카드를 소유하고 있습니다. 먼저 플릿에서 제거하세요.",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "플릿 사용자는 이 권한을 가질 수 없습니다",
+    "INVALID_FLEET_IDS": "하나 이상의 fleetId가 존재하지 않습니다",
+    "TOKEN_MANAGED_BY_FLEET": "이 RFID 카드는 플릿 소유입니다. 변경하려면 플릿에 문의하세요."
   },
   "logs": {
     "title": "로그",
@@ -6197,7 +6382,8 @@
     "varTerminalAmount": "사전 승인 또는 결제 금액 (회사 통화)",
     "varPaymentApproved": "카드가 승인되었을 때 설정됩니다",
     "varPlugInAnyConnector": "운전자가 어느 커넥터에나 연결할 수 있을 때 설정됩니다 (충전소 전체 단말기)",
-    "varReceiptUrl": "결제 영수증 링크"
+    "varReceiptUrl": "결제 영수증 링크",
+    "stateCardMonthlyLimit": "카드 월 한도 도달"
   },
   "audit": {
     "title": "감사 로그",
@@ -6660,6 +6846,7 @@
     "taxId": "사업자등록번호: {{id}}",
     "driverSubtotal": "{{driver}} 소계",
     "unknownDriver": "알 수 없는 운전자",
+    "fleetCards": "차량대 RFID 카드",
     "confirmResendFleet": "이 청구서를 PDF와 함께 차량대 청구 담당자에게 이메일로 보내시겠습니까?",
     "sentAt": "이메일 발송",
     "overdueNoticeSentAt": "납부 안내 발송",
@@ -7821,5 +8008,13 @@
   "connectorTypeNames": {
     "other": "기타",
     "pantograph": "팬터그래프"
+  },
+  "fleetsOff": {
+    "title": "차량대 관리가 꺼져 있음",
+    "message": "차량대 관리가 꺼져 있습니다. 운영자에게 문의하세요."
+  },
+  "noFleets": {
+    "title": "할당된 차량대 없음",
+    "message": "할당된 차량대가 없습니다. 운영자에게 문의하세요."
   }
 }

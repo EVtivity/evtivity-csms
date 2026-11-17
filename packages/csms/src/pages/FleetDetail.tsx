@@ -23,8 +23,10 @@ import { FleetBillingProfileCard } from '@/components/fleet/FleetBillingProfileC
 import type { FleetBillingProfile } from '@/components/fleet/FleetBillingProfileCard';
 import { FleetCreditLimitCard } from '@/components/fleet/FleetCreditLimitCard';
 import { FleetInvoicesCard } from '@/components/fleet/FleetInvoicesCard';
+import { FleetCardsTab } from '@/components/fleet/FleetCardsTab';
+import { FleetManagersTab } from '@/components/fleet/FleetManagersTab';
 import { api } from '@/lib/api';
-import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission, useIsFleetUser } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface Fleet extends Partial<FleetBillingProfile> {
@@ -48,6 +50,11 @@ export function FleetDetail(): React.JSX.Element {
   const hasAllSiteAccess = useHasAllSiteAccess();
   // The credit limit is money: its GET needs payments:read.
   const canReadPayments = useHasPermission('payments:read');
+  const canReadCards = useHasPermission('fleetCards:read');
+  // Fleet users are company-wide accounts: only all-site admins who read users see them.
+  const canReadUsers = useHasPermission('users:read');
+  // A fleet user reads its fleet only: no stations, departures, pricing, reservations or history.
+  const isFleetUser = useIsFleetUser();
   const [activeTab, setActiveTab] = useTab('details');
 
   const { data: fleet, isLoading } = useQuery({
@@ -68,7 +75,11 @@ export function FleetDetail(): React.JSX.Element {
   // A site-restricted user changes the members only of a fleet with no
   // pricing group and no account billing (the API answers 404 otherwise).
   const canManageMembers =
-    hasAllSiteAccess || (fleet.accountBillingEnabled !== true && fleet.hasPricingGroup !== true);
+    !isFleetUser &&
+    (hasAllSiteAccess || (fleet.accountBillingEnabled !== true && fleet.hasPricingGroup !== true));
+  const showOperatorTabs = !isFleetUser;
+  const showBilling = isFleetUser ? canReadPayments : hasAllSiteAccess;
+  const showManagers = !isFleetUser && hasAllSiteAccess && canReadUsers;
 
   return (
     <div className="space-y-6">
@@ -85,16 +96,22 @@ export function FleetDetail(): React.JSX.Element {
         <TabsList>
           <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
           <TabsTrigger value="sessions">{t('sessions.title')}</TabsTrigger>
-          <TabsTrigger value="stations">{t('fleets.stations')}</TabsTrigger>
+          {showOperatorTabs && <TabsTrigger value="stations">{t('fleets.stations')}</TabsTrigger>}
           <TabsTrigger value="vehicles">{t('fleets.vehicles')}</TabsTrigger>
-          <TabsTrigger value="departures">{t('fleets.departures.title')}</TabsTrigger>
+          {showOperatorTabs && (
+            <TabsTrigger value="departures">{t('fleets.departures.title')}</TabsTrigger>
+          )}
           <TabsTrigger value="drivers">{t('fleets.drivers')}</TabsTrigger>
-          <TabsTrigger value="pricing">{t('fleets.pricing')}</TabsTrigger>
-          {hasAllSiteAccess && <TabsTrigger value="billing">{t('fleets.billingTab')}</TabsTrigger>}
-          {canReadReservations && (
+          {showOperatorTabs && <TabsTrigger value="pricing">{t('fleets.pricing')}</TabsTrigger>}
+          {showBilling && <TabsTrigger value="billing">{t('fleets.billingTab')}</TabsTrigger>}
+          {canReadCards && <TabsTrigger value="cards">{t('fleets.cards.title')}</TabsTrigger>}
+          {showManagers && <TabsTrigger value="managers">{t('fleets.managers.title')}</TabsTrigger>}
+          {showOperatorTabs && canReadReservations && (
             <TabsTrigger value="reservations">{t('fleets.bulkReservations')}</TabsTrigger>
           )}
-          {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
+          {showOperatorTabs && canReadAudit && (
+            <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="details">
@@ -105,17 +122,21 @@ export function FleetDetail(): React.JSX.Element {
           <FleetSessionsTab fleetId={fleetId} />
         </TabsContent>
 
-        <TabsContent value="stations">
-          <FleetStationsTab fleetId={fleetId} />
-        </TabsContent>
+        {showOperatorTabs && (
+          <TabsContent value="stations">
+            <FleetStationsTab fleetId={fleetId} />
+          </TabsContent>
+        )}
 
         <TabsContent value="vehicles">
           <FleetVehiclesTab fleetId={fleetId} canManageMembers={canManageMembers} />
         </TabsContent>
 
-        <TabsContent value="departures">
-          <FleetDeparturesTab fleetId={fleetId} />
-        </TabsContent>
+        {showOperatorTabs && (
+          <TabsContent value="departures">
+            <FleetDeparturesTab fleetId={fleetId} />
+          </TabsContent>
+        )}
 
         <TabsContent value="drivers">
           <FleetDriversTab
@@ -125,28 +146,44 @@ export function FleetDetail(): React.JSX.Element {
           />
         </TabsContent>
 
-        <TabsContent value="pricing">
-          <FleetPricingTab fleetId={fleetId} />
-        </TabsContent>
+        {showOperatorTabs && (
+          <TabsContent value="pricing">
+            <FleetPricingTab fleetId={fleetId} />
+          </TabsContent>
+        )}
 
-        {hasAllSiteAccess && (
+        {showBilling && (
           <TabsContent value="billing">
-            <FleetBillingTab fleet={fleet} />
-            <FleetBillingProfileCard fleet={fleet} />
+            <FleetBillingTab fleet={fleet} readOnly={isFleetUser} />
+            {!isFleetUser && <FleetBillingProfileCard fleet={fleet} />}
             {canReadPayments && <FleetCreditLimitCard fleetId={fleetId} />}
             <FleetInvoicesCard fleetId={fleetId} recipient={fleet.accountInvoiceRecipient} />
           </TabsContent>
         )}
 
-        {canReadReservations && (
+        {canReadCards && (
+          <TabsContent value="cards">
+            <FleetCardsTab fleetId={fleetId} />
+          </TabsContent>
+        )}
+
+        {showManagers && (
+          <TabsContent value="managers">
+            <FleetManagersTab fleetId={fleetId} />
+          </TabsContent>
+        )}
+
+        {showOperatorTabs && canReadReservations && (
           <TabsContent value="reservations">
             <FleetReservationsTab fleetId={fleetId} />
           </TabsContent>
         )}
 
-        <TabsContent value="history">
-          <EntityHistoryTab entityType="fleet" entityId={fleetId} />
-        </TabsContent>
+        {showOperatorTabs && (
+          <TabsContent value="history">
+            <EntityHistoryTab entityType="fleet" entityId={fleetId} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

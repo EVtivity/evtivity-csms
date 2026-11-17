@@ -13,6 +13,7 @@ import {
   clearStationMessageCache,
 } from '@evtivity/lib';
 import {
+  clearAiSettingsCache,
   getSentryConfig,
   guardPgConnectionRejections,
   clearStationMessageSettingsCache,
@@ -273,6 +274,10 @@ async function start(): Promise<void> {
       }
       if (msg.kind === 'notification_settings') {
         clearNotificationSettingsCache();
+      }
+      if (msg.kind === 'ai_settings') {
+        // Driver support and insight jobs read the AI settings here.
+        clearAiSettingsCache();
       }
       if (msg.kind === 'station_message') {
         // Station screens render here (station-messages and tariff boundary jobs).

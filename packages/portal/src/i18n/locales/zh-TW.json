@@ -739,6 +739,7 @@
     "FAVORITE_NOT_FOUND": "找不到最愛項目",
     "FLEET_CREDIT_LIMIT_REACHED": "為您的工作階段付費的車隊已達到信用額度。請聯絡您的車隊管理員。",
     "FLEET_DISABLED": "車隊已停用",
+    "FLEET_USER_NO_FLEETS": "沒有為您指派車隊。請聯絡您的營運商。",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有舊版本的處理程序處於連線狀態。請完成升級後再變更車隊計費。",
     "FLEET_BILLING_VERSION_CHECK_STALE": "Worker 最近未執行版本檢查，無法確認升級。請檢查 Worker 是否正在執行，然後再變更車隊計費。",
     "FLEET_BILLING_CONTACT_REQUIRED": "自動開立發票和寄送發票電子郵件需要車隊至少有一個帳單聯絡人。",
@@ -1073,7 +1074,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "營運商要求在此管道接收此通知，因此無法關閉",
     "STATION_UNITS_FEATURE_IN_USE": "仍有充電樁在使用單元。請先在每個充電樁上關閉使用充電樁單元，再關閉啟用充電樁單元。",
     "STATION_UNITS_FEATURE_OFF": "充電樁單元已關閉。請先在設定 > 整合與功能中開啟啟用充電樁單元。",
-    "STATION_REPORTED_FIELD_LOCKED": "充電樁在啟動時回報此值，因此無法在此變更。"
+    "STATION_REPORTED_FIELD_LOCKED": "充電樁在啟動時回報此值，因此無法在此變更。",
+    "FLEET_CARD_DEACTIVATED": "此 RFID 卡已停用，無法重新啟用",
+    "FLEET_CARD_NOT_BILLABLE": "該車隊未啟用帳戶計費，其 RFID 卡無法充電。請先為該車隊啟用帳戶計費",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "該駕駛員不是擁有此 RFID 卡的車隊的有效成員",
+    "FLEET_HAS_CARDS": "該車隊仍擁有 RFID 卡。請先將其從車隊中移除。",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "車隊使用者不能擁有此權限",
+    "INVALID_FLEET_IDS": "一個或多個 fleetId 不存在",
+    "TOKEN_MANAGED_BY_FLEET": "此 RFID 卡屬於您的車隊。如需變更，請聯絡您的車隊。"
   },
   "validation": {
     "required": "此欄位為必填項",
@@ -1204,7 +1212,9 @@
     "renameFailed": "無法重新命名此卡。請再試一次。",
     "managedByOperator": "您的 RFID 卡由營運商管理。如需新增、變更或移除卡片，或停用遺失的卡，請聯絡營運商。",
     "noCardsAssigned": "您沒有分配的 RFID 卡。",
-    "contactSupport": "聯絡支援"
+    "contactSupport": "聯絡支援",
+    "managedByFleet": "由{{fleet}}管理。如需變更此卡，請聯絡您的車隊。",
+    "yourFleet": "您的車隊"
   },
   "vehicles": {
     "addVehicle": "新增車輛",

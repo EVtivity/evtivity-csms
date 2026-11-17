@@ -135,7 +135,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm audit --audit-level=high
+      # Runtime packages gate the job. Dev tool advisories are reported in the next step.
+      - name: Audit runtime packages
+        run: npm audit --omit=dev --audit-level=high
+      - name: Report all advisories (dev tools included, not gating)
+        if: always()
+        continue-on-error: true
+        run: npm audit --audit-level=high
 
   build:
     name: Build bundles

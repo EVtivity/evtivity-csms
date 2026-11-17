@@ -4,20 +4,28 @@
 import { createHash } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { getEffectivePermissions } from '../middleware/rbac.js';
+import type { UserAccess } from './fleet-scope.js';
+import { getUserAccessScope } from './fleet-scope.js';
 import { getUserSiteIds } from './site-access.js';
 
 /**
  * A short hash of what an operator may see besides the URL: the user's sites
- * (or all sites) and the request's effective permissions (the user's
- * permissions narrowed by the API key scope). A change to the user's sites,
- * permissions or role changes the hash. Used by the HTTP response cache key
+ * (or all sites), its access scope with its fleets, and the request's
+ * effective permissions (the user's permissions narrowed by the API key
+ * scope). A change to the user's sites, fleets, scope, permissions or role
+ * changes the hash. Used by the HTTP response cache key
  * and by the AI assistant, which hides stored tool results produced under
  * another access (features/site-access-control.md).
  */
-export function buildScopeHash(siteIds: string[] | null, permissions: string[]): string {
+export function buildScopeHash(
+  siteIds: string[] | null,
+  permissions: string[],
+  access: UserAccess = { kind: 'sites' },
+): string {
   const scope = JSON.stringify({
     sites: siteIds == null ? '*' : [...siteIds].sort(),
     permissions: [...permissions].sort(),
+    ...(access.kind === 'fleets' ? { fleets: [...access.fleetIds].sort() } : {}),
   });
   return createHash('sha256').update(scope).digest('hex').slice(0, 16);
 }
@@ -28,9 +36,10 @@ export function buildScopeHash(siteIds: string[] | null, permissions: string[]):
  * the cache_invalidate message of a change.
  */
 export async function requestAccessScope(request: FastifyRequest, userId: string): Promise<string> {
-  const [siteIds, permissions] = await Promise.all([
+  const [siteIds, permissions, access] = await Promise.all([
     getUserSiteIds(userId),
     getEffectivePermissions(request),
+    getUserAccessScope(userId),
   ]);
-  return buildScopeHash(siteIds, permissions ?? []);
+  return buildScopeHash(siteIds, permissions ?? [], access);
 }

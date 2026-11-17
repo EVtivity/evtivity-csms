@@ -37,6 +37,7 @@ type StationMessageState =
   | 'unauthorized'
   | 'prepaid_exhausted'
   | 'account_credit_limit'
+  | 'card_monthly_limit'
   | 'terminal_card'
   | 'terminal_result'
   | 'terminal_receipt';
@@ -84,6 +85,7 @@ const ALL: ReadonlySet<StationMessageState> = new Set([
   'unauthorized',
   'prepaid_exhausted',
   'account_credit_limit',
+  'card_monthly_limit',
   'terminal_card',
   'terminal_result',
   'terminal_receipt',
@@ -191,6 +193,7 @@ const STATES: StationMessageState[] = [
   'unauthorized',
   'prepaid_exhausted',
   'account_credit_limit',
+  'card_monthly_limit',
   // Payment terminal prompts, shown on the station display for a terminal
   // without a screen (VP7200): present card, result, receipt link.
   'terminal_card',
@@ -213,6 +216,7 @@ const STATE_LABEL_KEY: Record<StationMessageState, string> = {
   unauthorized: 'messages.stateUnauthorized',
   prepaid_exhausted: 'messages.statePrepaidExhausted',
   account_credit_limit: 'messages.stateAccountCreditLimit',
+  card_monthly_limit: 'messages.stateCardMonthlyLimit',
   terminal_card: 'messages.stateTerminalCard',
   terminal_result: 'messages.stateTerminalResult',
   terminal_receipt: 'messages.stateTerminalReceipt',

@@ -23,7 +23,8 @@ import { attachSimToPaymentTerminal } from './lib/sim-inventory.js';
 import type { StoredSimStatus } from './lib/sim-inventory.js';
 import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import { sessionSiteIdSql } from './lib/session-site.js';
-import { loadDemoStationPlace } from './seed-fleet-billing.js';
+import { loadDemoStationPlace, seedFleetUsersDemo } from './seed-fleet-billing.js';
+import type { FleetUserDemoCounts } from './seed-fleet-billing.js';
 import { seedLayoutDemo } from './seed-demo-layout.js';
 import { seedSitePower } from './seed-site-power.js';
 import { seedDemoVehicleLooks } from './seed-demo-vehicles.js';
@@ -1336,6 +1337,10 @@ export interface DemoFeatureCounts {
   driverAvatars: number;
   /** Demo vehicles given a color and body type (seed-demo-vehicles.ts). */
   vehicleLooks: number;
+  /** What this run did with the demo fleet user (seed-fleet-billing.ts). */
+  fleetUser: FleetUserDemoCounts['fleetUser'];
+  /** Demo fleet RFID cards this run created (seed-fleet-billing.ts). */
+  fleetCards: number;
   /** Demo sessions linked to their driver's only vehicle (seed-demo-vehicles.ts). */
   vehicleSessions: number;
   /** Weekly departure schedules of the Northgate depot vehicles (seed-demo-layout.ts). */
@@ -1375,6 +1380,9 @@ export async function seedDemoFeatures(
   // Every other site's transformers, switchboards and panelboards, sized to its stations.
   const power = await seedSitePower(sql, ctx);
   const vehicleLooks = await seedDemoVehicleLooks(sql, ctx.actorUserId);
+  // The fleet user and fleet cards of the Northwind demo fleet, also on an
+  // install seeded before they existed.
+  const fleetUsers = await seedFleetUsersDemo(sql);
   await enableDemoFeatureSettings(sql);
   // Last, so a driver any earlier demo step created gets its avatar too.
   const driverAvatars = await seedDemoDriverAvatars(sql, ctx.actorUserId);
@@ -1388,6 +1396,8 @@ export async function seedDemoFeatures(
     powerSites: power.filter((p) => p.treeWritten || p.layoutWritten).length,
     driverAvatars,
     vehicleLooks: vehicleLooks.vehicles,
+    fleetUser: fleetUsers.fleetUser,
+    fleetCards: fleetUsers.fleetCards,
     vehicleSessions: vehicleLooks.sessions,
     departureSchedules: layout.departureSchedules,
     securityEvents: layout.securityEvents,

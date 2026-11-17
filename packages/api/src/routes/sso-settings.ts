@@ -15,6 +15,7 @@ import {
   settingAuditLog,
 } from '@evtivity/database';
 import { encryptString, permissionCatalog } from '@evtivity/lib';
+import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
 import { decryptForRead } from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -282,6 +283,15 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
           await reply
             .status(400)
             .send({ error: 'Default role does not exist', code: 'VALIDATION_ERROR' });
+          return;
+        }
+        // A fleet user is set up by an admin with its fleets; SSO never creates one.
+        if (role.name === FLEET_MANAGER_ROLE_NAME) {
+          await reply.status(400).send({
+            error: 'The Fleet Manager role cannot be the default role of SSO users',
+            code: 'VALIDATION_ERROR',
+            details: { field: 'defaultRoleId' },
+          });
           return;
         }
         if (!(await canGrantPermissions(request, permissionCatalog.defaultsFor(role.name)))) {

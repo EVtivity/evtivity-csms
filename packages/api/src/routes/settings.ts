@@ -206,6 +206,19 @@ function announceRfidSelfServiceSwitch(): void {
     });
 }
 
+// An AI setting: this process clears its cached AI settings, and every other API
+// process and the worker (driver support, insights) drop theirs at once
+// (cache_invalidate kind ai_settings), so a surface turned on answers its first
+// case. A lost publish leaves the 60 s TTL as the fallback.
+function announceAiSettingsChange(): void {
+  clearAiSettingsCache();
+  void getPubSub()
+    .publish('cache_invalidate', JSON.stringify({ kind: 'ai_settings' }))
+    .catch((err: unknown) => {
+      logger.warn({ err }, 'AI settings change not published, peers refresh within 60s');
+    });
+}
+
 // The Enable Station Units switch: every API process drops its cached value
 // at once (cache_invalidate kind station_units), the TTL is the fallback.
 function announceStationUnitsSwitch(): void {
@@ -780,7 +793,7 @@ function clearCachesForKey(key: string): void {
   }
   if (key === 'company.portalUrl') clearCompanyPortalUrlCache();
   if (key.startsWith('pnc.')) clearPncSettingsCache();
-  if (isAiSettingKey(key)) clearAiSettingsCache();
+  if (isAiSettingKey(key)) announceAiSettingsChange();
   if (isDataPlanSettingKey(key)) clearDataPlanValuesCache();
 }
 

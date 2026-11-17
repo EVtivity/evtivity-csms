@@ -4,6 +4,7 @@
 // The customize controls of the Live dashboard. Dragging itself (pointer and
 // keyboard) runs in the E2E dashboard spec: jsdom has no layout to measure.
 
+import { useEffect } from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 
@@ -47,7 +48,29 @@ function zone(editing: boolean, onHide = vi.fn()): void {
   );
 }
 
+function Mounted({ onMount }: { onMount: () => void }): React.JSX.Element {
+  useEffect(onMount, [onMount]);
+  return <p>widget</p>;
+}
+
 describe('dashboard customize controls', () => {
+  it('never remounts a widget when edit mode turns on or off', () => {
+    const onMount = vi.fn();
+    const tree = (editing: boolean): React.JSX.Element => (
+      <SortableZone ids={['a']} names={{ a: 'Alpha' }} editing={editing} onMove={vi.fn()}>
+        <SortableWidget id="a" name="Alpha" editing={editing} onHide={vi.fn()}>
+          <Mounted onMount={onMount} />
+        </SortableWidget>
+      </SortableZone>
+    );
+    const { rerender } = render(tree(false));
+    rerender(tree(true));
+    expect(screen.getByRole('button', { name: 'dashboard.moveWidget:Alpha' })).toBeTruthy();
+    rerender(tree(false));
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(onMount).toHaveBeenCalledTimes(1);
+  });
+
   it('renders the widgets alone outside edit mode', () => {
     zone(false);
     expect(screen.getByText('content a')).toBeTruthy();

@@ -7,6 +7,7 @@ import type { Subscription } from '@evtivity/lib';
 import { createLogger, hasPermission, tryParseJson } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { isFleetUser } from '../lib/fleet-scope.js';
 import { endSseClients, writeSseClient } from '../lib/sse-broadcast.js';
 import { operatorTokenRejection } from '../plugins/auth.js';
 import { getUserPermissions } from '../middleware/rbac.js';
@@ -64,6 +65,8 @@ interface SseClient {
   canSeePayments: boolean;
   /** The user's permissions: each event type needs its read permission. */
   permissions: string[];
+  /** A fleet user (access scope `fleets`): the stream stays open but delivers no event. */
+  fleetUser: boolean;
   /**
    * True while the stream resolves the user's sites: events wait in
    * `pending` and are filtered once the scope is known, so none is sent
@@ -198,7 +201,9 @@ export function isEventPermitted(permissions: string[], payload: unknown): boole
 /** Whether an event reaches this client: its sites and its permissions. */
 function deliverable(client: SseClient, parsed: unknown): boolean {
   return (
-    isEventVisible(client.allowedSiteIds, parsed) && isEventPermitted(client.permissions, parsed)
+    !client.fleetUser &&
+    isEventVisible(client.allowedSiteIds, parsed) &&
+    isEventPermitted(client.permissions, parsed)
   );
 }
 
@@ -375,6 +380,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         allowedSiteIds: [],
         canSeePayments: false,
         permissions: [],
+        fleetUser: false,
         scopePending: true,
         scopeStale: false,
         pending: [],
@@ -389,6 +395,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         do {
           client.scopeStale = false;
           client.allowedSiteIds = await getUserSiteIds(userId);
+          client.fleetUser = await isFleetUser(userId);
           client.permissions = await getUserPermissions(userId);
           client.canSeePayments = hasPermission(client.permissions, 'payments:read');
         } while (scopeChangedDuringLookup(client));

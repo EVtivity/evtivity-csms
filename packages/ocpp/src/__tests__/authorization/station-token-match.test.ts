@@ -45,6 +45,7 @@ vi.mock('@evtivity/database', () => {
     driverTokens: {
       id: col('id'),
       driverId: col('driverId'),
+      fleetId: col('fleetId'),
       idToken: col('idToken'),
       tokenType: col('tokenType'),
       isActive: col('isActive'),

@@ -21,6 +21,7 @@ const mockFleetService = vi.hoisted(() => ({
   searchAvailableVehicles: vi.fn(),
   getFleetPricingGroup: vi.fn(),
   addPricingGroupToFleet: vi.fn(),
+  FLEET_SESSION_EXPORT_MAX_ROWS: 50_000,
 }));
 
 vi.mock('../services/fleet.service.js', () => mockFleetService);
@@ -51,6 +52,7 @@ vi.mock('@evtivity/database', () => {
     pricingGroups: { id: 'pricing_groups.id' },
     // Read by the list sort definitions the routes import.
     fleets: {},
+    driverTokens: {},
     vehicles: {},
     chargingSessions: {},
     fleetAuditLog: { name: 'fleetAuditLog' },

@@ -3,8 +3,9 @@
 
 import type postgres from 'postgres';
 import { getCompanyCurrency, getSystemTimezone } from './system-settings.js';
-import { resolveAccountBilling } from './fleet-billing.js';
+import { resolveAccountBilling, resolveFleetCardBilling } from './fleet-billing.js';
 import { getFleetCreditReservationCents } from './fleet-credit-settings.js';
+import { readCardMonthlyLimit } from './card-monthly-limit.js';
 import { FLEET_CREDIT_LIMIT_NOTICE_KINDS } from '../schema/drivers.js';
 import type { FleetCreditLimitNoticeKind } from '../schema/drivers.js';
 
@@ -379,14 +380,28 @@ export async function extendFleetSessionCeiling(
 ): Promise<FleetCeilingExtension | null> {
   const sliceCents = options.sliceCents ?? (await getFleetCreditReservationCents());
   return sql.begin(async (tx) => {
-    const [fleet] = await tx<FleetLimitRow[]>`
-      SELECT name, credit_limit_cents, credit_limit_warning_percent
-      FROM fleets WHERE id = ${fleetId}
+    // The card's monthly limit is checked under the card's own fleet row lock,
+    // the lock the payment gate's card check takes, so concurrent sessions of
+    // one card are decided one after the other even when the card has moved to
+    // another fleet since the session started. Both rows lock in id order.
+    const [owner] = await tx<Array<{ fleet_id: string | null }>>`
+      SELECT dt.fleet_id FROM charging_sessions cs
+      JOIN driver_tokens dt ON dt.id = cs.token_id
+      WHERE cs.id = ${sessionId}
+    `;
+    const lockIds = [...new Set([fleetId, owner?.fleet_id ?? fleetId])].sort();
+    const locked = await tx<Array<FleetLimitRow & { id: string }>>`
+      SELECT id, name, credit_limit_cents, credit_limit_warning_percent
+      FROM fleets WHERE id = ANY(${lockIds})
+      ORDER BY id
       FOR UPDATE
     `;
+    const fleet = locked.find((f) => f.id === fleetId);
     if (fleet == null) return null;
-    const [session] = await tx<Array<{ cost_ceiling_cents: number | string | null }>>`
-      SELECT cost_ceiling_cents FROM charging_sessions
+    const [session] = await tx<
+      Array<{ cost_ceiling_cents: number | string | null; token_id: string | null }>
+    >`
+      SELECT cost_ceiling_cents, token_id FROM charging_sessions
       WHERE id = ${sessionId}
         AND status = 'active'
         AND billing_mode = 'account'
@@ -416,6 +431,18 @@ export async function extendFleetSessionCeiling(
         exposure,
         activeReservedCents,
       );
+    }
+    // A fleet card with a monthly limit never grows past what it may still spend.
+    if (session.token_id != null) {
+      const card = await readCardMonthlyLimit(tx, session.token_id, {
+        excludeSessionId: sessionId,
+      });
+      if (card != null) {
+        availableCents =
+          availableCents == null
+            ? card.remainingCents
+            : Math.min(availableCents, card.remainingCents);
+      }
     }
     const next = extendedCeilingCents({
       currentCents,
@@ -495,6 +522,22 @@ export async function loadDriverAccountCredit(
   const billing = await resolveAccountBilling(sql, driverId);
   if (billing == null) return null;
   const check = await readFleetCreditLimit(sql, billing.fleetId, options);
+  return check == null ? null : { fleetId: check.fleetId, remainingCents: check.remainingCents };
+}
+
+/**
+ * The credit a fleet card no member holds can still start with, read like
+ * loadDriverAccountCredit: `unbillable` when the fleet cannot bill the card
+ * (Fleets off, the fleet's account billing off, or the fleet gone), else the
+ * credit left, null when the fleet has no limit.
+ */
+export async function loadFleetCardAccountCredit(
+  sql: postgres.Sql,
+  fleetId: string,
+  options: { excludeTransaction?: FleetCreditTransaction | undefined } = {},
+): Promise<'unbillable' | DriverAccountCredit | null> {
+  if ((await resolveFleetCardBilling(sql, fleetId)) == null) return 'unbillable';
+  const check = await readFleetCreditLimit(sql, fleetId, options);
   return check == null ? null : { fleetId: check.fleetId, remainingCents: check.remainingCents };
 }
 

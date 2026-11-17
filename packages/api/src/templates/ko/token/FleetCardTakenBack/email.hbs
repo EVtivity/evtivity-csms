@@ -1,0 +1,5 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{firstName}}님 안녕하세요,</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>차량대 <strong>{{fleetName}}</strong>에서 이 RFID 카드를 회수했습니다:</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>{{idToken}}</strong>({{tokenType}})</p>
+{{#if label}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>라벨: {{label}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>이 카드로 더 이상 충전을 시작할 수 없습니다. 궁금한 점은 차량대 관리자에게 문의하세요.</p>

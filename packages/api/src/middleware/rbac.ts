@@ -3,10 +3,26 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, isFleetEnabled } from '@evtivity/database';
 import { userPermissions } from '@evtivity/database';
-import { createLogger, hasPermission } from '@evtivity/lib';
+import { createLogger, fleetUserPermissionsOutside, hasPermission } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { getUserAccessScope, isFleetUser } from '../lib/fleet-scope.js';
+
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * The route is open to fleet users (access scope `fleets`) and checks the
+     * fleet itself. Every other route answers them route-not-found.
+     */
+    fleetScope?: boolean;
+    /**
+     * A fleet-scope route about the caller's own account (its API keys): it
+     * stays open to a fleet user that has no fleet left.
+     */
+    fleetSelfService?: boolean;
+  }
+}
 
 const permissionCache = new Map<string, { permissions: string[]; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000;
@@ -49,15 +65,26 @@ export function invalidatePermissionCache(userId: string): void {
 }
 
 /**
+ * The permissions a fleet user keeps: only those of the fleet user list,
+ * whatever its stored rows hold.
+ */
+export function withinFleetUserCeiling(permissions: readonly string[]): string[] {
+  const outside = new Set(fleetUserPermissionsOutside(permissions));
+  return permissions.filter((p) => !outside.has(p));
+}
+
+/**
  * The permissions a request acts with: the user's permissions, intersected
- * with the API key's scope when the request uses an API key. Null for a
+ * with the API key's scope when the request uses an API key. A fleet user
+ * keeps only the fleet user permissions, even with stale rows. Null for a
  * token without a userId (driver tokens). Call after authentication.
  */
 export async function getEffectivePermissions(request: FastifyRequest): Promise<string[] | null> {
   const user = request.user;
   if (!('userId' in user)) return null;
 
-  const perms = await getUserPermissions(user.userId);
+  const stored = await getUserPermissions(user.userId);
+  const perms = (await isFleetUser(user.userId)) ? withinFleetUserCeiling(stored) : stored;
 
   // If API key has scoped permissions, intersect with user permissions
   const apiKeyPerms =
@@ -83,11 +110,51 @@ export async function requestHasPermission(
   return effectivePerms != null && hasPermission(effectivePerms, permission);
 }
 
+/** What a fleet user gets on every route while the Fleets feature is off. */
+export const FLEET_USER_FLEETS_OFF = {
+  error: 'Fleet management is turned off. Contact your operator.',
+  code: 'FLEET_DISABLED',
+} as const;
+
+/** What a fleet user with no assigned fleet gets on the fleet routes. */
+export const FLEET_USER_NO_FLEETS = {
+  error: 'No fleets are assigned to you. Contact your operator.',
+  code: 'FLEET_USER_NO_FLEETS',
+} as const;
+
+/**
+ * True after refusing a fleet user: while the Fleets feature is off every
+ * route answers 403 FLEET_DISABLED (the CSMS then shows a page saying so);
+ * while it is on, a route not open to fleet users answers route-not-found, so
+ * its existence does not show, as for the operator log lists, and a fleet
+ * user with no assigned fleet gets 403 FLEET_USER_NO_FLEETS on the fleet routes.
+ */
+async function refuseFleetUser(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+  const user = request.user as { userId?: unknown };
+  if (typeof user.userId !== 'string') return false;
+  const access = await getUserAccessScope(user.userId);
+  if (access.kind !== 'fleets') return false;
+  if (!(await isFleetEnabled())) {
+    await reply.status(403).send(FLEET_USER_FLEETS_OFF);
+    return true;
+  }
+  const { fleetScope, fleetSelfService } = request.routeOptions.config;
+  if (fleetScope === true) {
+    if (access.fleetIds.length > 0 || fleetSelfService === true) return false;
+    await reply.status(403).send(FLEET_USER_NO_FLEETS);
+    return true;
+  }
+  reply.callNotFound();
+  return true;
+}
+
 export function authorize(...requiredPermissions: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const app = request.server;
     await app.authenticate(request, reply);
     if (reply.sent) return;
+
+    if (await refuseFleetUser(request, reply)) return;
 
     if (requiredPermissions.length === 0) return;
 

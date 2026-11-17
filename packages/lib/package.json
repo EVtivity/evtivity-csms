@@ -14,6 +14,15 @@
     "./permissions": {
       "import": "./src/permissions.ts"
     },
+    "./fleet-card": {
+      "import": "./src/fleet-card.ts"
+    },
+    "./user-access-scope": {
+      "import": "./src/user-access-scope.ts"
+    },
+    "./fleet-card-import": {
+      "import": "./src/fleet-card-import.ts"
+    },
     "./ocpp-command-permissions": {
       "import": "./src/ocpp-command-permissions.ts"
     },

@@ -63,6 +63,8 @@ export function readBillTo(billTo: unknown): InvoiceBillTo | null {
 export interface DriverLineGroup<T> {
   driverId: string | null;
   driverName: string;
+  /** The sessions of the fleet's RFID cards no member held. */
+  fleetCards: boolean;
   items: T[];
   /** Sum of the lines' net amounts. */
   netCents: number;
@@ -81,10 +83,11 @@ export function groupLinesByDriver<
     const meta = item.metadata ?? {};
     const driverId = typeof meta['driverId'] === 'string' ? meta['driverId'] : null;
     const driverName = typeof meta['driverName'] === 'string' ? meta['driverName'] : '';
-    const key = driverId ?? '';
+    const fleetCards = driverId == null && meta['fleetCard'] === true;
+    const key = driverId ?? (fleetCards ? 'fleet-cards' : '');
     let group = byKey.get(key);
     if (group == null) {
-      group = { driverId, driverName, items: [], netCents: 0 };
+      group = { driverId, driverName, fleetCards, items: [], netCents: 0 };
       byKey.set(key, group);
       groups.push(group);
     }

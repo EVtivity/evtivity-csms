@@ -118,6 +118,7 @@ const STATION_MESSAGE_STATES = [
   'unauthorized',
   'prepaid_exhausted',
   'account_credit_limit',
+  'card_monthly_limit',
   'terminal_card',
   'terminal_result',
   'terminal_receipt',

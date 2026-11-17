@@ -10,6 +10,7 @@
  * - `free_vend`: the site's free vend; nothing is charged.
  * - `roaming`: an OCPI roaming session; the eMSP bills it through the CDR.
  * - `account_credit_limit`: an account session the fleet credit limit refused at its start.
+ * - `card_monthly_limit`: a session its fleet card's monthly spending limit refused at its start.
  * - `account_billed`: billed to a fleet account, on the fleet invoice or the driver's member invoice.
  * - `guest`: a guest checkout; the guest session holds the payment.
  * - `anonymous`: no driver and no guest checkout; the gate stops such a session.
@@ -25,6 +26,7 @@ export const NO_PAYMENT_REASONS = [
   'free_vend',
   'roaming',
   'account_credit_limit',
+  'card_monthly_limit',
   'account_billed',
   'guest',
   'anonymous',
@@ -66,6 +68,9 @@ export async function noPaymentReason(
   if (facts.hasPaymentRecord) return null;
   if (facts.freeVend) return 'free_vend';
   if (facts.isRoaming) return 'roaming';
+  if (facts.stoppedReason === 'CardMonthlyLimit' && facts.status === 'faulted') {
+    return 'card_monthly_limit';
+  }
   if (facts.billingMode === 'account') {
     return facts.stoppedReason === 'AccountCreditLimit' && facts.status === 'faulted'
       ? 'account_credit_limit'

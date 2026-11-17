@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { isEditedField, useLoadedValues } from '@/hooks/use-loaded-values';
 import { useTranslation } from 'react-i18next';
+import { roleLabel } from '@/lib/role-label';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tryParseJson } from '@evtivity/lib/safe-json';
 import { SaveButton } from '@/components/save-button';
@@ -24,6 +25,7 @@ import {
 } from '@/components/FactorProofField';
 import { SavedMessage } from '@/components/saved-message';
 import { useMfaStatus } from '@/components/profile/mfa-status';
+import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
 
 interface Props {
   settings: Record<string, unknown> | undefined;
@@ -384,11 +386,13 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
                     }}
                   >
                     <option value="">n/a</option>
-                    {(rolesData ?? []).map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))}
+                    {(rolesData ?? [])
+                      .filter((role) => role.name !== FLEET_MANAGER_ROLE_NAME)
+                      .map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {roleLabel(role.name, t)}
+                        </option>
+                      ))}
                   </Select>
                 </div>
               )}

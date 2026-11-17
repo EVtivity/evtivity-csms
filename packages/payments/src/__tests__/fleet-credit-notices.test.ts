@@ -9,6 +9,8 @@ const h = vi.hoisted(() => ({
   operators: [] as Record<string, unknown>[],
   queries: [] as string[],
   dispatchSystemNotification: vi.fn(),
+  managers: vi.fn(),
+  fleetEnabled: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', () => ({
@@ -18,6 +20,8 @@ vi.mock('@evtivity/database', () => ({
   },
   claimFleetCreditLimitNotice: h.claim,
   loadFleetBillingContacts: h.contacts,
+  loadFleetManagerRecipients: h.managers,
+  isFleetEnabled: h.fleetEnabled,
 }));
 vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -29,6 +33,8 @@ import {
   dispatchFleetCreditLimitNotices,
   FLEET_CREDIT_LIMIT_REACHED_EVENT,
   FLEET_CREDIT_LIMIT_WARNING_EVENT,
+  FLEET_MANAGER_CREDIT_LIMIT_REACHED_EVENT,
+  FLEET_MANAGER_CREDIT_LIMIT_WARNING_EVENT,
 } from '../fleet-credit-notices.js';
 
 const log = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -69,6 +75,8 @@ beforeEach(() => {
   h.contacts.mockResolvedValue({ emails: [], language: 'en' });
   h.operators = [operator];
   h.dispatchSystemNotification.mockResolvedValue(undefined);
+  h.managers.mockResolvedValue([]);
+  h.fleetEnabled.mockResolvedValue(true);
 });
 
 describe('dispatchFleetCreditLimitNotices', () => {
@@ -158,5 +166,77 @@ describe('dispatchFleetCreditLimitNotices', () => {
     await dispatchFleetCreditLimitNotices(check('reached', 10_000), deps, log);
     const recipients = h.queries.find((q) => q.includes('user_permissions'));
     expect(recipients).toContain('u.has_all_site_access');
+  });
+});
+
+describe('fleet manager credit limit notices', () => {
+  const manager = {
+    userId: 'usr_fm',
+    email: 'manager@fleet.example',
+    phone: undefined,
+    firstName: 'Fleet',
+    lastName: 'Manager',
+    language: 'ko',
+    timezone: 'Asia/Seoul',
+  };
+
+  function eventsTo(email: string): unknown[] {
+    return h.dispatchSystemNotification.mock.calls
+      .filter((call) => (call[2] as { email: string }).email === email)
+      .map((call) => call[1]);
+  }
+
+  it('tells the fleet users of the warning and of the reached limit with the same claim', async () => {
+    h.contacts.mockResolvedValue({ emails: ['billing@fleet.example'], language: 'en' });
+    h.managers.mockResolvedValue([manager]);
+    expect(await dispatchFleetCreditLimitNotices(check('warning'), deps, log)).toBe('warning');
+    expect(eventsTo('manager@fleet.example')).toEqual([FLEET_MANAGER_CREDIT_LIMIT_WARNING_EVENT]);
+    expect(h.managers).toHaveBeenCalledWith(expect.anything(), 'flt_1');
+    const call = h.dispatchSystemNotification.mock.calls.find(
+      (c) => (c[2] as { email: string }).email === 'manager@fleet.example',
+    );
+    expect(call?.[2]).toMatchObject({ userId: 'usr_fm', language: 'ko', timezone: 'Asia/Seoul' });
+    expect(call?.[3]).toMatchObject({ fleetName: 'Acme', warningPercent: 80 });
+
+    h.dispatchSystemNotification.mockClear();
+    expect(await dispatchFleetCreditLimitNotices(check('reached', 10_000), deps, log)).toBe(
+      'reached',
+    );
+    expect(eventsTo('manager@fleet.example')).toEqual([FLEET_MANAGER_CREDIT_LIMIT_REACHED_EVENT]);
+    expect(h.claim).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends a fleet user nothing more when the claim of the month was taken', async () => {
+    h.claim.mockResolvedValue(false);
+    h.managers.mockResolvedValue([manager]);
+    expect(await dispatchFleetCreditLimitNotices(check('warning'), deps, log)).toBeNull();
+    expect(h.managers).not.toHaveBeenCalled();
+    expect(h.dispatchSystemNotification).not.toHaveBeenCalled();
+  });
+
+  it('gives an address that got the notice as a billing contact no second one', async () => {
+    h.contacts.mockResolvedValue({ emails: ['Manager@Fleet.example'], language: 'en' });
+    h.managers.mockResolvedValue([manager]);
+    await dispatchFleetCreditLimitNotices(check('warning'), deps, log);
+    expect(h.dispatchSystemNotification).toHaveBeenCalledTimes(1);
+    expect(h.dispatchSystemNotification.mock.calls[0]?.[1]).toBe(FLEET_CREDIT_LIMIT_WARNING_EVENT);
+  });
+
+  it('tells no fleet user while Fleets is off, and keeps the operator notice on a failure', async () => {
+    h.managers.mockResolvedValue([manager]);
+    h.fleetEnabled.mockResolvedValue(false);
+    await dispatchFleetCreditLimitNotices(check('reached', 10_000), deps, log);
+    expect(eventsTo('manager@fleet.example')).toEqual([]);
+    expect(eventsTo('ops@example.com')).toEqual([FLEET_CREDIT_LIMIT_REACHED_EVENT]);
+
+    h.fleetEnabled.mockResolvedValue(true);
+    h.managers.mockRejectedValue(new Error('db down'));
+    expect(await dispatchFleetCreditLimitNotices(check('reached', 10_000), deps, log)).toBe(
+      'reached',
+    );
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ fleetId: 'flt_1', kind: 'reached' }),
+      'Fleet manager credit limit notice failed; continuing',
+    );
   });
 });

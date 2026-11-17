@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { roleLabel } from '@/lib/role-label';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
@@ -366,7 +367,7 @@ export function SecurityMfaSettings({
                       }}
                     />
                     <Label htmlFor={`mfa-role-${name}`} className="font-normal capitalize">
-                      {name}
+                      {roleLabel(name, t)}
                     </Label>
                   </div>
                 ))}

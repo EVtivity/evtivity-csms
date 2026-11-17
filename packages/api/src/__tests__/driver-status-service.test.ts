@@ -37,15 +37,21 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn((col: unknown) => ({ isNull: col })),
 }));
 
-const { bulkSetActiveMock, endSessionsMock, deleteCredentialsMock } = vi.hoisted(() => ({
-  bulkSetActiveMock: vi.fn(),
-  endSessionsMock: vi.fn(),
-  deleteCredentialsMock: vi.fn(),
-}));
+const { bulkSetActiveMock, releaseCardsMock, endSessionsMock, deleteCredentialsMock } = vi.hoisted(
+  () => ({
+    bulkSetActiveMock: vi.fn(),
+    releaseCardsMock: vi.fn(async () => ({ released: 0, afterCommit: async () => undefined })),
+    endSessionsMock: vi.fn(),
+    deleteCredentialsMock: vi.fn(),
+  }),
+);
 vi.mock('../services/mfa-factor.service.js', () => ({
   deleteWebauthnCredentials: deleteCredentialsMock,
 }));
-vi.mock('../services/token.service.js', () => ({ bulkSetActive: bulkSetActiveMock }));
+vi.mock('../services/token.service.js', () => ({
+  bulkSetActive: bulkSetActiveMock,
+  releaseMemberFleetCards: releaseCardsMock,
+}));
 // endDriverSessions raises the session version, revokes the refresh tokens
 // and ends the open streams (refresh-token-service.test.ts).
 vi.mock('../services/refresh-token.service.js', () => ({
@@ -124,6 +130,25 @@ describe('driver-status.service', () => {
         { type: 'operator', userId: 'usr_000000000001' },
       );
       expect(result).toEqual({ tokensDeactivated: 2 });
+    });
+
+    it('gives the fleet cards back to their fleets before the token step', async () => {
+      const order: string[] = [];
+      releaseCardsMock.mockImplementationOnce(async () => {
+        order.push('release');
+        return { released: 1, afterCommit: async () => undefined };
+      });
+      bulkSetActiveMock.mockImplementationOnce(async () => {
+        order.push('bulk');
+        return { updated: 1 };
+      });
+      dbResults = [[], [{ id: 'dtk_000000000001' }]];
+      await applyDriverDeactivation(DRIVER_ID, { actor: operator, log });
+      expect(releaseCardsMock).toHaveBeenCalledWith(
+        { driverId: DRIVER_ID },
+        { type: 'operator', userId: 'usr_000000000001' },
+      );
+      expect(order).toEqual(['release', 'bulk']);
     });
 
     it('reads only the active tokens, so a repeat does not deactivate or notify twice', async () => {

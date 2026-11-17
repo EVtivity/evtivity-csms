@@ -38,6 +38,10 @@ const h = vi.hoisted(() => {
     roaming: boolean;
     accountCredit: { fleetId: string; remainingCents: number } | null | Error;
     accountCreditCalls: string[];
+    fleetCardCredit: 'unbillable' | { fleetId: string; remainingCents: number } | null | Error;
+    fleetCardCreditCalls: string[];
+    cardLimit: { remainingCents: number } | null | Error;
+    cardLimitCalls: string[];
     vehicle: {
       vehicleId: string;
       driverId: string;
@@ -58,6 +62,10 @@ const h = vi.hoisted(() => {
     roaming: false,
     accountCredit: null,
     accountCreditCalls: [],
+    fleetCardCredit: null,
+    fleetCardCreditCalls: [],
+    cardLimit: null,
+    cardLimitCalls: [],
     vehicle: null,
     blockedVehicle: null,
     vehicleOwners: [],
@@ -138,15 +146,29 @@ vi.mock('@evtivity/database', () => ({
       ? Promise.reject(h.accountCredit)
       : Promise.resolve(h.accountCredit);
   },
+  readCardMonthlyLimit: (_sql: unknown, tokenId: string) => {
+    h.cardLimitCalls.push(tokenId);
+    return h.cardLimit instanceof Error
+      ? Promise.reject(h.cardLimit)
+      : Promise.resolve(h.cardLimit);
+  },
+  loadFleetCardAccountCredit: (_sql: unknown, fleetId: string) => {
+    h.fleetCardCreditCalls.push(fleetId);
+    return h.fleetCardCredit instanceof Error
+      ? Promise.reject(h.fleetCardCredit)
+      : Promise.resolve(h.fleetCardCredit);
+  },
   driverTokens: h.table('driver_tokens', [
     'id',
     'driverId',
+    'fleetId',
     'idToken',
     'tokenType',
     'isActive',
     'expiresAt',
     'revokedAt',
     'prepaidBalanceCents',
+    'monthlyLimitCents',
   ]),
   drivers: h.table('drivers', ['id', 'isActive']),
   guestSessions: h.table('guest_sessions', ['sessionToken', 'status', 'stationOcppId']),
@@ -233,6 +255,10 @@ beforeEach(() => {
   h.queries = [];
   h.accountCredit = null;
   h.accountCreditCalls = [];
+  h.fleetCardCredit = null;
+  h.fleetCardCreditCalls = [];
+  h.cardLimit = null;
+  h.cardLimitCalls = [];
   h.vehicle = null;
   h.blockedVehicle = null;
   h.vehicleOwners = [];
@@ -1012,6 +1038,177 @@ describe('authorizeToken: prepaid', () => {
     ];
     const d = await authorizeToken(input('authorize', 'TAG', null), logger);
     expect(d).toMatchObject({ status: 'blocked', prepaid: false });
+  });
+});
+
+describe('authorizeToken: fleet card with a monthly spending limit', () => {
+  beforeEach(() => {
+    h.tables['driver_tokens'] = [
+      token({
+        id: 'tok-l',
+        idToken: 'LIMITCARD',
+        tokenType: 'ISO14443',
+        fleetId: 'flt-1',
+        monthlyLimitCents: 10_000,
+      }),
+    ];
+  });
+
+  it.each([
+    ['authorize', null],
+    ['authorize', 'ISO14443'],
+    ['tx_start', null],
+  ] as const)('%s (%s) refuses a card that reached its limit', async (ctx, type) => {
+    h.cardLimit = { remainingCents: 0 };
+    const d = await authorizeToken(input(ctx, 'LIMITCARD', type), logger);
+    expect(d).toMatchObject({ status: 'no_credit', reason: 'card_monthly_limit' });
+    expect(authorizeDecisionMessage(d)).toBe('Fleet card monthly limit reached');
+    expect(h.cardLimitCalls).toEqual(['tok-l']);
+  });
+
+  it('accepts a card with limit left and marks it for the transaction limit', async () => {
+    h.cardLimit = { remainingCents: 4_000 };
+    const d = await authorizeToken(input('authorize', 'LIMITCARD', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', cardMonthlyLimited: true });
+  });
+
+  it('only marks the 2.1 Started answer, which sends the reserved ceiling instead', async () => {
+    h.cardLimit = { remainingCents: 0 };
+    const d = await authorizeToken(input('tx_start', 'LIMITCARD', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', cardMonthlyLimited: true });
+  });
+
+  it('reads no limit for a card without one, nor in a running transaction', async () => {
+    h.tables['driver_tokens'] = [token({ id: 'tok-n', idToken: 'PLAIN', tokenType: 'ISO14443' })];
+    await authorizeToken(input('authorize', 'PLAIN', 'ISO14443'), logger);
+    h.tables['driver_tokens'] = [
+      token({
+        id: 'tok-l',
+        idToken: 'LIMITCARD',
+        tokenType: 'ISO14443',
+        fleetId: 'flt-1',
+        monthlyLimitCents: 10_000,
+      }),
+    ];
+    await authorizeToken(input('tx_update', 'LIMITCARD', 'ISO14443'), logger);
+    expect(h.cardLimitCalls).toEqual([]);
+  });
+
+  it('keeps the decision when the limit cannot be read', async () => {
+    h.cardLimit = new Error('CONNECT_TIMEOUT');
+    const d = await authorizeToken(input('authorize', 'LIMITCARD', 'ISO14443'), logger);
+    expect(d.status).toBe('accepted');
+  });
+});
+
+describe('authorizeToken: fleet card no member holds', () => {
+  beforeEach(() => {
+    h.tables['driver_tokens'] = [
+      token({
+        id: 'tok-f',
+        idToken: 'FLEETCARD',
+        tokenType: 'ISO14443',
+        driverId: null,
+        fleetId: 'flt-1',
+      }),
+    ];
+  });
+
+  it.each([
+    ['authorize', null],
+    ['authorize', 'ISO14443'],
+    ['tx_start', null],
+    ['tx_start', 'ISO14443'],
+  ] as const)('%s (%s) blocks the card while its fleet cannot bill it', async (ctx, type) => {
+    h.fleetCardCredit = 'unbillable';
+    const d = await authorizeToken(input(ctx, 'FLEETCARD', type), logger);
+    expect(d).toMatchObject({
+      status: 'blocked',
+      outcome: 'blocked',
+      reason: 'fleet_card_not_billable',
+      matchedTokenId: 'tok-f',
+      matchedDriverId: null,
+      echoGroupId: false,
+    });
+    expect(h.fleetCardCreditCalls).toEqual(['flt-1']);
+    expect(h.accountCreditCalls).toEqual([]);
+    expect(authorizeDecisionMessage(d)).toBe(
+      'Fleet card refused: its fleet does not bill on account',
+    );
+  });
+
+  it.each([
+    ['authorize', null],
+    ['authorize', 'ISO14443'],
+    ['tx_start', null],
+  ] as const)('%s (%s) answers no_credit at the fleet credit limit', async (ctx, type) => {
+    h.fleetCardCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input(ctx, 'FLEETCARD', type), logger);
+    expect(d).toMatchObject({
+      status: 'no_credit',
+      outcome: 'no_credit',
+      reason: 'account_credit_limit',
+    });
+  });
+
+  it('accepts with credit left and names the fleet at a 2.1 TransactionEvent Started', async () => {
+    h.fleetCardCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input('tx_start', 'FLEETCARD', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', accountFleetId: 'flt-1' });
+  });
+
+  it('accepts a billable fleet without a credit limit', async () => {
+    h.fleetCardCredit = null;
+    const d = await authorizeToken(input('authorize', 'FLEETCARD', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', fleetCardFleetId: 'flt-1' });
+    expect(d.accountFleetId).toBeUndefined();
+  });
+
+  it('keeps the decision when the fleet read fails (the gate checks again)', async () => {
+    h.fleetCardCredit = new Error('db down');
+    const d = await authorizeToken(input('authorize', 'FLEETCARD', 'ISO14443'), logger);
+    expect(d.status).toBe('accepted');
+  });
+
+  it('is not checked during a running transaction', async () => {
+    h.fleetCardCredit = 'unbillable';
+    const d = await authorizeToken(input('tx_update', 'FLEETCARD', 'ISO14443'), logger);
+    expect(d.status).toBe('accepted');
+    expect(h.fleetCardCreditCalls).toEqual([]);
+  });
+
+  it("checks a member's fleet card by the card's fleet, never the member's billing", async () => {
+    h.tables['driver_tokens'] = [
+      token({
+        id: 'tok-f',
+        idToken: 'FLEETCARD',
+        tokenType: 'ISO14443',
+        driverId: 'drv-1',
+        fleetId: 'flt-1',
+      }),
+    ];
+    h.fleetCardCredit = 'unbillable';
+    const d = await authorizeToken(input('authorize', 'FLEETCARD', 'ISO14443'), logger);
+    // A fleet card whose fleet does not bill on account never charges the member.
+    expect(d).toMatchObject({ status: 'blocked', reason: 'fleet_card_not_billable' });
+    expect(h.fleetCardCreditCalls).toEqual(['flt-1']);
+    expect(h.accountCreditCalls).toEqual([]);
+  });
+
+  it("refuses a member's fleet card at its own fleet's credit limit", async () => {
+    h.tables['driver_tokens'] = [
+      token({
+        id: 'tok-f',
+        idToken: 'FLEETCARD',
+        tokenType: 'ISO14443',
+        driverId: 'drv-1',
+        fleetId: 'flt-1',
+      }),
+    ];
+    h.fleetCardCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input('authorize', 'FLEETCARD', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'no_credit', reason: 'account_credit_limit' });
+    expect(h.accountCreditCalls).toEqual([]);
   });
 });
 

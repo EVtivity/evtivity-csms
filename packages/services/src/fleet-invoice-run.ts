@@ -25,6 +25,7 @@ import {
   dispatchMemberInvoiceNotice,
   fleetInvoiceVariables,
   memberInvoiceRecipient,
+  notifyFleetManagersOfInvoice,
   sendAccountInvoiceEmail,
   type AccountInvoiceSendResult,
 } from './fleet-invoice-notice.js';
@@ -209,6 +210,7 @@ export async function runScheduledFleetInvoice(
   if (sent.status === 'no_contacts') {
     log.warn({ fleetId, invoiceId }, 'Fleet has no billing contact; the invoice was not emailed');
   }
+  await notifyFleetManagersOfInvoice(invoiceId, deps, log);
   return created
     ? { status: 'invoiced', invoiceId, email: sent.status }
     : { status: 'exists', invoiceId, email: sent.status };

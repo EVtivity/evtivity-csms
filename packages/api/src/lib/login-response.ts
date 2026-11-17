@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { UI_THEMES } from '@evtivity/lib/ui-theme';
+import { USER_ACCESS_SCOPES } from '@evtivity/lib/user-access-scope';
 import { MFA_FACTORS } from './mfa-factors.js';
 
 /** The reply of every operator sign-in step: a session, the MFA step, or MFA enrollment. */
@@ -24,6 +25,16 @@ export const loginResponse = z
         timezone: z.string().optional().describe('IANA timezone identifier'),
         themePreference: z.string().optional().describe('Mode: light or dark'),
         uiTheme: z.enum(UI_THEMES).optional().describe('Theme: default, soft or high-contrast'),
+        accessScope: z
+          .enum(USER_ACCESS_SCOPES)
+          .optional()
+          .describe(
+            'What the user reaches: sites (all sites or its sites) or fleets (its fleets only)',
+          ),
+        fleetIds: z
+          .array(z.string())
+          .optional()
+          .describe('Fleets a fleets-scope user reaches, empty for the sites scope'),
       })
       .loose()
       .optional()

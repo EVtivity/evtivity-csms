@@ -17,7 +17,7 @@ describe('dashboard layout', () => {
     const ids = DASHBOARD_WIDGETS.map((w) => w.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(
-      DASHBOARD_WIDGETS.filter((w) => w.defaultHidden)
+      DASHBOARD_WIDGETS.filter((w) => w.defaultHidden && w.fleet !== true)
         .map((w) => w.id)
         .sort(),
     ).toEqual([
@@ -200,5 +200,58 @@ describe('dashboard layout', () => {
     const moved = defaultDashboardLayout();
     moved.charts.reverse();
     expect(isDefaultDashboardLayout(moved)).toBe(false);
+  });
+});
+
+describe('dashboard fleet items', () => {
+  const FLEET_IDS = [
+    'chart.fleetEnergy',
+    'chart.fleetSessions',
+    'chart.fleetCost',
+    'chart.fleetInvoices',
+  ];
+  const shown = (layout: ReturnType<typeof defaultDashboardLayout>): string[] =>
+    layout.charts.filter((c) => !c.hidden).map((c) => c.id);
+
+  it('hides the fleet charts by default for operators and shows them to fleet users', () => {
+    expect(DASHBOARD_WIDGETS.filter((w) => w.fleet === true).map((w) => w.id)).toEqual(FLEET_IDS);
+    const operator = defaultDashboardLayout();
+    for (const id of FLEET_IDS) {
+      expect(operator.charts.find((c) => c.id === id)?.hidden, id).toBe(true);
+    }
+    const fleetUser = defaultDashboardLayout({ fleetUser: true });
+    expect(shown(fleetUser)).toEqual(expect.arrayContaining(FLEET_IDS));
+    expect(isDefaultDashboardLayout(fleetUser, { fleetUser: true })).toBe(true);
+    expect(isDefaultDashboardLayout(fleetUser)).toBe(false);
+  });
+
+  it('adds the fleet charts to a layout saved before them with the audience default', () => {
+    const saved = { version: 1, charts: [{ id: 'chart.energy', hidden: false }] };
+    const forFleetUser = resolveDashboardLayout(saved, { fleetUser: true });
+    expect(shown(forFleetUser)).toEqual(expect.arrayContaining(FLEET_IDS));
+    const forOperator = resolveDashboardLayout(saved);
+    expect(shown(forOperator).some((id) => FLEET_IDS.includes(id))).toBe(false);
+  });
+
+  it('skips the fleet items of a saved layout while Fleets is off, and keeps the rest', () => {
+    const saved = {
+      version: 1,
+      charts: [
+        { id: 'chart.fleetEnergy', hidden: false },
+        { id: 'chart.energy', hidden: false },
+      ],
+    };
+    expect(dashboardLayoutProblem(saved)).toBeNull();
+    const off = resolveDashboardLayout(saved, { fleetsEnabled: false });
+    expect(off.charts.some((c) => FLEET_IDS.includes(c.id))).toBe(false);
+    expect(off.charts[0]).toEqual({ id: 'chart.energy', hidden: false });
+    expect(
+      defaultDashboardLayout({ fleetUser: true, fleetsEnabled: false }).charts.map((c) => c.id),
+    ).not.toContain('chart.fleetEnergy');
+    // On again: the saved place and visibility come back.
+    expect(resolveDashboardLayout(saved).charts[0]).toEqual({
+      id: 'chart.fleetEnergy',
+      hidden: false,
+    });
   });
 });

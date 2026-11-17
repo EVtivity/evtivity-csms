@@ -1,0 +1,5 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{firstName}}，您好：</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您的车队 <strong>{{fleetName}}</strong> 为您分配了一张 RFID 卡：</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>{{idToken}}</strong>（{{tokenType}}）</p>
+{{#if label}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>标签：{{label}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>使用此卡开始的充电会话由车队付费。如有疑问，请联系您的车队经理。</p>

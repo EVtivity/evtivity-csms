@@ -95,6 +95,10 @@ function argOf(op: DbOp | undefined, method: string): unknown {
 
 // Security notices are fire-and-forget; their dispatch has its own test.
 // The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('../lib/device-cookie.js', () => ({
   knownSignInDevice: vi.fn(() => Promise.resolve(null)),
   takeDeviceAttempt: vi.fn(() =>
@@ -171,6 +175,9 @@ vi.mock('@evtivity/database', () => {
     refreshTokens: table('refreshTokens'),
     userTokens: table('userTokens'),
     userSiteAssignments: table('userSiteAssignments'),
+    userFleetAssignments: table('userFleetAssignments'),
+    fleets: table('fleets'),
+    isFleetEnabled: vi.fn(async () => true),
     userPermissions: table('userPermissions'),
     userNotificationPreferences: table('userNotificationPreferences'),
     chatbotAiConfigs: table('chatbotAiConfigs'),

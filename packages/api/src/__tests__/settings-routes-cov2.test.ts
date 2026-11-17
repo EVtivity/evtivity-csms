@@ -660,6 +660,23 @@ describe('settings routes (cov2)', () => {
     },
   );
 
+  it('PUT of an AI setting tells every API process and the worker to drop the AI settings', async () => {
+    setupDbResults([], [{ key: 'driverAi.enabled', value: true }]);
+    mocks.publish.mockClear();
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/settings/driverAi.enabled',
+      headers: auth,
+      payload: { value: true },
+    });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    expect(mocks.clearAiSettingsCache).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledWith(
+      'cache_invalidate',
+      JSON.stringify({ kind: 'ai_settings' }),
+    );
+  });
+
   it('DELETE portal.rfidSelfServiceEnabled answers 400: the setting is only set to true or false', async () => {
     setupDbResults([{ key: 'portal.rfidSelfServiceEnabled', value: false }]);
     mocks.publish.mockClear();

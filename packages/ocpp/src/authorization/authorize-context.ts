@@ -106,6 +106,19 @@ export interface AuthorizeDecision {
    * ceiling as transactionLimit.maxCost.
    */
   accountFleetId?: string;
+  /**
+   * The fleet of the accepted token when it is a fleet card, held by a member
+   * or not: the fleet is billed on account, so the account credit step checks
+   * that fleet instead of a driver's billing fleet.
+   */
+  fleetCardFleetId?: string;
+  /**
+   * The accepted token is a fleet card with a monthly spending limit: the
+   * 2.1 TransactionEvent response sends the session's reserved ceiling (the
+   * smaller of the fleet credit and what the card may still spend) as
+   * transactionLimit.maxCost.
+   */
+  cardMonthlyLimited?: boolean;
   /** The 2.1 response echoes the token as groupIdToken. */
   echoGroupId: boolean;
 }

@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -125,6 +129,7 @@ import { loadPdfBranding } from '@evtivity/services/pdf-branding';
 import { wasInvoiceSent, writeInvoiceSentAudit } from '@evtivity/services/invoice-audit';
 import { registerAuth } from '../plugins/auth.js';
 import { invoiceRoutes } from '../routes/invoices.js';
+import { resetFleetScopeMock, setMockUserAccess } from './helpers/fleet-scope-mock.js';
 
 function invoiceRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -930,6 +935,43 @@ describe('GET /invoices/print-logo', () => {
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
     expect(loadPdfBranding).not.toHaveBeenCalled();
+  });
+
+  it('gives a fleet user the logo, so its fleet invoices print', async () => {
+    // A fleet user has no sites.
+    userSiteIds = [];
+    setMockUserAccess('usr_000000000001', { kind: 'fleets', fleetIds: ['flt_000000000001'] });
+    vi.mocked(loadPdfBranding).mockResolvedValue({ logo: PNG, isDefaultLogo: true, footer: '' });
+    try {
+      const res = await getLogo();
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ logo: `data:image/png;base64,${PNG.toString('base64')}` });
+    } finally {
+      resetFleetScopeMock();
+    }
+  });
+});
+
+describe('invoice routes open to fleet users', () => {
+  it('marks exactly the fleet invoice reads and the print logo as fleet scope', () => {
+    const scoped: string[] = [];
+    const probe = Fastify();
+    probe.addHook('onRoute', (route) => {
+      const config = route.config as { fleetScope?: boolean } | undefined;
+      if (config?.fleetScope === true && route.method !== 'HEAD') {
+        scoped.push(`${String(route.method)} ${route.url}`);
+      }
+    });
+    invoiceRoutes(probe);
+    expect(scoped.sort()).toEqual(
+      [
+        'GET /invoices/:id',
+        'GET /invoices/:id/download',
+        'GET /invoices/:id/pdf',
+        'GET /invoices/print-logo',
+      ].sort(),
+    );
   });
 });
 

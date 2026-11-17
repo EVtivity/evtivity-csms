@@ -3,10 +3,15 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import type { PermissionKind } from '@evtivity/lib/permissions';
+import {
+  FLEET_USER_PERMISSIONS,
+  permissionCatalog,
+  type PermissionKind,
+} from '@evtivity/lib/permissions';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useIsFleetUser } from '@/lib/auth';
 
 /** A group of `GET /v1/permissions`. */
 export interface PermissionGroup {
@@ -16,12 +21,16 @@ export interface PermissionGroup {
   permissions: string[];
 }
 
+const FLEET_USER_SET = new Set<string>(FLEET_USER_PERMISSIONS);
+
 interface PermissionEditorProps {
   value: string[];
   onChange: (perms: string[]) => void;
   disabled?: boolean;
   columns?: 1 | 2;
   maxHeight?: string;
+  /** Only these permissions are offered (a fleet user's list); every one when unset. */
+  allowed?: readonly string[] | undefined;
 }
 
 export function PermissionEditor({
@@ -30,13 +39,31 @@ export function PermissionEditor({
   disabled = false,
   columns = 2,
   maxHeight,
+  allowed,
 }: PermissionEditorProps): React.JSX.Element {
   const { t } = useTranslation();
+  // A fleet user (its own API keys) cannot read the catalog route and never
+  // holds more than the fleet user list, so it builds the groups from the
+  // built-in catalog.
+  const isFleetUser = useIsFleetUser();
 
-  const { data: groups = [] } = useQuery({
+  const { data: fetchedGroups = [] } = useQuery({
     queryKey: ['permission-groups'],
     queryFn: () => api.get<PermissionGroup[]>('/v1/permissions'),
+    enabled: !isFleetUser,
   });
+  const allGroups: PermissionGroup[] = isFleetUser
+    ? permissionCatalog.groups().map((g) => ({ ...g, permissions: [...g.permissions] }))
+    : fetchedGroups;
+  const offered = isFleetUser
+    ? (allowed ?? FLEET_USER_PERMISSIONS).filter((p) => FLEET_USER_SET.has(p))
+    : allowed;
+  const groups =
+    offered == null
+      ? allGroups
+      : allGroups
+          .map((g) => ({ ...g, permissions: g.permissions.filter((p) => offered.includes(p)) }))
+          .filter((g) => g.permissions.length > 0);
 
   const valueSet = new Set(value);
 

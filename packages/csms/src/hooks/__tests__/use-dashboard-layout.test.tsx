@@ -18,6 +18,10 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('@/lib/auth', () => ({ useIsFleetUser: () => false }));
+vi.mock('@/hooks/use-feature-flags', () => ({
+  useFeatureFlags: () => ({ flags: { fleetEnabled: true } }),
+}));
 
 import { useDashboardLayout } from '../use-dashboard-layout';
 

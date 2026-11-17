@@ -48,6 +48,7 @@ export type StationMessageState =
   | 'unauthorized'
   | 'prepaid_exhausted'
   | 'account_credit_limit'
+  | 'card_monthly_limit'
   // Payment terminal prompts (features/payment-terminals.md): a reader
   // without its own screen (VP7200) shows them on the station display.
   | 'terminal_card'

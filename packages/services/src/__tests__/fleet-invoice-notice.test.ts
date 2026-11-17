@@ -9,6 +9,9 @@ interface NoticeState {
   markRows: Array<{ id: string }>;
   statements: string[];
   detail: unknown;
+  managers: Array<Record<string, unknown>>;
+  managerClaim: boolean;
+  fleetEnabled: boolean;
 }
 
 const h = vi.hoisted(
@@ -17,6 +20,9 @@ const h = vi.hoisted(
     markRows: [{ id: 'inv_f1' }],
     statements: [],
     detail: null,
+    managers: [],
+    managerClaim: true,
+    fleetEnabled: true,
   }),
 );
 
@@ -27,6 +33,9 @@ vi.mock('@evtivity/database', () => ({
   }),
   getSystemTimezone: vi.fn(() => Promise.resolve('Europe/Berlin')),
   loadFleetBillingContacts: vi.fn(() => Promise.resolve(h.contacts)),
+  loadFleetManagerRecipients: vi.fn(() => Promise.resolve(h.managers)),
+  claimFleetManagerInvoiceNotice: vi.fn(() => Promise.resolve(h.managerClaim)),
+  isFleetEnabled: vi.fn(() => Promise.resolve(h.fleetEnabled)),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -59,9 +68,11 @@ import { writeInvoiceSentAudit } from '../invoice-audit.js';
 import {
   FLEET_CREDIT_NOTE_EVENT,
   FLEET_INVOICE_EVENT,
+  FLEET_MANAGER_INVOICE_EVENT,
   MEMBER_CREDIT_NOTE_EVENT,
   MEMBER_INVOICE_EVENT,
   fleetInvoiceVariables,
+  notifyFleetManagersOfInvoice,
   sendAccountInvoiceEmail,
 } from '../fleet-invoice-notice.js';
 
@@ -336,5 +347,66 @@ describe('sendAccountInvoiceEmail for a member invoice', () => {
       status: 'already_sent',
     });
     expect(dispatchDriverNotification).not.toHaveBeenCalled();
+  });
+});
+
+describe('notifyFleetManagersOfInvoice', () => {
+  const log = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  const manager = {
+    userId: 'usr_fm',
+    email: 'manager@fleet.example',
+    phone: undefined,
+    firstName: 'Fleet',
+    lastName: 'Manager',
+    language: 'es',
+    timezone: 'Europe/Madrid',
+  };
+
+  beforeEach(() => {
+    vi.mocked(dispatchSystemNotification).mockClear();
+    h.detail = detail();
+    h.managers = [manager];
+    h.managerClaim = true;
+    h.fleetEnabled = true;
+  });
+
+  it('tells each fleet user of a new fleet invoice once, with a link to it', async () => {
+    const told = await notifyFleetManagersOfInvoice(
+      'inv_f1',
+      { templatesDirs: ['/t'], csmsUrl: 'https://csms.example/' },
+      log,
+    );
+    expect(told).toBe(1);
+    const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
+    expect(call?.[1]).toBe(FLEET_MANAGER_INVOICE_EVENT);
+    expect(call?.[2]).toMatchObject({ email: 'manager@fleet.example', language: 'es' });
+    expect(call?.[3]).toMatchObject({
+      invoiceNumber: 'INV-202610-0007',
+      fleetName: 'Acme Logistics',
+      invoiceUrl: 'https://csms.example/invoices/inv_f1',
+    });
+    h.managerClaim = false;
+    expect(await notifyFleetManagersOfInvoice('inv_f1', { templatesDirs: ['/t'] }, log)).toBe(0);
+    expect(vi.mocked(dispatchSystemNotification)).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells nobody of a credit note, a member invoice or while Fleets is off', async () => {
+    for (const overrides of [{ kind: 'credit_note' }, { memberBilled: true }, { fleetId: null }]) {
+      h.detail = detail(overrides);
+      expect(await notifyFleetManagersOfInvoice('inv_f1', { templatesDirs: ['/t'] }, log)).toBe(0);
+    }
+    h.detail = detail();
+    h.fleetEnabled = false;
+    expect(await notifyFleetManagersOfInvoice('inv_f1', { templatesDirs: ['/t'] }, log)).toBe(0);
+    expect(vi.mocked(dispatchSystemNotification)).not.toHaveBeenCalled();
+  });
+
+  it('logs a failure and goes on', async () => {
+    vi.mocked(dispatchSystemNotification).mockRejectedValueOnce(new Error('smtp down'));
+    expect(await notifyFleetManagersOfInvoice('inv_f1', { templatesDirs: ['/t'] }, log)).toBe(0);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ invoiceId: 'inv_f1' }),
+      'Fleet manager invoice notice failed; continuing',
+    );
   });
 });

@@ -82,6 +82,8 @@ export async function stationTariffCapabilities(
 export interface StationTariffQuery {
   stationUuid: string;
   driverUuid: string | null;
+  /** The fleet of a fleet RFID card no member holds, for a session without a driver. */
+  fleetUuid?: string | null;
   /** When the tariff applies (default now). */
   at?: Date;
   /** The session's energy so far, for an energy-threshold tariff (default 0). */
@@ -134,6 +136,7 @@ async function resolveKind(
     {
       stationUuid: q.stationUuid,
       driverUuid: q.driverUuid,
+      ...(q.fleetUuid != null ? { fleetUuid: q.fleetUuid } : {}),
       at,
       chargingKind,
       ...(q.sessionEnergyKwh != null ? { sessionEnergyKwh: q.sessionEnergyKwh } : {}),
@@ -245,6 +248,7 @@ export async function sendSessionTariffChange(
         transaction_id: string | null;
         station_uuid: string;
         driver_id: string | null;
+        card_fleet_id: string | null;
         charging_kind: string | null;
         station_tariff_id: string | null;
         status: string;
@@ -253,7 +257,9 @@ export async function sendSessionTariffChange(
         is_online: boolean | null;
       }>
     >`
-      SELECT cs.transaction_id, cs.station_id AS station_uuid, cs.driver_id, cs.charging_kind,
+      SELECT cs.transaction_id, cs.station_id AS station_uuid, cs.driver_id,
+             (SELECT dt.fleet_id FROM driver_tokens dt WHERE dt.id = cs.token_id) AS card_fleet_id,
+             cs.charging_kind,
              cs.station_tariff_id, cs.status, st.station_id AS ocpp_id,
              st.ocpp_protocol, st.is_online
       FROM charging_sessions cs
@@ -274,6 +280,7 @@ export async function sendSessionTariffChange(
     const tariff = await buildStationOcppTariff(sql, {
       stationUuid: session.station_uuid,
       driverUuid: session.driver_id,
+      ...(session.card_fleet_id != null ? { fleetUuid: session.card_fleet_id } : {}),
       at: q.at,
       sessionEnergyKwh: q.energyWh / 1000,
       chargingKind:

@@ -59,7 +59,7 @@ import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { driverListSort } from '../lib/sorts/driver-list-sort.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
 import { reservationsAtSites, sessionsAtSites } from '../lib/session-site-scope.js';
 import * as tokenService from '../services/token.service.js';
@@ -279,6 +279,11 @@ const driverErasureItem = z
     vehiclesRemoved: z.number().int().min(0).describe('Vehicles removed'),
     tokensDeactivated: z.number().int().min(0).describe('Tokens deactivated'),
     tokenLabelsCleared: z.number().int().min(0).describe('Token labels cleared'),
+    fleetCardsReleased: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Fleet RFID cards the driver held, given back to their fleet'),
     avatarRemoved: z
       .boolean()
       .describe('Whether an avatar was removed (an uploaded image is deleted from storage)'),
@@ -1111,6 +1116,10 @@ export function driverRoutes(app: FastifyInstance): void {
         body: zodSchema(createTokenBody),
         response: {
           201: itemResponse(driverTokenItem),
+          403: errorWith(
+            'A fleet RFID card of the driver re-added by a caller without fleetCards:write or all-site access',
+            [ERROR_CODES.FORBIDDEN, ERROR_CODES.INSUFFICIENT_PERMISSIONS],
+          ),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
           409: errorWith(
             "Duplicate token, inactive driver, a Plug and Charge contract token, or another driver's vehicle id",
@@ -1131,11 +1140,27 @@ export function driverRoutes(app: FastifyInstance): void {
         const token = await tokenService.createToken(
           { driverId: id, idToken: body.idToken, tokenType: body.tokenType, label: body.label },
           tokenService.tokenActorOf(getAuditActor(request)),
+          // A re-added fleet card of the driver needs the fleet card permission.
+          { fleetCardsWrite: await requestHasPermission(request, 'fleetCards:write') },
         );
         await reply.status(201).send(token);
       } catch (err) {
         if (err instanceof tokenService.TokenDriverNotFoundError) {
           await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+          return;
+        }
+        if (err instanceof tokenService.FleetCardPermissionError) {
+          await reply.status(403).send({
+            error: 'Changing fleet RFID cards needs the fleetCards:write permission',
+            code: 'INSUFFICIENT_PERMISSIONS',
+          });
+          return;
+        }
+        if (err instanceof tokenService.FleetCardSiteScopeError) {
+          await reply.status(403).send({
+            error: 'Only an operator with access to every site changes a fleet RFID card',
+            code: 'FORBIDDEN',
+          });
           return;
         }
         if (err instanceof tokenService.PncContractTokenError) {

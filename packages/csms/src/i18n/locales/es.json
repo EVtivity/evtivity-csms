@@ -618,6 +618,33 @@
       "empty": "No hay eventos de seguridad en este periodo.",
       "noStations": "No hay estaciones con eventos de esta gravedad.",
       "criticalRow": "crítico"
+    },
+    "fleet": {
+      "title": "Flotas",
+      "picker": "Flota",
+      "allFleets": "Se muestran todas las flotas. Elija una para ver solo esa flota.",
+      "oneFleet": "Se muestra una flota. Quítela para ver todas las flotas.",
+      "sessions": "Sesiones de Flota",
+      "sessionsInfo": "Sesiones de las flotas iniciadas en el rango de fechas.",
+      "energy": "Energía de Flota",
+      "energyInfo": "Energía entregada por esas sesiones.",
+      "cost": "Costo de Flota",
+      "costInfo": "Costo de esas sesiones en la moneda de la empresa.",
+      "creditUsed": "Límite de Crédito Usado",
+      "creditUsedInfo": "La flota más cercana a su límite de crédito: lo que debe ahora (sesiones sin facturar, facturadas y en curso) como parte de su límite. Una sola flota muestra su propia parte.",
+      "creditUsedOf": "{{used}} de {{limit}}",
+      "creditUsedFleet": "{{fleet}}: {{used}} de {{limit}}",
+      "noCreditLimit": "Sin límite de crédito",
+      "energyChart": "Energía de Flota por Día",
+      "energyChartInfo": "Energía entregada por día por las sesiones de flota en el rango de fechas.",
+      "sessionsChart": "Sesiones de Flota por Día",
+      "sessionsChartInfo": "Sesiones de flota iniciadas por día en el rango de fechas.",
+      "costChart": "Costo de Flota por Día",
+      "costChartInfo": "Costo por día de las sesiones de flota en el rango de fechas.",
+      "invoicesChart": "Últimas Facturas de Flota",
+      "invoicesInfo": "Las facturas y notas de crédito más recientes de las flotas.",
+      "noInvoices": "Aún no hay facturas de flota.",
+      "creditNote": "Nota de Crédito"
     }
   },
   "sites": {
@@ -1903,7 +1930,8 @@
       "not_held": "No se realizó ninguna retención en la tarjeta al iniciar esta sesión, por lo que no se cobró nada. Los pagos estaban desactivados o el proveedor de pagos no estaba disponible en ese momento.",
       "viewInvoice": "Ver Factura",
       "openGuestTab": "Abrir Sesión de Invitado",
-      "openPaymentSettings": "Abrir Configuración de Pago"
+      "openPaymentSettings": "Abrir Configuración de Pago",
+      "card_monthly_limit": "El límite de gasto mensual de esta tarjeta RFID de la flota rechazó esta sesión al inicio, por lo que no se cobró nada."
     },
     "noTransactionEvents": "Sin eventos de transacción",
     "refund": "Reembolsar",
@@ -2282,6 +2310,12 @@
     "createUser": "Crear usuario",
     "searchPlaceholder": "Buscar usuarios...",
     "role": "Rol",
+    "roleNames": {
+      "admin": "Administrador",
+      "operator": "Operador",
+      "viewer": "Lector",
+      "fleet_manager": "Gestor de flota"
+    },
     "lastLogin": "Último acceso",
     "allRoles": "Todos los roles",
     "allStatuses": "Todos los estados",
@@ -2327,6 +2361,7 @@
       "sessions": "Sesiones",
       "drivers": "Conductores",
       "fleets": "Flotas",
+      "fleetCards": "Tarjetas RFID de flota",
       "reservations": "Reservas",
       "support": "Casos de Soporte",
       "payments": "Pagos",
@@ -2386,7 +2421,19 @@
     "ssoLinkWithdraw": "Retirar",
     "ssoLinkProofHint": "Confirme su identidad para permitir que el inicio de sesión único acceda como esta cuenta.",
     "ssoUnlink": "Eliminar vínculo",
-    "ssoUnlinkProofHint": "Confirme su identidad para eliminar el vínculo entre esta cuenta y su usuario del proveedor de identidad."
+    "ssoUnlinkProofHint": "Confirme su identidad para eliminar el vínculo entre esta cuenta y su usuario del proveedor de identidad.",
+    "access": {
+      "label": "Acceso",
+      "sites": "Sitios",
+      "fleets": "Flotas",
+      "sitesDescription": "El usuario ve las estaciones, sesiones y datos de los sitios marcados abajo.",
+      "fleetsDescription": "El usuario ve solo las flotas de la lista de abajo: sus sesiones, miembros, facturas y tarjetas RFID, y ningún sitio.",
+      "fleetsCount": "{{count}} flota(s)",
+      "noFleetsPicked": "Aún no se ha añadido ninguna flota. Busque una flota abajo para añadirla.",
+      "removeFleet": "Quitar {{name}}",
+      "unknownFleet": "Flota",
+      "allScopes": "Todos los accesos"
+    }
   },
   "profile": {
     "title": "Perfil",
@@ -2674,7 +2721,12 @@
       "recipientMember": "Conductor",
       "billedTo": "Facturado A",
       "sendMemberTitle": "Enviar Factura del Conductor",
-      "sendMemberConfirm": "¿Enviar {{number}} con su PDF al conductor?"
+      "sendMemberConfirm": "¿Enviar {{number}} con su PDF al conductor?",
+      "empty": {
+        "title": "Aún no hay facturas",
+        "description": "Las facturas de la flota aparecen aquí cuando se emiten: cada mes mediante la ejecución mensual si Factura mensual automática está activada, o con Generar factura en Sesiones sin facturar.",
+        "fleetUser": "Las facturas de la flota aparecen aquí cuando el operador las emite, normalmente una vez al mes."
+      }
     },
     "bookingStatus": {
       "scheduled": "Programada",
@@ -2816,6 +2868,122 @@
       "arrivalIncomplete": "Introduzca la fecha y la hora de llegada, o ninguna.",
       "arrivalBeforeDeparture": "La llegada prevista debe ser anterior a la salida.",
       "arrivalSocRange": "Introduzca un número entero de 0 a 100."
+    },
+    "cards": {
+      "title": "Tarjetas RFID",
+      "description": "Tarjetas RFID de esta flota. Una tarjeta sin miembro carga en la cuenta de la flota.",
+      "searchPlaceholder": "Buscar tarjeta o etiqueta...",
+      "addCard": "Agregar Tarjeta RFID",
+      "value": "Tarjeta RFID",
+      "member": "Miembro",
+      "noMember": "Sin miembro",
+      "noCards": "No hay tarjetas RFID",
+      "status": {
+        "active": "Activa",
+        "suspended": "Apagada",
+        "deactivated": "Desactivada"
+      },
+      "editCard": "Editar Tarjeta RFID",
+      "deactivate": "Desactivar",
+      "deactivateTitle": "¿Desactivar Tarjeta RFID?",
+      "deactivateDescription": "La tarjeta RFID {{value}} deja de funcionar en todas las estaciones y no se puede volver a encender. Permanece en la lista.",
+      "labelHint": "Nombre opcional para reconocer la tarjeta, por ejemplo \"Furgoneta 12\".",
+      "memberHint": "Entregue la tarjeta a un miembro activo de la flota, o déjela sin miembro para cargar en la cuenta de la flota.",
+      "active": "Activa",
+      "activeHint": "Desmarque esta casilla para apagar la tarjeta. Puede volver a encenderla más tarde.",
+      "lockedDeactivated": "Esta tarjeta RFID fue desactivada y no se puede volver a encender.",
+      "lockedByOperator": "Un operador apagó esta tarjeta RFID. Contacte al operador para volver a encenderla.",
+      "searchMembers": "Buscar miembros...",
+      "import": {
+        "open": "Importar CSV",
+        "title": "Importar tarjetas RFID",
+        "description": "Añada muchas tarjetas RFID a esta flota desde un archivo CSV. Cada fila se añade como una tarjeta individual; una fila rechazada no cambia nada.",
+        "columns": "Columnas: idToken (el valor de la tarjeta, obligatorio), tokenType (ISO14443 si está vacío), label, memberEmail (un miembro activo de la flota). Como máximo 2000 filas y 512 KB.",
+        "columnsFleetUser": "Columnas: idToken (el valor de la tarjeta, obligatorio), tokenType (ISO14443 si está vacío) y label. Deje vacía la columna memberEmail: asigne las tarjetas a los miembros aquí después de la importación. Como máximo 2000 filas y 512 KB.",
+        "template": "Descargar plantilla",
+        "chooseFile": "Elegir archivo",
+        "chooseFirst": "Elija primero un archivo CSV.",
+        "tooLarge": "El archivo supera los 512 KB.",
+        "failed": "La importación falló. Inténtelo de nuevo.",
+        "submit": "Importar CSV",
+        "created": "Añadidas: {{count}}",
+        "refused": "Rechazadas: {{count}}",
+        "refusedRow": "Fila {{row}}: {{field}}, {{reason}}",
+        "reasons": {
+          "missing": "falta",
+          "invalid": "no válido",
+          "duplicate": "ya registrada",
+          "not_found": "no es un miembro activo de la flota"
+        }
+      },
+      "history": {
+        "open": "Historial",
+        "title": "Historial de la tarjeta RFID",
+        "description": "Cambios en la tarjeta RFID {{value}} mientras perteneció a esta flota, los más recientes primero.",
+        "empty": "Aún no hay cambios registrados",
+        "by": "Por {{who}}",
+        "viaApiKey": "{{who}} (clave de API)",
+        "someMember": "un miembro",
+        "noLabel": "sin etiqueta",
+        "reasonMemberLeft": "El miembro dejó la flota.",
+        "actor": {
+          "fleet_user": "Gestor de flota",
+          "operator": "Operador",
+          "driver": "Conductor",
+          "system": "Sistema"
+        },
+        "change": {
+          "added": "Agregada",
+          "moved_into_fleet": "Movida a la flota",
+          "moved_out_of_fleet": "Movida fuera de la flota",
+          "given": "Asignada a {{member}}",
+          "taken_back": "Retirada de {{member}}",
+          "renamed": "Etiqueta cambiada de {{from}} a {{to}}",
+          "turned_off": "Apagada",
+          "turned_on": "Encendida",
+          "deactivated": "Desactivada",
+          "changed": "Modificada",
+          "deleted": "Eliminada",
+          "limit_changed": "Límite mensual cambiado"
+        }
+      },
+      "monthlyLimit": {
+        "column": "Este Mes",
+        "label": "Límite Mensual",
+        "hint": "Lo máximo que puede costar esta tarjeta en un mes natural, sin importar quién cargue con ella. Las cargas que superan el límite se rechazan y una sesión se detiene al alcanzarlo. Déjelo vacío para no tener límite.",
+        "invalid": "Introduzca un importe de 0,01 a 1.000.000,00 o deje el campo vacío.",
+        "none": "(sin límite)",
+        "spentOfLimit": "{{spent}} de {{limit}}",
+        "thisMonth": "Este mes"
+      },
+      "empty": {
+        "title": "Aún no hay tarjetas RFID",
+        "description": "Añada las tarjetas RFID de la flota una a una o importe muchas a la vez desde un archivo CSV. Una tarjeta asignada a un miembro carga como su propia tarjeta. Una tarjeta sin miembro se cobra a la cuenta de la flota.",
+        "readOnly": "Las tarjetas RFID de la flota aparecen aquí cuando se añaden."
+      }
+    },
+    "sessionDialog": {
+      "title": "Sesión",
+      "card": "Etiqueta de la tarjeta RFID"
+    },
+    "searchFleets": "Buscar flotas...",
+    "sessionFilters": {
+      "member": "Miembro",
+      "rfidCard": "Tarjeta RFID",
+      "searchCards": "Buscar tarjetas RFID..."
+    },
+    "managers": {
+      "title": "Gestores de flota",
+      "description": "Usuarios de flota que gestionan esta flota en el CSMS. Solo ven las flotas que tienen asignadas.",
+      "add": "Añadir gestor de flota",
+      "empty": "Esta flota no tiene ningún gestor de flota asignado.",
+      "permissions": "Permisos",
+      "lastSignIn": "Último inicio de sesión",
+      "neverSignedIn": "Nunca"
+    },
+    "sessionsEmpty": {
+      "none": "Aún no hay sesiones. Las sesiones aparecen aquí cuando los miembros cargan a cuenta de la flota o se usan las tarjetas RFID de la flota.",
+      "filtered": "Ninguna sesión coincide con estos filtros."
     }
   },
   "tokens": {
@@ -2891,9 +3059,13 @@
     "deactivatedByValue": {
       "operator": "Operador",
       "driver": "Conductor",
-      "system": "Sistema"
+      "system": "Sistema",
+      "fleet": "Flota"
     },
-    "deactivationReason": "Motivo de Desactivación"
+    "deactivationReason": "Motivo de Desactivación",
+    "fleet": "Flota",
+    "noFleet": "Sin flota",
+    "fleetHint": "La flota propietaria de esta tarjeta RFID. Una tarjeta sin miembro carga en la cuenta de la flota, y se puede entregar a un miembro de la flota."
   },
   "commands": {
     "advancedCommand": "Comando avanzado",
@@ -4427,7 +4599,11 @@
       "security.RetentionLowered": "Retención de Datos Acortada",
       "security.PaymentTerminalSettingsChanged": "Configuración de terminales de pago modificada",
       "fleet.DepotRequestsRefused": "Solicitudes del depósito de autobuses rechazadas",
-      "security.DepotSystemChanged": "Sistema de depósito de autobuses modificado"
+      "security.DepotSystemChanged": "Sistema de depósito de autobuses modificado",
+      "fleet.ManagerCreditLimitWarning": "Aviso de límite de crédito para gestores de flota",
+      "fleet.ManagerCreditLimitReached": "Límite de crédito alcanzado para gestores de flota",
+      "fleet.ManagerInvoiceIssued": "Nueva factura para gestores de flota",
+      "operator.FleetManagerInvite": "Invitación para gestores de flota"
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
     "htmlPreview": "Vista previa HTML",
@@ -4448,7 +4624,8 @@
       "mandatory": "Obligatoria",
       "notConfigured": "No configurado: no se envía nada por este canal.",
       "explanation": "Los conductores ven una notificación obligatoria activada y bloqueada, marcada como exigida por usted."
-    }
+    },
+    "fleetManagerEvents": "Avisos para gestores de flota"
   },
   "reservations": {
     "title": "Reservas",
@@ -4652,6 +4829,7 @@
     "FAVORITE_NOT_FOUND": "Favorito no encontrado",
     "FLEET_CREDIT_LIMIT_REACHED": "Se alcanzó el límite de crédito de la flota a la que se facturan sus sesiones. Contacte al responsable de su flota.",
     "FLEET_DISABLED": "La flota está deshabilitada",
+    "FLEET_USER_NO_FLEETS": "No tiene flotas asignadas. Póngase en contacto con su operador.",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "Todavía hay conectado un proceso de una versión anterior. Termine la actualización y después cambie la facturación de la flota.",
     "FLEET_BILLING_VERSION_CHECK_STALE": "La comprobación de versiones del worker no se ha ejecutado recientemente, por lo que no se puede confirmar la actualización. Compruebe que el worker está en ejecución y después cambie la facturación de la flota.",
     "FLEET_BILLING_CONTACT_REQUIRED": "La flota necesita al menos un contacto de facturación para la facturación automática y el envío de facturas por correo.",
@@ -4986,7 +5164,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "Tu operador exige esta notificación en este canal, por lo que no se puede desactivar",
     "STATION_UNITS_FEATURE_IN_USE": "Todavía hay estaciones que usan unidades. Desactiva Usa Unidades de Estación en cada estación antes de desactivar Habilitar Unidades de Estación.",
     "STATION_UNITS_FEATURE_OFF": "Las unidades de estación están desactivadas. Activa primero Habilitar Unidades de Estación en Configuración > Integraciones y Funciones.",
-    "STATION_REPORTED_FIELD_LOCKED": "La estación informa este valor al arrancar, por lo que no se puede cambiar aquí."
+    "STATION_REPORTED_FIELD_LOCKED": "La estación informa este valor al arrancar, por lo que no se puede cambiar aquí.",
+    "FLEET_CARD_DEACTIVATED": "Esta tarjeta RFID se desactivó y no se puede volver a activar",
+    "FLEET_CARD_NOT_BILLABLE": "La flota no factura a cuenta, por lo que sus tarjetas RFID no pueden cargar. Active primero la facturación a cuenta de la flota",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "El conductor no es un miembro activo de la flota a la que pertenece esta tarjeta RFID",
+    "FLEET_HAS_CARDS": "Esta flota todavía tiene tarjetas RFID. Quítelas de la flota primero.",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "Un usuario de flota no puede tener este permiso",
+    "INVALID_FLEET_IDS": "Uno o más fleetIds no existen",
+    "TOKEN_MANAGED_BY_FLEET": "Esta tarjeta RFID pertenece a su flota. Contacte a su flota para cambiarla."
   },
   "logs": {
     "title": "Registros",
@@ -6197,7 +6382,8 @@
     "varTerminalAmount": "Importe preautorizado o pagado, en la moneda de la empresa",
     "varPaymentApproved": "Se activa cuando la tarjeta fue aprobada",
     "varPlugInAnyConnector": "Se activa cuando el conductor puede conectar en cualquier conector (terminal de toda la estación)",
-    "varReceiptUrl": "Enlace al recibo del pago"
+    "varReceiptUrl": "Enlace al recibo del pago",
+    "stateCardMonthlyLimit": "Límite mensual de la tarjeta alcanzado"
   },
   "audit": {
     "title": "Registro de auditoría",
@@ -6660,6 +6846,7 @@
     "taxId": "NIF/CIF: {{id}}",
     "driverSubtotal": "Subtotal {{driver}}",
     "unknownDriver": "Conductor desconocido",
+    "fleetCards": "Tarjetas RFID de la flota",
     "confirmResendFleet": "¿Enviar esta factura con su PDF a los contactos de facturación de la flota?",
     "sentAt": "Enviada por correo",
     "overdueNoticeSentAt": "Recordatorio de pago enviado",
@@ -7821,5 +8008,13 @@
   "connectorTypeNames": {
     "other": "Otro",
     "pantograph": "Pantógrafo"
+  },
+  "fleetsOff": {
+    "title": "La Gestión de Flotas Está Desactivada",
+    "message": "La gestión de flotas está desactivada. Comuníquese con su operador."
+  },
+  "noFleets": {
+    "title": "No hay flotas asignadas",
+    "message": "No tiene flotas asignadas. Póngase en contacto con su operador."
   }
 }

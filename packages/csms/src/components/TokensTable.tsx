@@ -4,7 +4,14 @@
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { TokenStatusBadge } from '@/components/token/TokenStatusBadge';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { SortableTableHead } from '@/components/ui/sortable-table-head';
 import type { ListSort } from '@/hooks/use-list-sort';
 import { CopyableId } from '@/components/copyable-id';
@@ -22,6 +29,7 @@ export const TOKENS_COLUMNS: ColumnMeta[] = [
   },
   { key: 'label', label: 'tokens.label', defaultVisible: true, defaultVisibleMobile: true },
   { key: 'driver', label: 'tokens.driver', defaultVisible: true, defaultVisibleMobile: true },
+  { key: 'fleet', label: 'tokens.fleet', defaultVisible: true, defaultVisibleMobile: false },
   { key: 'type', label: 'tokens.type', defaultVisible: true, defaultVisibleMobile: false },
   {
     key: 'status',
@@ -64,6 +72,9 @@ export interface Token {
   createdAt: string;
   driverFirstName?: string | null;
   driverLastName?: string | null;
+  /** The fleet that owns the card, null for a driver's own card. */
+  fleetId?: string | null;
+  fleetName?: string | null;
 }
 
 interface TokensTableProps {
@@ -80,6 +91,8 @@ interface TokensTableProps {
   visibility?: ColumnVisibility;
   /** The list's sort; without it the headers do not sort. */
   sort?: ListSort<TokenSortKey> | undefined;
+  /** The Fleet column (the fleet that owns a card). */
+  showFleet?: boolean;
 }
 
 export function TokensTable({
@@ -92,12 +105,14 @@ export function TokensTable({
   emptyMessage,
   visibility,
   sort,
+  showFleet = true,
 }: TokensTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isVisible = (key: string): boolean => visibility == null || visibility[key] !== false;
   const colSpan = TOKENS_COLUMNS.filter(
-    (c) => (c.key !== 'driver' || showDriver) && isVisible(c.key),
+    (c) =>
+      (c.key !== 'driver' || showDriver) && (c.key !== 'fleet' || showFleet) && isVisible(c.key),
   ).length;
 
   return (
@@ -121,6 +136,7 @@ export function TokensTable({
                   {t('tokens.driver')}
                 </SortableTableHead>
               )}
+              {showFleet && isVisible('fleet') && <TableHead>{t('tokens.fleet')}</TableHead>}
               {isVisible('type') && (
                 <SortableTableHead sortKey="tokenType" sort={sort}>
                   {t('tokens.type')}
@@ -185,6 +201,23 @@ export function TokensTable({
                       </Link>
                     ) : (
                       <span className="text-muted-foreground">{t('tokens.unassigned')}</span>
+                    )}
+                  </TableCell>
+                )}
+                {showFleet && isVisible('fleet') && (
+                  <TableCell>
+                    {token.fleetId != null ? (
+                      <Link
+                        to={`/fleets/${token.fleetId}`}
+                        className="text-link hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        }}
+                      >
+                        {token.fleetName ?? t('tokens.fleet')}
+                      </Link>
+                    ) : (
+                      ''
                     )}
                   </TableCell>
                 )}

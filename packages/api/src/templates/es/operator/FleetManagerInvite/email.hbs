@@ -1,0 +1,38 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}Hola {{firstName}},{{else}}Hola,{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Gestione sus flotas con {{companyName}}</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 12px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{companyName}} le ha invitado a gestionar {{#if fleetNames}}estas flotas: {{fleetNames}}{{else}}flotas{{/if}}. Como gestor de flota puede:</p>
+<ul
+  style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;padding-left:20px;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>
+  <li style="margin:0 0 8px 0;">Ver dónde y cuándo cargó su flota, con la energía y el coste de cada sesión.</li>
+  <li style="margin:0 0 8px 0;">Consultar las facturas de la flota y el límite de crédito usado.</li>
+  <li style="margin:0 0 8px 0;">Añadir tarjetas RFID, asignarlas a miembros y desactivarlas y activarlas.</li>
+</ul>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Haga clic a continuación para establecer su contraseña. Este enlace caduca en 24 horas.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  <tr>
+    <td align='center' style='padding:32px 0;'>
+      <a
+        href='{{setPasswordUrl}}'
+        style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;"
+      >Establecer contraseña</a>
+    </td>
+  </tr>
+</table>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Si no esperaba este correo, puede ignorarlo.</p>

@@ -152,3 +152,36 @@ export function seedSettingRows(
   }
   return rows;
 }
+
+/** The settings key the seed writes through the station units setting writer. */
+export const SEED_STATION_UNITS_KEY = 'stationUnits.enabled';
+
+export type SeedStationUnitsWrite = (
+  value: boolean,
+) => Promise<
+  | { ok: true }
+  | { ok: false; reason: 'in_use'; stationCount: number }
+  | { ok: false; reason: 'not_found' }
+>;
+
+/**
+ * Applies `stationUnits.enabled` from seed.config.json or a deploy (Helm and
+ * CDK appSettings run the seed with --apply-config) through the locked writer,
+ * so off is refused while a station uses units and the stored value stays,
+ * as the settings route refuses it. A value that is not a boolean is refused.
+ * Returns the line the seed prints.
+ */
+export async function applySeedStationUnitsSetting(
+  value: unknown,
+  write: SeedStationUnitsWrite,
+): Promise<string> {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Refusing to seed ${SEED_STATION_UNITS_KEY}: use true or false.`);
+  }
+  const result = await write(value);
+  if (result.ok) return `  ${SEED_STATION_UNITS_KEY} set to ${String(value)}.`;
+  if (result.reason === 'in_use') {
+    return `  ${SEED_STATION_UNITS_KEY} kept on: ${String(result.stationCount)} stations use units (delete their units and turn off Uses Station Units first).`;
+  }
+  return `  ${SEED_STATION_UNITS_KEY} not written.`;
+}

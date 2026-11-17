@@ -821,6 +821,7 @@ interface SettlementSession extends SessionCharge {
   freeVend: boolean;
   prepaid: boolean;
   account: boolean;
+  fleetCard: boolean;
   billingFleetId: string | null;
 }
 
@@ -833,6 +834,8 @@ async function settlementSession(sessionId: string): Promise<SettlementSession |
       freeVend: chargingSessions.freeVend,
       prepaid: sql<boolean>`${driverTokens.prepaidBalanceCents} IS NOT NULL`,
       account: sql<boolean>`${chargingSessions.billingMode} IS NOT DISTINCT FROM 'account'`,
+      // A fleet card no member held: linked to a token, no driver.
+      fleetCard: sql<boolean>`${chargingSessions.tokenId} IS NOT NULL AND ${chargingSessions.driverId} IS NULL`,
       billingFleetId: chargingSessions.billingFleetId,
       finalCostCents: chargingSessions.finalCostCents,
       tariffTaxRate: chargingSessions.tariffTaxRate,

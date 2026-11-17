@@ -110,6 +110,7 @@ function fleetDetail(language: string | null = 'en'): InvoiceDetail {
       language,
       sentAt: null,
       overdueNoticeSentAt: null,
+      fleetManagersNotifiedAt: null,
       issuedAt: now,
       dueAt: now,
       currency: 'EUR',
@@ -135,6 +136,16 @@ describe('fleet invoice PDF helpers', () => {
     expect(groups.map((g) => [g.driverId, g.driverName, g.items.length, g.netCents])).toEqual([
       ['drv_a', 'Anna Berg', 2, 1500],
       ['drv_z', 'Zoe Ng', 1, 2000],
+    ]);
+  });
+
+  it('groups the fleet RFID card sessions apart from a deleted driver', () => {
+    const card = line(2, 'ses_2', null, '', 300);
+    card.metadata = { ...(card.metadata as Record<string, unknown>), fleetCard: true };
+    const groups = groupLinesByDriver([line(1, 'ses_1', null, '', 100), card]);
+    expect(groups.map((g) => [g.driverId, g.fleetCards, g.netCents])).toEqual([
+      [null, false, 100],
+      [null, true, 300],
     ]);
   });
 
@@ -171,6 +182,21 @@ describe('generateInvoicePdf for a fleet invoice', () => {
     expect(text).toContain('Subtotal Zoe Ng');
     expect(text).toContain('Depot CS-01');
     expect(text.indexOf('Subtotal Anna Berg')).toBeLessThan(text.indexOf('Zoe Ng'));
+  });
+
+  it('lists the fleet RFID card sessions under their label, never a card label', async () => {
+    const detail = fleetDetail();
+    const card = line(9, 'ses_card', null, '', 700);
+    card.metadata = { ...(card.metadata as Record<string, unknown>), fleetCard: true };
+    detail.lineItems.push(card);
+    const text = pdfText(await generateInvoicePdf(detail));
+    expect(text).toContain('Fleet RFID Cards');
+    expect(text).toContain('Subtotal Fleet RFID Cards');
+    expect(text).not.toContain('Unknown driver');
+    const de = pdfText(
+      await generateInvoicePdf({ ...detail, invoice: { ...detail.invoice, language: 'de' } }),
+    );
+    expect(de).toContain('RFID-Karten der Flotte');
   });
 
   it('renders in the language stored on the invoice', async () => {

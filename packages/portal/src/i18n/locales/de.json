@@ -739,6 +739,7 @@
     "FAVORITE_NOT_FOUND": "Favorit nicht gefunden",
     "FLEET_CREDIT_LIMIT_REACHED": "Das Kreditlimit der Flotte, über die deine Ladevorgänge abgerechnet werden, ist erreicht. Wende dich an deinen Flottenverwalter.",
     "FLEET_DISABLED": "Flotte ist deaktiviert",
+    "FLEET_USER_NO_FLEETS": "Ihnen sind keine Flotten zugewiesen. Wenden Sie sich an Ihren Betreiber.",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "Ein Prozess einer älteren Version ist noch verbunden. Schließe das Upgrade ab und ändere dann die Abrechnung der Flotte.",
     "FLEET_BILLING_VERSION_CHECK_STALE": "Die Versionsprüfung des Workers ist in letzter Zeit nicht gelaufen, daher lässt sich das Upgrade nicht bestätigen. Prüfe, ob der Worker läuft, und ändere dann die Abrechnung der Flotte.",
     "FLEET_BILLING_CONTACT_REQUIRED": "Die Flotte benötigt mindestens einen Rechnungskontakt für die automatische Rechnungsstellung und den Rechnungsversand per E-Mail.",
@@ -1073,7 +1074,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden",
     "STATION_UNITS_FEATURE_IN_USE": "Es gibt noch Ladestationen mit Einheiten. Deaktivieren Sie Verwendet Stationseinheiten an jeder Ladestation, bevor Sie Stationseinheiten aktivieren ausschalten.",
     "STATION_UNITS_FEATURE_OFF": "Stationseinheiten sind ausgeschaltet. Aktivieren Sie zuerst Stationseinheiten aktivieren unter Einstellungen > Integrationen und Funktionen.",
-    "STATION_REPORTED_FIELD_LOCKED": "Die Ladestation meldet diesen Wert beim Start, daher kann er hier nicht geändert werden."
+    "STATION_REPORTED_FIELD_LOCKED": "Die Ladestation meldet diesen Wert beim Start, daher kann er hier nicht geändert werden.",
+    "FLEET_CARD_DEACTIVATED": "Diese RFID-Karte wurde deaktiviert und kann nicht wieder aktiviert werden",
+    "FLEET_CARD_NOT_BILLABLE": "Die Flotte rechnet nicht auf Rechnung ab, daher können ihre RFID-Karten nicht laden. Aktivieren Sie zuerst die Abrechnung auf Rechnung für die Flotte",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "Der Fahrer ist kein aktives Mitglied der Flotte, der diese RFID-Karte gehört",
+    "FLEET_HAS_CARDS": "Dieser Flotte gehören noch RFID-Karten. Entfernen Sie sie zuerst aus der Flotte.",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "Ein Flottenbenutzer kann diese Berechtigung nicht haben",
+    "INVALID_FLEET_IDS": "Eine oder mehrere fleetIds existieren nicht",
+    "TOKEN_MANAGED_BY_FLEET": "Diese RFID-Karte gehört Ihrer Flotte. Wenden Sie sich an Ihre Flotte, um sie zu ändern."
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -1205,7 +1213,9 @@
     "renameFailed": "Die Karte konnte nicht umbenannt werden. Versuche es erneut.",
     "managedByOperator": "Ihr Betreiber verwaltet Ihre RFID-Karten. Um eine Karte hinzuzufügen, zu ändern oder zu entfernen oder eine verlorene Karte sperren zu lassen, wenden Sie sich an den Betreiber.",
     "noCardsAssigned": "Ihnen sind keine RFID-Karten zugewiesen.",
-    "contactSupport": "Support Kontaktieren"
+    "contactSupport": "Support Kontaktieren",
+    "managedByFleet": "Verwaltet von {{fleet}}. Wenden Sie sich an Ihre Flotte, um diese Karte zu ändern.",
+    "yourFleet": "Ihrer Flotte"
   },
   "vehicles": {
     "addVehicle": "Fahrzeug hinzufügen",

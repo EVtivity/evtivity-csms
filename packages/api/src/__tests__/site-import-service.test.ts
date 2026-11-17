@@ -17,6 +17,7 @@ function makeChain() {
     'select',
     'from',
     'where',
+    'for',
     'orderBy',
     'limit',
     'offset',

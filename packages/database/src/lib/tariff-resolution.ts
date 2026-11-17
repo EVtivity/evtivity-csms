@@ -27,7 +27,8 @@ import { isSplitBillingEnabled } from './pricing-settings.js';
  * Every function takes the caller's postgres client (the shared `client` of
  * @evtivity/database in production), like session-pricing.
  *
- * Group order: driver > fleet (oldest membership) > station > site > default.
+ * Group order: driver > fleet (oldest membership, or for a session without a
+ * driver the fleet of its fleet RFID card) > station > site > default.
  * Within a group, only the tariffs whose charging type and sites apply are
  * candidates (the session's kind, the station's site; an unknown kind gets
  * the Both tariffs). The candidate whose restrictions match at the given
@@ -89,6 +90,12 @@ export interface StationPricing {
 export interface TariffQuery {
   stationUuid: string;
   driverUuid: string | null;
+  /**
+   * The fleet of a fleet RFID card no member holds, for a session without a
+   * driver: its pricing group prices the session at the fleet step, as for a
+   * member of that fleet. Ignored when a driver is given.
+   */
+  fleetUuid?: string | null;
   /** Default: now. */
   at?: Date;
   /**
@@ -189,10 +196,11 @@ function toGroupTariff(r: {
  * always resolve to the same group.
  */
 export async function loadStationPricingChain(
-  q: Pick<TariffQuery, 'stationUuid' | 'driverUuid'>,
+  q: Pick<TariffQuery, 'stationUuid' | 'driverUuid' | 'fleetUuid'>,
   sql: postgres.Sql,
 ): Promise<StationPricing[]> {
   const driverUuid = q.driverUuid ?? '';
+  const fleetUuid = q.driverUuid == null ? (q.fleetUuid ?? '') : '';
   const rows = await sql<PricingRow[]>`
     WITH driver_group AS (
       SELECT pgd.pricing_group_id AS id, 1 AS priority
@@ -201,11 +209,18 @@ export async function loadStationPricingChain(
       LIMIT 1
     ),
     fleet_group AS (
-      SELECT pgf.pricing_group_id AS id, 2 AS priority
-      FROM pricing_group_fleets pgf
-      JOIN fleet_drivers fd ON fd.fleet_id = pgf.fleet_id
-      WHERE fd.driver_id = ${driverUuid}
-      ORDER BY fd.created_at ASC, fd.id ASC
+      SELECT g.id, 2 AS priority FROM (
+        SELECT pgf.pricing_group_id AS id, fd.created_at AS joined_at, fd.id AS member_id,
+               pgf.id AS assignment_id
+        FROM pricing_group_fleets pgf
+        JOIN fleet_drivers fd ON fd.fleet_id = pgf.fleet_id
+        WHERE fd.driver_id = ${driverUuid}
+        UNION ALL
+        SELECT pgf.pricing_group_id, NULL, NULL, pgf.id
+        FROM pricing_group_fleets pgf
+        WHERE pgf.fleet_id = ${fleetUuid}
+      ) g
+      ORDER BY g.joined_at ASC NULLS LAST, g.member_id ASC NULLS LAST, g.assignment_id ASC
       LIMIT 1
     ),
     station_group AS (
@@ -295,7 +310,7 @@ function groupRows(rows: PricingRow[]): StationPricing[] {
  * chain (resolveStationTariff).
  */
 export async function loadStationPricing(
-  q: Pick<TariffQuery, 'stationUuid' | 'driverUuid'>,
+  q: Pick<TariffQuery, 'stationUuid' | 'driverUuid' | 'fleetUuid'>,
   sql: postgres.Sql,
 ): Promise<StationPricing | null> {
   const chain = await loadStationPricingChain(q, sql);

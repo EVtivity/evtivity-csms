@@ -1,13 +1,20 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { client, getSystemTimezone, loadFleetBillingContacts } from '@evtivity/database';
+import {
+  claimFleetManagerInvoiceNotice,
+  client,
+  getSystemTimezone,
+  isFleetEnabled,
+  loadFleetBillingContacts,
+  loadFleetManagerRecipients,
+} from '@evtivity/database';
 import {
   dispatchDriverNotification,
   dispatchSystemNotification,
   notificationMoney,
 } from '@evtivity/lib';
-import type { EmailAttachment, NotificationDelivery } from '@evtivity/lib';
+import type { EmailAttachment, NotificationDelivery, ServiceLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getInvoice } from './invoice.service.js';
 import type { InvoiceDetail } from './invoice.service.js';
@@ -190,6 +197,60 @@ async function sendMemberInvoiceEmail(
     audit.log,
   );
   return { status: 'sent', recipients: 1 };
+}
+
+/** A new fleet invoice told to the fleet's fleet users with payments:read. */
+export const FLEET_MANAGER_INVOICE_EVENT = 'fleet.ManagerInvoiceIssued';
+
+export interface FleetManagerInvoiceNoticeDeps extends AccountInvoiceSendDeps {
+  /** The CSMS address the invoice link points at; defaults to CSMS_URL. */
+  csmsUrl?: string | undefined;
+}
+
+/**
+ * Tells the fleet's fleet users with payments:read that a fleet invoice was
+ * issued (a fleet invoice only: never a credit note or a member invoice), in
+ * their own language and time zone, with a link to the invoice. Sent once per
+ * invoice (the `fleet_managers_notified_at` claim, P7); skipped while Fleets is
+ * off. Returns the number of fleet users told. Fail-open (P9): a failure is
+ * logged at warn and returns 0.
+ */
+export async function notifyFleetManagersOfInvoice(
+  invoiceId: string,
+  deps: FleetManagerInvoiceNoticeDeps,
+  log: ServiceLogger,
+): Promise<number> {
+  try {
+    if (!(await isFleetEnabled())) return 0;
+    const detail = await getInvoice(invoiceId);
+    const invoice = detail?.invoice;
+    if (detail == null || invoice == null || invoice.fleetId == null) return 0;
+    if (invoice.memberBilled || invoice.kind !== 'invoice') return 0;
+    const managers = await loadFleetManagerRecipients(client, invoice.fleetId);
+    if (managers.length === 0) return 0;
+    if (!(await claimFleetManagerInvoiceNotice(client, invoice.id))) return 0;
+    const base = (deps.csmsUrl ?? process.env['CSMS_URL'] ?? 'http://localhost:7100').replace(
+      /\/$/,
+      '',
+    );
+    const variables = {
+      ...fleetInvoiceVariables(detail),
+      invoiceUrl: `${base}/invoices/${encodeURIComponent(invoice.id)}`,
+    };
+    for (const manager of managers) {
+      await dispatchSystemNotification(
+        client,
+        FLEET_MANAGER_INVOICE_EVENT,
+        manager,
+        variables,
+        deps.templatesDirs,
+      );
+    }
+    return managers.length;
+  } catch (err) {
+    log.warn({ err, invoiceId }, 'Fleet manager invoice notice failed; continuing');
+    return 0;
+  }
 }
 
 /**

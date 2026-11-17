@@ -202,6 +202,8 @@ type LineItem = InvoiceDetail['lineItems'][number];
 export interface DriverLineGroup {
   driverId: string | null;
   driverName: string;
+  /** The sessions of the fleet's RFID cards no member held. */
+  fleetCards: boolean;
   items: LineItem[];
   /** Sum of the lines' net amounts. */
   netCents: number;
@@ -221,10 +223,11 @@ export function groupLinesByDriver(lineItems: LineItem[]): DriverLineGroup[] {
         : {};
     const driverId = typeof meta['driverId'] === 'string' ? meta['driverId'] : null;
     const driverName = typeof meta['driverName'] === 'string' ? meta['driverName'] : '';
-    const key = driverId ?? '';
+    const fleetCards = driverId == null && meta['fleetCard'] === true;
+    const key = driverId ?? (fleetCards ? 'fleet-cards' : '');
     let group = byKey.get(key);
     if (group == null) {
-      group = { driverId, driverName, items: [], netCents: 0 };
+      group = { driverId, driverName, fleetCards, items: [], netCents: 0 };
       byKey.set(key, group);
       groups.push(group);
     }
@@ -577,7 +580,11 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
     // net subtotal per driver; the tax summary below covers the whole invoice.
     for (const group of groupLinesByDriver(lineItems)) {
       y = ensure(y, 50);
-      const name = group.driverName !== '' ? group.driverName : labels.unknownDriver;
+      const name = group.fleetCards
+        ? labels.fleetCards
+        : group.driverName !== ''
+          ? group.driverName
+          : labels.unknownDriver;
       doc.font(fonts.bold).fontSize(10).fillColor(COLOR_TEXT).text(name, MARGIN, y, {
         width: CONTENT_WIDTH,
       });

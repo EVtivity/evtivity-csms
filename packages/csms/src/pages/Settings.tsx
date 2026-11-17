@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Navigate } from 'react-router';
 import { Info } from 'lucide-react';
 import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
@@ -12,7 +13,7 @@ import { SystemInfoDialog } from '@/components/SystemInfoDialog';
 import { api } from '@/lib/api';
 import { useQrIcon } from '@/hooks/use-qr-icon';
 import type { Permission } from '@evtivity/lib/permissions';
-import { useAuth, hasPermissionCheck, useHasAllSiteAccess } from '@/lib/auth';
+import { useAuth, hasPermissionCheck, useHasAllSiteAccess, useIsFleetUser } from '@/lib/auth';
 import { CompanySettings } from '@/components/settings/CompanySettings';
 import { InvoiceSellerSettings } from '@/components/settings/InvoiceSellerSettings';
 import { InvoicePaymentSettings } from '@/components/settings/InvoicePaymentSettings';
@@ -65,6 +66,9 @@ const TAB_PERMISSIONS: Record<string, Permission> = {
   history: 'audit:read',
 };
 
+/** The one tab a fleet user sees: its own API keys. */
+const FLEET_USER_TABS = new Set(['apiKeys']);
+
 /**
  * Tabs of company-wide configuration: their routes answer 404 to a user
  * without access to every site (features/site-access-control.md). A
@@ -107,11 +111,13 @@ export function Settings(): React.JSX.Element {
   const { t } = useTranslation();
   const permissions = useAuth((s) => s.permissions);
   const hasAllSiteAccess = useHasAllSiteAccess();
+  const isFleetUser = useIsFleetUser();
   const [showSystemInfo, setShowSystemInfo] = useState(false);
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
+    enabled: !isFleetUser,
   });
 
   const canReadSecurity =
@@ -135,8 +141,9 @@ export function Settings(): React.JSX.Element {
     return Object.entries(TAB_PERMISSIONS)
       .filter(([, perm]) => hasPermissionCheck(permissions, perm))
       .filter(([tab]) => hasAllSiteAccess || !ALL_SITE_TABS.has(tab))
+      .filter(([tab]) => !isFleetUser || FLEET_USER_TABS.has(tab))
       .map(([tab]) => tab);
-  }, [permissions, hasAllSiteAccess]);
+  }, [permissions, hasAllSiteAccess, isFleetUser]);
 
   const [securitySubTab, setSecuritySubTab] = useTab('recaptcha', 'sub');
 
@@ -144,6 +151,9 @@ export function Settings(): React.JSX.Element {
   const [activeTab, setActiveTab] = useTab(defaultTab, 'tab', ['sub']);
 
   const tabVisible = (tab: string): boolean => visibleTabs.includes(tab);
+
+  // A fleet user without its API key permission has no Settings tab at all.
+  if (isFleetUser && visibleTabs.length === 0) return <Navigate to="/fleets" replace />;
 
   return (
     <div className="space-y-6">

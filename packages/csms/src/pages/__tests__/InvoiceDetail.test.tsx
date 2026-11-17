@@ -23,6 +23,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 }));
 vi.mock('@/lib/auth', () => ({
   useHasPermission: (permission: string) => h.permissions.has(permission),
+  useIsFleetUser: () => h.permissions.has('fleet-user'),
 }));
 vi.mock('@/lib/timezone', () => ({
   useUserTimezone: () => 'UTC',

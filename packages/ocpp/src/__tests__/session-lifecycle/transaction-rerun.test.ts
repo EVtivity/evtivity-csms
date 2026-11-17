@@ -308,6 +308,9 @@ vi.mock('../../authorization/station-token-match.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // A token without a monthly limit (card-monthly-limit.test.ts covers it).
+  checkCardMonthlyLimit: vi.fn().mockResolvedValue(null),
+  cardLimitBindsSession: vi.fn().mockResolvedValue(false),
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   markSitePlanStale: (...args: unknown[]) => mockMarkSitePlanStale(...args) as unknown,

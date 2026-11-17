@@ -37,3 +37,11 @@ export function reportedFieldChange(
   }
   return null;
 }
+
+/** A write would change a field the station reported, decided on the locked row. */
+export class ReportedFieldLockedError extends Error {
+  constructor(readonly field: ReportedStationField) {
+    super(`The station reported its ${field}`);
+    this.name = 'ReportedFieldLockedError';
+  }
+}

@@ -122,9 +122,13 @@ export const ERROR_CODES = {
   FLEET_BILLING_CONTACT_REQUIRED: 'FLEET_BILLING_CONTACT_REQUIRED',
   FLEET_BILLING_OLD_PODS_CONNECTED: 'FLEET_BILLING_OLD_PODS_CONNECTED',
   FLEET_BILLING_VERSION_CHECK_STALE: 'FLEET_BILLING_VERSION_CHECK_STALE',
+  FLEET_CARD_DEACTIVATED: 'FLEET_CARD_DEACTIVATED',
+  FLEET_CARD_DRIVER_NOT_MEMBER: 'FLEET_CARD_DRIVER_NOT_MEMBER',
+  FLEET_CARD_NOT_BILLABLE: 'FLEET_CARD_NOT_BILLABLE',
   FLEET_CHARGING_DISABLED: 'FLEET_CHARGING_DISABLED',
   FLEET_CREDIT_LIMIT_REACHED: 'FLEET_CREDIT_LIMIT_REACHED',
   FLEET_DISABLED: 'FLEET_DISABLED',
+  FLEET_HAS_CARDS: 'FLEET_HAS_CARDS',
   FLEET_HAS_OPEN_BILLING: 'FLEET_HAS_OPEN_BILLING',
   FLEET_HAS_RESERVATIONS: 'FLEET_HAS_RESERVATIONS',
   FLEET_INVOICE_NOTHING_TO_BILL: 'FLEET_INVOICE_NOTHING_TO_BILL',
@@ -133,6 +137,8 @@ export const ERROR_CODES = {
   FLEET_RESERVATION_ALREADY_CANCELLED: 'FLEET_RESERVATION_ALREADY_CANCELLED',
   FLEET_RESERVATION_CREATE_FAILED: 'FLEET_RESERVATION_CREATE_FAILED',
   FLEET_RESERVATION_NOT_FOUND: 'FLEET_RESERVATION_NOT_FOUND',
+  FLEET_USER_NO_FLEETS: 'FLEET_USER_NO_FLEETS',
+  FLEET_USER_PERMISSION_NOT_ALLOWED: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
   FORBIDDEN: 'FORBIDDEN',
   FORBIDDEN_DRIVER_TOKEN: 'FORBIDDEN_DRIVER_TOKEN',
   GUEST_CHARGING_DISABLED: 'GUEST_CHARGING_DISABLED',
@@ -143,6 +149,7 @@ export const ERROR_CODES = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   INVALID_CIRCUIT: 'INVALID_CIRCUIT',
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  INVALID_FLEET_IDS: 'INVALID_FLEET_IDS',
   INVALID_OPERATION: 'INVALID_OPERATION',
   INVALID_PANEL: 'INVALID_PANEL',
   INVALID_PARENT_PANEL: 'INVALID_PARENT_PANEL',
@@ -399,6 +406,7 @@ export const ERROR_CODES = {
   TOKEN_BLOCKED_BY_OPERATOR: 'TOKEN_BLOCKED_BY_OPERATOR',
   TOKEN_DUPLICATE: 'TOKEN_DUPLICATE',
   TOKEN_IN_USE: 'TOKEN_IN_USE',
+  TOKEN_MANAGED_BY_FLEET: 'TOKEN_MANAGED_BY_FLEET',
   TOKEN_NOT_FOUND: 'TOKEN_NOT_FOUND',
   TOO_MANY_WATCHES: 'TOO_MANY_WATCHES',
   TOTP_NOT_CONFIGURED: 'TOTP_NOT_CONFIGURED',
@@ -539,9 +547,13 @@ export type ErrorCode =
   | 'FLEET_BILLING_CONTACT_REQUIRED'
   | 'FLEET_BILLING_OLD_PODS_CONNECTED'
   | 'FLEET_BILLING_VERSION_CHECK_STALE'
+  | 'FLEET_CARD_DEACTIVATED'
+  | 'FLEET_CARD_DRIVER_NOT_MEMBER'
+  | 'FLEET_CARD_NOT_BILLABLE'
   | 'FLEET_CHARGING_DISABLED'
   | 'FLEET_CREDIT_LIMIT_REACHED'
   | 'FLEET_DISABLED'
+  | 'FLEET_HAS_CARDS'
   | 'FLEET_HAS_OPEN_BILLING'
   | 'FLEET_HAS_RESERVATIONS'
   | 'FLEET_INVOICE_NOTHING_TO_BILL'
@@ -550,6 +562,8 @@ export type ErrorCode =
   | 'FLEET_RESERVATION_ALREADY_CANCELLED'
   | 'FLEET_RESERVATION_CREATE_FAILED'
   | 'FLEET_RESERVATION_NOT_FOUND'
+  | 'FLEET_USER_NO_FLEETS'
+  | 'FLEET_USER_PERMISSION_NOT_ALLOWED'
   | 'FORBIDDEN'
   | 'FORBIDDEN_DRIVER_TOKEN'
   | 'GUEST_CHARGING_DISABLED'
@@ -560,6 +574,7 @@ export type ErrorCode =
   | 'INTERNAL_ERROR'
   | 'INVALID_CIRCUIT'
   | 'INVALID_CREDENTIALS'
+  | 'INVALID_FLEET_IDS'
   | 'INVALID_OPERATION'
   | 'INVALID_PANEL'
   | 'INVALID_PARENT_PANEL'
@@ -816,6 +831,7 @@ export type ErrorCode =
   | 'TOKEN_BLOCKED_BY_OPERATOR'
   | 'TOKEN_DUPLICATE'
   | 'TOKEN_IN_USE'
+  | 'TOKEN_MANAGED_BY_FLEET'
   | 'TOKEN_NOT_FOUND'
   | 'TOO_MANY_WATCHES'
   | 'TOTP_NOT_CONFIGURED'
@@ -980,11 +996,17 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'A process of an older release is still connected. Finish the upgrade, then change the fleet billing.',
   FLEET_BILLING_VERSION_CHECK_STALE:
     "The worker's version check has not run recently, so the upgrade cannot be confirmed. Check that the worker is running, then change the fleet billing.",
+  FLEET_CARD_DEACTIVATED: 'This RFID card was deactivated and cannot be turned on again',
+  FLEET_CARD_DRIVER_NOT_MEMBER:
+    'The driver is not an active member of the fleet that owns this RFID card',
+  FLEET_CARD_NOT_BILLABLE:
+    'The fleet does not bill on account, so its RFID cards cannot charge. Turn on account billing for the fleet first',
   FLEET_CHARGING_DISABLED:
     'Fleet charging is turned off. Turn it on in Settings before you use departure planning.',
   FLEET_CREDIT_LIMIT_REACHED:
     'The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.',
   FLEET_DISABLED: 'Fleet is disabled',
+  FLEET_HAS_CARDS: 'This fleet still owns RFID cards. Remove them from the fleet first.',
   FLEET_HAS_OPEN_BILLING:
     'The fleet has sessions billed to its account and cannot be deleted. Turn off account billing instead.',
   FLEET_HAS_RESERVATIONS:
@@ -997,6 +1019,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   FLEET_RESERVATION_ALREADY_CANCELLED: 'Fleet reservation is already cancelled',
   FLEET_RESERVATION_CREATE_FAILED: 'Failed to create fleet reservation',
   FLEET_RESERVATION_NOT_FOUND: 'Fleet reservation not found',
+  FLEET_USER_NO_FLEETS: 'No fleets are assigned to you. Contact your operator.',
+  FLEET_USER_PERMISSION_NOT_ALLOWED: 'A fleet user cannot hold this permission',
   FORBIDDEN: 'Forbidden',
   FORBIDDEN_DRIVER_TOKEN: 'Forbidden: driver token required',
   GUEST_CHARGING_DISABLED: 'Guest charging is disabled',
@@ -1007,6 +1031,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INTERNAL_ERROR: 'Internal server error',
   INVALID_CIRCUIT: 'Circuit not found in this site',
   INVALID_CREDENTIALS: 'Invalid credentials',
+  INVALID_FLEET_IDS: 'One or more fleetIds do not exist',
   INVALID_OPERATION: 'Cannot credit a credit CDR',
   INVALID_PANEL: 'Panel not found in this site',
   INVALID_PARENT_PANEL: 'Parent panel not found in this site',
@@ -1304,6 +1329,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'This card was deactivated by the operator. Contact the operator to reactivate it.',
   TOKEN_DUPLICATE: 'Token already registered',
   TOKEN_IN_USE: 'Token is currently in use by an active charging session',
+  TOKEN_MANAGED_BY_FLEET: 'This RFID card belongs to your fleet. Contact your fleet to change it.',
   TOKEN_NOT_FOUND: 'Token not found',
   TOO_MANY_WATCHES: 'You are watching too many stations',
   TOTP_NOT_CONFIGURED: 'TOTP not set up',

@@ -10,6 +10,10 @@ const { permissionRows, dbSelect, publish } = vi.hoisted(() => ({
   publish: vi.fn(),
 }));
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('@evtivity/database', () => {
   const chain = {
     from: () => chain,

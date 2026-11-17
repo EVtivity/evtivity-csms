@@ -13,7 +13,11 @@ import { tokenRoutes } from '../routes/tokens.js';
 import { driverRoutes } from '../routes/drivers.js';
 import { pricingRoutes } from '../routes/pricing.js';
 
+const fleetCardsPerm = vi.hoisted(() => ({ granted: true }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    Promise.resolve(permission !== 'fleetCards:write' || fleetCardsPerm.granted),
   authorize:
     () =>
     async (

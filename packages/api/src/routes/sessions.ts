@@ -421,7 +421,7 @@ const sessionDetail = z
       .enum(NO_PAYMENT_REASONS)
       .nullable()
       .describe(
-        'Why the session has no payment record, null when it has one: free_vend (free vend), roaming (billed by the eMSP through OCPI), account_credit_limit (fleet credit limit refused the start), account_billed (fleet or member invoice), guest (paid through the guest session), anonymous (no driver or guest checkout), no_payment_method and payment_failed (stopped by the payment check), pending (still running), no_cost (nothing to charge), payments_off (no payment provider active now), prepaid_not_debited (prepaid balance debit not recorded), not_held (no hold was placed at the start)',
+        'Why the session has no payment record, null when it has one: free_vend (free vend), roaming (billed by the eMSP through OCPI), account_credit_limit (fleet credit limit refused the start), card_monthly_limit (the fleet card monthly limit refused the start), account_billed (fleet or member invoice), guest (paid through the guest session), anonymous (no driver or guest checkout), no_payment_method and payment_failed (stopped by the payment check), pending (still running), no_cost (nothing to charge), payments_off (no payment provider active now), prepaid_not_debited (prepaid balance debit not recorded), not_held (no hold was placed at the start)',
       ),
     guestSession: z
       .object({

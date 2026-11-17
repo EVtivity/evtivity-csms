@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { DriverCombobox } from '@/components/driver-combobox';
+import { TokenFleetSelect } from '@/components/token/TokenFleetSelect';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useCreatedToast } from '@/components/saved-message';
@@ -34,11 +35,17 @@ export function TokenCreate(): React.JSX.Element {
   const [tokenType, setTokenType] = useState('ISO14443');
   const [label, setLabel] = useState('');
   const [selectedDriver, setSelectedDriver] = useState<{ id: string; name: string } | null>(null);
+  const [fleetId, setFleetId] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const createMutation = useMutation({
-    mutationFn: (body: { idToken: string; tokenType: string; driverId?: string; label?: string }) =>
-      api.post<Token>('/v1/tokens', body),
+    mutationFn: (body: {
+      idToken: string;
+      tokenType: string;
+      driverId?: string;
+      label?: string;
+      fleetId?: string;
+    }) => api.post<Token>('/v1/tokens', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['tokens'] });
       createdToast();
@@ -63,6 +70,7 @@ export function TokenCreate(): React.JSX.Element {
       tokenType,
       ...(label.trim() !== '' ? { label: label.trim() } : {}),
       ...(selectedDriver ? { driverId: selectedDriver.id } : {}),
+      ...(fleetId !== '' ? { fleetId } : {}),
     });
   }
 
@@ -128,6 +136,7 @@ export function TokenCreate(): React.JSX.Element {
               <Label className="leading-6">{t('tokens.driver')}</Label>
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
             </div>
+            <TokenFleetSelect id="fleetId" value={fleetId} onChange={setFleetId} />
             {createMutation.isError && (
               <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>
             )}

@@ -18,8 +18,9 @@ import {
   customType,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { UserAccessScope } from '@evtivity/lib/user-access-scope';
 import { createId } from '../lib/id.js';
-import { drivers } from './drivers.js';
+import { drivers, fleets } from './drivers.js';
 import { sites } from './assets.js';
 
 export const roles = pgTable('roles', {
@@ -55,6 +56,12 @@ export const users = pgTable(
     // The UI theme (default, soft, high-contrast; @evtivity/lib/ui-theme). theme_preference is the mode.
     uiTheme: varchar('ui_theme', { length: 20 }).notNull().default('default'),
     hasAllSiteAccess: boolean('has_all_site_access').notNull().default(false),
+    // 'sites' (all sites or the assigned sites) or 'fleets' (only the assigned fleets).
+    // A fleet user never has all-site access.
+    accessScope: varchar('access_scope', { length: 10 })
+      .$type<UserAccessScope>()
+      .notNull()
+      .default('sites'),
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaMethod: varchar('mfa_method', { length: 20 }),
     totpSecretEnc: varchar('totp_secret_enc', { length: 500 }),
@@ -111,6 +118,8 @@ export const users = pgTable(
       .where(sql`"sso_subject" IS NOT NULL`),
     check('users_auth_source_check', sql`"auth_source" IN ('password', 'sso')`),
     check('users_ui_theme_check', sql`"ui_theme" IN ('default', 'soft', 'high-contrast')`),
+    check('users_access_scope_check', sql`"access_scope" IN ('sites', 'fleets')`),
+    check('users_fleet_scope_check', sql`"access_scope" <> 'fleets' OR NOT "has_all_site_access"`),
   ],
 );
 
@@ -322,6 +331,27 @@ export const userSiteAssignments = pgTable(
     index('idx_user_site_assignments_user_id').on(table.userId),
     index('idx_user_site_assignments_site_id').on(table.siteId),
     uniqueIndex('idx_user_site_assignments_unique').on(table.userId, table.siteId),
+  ],
+);
+
+export const userFleetAssignments = pgTable(
+  'user_fleet_assignments',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('userFleetAssignment')),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    fleetId: text('fleet_id')
+      .notNull()
+      .references(() => fleets.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_user_fleet_assignments_user_id').on(table.userId),
+    index('idx_user_fleet_assignments_fleet_id').on(table.fleetId),
+    uniqueIndex('idx_user_fleet_assignments_unique').on(table.userId, table.fleetId),
   ],
 );
 

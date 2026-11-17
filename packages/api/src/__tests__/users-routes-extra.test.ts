@@ -95,6 +95,10 @@ function argOf(op: DbOp | undefined, method: string): unknown {
 
 // Security notices are fire-and-forget; their dispatch has its own test.
 // The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('../lib/device-cookie.js', () => ({
   knownSignInDevice: vi.fn(() => Promise.resolve(null)),
   takeDeviceAttempt: vi.fn(() =>
@@ -171,6 +175,9 @@ vi.mock('@evtivity/database', () => {
     refreshTokens: table('refreshTokens'),
     userTokens: table('userTokens'),
     userSiteAssignments: table('userSiteAssignments'),
+    userFleetAssignments: table('userFleetAssignments'),
+    fleets: table('fleets'),
+    isFleetEnabled: vi.fn(async () => true),
     userPermissions: table('userPermissions'),
     userNotificationPreferences: table('userNotificationPreferences'),
     chatbotAiConfigs: table('chatbotAiConfigs'),
@@ -240,15 +247,44 @@ vi.mock('@evtivity/lib', () => ({
   AI_EFFORTS: ['low', 'medium', 'high'],
   AI_PROVIDER_IDS: ['anthropic', 'openai', 'gemini', 'deepseek'],
   isAiEffort: (v: unknown): boolean => v === 'low' || v === 'medium' || v === 'high',
+  fleetUserPermissionsOutside: (perms: string[]): string[] =>
+    perms.filter(
+      (p) =>
+        ![
+          'fleets:read',
+          'sessions:read',
+          'payments:read',
+          'fleetCards:read',
+          'fleetCards:write',
+        ].includes(p),
+    ),
   permissionCatalog: {
     defaultsFor: (role: string | undefined): string[] =>
       role === 'admin'
         ? ['users:read', 'users:write', 'stations:read']
         : role === 'viewer'
           ? ['stations:read']
-          : ['stations:read', 'stations:write'],
+          : role === 'fleet_manager'
+            ? [
+                'fleets:read',
+                'sessions:read',
+                'payments:read',
+                'fleetCards:read',
+                'fleetCards:write',
+              ]
+            : ['stations:read', 'stations:write'],
     isKnown: (p: string): boolean =>
-      ['users:read', 'users:write', 'stations:read', 'stations:write'].includes(p),
+      [
+        'users:read',
+        'users:write',
+        'stations:read',
+        'stations:write',
+        'fleets:read',
+        'sessions:read',
+        'payments:read',
+        'fleetCards:read',
+        'fleetCards:write',
+      ].includes(p),
     groups: () => [
       {
         resource: 'users',
@@ -287,41 +323,48 @@ const actorPermissions = vi.hoisted(() => ({
   value: ['users:read', 'users:write', 'stations:read', 'stations:write'],
 }));
 
-vi.mock('../middleware/rbac.js', () => ({
-  authorize:
-    () =>
-    async (
-      request: { jwtVerify: () => Promise<void> },
-      reply: { status: (n: number) => { send: (body: unknown) => Promise<void> } },
-    ) => {
-      try {
-        await request.jwtVerify();
-      } catch {
-        await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
-      }
+vi.mock('../middleware/rbac.js', async () => {
+  const lib = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
+  return {
+    authorize:
+      () =>
+      async (
+        request: { jwtVerify: () => Promise<void> },
+        reply: { status: (n: number) => { send: (body: unknown) => Promise<void> } },
+      ) => {
+        try {
+          await request.jwtVerify();
+        } catch {
+          await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        }
+      },
+    selfService:
+      (opts?: { allowApiKey?: boolean }) =>
+      async (
+        request: { jwtVerify: () => Promise<void>; user?: { isApiKey?: boolean } },
+        reply: { status: (n: number) => { send: (body: unknown) => Promise<void> } },
+      ) => {
+        try {
+          await request.jwtVerify();
+        } catch {
+          await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+          return;
+        }
+        if (request.user?.isApiKey === true && opts?.allowApiKey !== true) {
+          await reply.status(403).send({ error: 'Session required', code: 'SESSION_REQUIRED' });
+        }
+      },
+    invalidatePermissionCache: vi.fn(),
+    // The acting user's permissions: every actor grants only what it holds.
+    // All-site tests act with every permission of the mocked catalog; the
+    // site-restricted actor holds less (set in its describe block).
+    getEffectivePermissions: vi.fn(() => Promise.resolve(actorPermissions.value)),
+    withinFleetUserCeiling: (perms: string[]) => {
+      const outside = new Set(lib.fleetUserPermissionsOutside(perms));
+      return perms.filter((p) => !outside.has(p));
     },
-  selfService:
-    (opts?: { allowApiKey?: boolean }) =>
-    async (
-      request: { jwtVerify: () => Promise<void>; user?: { isApiKey?: boolean } },
-      reply: { status: (n: number) => { send: (body: unknown) => Promise<void> } },
-    ) => {
-      try {
-        await request.jwtVerify();
-      } catch {
-        await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
-        return;
-      }
-      if (request.user?.isApiKey === true && opts?.allowApiKey !== true) {
-        await reply.status(403).send({ error: 'Session required', code: 'SESSION_REQUIRED' });
-      }
-    },
-  invalidatePermissionCache: vi.fn(),
-  // The acting user's permissions: every actor grants only what it holds.
-  // All-site tests act with every permission of the mocked catalog; the
-  // site-restricted actor holds less (set in its describe block).
-  getEffectivePermissions: vi.fn(() => Promise.resolve(actorPermissions.value)),
-}));
+  };
+});
 
 vi.mock('../lib/operator-session.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/operator-session.js')>();
@@ -414,6 +457,7 @@ import {
   getMfaConfig,
   getPasswordPolicy,
   getRecaptchaConfig,
+  isFleetEnabled,
   writeAudit,
 } from '@evtivity/database';
 import { DEFAULT_PASSWORD_POLICY } from '@evtivity/lib/password-policy';
@@ -1501,6 +1545,24 @@ describe('User routes (extended coverage)', () => {
       expect(body.role).toBeNull();
       expect(body.permissions).toEqual(['stations:read']);
       expect(argOf(opsFor('select', 'users')[0], 'where')).toEqual(['eq', 'users.id', ME]);
+    });
+
+    it('cuts a fleet user to the fleet user permissions, as /users/me/permissions does', async () => {
+      setupDbResults(
+        [userRow({ id: ME, accessScope: 'fleets', hasAllSiteAccess: false })],
+        [{ id: ROLE, name: 'fleet_manager' }],
+        [
+          { permission: 'fleets:read' },
+          { permission: 'stations:read' },
+          { permission: 'payments:write' },
+          { permission: 'settings.apiKeys:write' },
+        ],
+        [{ fleetId: 'flt_000000000001' }],
+      );
+      const res = await app.inject({ method: 'GET', url: '/users/me', headers: auth });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().permissions).toEqual(['fleets:read', 'settings.apiKeys:write']);
+      expect(res.json().fleetIds).toEqual(['flt_000000000001']);
     });
   });
 
@@ -2817,6 +2879,41 @@ describe('User routes (extended coverage)', () => {
       });
       // The token never reaches the audit row.
       expect(JSON.stringify(auditCall())).not.toContain(raw);
+    });
+
+    it('resends the fleet manager invitation to a fleet user, naming its fleets', async () => {
+      setupDbResults(
+        [
+          {
+            id: OTHER,
+            email: 'fm@example.com',
+            phone: null,
+            firstName: 'Fay',
+            lastName: null,
+            isActive: true,
+            language: 'de',
+            accessScope: 'fleets',
+          },
+        ],
+        [], // the SSO account check
+        [], // the setup link
+        [{ name: 'Depot Vans' }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: `/users/${OTHER}/resend-invite`,
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+      const notify = vi.mocked(dispatchSystemNotification).mock.calls[0];
+      expect(notify?.[1]).toBe('operator.FleetManagerInvite');
+      expect(notify?.[2]).toMatchObject({ email: 'fm@example.com', language: 'de' });
+      expect(notify?.[3]).toMatchObject({
+        firstName: 'Fay',
+        fleetNames: 'Depot Vans',
+        fleetCount: 1,
+      });
+      expect(notify?.[3]).not.toHaveProperty('guideUrl');
     });
 
     it('writes no audit row when the user is disabled', async () => {
@@ -5467,6 +5564,376 @@ describe('User routes (extended coverage)', () => {
 
   // --------------------------------------------------------- permissions
 
+  describe('fleet users', () => {
+    const FM_ROLE = 'rol_000000000004';
+    const FLEET_A = 'flt_aaaaaaaaaaaa';
+    const FLEET_B = 'flt_bbbbbbbbbbbb';
+    const FLEET_PERMS = [
+      'fleets:read',
+      'sessions:read',
+      'payments:read',
+      'fleetCards:read',
+      'fleetCards:write',
+    ];
+
+    beforeEach(() => {
+      actorPermissions.value = [...ALL_MOCK_PERMISSIONS, ...FLEET_PERMS];
+      vi.mocked(isFleetEnabled).mockResolvedValue(true);
+    });
+    afterEach(() => {
+      actorPermissions.value = ALL_MOCK_PERMISSIONS;
+      vi.mocked(getUserSiteIds).mockResolvedValue(null);
+      vi.mocked(isFleetEnabled).mockResolvedValue(true);
+    });
+
+    it('creates a Fleet Manager user in the fleets scope with its fleets in one transaction', async () => {
+      setupDbResults(
+        [], // no user with the email
+        [{ id: FM_ROLE, name: 'fleet_manager' }],
+        [{ id: FLEET_A }, { id: FLEET_B }],
+        [{ id: OTHER, email: 'fm@example.com', firstName: null, lastName: null, roleId: FM_ROLE }],
+        [], // the fleet assignments
+        [], // the permissions
+        [], // the setup link
+        [{ name: 'City Buses' }, { name: 'Airport Shuttles' }], // the invitation's fleet names
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: {
+          email: 'fm@example.com',
+          roleId: FM_ROLE,
+          fleetIds: [FLEET_A, FLEET_B, FLEET_A],
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      // A fleet user gets the fleet manager invitation, with its fleets and the guide link.
+      const notify = vi.mocked(dispatchSystemNotification).mock.calls[0];
+      expect(notify?.[1]).toBe('operator.FleetManagerInvite');
+      expect(notify?.[3]).toMatchObject({
+        email: 'fm@example.com',
+        fleetNames: 'Airport Shuttles, City Buses',
+        fleetCount: 2,
+      });
+      expect(notify?.[3]).not.toHaveProperty('guideUrl');
+      expect((notify?.[3] as Record<string, string>)['setPasswordUrl']).toMatch(
+        /token=[0-9a-f]{64}$/,
+      );
+      expect(res.json()).toMatchObject({
+        accessScope: 'fleets',
+        fleetIds: [FLEET_A, FLEET_B],
+        hasAllSiteAccess: false,
+      });
+      expect(argOf(opsFor('insert', 'users')[0], 'values')).toMatchObject({
+        accessScope: 'fleets',
+        hasAllSiteAccess: false,
+      });
+      expect(argOf(opsFor('insert', 'userFleetAssignments')[0], 'values')).toEqual([
+        { userId: OTHER, fleetId: FLEET_A },
+        { userId: OTHER, fleetId: FLEET_B },
+      ]);
+      expect(argOf(opsFor('insert', 'userPermissions')[0], 'values')).toEqual(
+        FLEET_PERMS.map((permission) => ({ userId: OTHER, permission })),
+      );
+      expect(opsFor('insert', 'userSiteAssignments')).toHaveLength(0);
+      expect(auditCall().after).toMatchObject({
+        accessScope: 'fleets',
+        fleetIds: [FLEET_A, FLEET_B],
+      });
+    });
+
+    it('refuses the fleets scope from a site-restricted operator before any lookup', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(['site-a']);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'fm@example.com', roleId: FM_ROLE, accessScope: 'fleets', siteIds: [] },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('FORBIDDEN');
+      expect(state.ops).toHaveLength(0);
+    });
+
+    it('refuses the Fleet Manager role from a site-restricted operator', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(['site-a']);
+      setupDbResults([], [{ id: FM_ROLE, name: 'fleet_manager' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'fm@example.com', roleId: FM_ROLE, siteIds: ['site-a'] },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('FORBIDDEN');
+      expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it('answers FLEET_DISABLED for a fleet user while the Fleets feature is off', async () => {
+      vi.mocked(isFleetEnabled).mockResolvedValue(false);
+      setupDbResults([], [{ id: FM_ROLE, name: 'fleet_manager' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'fm@example.com', roleId: FM_ROLE },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('FLEET_DISABLED');
+      expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it('refuses permissions outside the fleet user list and names them', async () => {
+      setupDbResults([], [{ id: ROLE, name: 'operator' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'fm@example.com', roleId: ROLE, accessScope: 'fleets' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
+        details: { permissions: ['stations:read', 'stations:write'] },
+      });
+      expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it('refuses site access for a fleet user and fleets for a site user', async () => {
+      setupDbResults([], [{ id: FM_ROLE, name: 'fleet_manager' }]);
+      const withSites = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'fm@example.com', roleId: FM_ROLE, siteIds: ['site-a'] },
+      });
+      expect(withSites.statusCode).toBe(400);
+      expect(withSites.json().code).toBe('VALIDATION_ERROR');
+
+      setupDbResults([], [{ id: ROLE, name: 'operator' }]);
+      const withFleets = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: {
+          email: 'op2@example.com',
+          roleId: ROLE,
+          accessScope: 'sites',
+          fleetIds: [FLEET_A],
+        },
+      });
+      expect(withFleets.statusCode).toBe(400);
+      expect(withFleets.json().code).toBe('VALIDATION_ERROR');
+      expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it('answers INVALID_FLEET_IDS for an unknown fleet', async () => {
+      setupDbResults([], [{ id: FM_ROLE, name: 'fleet_manager' }], [{ id: FLEET_A }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'fm@example.com', roleId: FM_ROLE, fleetIds: [FLEET_A, FLEET_B] },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_FLEET_IDS');
+      expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it('moves a site user to fleets with the Fleet Manager role, clearing its sites', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'sites' })], // before
+        [], // the target's permissions (subset of the actor's)
+        [{ id: FM_ROLE, name: 'fleet_manager' }],
+        [{ id: FLEET_A }],
+        [{ permission: 'stations:read' }], // stored permissions: what the role grants
+        // Sites and permissions before the change, kept in the audit row.
+        [{ siteId: 'site-old' }],
+        [{ permission: 'stations:read' }],
+        [userRow({ accessScope: 'fleets', roleId: FM_ROLE })], // update returning
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: FM_ROLE, fleetIds: [FLEET_A] },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(argOf(opsFor('update', 'users')[0], 'set')).toMatchObject({
+        accessScope: 'fleets',
+        hasAllSiteAccess: false,
+        roleId: FM_ROLE,
+      });
+      expect(opsFor('delete', 'userSiteAssignments')).toHaveLength(1);
+      expect(opsFor('insert', 'userSiteAssignments')).toHaveLength(0);
+      expect(argOf(opsFor('insert', 'userFleetAssignments')[0], 'values')).toEqual([
+        { userId: OTHER, fleetId: FLEET_A },
+      ]);
+      expect(bumpSessionVersion).toHaveBeenCalled();
+      expect(invalidateSiteAccessCache).toHaveBeenCalledWith(OTHER);
+      expect(invalidatePermissionCache).toHaveBeenCalledWith(OTHER);
+      const audit = auditCall();
+      expect(audit.action).toBe('role_changed');
+      expect(audit.before).toMatchObject({
+        accessScope: 'sites',
+        siteIds: ['site-old'],
+        fleetIds: [],
+      });
+    });
+
+    it('refuses a move to fleets while the stored permissions exceed the fleet user list', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'sites' })],
+        [], // the target's permissions (subset of the actor's)
+        [{ permission: 'stations:write' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { accessScope: 'fleets' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
+        details: { permissions: ['stations:write'] },
+      });
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('moves a fleet user back to sites and clears its fleets', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'fleets' })],
+        [], // the target's permissions (subset of the actor's)
+        [], // sites before
+        [], // permissions before
+        [{ fleetId: FLEET_A }], // fleets before
+        [userRow({ accessScope: 'sites' })], // update returning
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { accessScope: 'sites' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().fleetIds).toEqual([]);
+      expect(argOf(opsFor('update', 'users')[0], 'set')).toMatchObject({ accessScope: 'sites' });
+      expect(opsFor('delete', 'userFleetAssignments')).toHaveLength(1);
+      expect(opsFor('insert', 'userFleetAssignments')).toHaveLength(0);
+      expect(bumpSessionVersion).toHaveBeenCalled();
+      expect(announceSessionChange).toHaveBeenCalledWith(OTHER);
+      const audit = auditCall();
+      expect(audit.action).toBe('site_access_changed');
+      expect(audit.before).toMatchObject({ accessScope: 'fleets', fleetIds: [FLEET_A] });
+      expect(audit.after).toMatchObject({ accessScope: 'sites', fleetIds: [] });
+    });
+
+    it('refuses fleetIds from a site-restricted operator', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(['site-a']);
+      setupDbResults(
+        [userRow({ accessScope: 'sites' })],
+        [{ hasAllSiteAccess: false }],
+        [{ siteId: 'site-a' }],
+        [],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { fleetIds: [FLEET_A] },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('FORBIDDEN');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('refuses its own scope change', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${ME}`,
+        headers: auth,
+        payload: { accessScope: 'fleets' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('SELF_EDIT_FORBIDDEN');
+    });
+
+    it('refuses a permission outside the fleet user list on PUT permissions', async () => {
+      setupDbResults([{ id: OTHER, accessScope: 'fleets' }], []);
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/users/${OTHER}/permissions`,
+        headers: auth,
+        payload: { permissions: ['fleets:read', 'stations:write'] },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
+        details: { permissions: ['stations:write'] },
+      });
+      expect(opsFor('delete', 'userPermissions')).toHaveLength(0);
+    });
+
+    it('lists the fleet names and count of fleet users and null for site users', async () => {
+      setupDbResults(
+        [userRow({ id: OTHER, accessScope: 'fleets' }), userRow({ id: ME, accessScope: 'sites' })],
+        [{ count: 2 }],
+        [], // site counts
+        [
+          { userId: OTHER, name: 'Airport Shuttles' },
+          { userId: OTHER, name: 'City Buses' },
+          { userId: OTHER, name: 'Depot Vans' },
+        ],
+      );
+      const res = await app.inject({ method: 'GET', url: '/users', headers: auth });
+      expect(res.statusCode).toBe(200);
+      const items = res.json().data as Array<{
+        id: string;
+        fleetCount: number | null;
+        fleetNames: string[] | null;
+      }>;
+      const fleetUser = items.find((u) => u.id === OTHER);
+      expect(fleetUser?.fleetCount).toBe(3);
+      expect(fleetUser?.fleetNames).toEqual(['Airport Shuttles', 'City Buses', 'Depot Vans']);
+      expect(items.find((u) => u.id === ME)?.fleetCount).toBeNull();
+      expect(items.find((u) => u.id === ME)?.fleetNames).toBeNull();
+      expect(argOf(opsFor('select', 'userFleetAssignments')[0], 'where')).toEqual([
+        'inArray',
+        'userFleetAssignments.userId',
+        [OTHER],
+      ]);
+    });
+
+    it('filters the list by access scope', async () => {
+      setupDbResults([], [{ count: 0 }]);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/users?accessScope=fleets',
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.stringify(argOf(opsFor('select', 'users')[0], 'where'))).toContain(
+        'users.accessScope',
+      );
+      const bad = await app.inject({ method: 'GET', url: '/users?accessScope=all', headers: auth });
+      expect(bad.statusCode).toBe(400);
+    });
+
+    it('returns the fleets of a fleet user on GET /users/:id', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'fleets' })],
+        [],
+        [{ permission: 'fleets:read' }],
+        [{ fleetId: FLEET_B }, { fleetId: FLEET_A }],
+      );
+      const res = await app.inject({ method: 'GET', url: `/users/${OTHER}`, headers: auth });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ accessScope: 'fleets', fleetIds: [FLEET_A, FLEET_B] });
+    });
+  });
+
   describe('permission endpoints', () => {
     it('GET /permissions returns the permission group catalog', async () => {
       const res = await app.inject({ method: 'GET', url: '/permissions', headers: auth });
@@ -5497,6 +5964,29 @@ describe('User routes (extended coverage)', () => {
         'userPermissions.userId',
         ME,
       ]);
+    });
+
+    it('GET /users/me/permissions cuts a fleet user to the fleet user permissions', async () => {
+      const { setMockUserAccess, resetFleetScopeMock } =
+        await import('./helpers/fleet-scope-mock.js');
+      setMockUserAccess(ME, { kind: 'fleets', fleetIds: [] });
+      try {
+        setupDbResults([
+          { permission: 'fleets:read' },
+          { permission: 'stations:read' },
+          { permission: 'settings.apiKeys:write' },
+          { permission: 'payments:write' },
+        ]);
+        const res = await app.inject({
+          method: 'GET',
+          url: '/users/me/permissions',
+          headers: auth,
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual(['fleets:read', 'settings.apiKeys:write']);
+      } finally {
+        resetFleetScopeMock();
+      }
     });
 
     it('GET /users/:id/permissions returns 404 for an unknown user', async () => {

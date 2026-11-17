@@ -330,6 +330,11 @@
     "description": "How OCPP 1.6, 2.0.1 and 2.1 describe EVSEs and connectors, how EVtivity stores them, and what operators and drivers see."
   },
   {
+    "path": "/docs/guides/fleet-manager-setup",
+    "title": "Set Up a Fleet Manager",
+    "description": "Give a fleet customer their own CSMS access, from creating the fleet manager to downloading the first fleet invoice."
+  },
+  {
     "path": "/docs/guides/how-drivers-start-and-pay",
     "title": "How Drivers Start and Pay",
     "description": "The five ways a driver starts a charging session and how each one is paid, from the portal and app to RFID cards, guest QR checkout and payment terminals."

@@ -1,0 +1,38 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}，您好，{{else}}您好，{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>透過 {{companyName}} 管理您的車隊</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 12px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{companyName}} 邀請您管理{{#if fleetNames}}以下車隊：{{fleetNames}}{{else}}車隊{{/if}}。身為車隊經理，您可以：</p>
+<ul
+  style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;padding-left:20px;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>
+  <li style="margin:0 0 8px 0;">查看車隊在何時何地充電，以及每次工作階段的電量與費用。</li>
+  <li style="margin:0 0 8px 0;">查看車隊發票與已用信用額度。</li>
+  <li style="margin:0 0 8px 0;">新增 RFID 卡，分配給成員，並關閉或開啟。</li>
+</ul>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>請點擊下方按鈕設定密碼。此連結將於 24 小時後失效。</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  <tr>
+    <td align='center' style='padding:32px 0;'>
+      <a
+        href='{{setPasswordUrl}}'
+        style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;"
+      >設定密碼</a>
+    </td>
+  </tr>
+</table>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>如果您未預期收到此郵件，可以忽略此郵件。</p>

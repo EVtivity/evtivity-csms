@@ -58,6 +58,9 @@ import { ocppCommandRoutes } from './routes/ocpp-commands.js';
 import { ocppSchemaRoutes } from './routes/ocpp-schemas.js';
 import { transactionRoutes } from './routes/transactions.js';
 import { fleetRoutes } from './routes/fleets.js';
+import { fleetCardRoutes } from './routes/fleet-cards.js';
+import { fleetManagerRoutes } from './routes/fleet-managers.js';
+import { fleetDashboardRoutes } from './routes/fleet-dashboard.js';
 import { departureRoutes } from './routes/departures.js';
 import { tokenRoutes } from './routes/tokens.js';
 import { authorizeAttemptRoutes } from './routes/authorize-attempts.js';
@@ -152,6 +155,7 @@ import { assistantAttachmentRoutes } from './routes/assistant-attachments.js';
 import { octtRoutes } from './routes/octt.js';
 import { auditRoutes } from './routes/audit.js';
 import { entityNeighborRoutes } from './routes/entity-neighbors.js';
+import { FLEET_USER_FLEETS_OFF } from './middleware/rbac.js';
 
 export interface BuildAppOptions extends FastifyServerOptions {
   /** Shared rate limit counters (the API server passes one; see registerRateLimit). */
@@ -254,6 +258,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(ocppSchemaRoutes);
       await v1.register(transactionRoutes);
       await v1.register(fleetRoutes);
+      await v1.register(fleetCardRoutes);
+      await v1.register(fleetManagerRoutes);
+      await v1.register(fleetDashboardRoutes);
       await v1.register(departureRoutes);
       await v1.register(tokenRoutes);
       await v1.register(authorizeAttemptRoutes);
@@ -416,7 +423,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return;
     const enabled = await isFleetEnabled();
     if (!enabled) {
-      await reply.status(403).send({ error: 'Fleet is disabled', code: 'FLEET_DISABLED' });
+      await reply.status(403).send(FLEET_USER_FLEETS_OFF);
     }
   });
 

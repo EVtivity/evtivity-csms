@@ -261,6 +261,31 @@ describe('billToFromFleet', () => {
 });
 
 describe('planFleetInvoice', () => {
+  it('bills fleet RFID card sessions as one group with no driver and no card label', () => {
+    const plan = planFleetInvoice(
+      [
+        candidate({ id: 'ses_card', driverId: null, driverName: '', fleetCard: true }),
+        candidate({ id: 'ses_gone', driverId: null, driverName: '' }),
+        candidate({ id: 'ses_a1' }),
+      ],
+      'EUR',
+      'UTC',
+    );
+    const cardLine = plan.lines.find((l) => l.sessionId === 'ses_card');
+    expect(cardLine?.metadata).toMatchObject({ fleetCard: true, driverName: '' });
+    expect(cardLine?.metadata).not.toHaveProperty('driverId');
+    expect(cardLine?.description).toContain('Fleet RFID card');
+    const goneLine = plan.lines.find((l) => l.sessionId === 'ses_gone');
+    expect(goneLine?.metadata).not.toHaveProperty('fleetCard');
+    expect(plan.drivers.map((d) => [d.driverId, d.fleetCards, d.sessionCount])).toEqual(
+      expect.arrayContaining([
+        [null, true, 1],
+        [null, false, 1],
+      ]),
+    );
+    expect(plan.drivers).toHaveLength(3);
+  });
+
   it('leaves zero-cost, uncosted and other-currency sessions off and lists them', () => {
     const plan = planFleetInvoice(
       [

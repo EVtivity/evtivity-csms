@@ -22,11 +22,14 @@ import {
   localAuthListAuditLog,
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
+  isFleetEnabled,
 } from '@evtivity/database';
+import { isUnbillableFleetCard } from '@evtivity/lib/fleet-card';
 import {
   chargingStations,
   driverTokens,
   drivers,
+  fleets,
   stationLocalAuthVersions,
   stationLocalAuthEntries,
 } from '@evtivity/database';
@@ -174,7 +177,9 @@ interface PushedEntry {
 /**
  * The status a station's local list holds for a postpaid token, the way the
  * authorize check answers it: Blocked when the token is inactive or revoked or
- * its driver is deactivated, Expired after its expiry, else Accepted.
+ * its driver is deactivated, Expired after its expiry, else Accepted. A fleet
+ * card that no member holds is billed to its fleet, so it is Blocked while the
+ * fleet cannot be billed (Fleets off or the fleet's account billing off).
  */
 export function localAuthStatusOf(
   token: {
@@ -182,10 +187,16 @@ export function localAuthStatusOf(
     revokedAt: Date | null;
     expiresAt: Date | null;
     driverIsActive: boolean | null;
+    unbillableFleetCard?: boolean;
   },
   now: Date,
 ): LocalAuthStatus {
-  if (!token.isActive || token.revokedAt != null || token.driverIsActive === false) {
+  if (
+    !token.isActive ||
+    token.revokedAt != null ||
+    token.driverIsActive === false ||
+    token.unbillableFleetCard === true
+  ) {
     return 'Blocked';
   }
   if (token.expiresAt != null && token.expiresAt.getTime() <= now.getTime()) return 'Expired';
@@ -241,17 +252,26 @@ async function reconcileLocalAuthEntries(stationId: string, now: Date): Promise<
       revokedAt: driverTokens.revokedAt,
       expiresAt: driverTokens.expiresAt,
       driverIsActive: drivers.isActive,
+      driverId: driverTokens.driverId,
+      fleetId: driverTokens.fleetId,
+      fleetAccountBilling: fleets.accountBillingEnabled,
     })
     .from(stationLocalAuthEntries)
     .innerJoin(driverTokens, eq(stationLocalAuthEntries.driverTokenId, driverTokens.id))
     .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
+    .leftJoin(fleets, eq(driverTokens.fleetId, fleets.id))
     .where(eq(stationLocalAuthEntries.stationId, stationId))
     .orderBy(stationLocalAuthEntries.id);
 
+  const fleetEnabled = rows.some((r) => r.fleetId != null) ? await isFleetEnabled() : true;
   const pushed: PushedEntry[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
-    const authStatus = localAuthStatusOf(row, now);
+    const unbillableFleetCard = isUnbillableFleetCard(row, {
+      fleetEnabled,
+      accountBillingEnabled: row.fleetAccountBilling,
+    });
+    const authStatus = localAuthStatusOf({ ...row, unbillableFleetCard }, now);
     if (
       row.entryIdToken !== row.idToken ||
       row.entryTokenType !== row.tokenType ||
@@ -498,7 +518,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         tags: ['Local Auth List'],
         summary: 'Push tracked entries to station via OCPP SendLocalList Full',
         description:
-          'Reconciles tracked entries with their tokens (drops entries of deleted tokens; each entry gets the token current value, type and status: Blocked when the token or its driver is deactivated, Expired after its expiry, else Accepted with the expiry as cacheExpiryDateTime; entries of prepaid cards are dropped, since a station checks a prepaid balance online), increments the local list version, and dispatches SendLocalList(Full) to the station. On Accepted, updates lastSyncAt and stamps pushedAt on the pushed entries. Returns 400 if the station is offline, 502 on station rejection or command failure, 504 on timeout.',
+          'Reconciles tracked entries with their tokens (drops entries of deleted tokens; each entry gets the token current value, type and status: Blocked when the token or its driver is deactivated, or for a fleet card no member holds while its fleet cannot be billed on account, Expired after its expiry, else Accepted with the expiry as cacheExpiryDateTime; entries of prepaid cards are dropped, since a station checks a prepaid balance online), increments the local list version, and dispatches SendLocalList(Full) to the station. On Accepted, updates lastSyncAt and stamps pushedAt on the pushed entries. Returns 400 if the station is offline, 502 on station rejection or command failure, 504 on timeout.',
         operationId: 'pushLocalAuthList',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),

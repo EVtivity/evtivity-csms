@@ -82,6 +82,8 @@ vi.mock('@evtivity/database', () => ({
   chargingStations: {},
   driverTokens: {},
   drivers: {},
+  fleets: {},
+  isFleetEnabled: vi.fn(async () => true),
   stationLocalAuthVersions: {},
   stationLocalAuthEntries: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),

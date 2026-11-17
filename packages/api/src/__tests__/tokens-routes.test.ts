@@ -51,7 +51,11 @@ function makeChain() {
   return chain;
 }
 
+const fleetCardsPerm = vi.hoisted(() => ({ granted: true }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    Promise.resolve(permission !== 'fleetCards:write' || fleetCardsPerm.granted),
   authorize:
     () =>
     async (
@@ -92,6 +96,8 @@ vi.mock('@evtivity/database', async () => {
     sites: {},
     driverTokens: {},
     drivers: {},
+    fleets: {},
+    fleetDrivers: {},
     users: {},
     tokenAuditLog: {},
     pncContracts: {},
@@ -133,6 +139,10 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   };
 });
 
+vi.mock('../lib/site-access.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/site-access.js')>()),
+  isAllSiteUser: vi.fn(() => Promise.resolve(true)),
+}));
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     publish: vi.fn().mockResolvedValue(undefined),
@@ -203,11 +213,13 @@ describe('Token routes - handler logic', () => {
           deactivatedBy: null,
           prepaidBalanceCents: null,
           vehicleId: null,
+          fleetId: null,
           createdAt: '2024-01-01T00:00:00.000Z',
           updatedAt: '2024-01-01T00:00:00.000Z',
           driverFirstName: 'John',
           driverLastName: 'Doe',
           driverEmail: 'john@example.com',
+          fleetName: null,
         },
       ];
       setupDbResults(tokens, [{ count: 1 }]);
@@ -297,6 +309,7 @@ describe('Token routes - handler logic', () => {
           driverFirstName: 'John',
           driverLastName: 'Doe',
           driverEmail: 'john@example.com',
+          fleetName: null,
         },
       ];
       setupDbResults(tokens);
@@ -510,6 +523,7 @@ describe('Token routes - handler logic', () => {
         driverFirstName: null,
         driverLastName: null,
         driverEmail: null,
+        fleetName: null,
       };
       setupDbResults([tokenData]);
       const response = await app.inject({
@@ -535,6 +549,7 @@ describe('Token routes - handler logic', () => {
         driverFirstName: 'John',
         driverLastName: 'Doe',
         driverEmail: 'john@example.com',
+        fleetName: null,
       };
       const sessions = [
         {
@@ -589,6 +604,7 @@ describe('Token routes - handler logic', () => {
         driverFirstName: 'John',
         driverLastName: 'Doe',
         driverEmail: 'john@example.com',
+        fleetName: null,
       };
       // getToken, sessions data, count returns empty array
       setupDbResults([tokenData], [], []);
@@ -628,11 +644,13 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: null,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
         driverFirstName: 'John',
         driverLastName: 'Doe',
         driverEmail: 'john@example.com',
+        fleetName: null,
       };
       setupDbResults([tokenData]);
       const response = await app.inject({
@@ -682,6 +700,7 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: null,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -713,6 +732,7 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: null,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -776,6 +796,7 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: null,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -807,6 +828,7 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: 2500,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -871,6 +893,7 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: null,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -905,6 +928,7 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: null,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -942,6 +966,7 @@ describe('Token routes - handler logic', () => {
         deactivatedBy: null,
         prepaidBalanceCents: null,
         vehicleId: null,
+        fleetId: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };

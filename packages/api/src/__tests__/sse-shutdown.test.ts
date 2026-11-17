@@ -7,6 +7,10 @@ import type { IncomingMessage } from 'node:http';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('@evtivity/database', () => ({
   db: {},
   client: {},

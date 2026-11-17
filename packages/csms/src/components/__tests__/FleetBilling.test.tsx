@@ -38,6 +38,7 @@ vi.mock('@/lib/api', () => {
 vi.mock('@/lib/auth', () => ({
   useHasPermission: () => permission.canWrite,
   useHasAllSiteAccess: () => permission.allSites,
+  useIsFleetUser: () => false,
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('@/lib/timezone', () => ({

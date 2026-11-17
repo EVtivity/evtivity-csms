@@ -388,6 +388,15 @@ describe('SSO callback error and provisioning paths', () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 
+  it('never provisions a fleet user from a stored Fleet Manager default role', async () => {
+    mockGetSsoConfig.mockResolvedValue(PROVISION_CONFIG);
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'x@corp.com' } });
+    setupDbResults([], [], [{ id: 'rol_000000000004', name: 'fleet_manager' }]);
+    const res = await callback('SAMLResponse=abc');
+    expect(res.headers['location']).toBe('/login?error=sso_config_error');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
   it('provisions an allowed-domain user, audits it as system, and signs them in', async () => {
     mockGetSsoConfig.mockResolvedValue({ ...PROVISION_CONFIG, allowedDomains: ['corp.com'] });
     mockGenerateId.mockReturnValue('usr_new');

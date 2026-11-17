@@ -29,6 +29,19 @@ export interface DashboardWidget {
    * this widget (when the layout has it). Without it, the widget is appended.
    */
   enterBefore?: string;
+  /**
+   * A fleet item: shown by default to a fleet user and hidden by default for
+   * everyone else, and left out of every layout while the Fleets feature is off.
+   */
+  fleet?: boolean;
+}
+
+/** Who the layout is resolved for. */
+export interface DashboardLayoutAudience {
+  /** A fleet user (access scope fleets): its fleet items are shown by default. */
+  fleetUser?: boolean;
+  /** The Fleets feature is on (default true); off, the fleet items are left out. */
+  fleetsEnabled?: boolean;
 }
 
 export interface DashboardLayoutItem {
@@ -48,8 +61,10 @@ export interface DashboardLayout {
 
 /**
  * Every chart of the Live dashboard, in the default order (the order the
- * dashboard had before layouts existed). The four last charts and the
- * security events card are hidden by default. The 3D site layout (v0.1.49) stands above the map.
+ * dashboard had before layouts existed). The four charts before the fleet
+ * charts and the security events card are hidden by default. The 3D site
+ * layout (v0.1.49) stands above the map. The fleet charts close the list:
+ * hidden by default except for fleet users (`fleet`).
  */
 export const DASHBOARD_WIDGETS: readonly DashboardWidget[] = [
   { id: 'chart.aiInsights', defaultHidden: false, span: 'full' },
@@ -82,6 +97,11 @@ export const DASHBOARD_WIDGETS: readonly DashboardWidget[] = [
   { id: 'chart.evsesByConnectorType', defaultHidden: true, span: 'half' },
   { id: 'chart.plugAndCharge', defaultHidden: true, span: 'half' },
   { id: 'chart.freeVend', defaultHidden: true, span: 'half' },
+  // Fleet charts (v0.1.52): fleets:read, the money ones payments:read too.
+  { id: 'chart.fleetEnergy', defaultHidden: true, span: 'half', fleet: true },
+  { id: 'chart.fleetSessions', defaultHidden: true, span: 'half', fleet: true },
+  { id: 'chart.fleetCost', defaultHidden: true, span: 'half', fleet: true },
+  { id: 'chart.fleetInvoices', defaultHidden: true, span: 'half', fleet: true },
 ];
 
 /** The most items a saved layout may hold. */
@@ -97,10 +117,24 @@ export function dashboardWidget(id: string): DashboardWidget | undefined {
   return WIDGETS_BY_ID.get(id);
 }
 
-export function defaultDashboardLayout(): DashboardLayout {
+/** Whether the widget starts hidden for the audience. */
+function hiddenByDefault(widget: DashboardWidget, audience: DashboardLayoutAudience): boolean {
+  if (widget.fleet === true) return audience.fleetUser !== true;
+  return widget.defaultHidden;
+}
+
+/** Whether the widget is part of the audience's layout at all. */
+function inAudience(widget: DashboardWidget, audience: DashboardLayoutAudience): boolean {
+  return widget.fleet !== true || audience.fleetsEnabled !== false;
+}
+
+export function defaultDashboardLayout(audience: DashboardLayoutAudience = {}): DashboardLayout {
   return {
     version: 1,
-    charts: DASHBOARD_WIDGETS.map((w) => ({ id: w.id, hidden: w.defaultHidden })),
+    charts: DASHBOARD_WIDGETS.filter((w) => inAudience(w, audience)).map((w) => ({
+      id: w.id,
+      hidden: hiddenByDefault(w, audience),
+    })),
   };
 }
 
@@ -165,8 +199,11 @@ function storedSiteId(widget: DashboardWidget, value: unknown): string | null | 
  * `enterBefore`, which goes right before that chart when the layout has it
  * (the 3D site layout enters above the map, wherever the user moved it).
  */
-export function resolveDashboardLayout(saved: unknown): DashboardLayout {
-  if (!isRecord(saved) || saved['version'] !== 1) return defaultDashboardLayout();
+export function resolveDashboardLayout(
+  saved: unknown,
+  audience: DashboardLayoutAudience = {},
+): DashboardLayout {
+  if (!isRecord(saved) || saved['version'] !== 1) return defaultDashboardLayout(audience);
   const seen = new Set<string>();
   const charts: DashboardLayoutItem[] = [];
   const raw = saved['charts'];
@@ -177,6 +214,8 @@ export function resolveDashboardLayout(saved: unknown): DashboardLayout {
       const widget = WIDGETS_BY_ID.get(id);
       if (widget == null || seen.has(id)) continue;
       seen.add(id);
+      // A fleet item of a layout saved while Fleets was on is skipped, not refused.
+      if (!inAudience(widget, audience)) continue;
       const siteId = storedSiteId(widget, item['siteId']);
       charts.push(
         siteId === undefined
@@ -188,7 +227,8 @@ export function resolveDashboardLayout(saved: unknown): DashboardLayout {
   for (const widget of DASHBOARD_WIDGETS) {
     if (seen.has(widget.id)) continue;
     seen.add(widget.id);
-    const missing = { id: widget.id, hidden: widget.defaultHidden };
+    if (!inAudience(widget, audience)) continue;
+    const missing = { id: widget.id, hidden: hiddenByDefault(widget, audience) };
     const before =
       widget.enterBefore == null ? -1 : charts.findIndex((c) => c.id === widget.enterBefore);
     if (before === -1) charts.push(missing);
@@ -198,8 +238,11 @@ export function resolveDashboardLayout(saved: unknown): DashboardLayout {
 }
 
 /** True when the layout equals the default (order and visibility). */
-export function isDefaultDashboardLayout(layout: DashboardLayout): boolean {
-  const def = defaultDashboardLayout().charts;
+export function isDefaultDashboardLayout(
+  layout: DashboardLayout,
+  audience: DashboardLayoutAudience = {},
+): boolean {
+  const def = defaultDashboardLayout(audience).charts;
   return (
     layout.charts.length === def.length &&
     layout.charts.every((item, i) => item.id === def[i]?.id && item.hidden === def[i].hidden)

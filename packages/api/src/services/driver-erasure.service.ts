@@ -21,7 +21,7 @@ import { paymentContext } from '../lib/payments.js';
 import { applyDriverDeactivation } from './driver-status.service.js';
 import { deleteRecoveryCodes, deleteWebauthnCredentials } from './mfa-factor.service.js';
 import { clearAvatarInErasure, purgeDriverAvatarStorage } from './driver-avatar.service.js';
-import { clearDriverTokenLabels } from './token.service.js';
+import { clearDriverTokenLabels, releaseMemberFleetCards, tokenActorOf } from './token.service.js';
 
 interface Logger {
   warn: (obj: unknown, msg?: string) => void;
@@ -36,6 +36,7 @@ export interface DriverErasureResult {
   vehiclesRemoved: number;
   tokensDeactivated: number;
   tokenLabelsCleared: number;
+  fleetCardsReleased: number;
   avatarRemoved: boolean;
 }
 
@@ -96,55 +97,66 @@ export async function eraseDriver(
   }
 
   const erasedAt = new Date();
-  const { vehiclesRemoved, tokenLabelsCleared, avatar } = await db.transaction(async (tx) => {
-    // Guarded on erased_at, so of two concurrent erasures one wins.
-    const [stub] = await tx
-      .update(drivers)
-      .set({
-        firstName: '',
-        lastName: '',
-        email: null,
-        phone: null,
-        passwordHash: null,
-        totpSecretEnc: null,
-        mfaEnabled: false,
-        mfaMethod: null,
-        isActive: false,
-        emailVerified: false,
-        priceDisplay: null,
-        lastNotificationReadAt: null,
-        billingName: null,
-        billingStreet: null,
-        billingCity: null,
-        billingState: null,
-        billingZip: null,
-        billingCountry: null,
-        erasedAt,
-        updatedAt: erasedAt,
-      })
-      .where(and(eq(drivers.id, driverId), isNull(drivers.erasedAt)))
-      .returning({ id: drivers.id });
-    if (stub == null) throw driverErasedError();
-    const clearedAvatar = await clearAvatarInErasure(tx, driverId);
+  const { vehiclesRemoved, tokenLabelsCleared, avatar, fleetCards } = await db.transaction(
+    async (tx) => {
+      // Guarded on erased_at, so of two concurrent erasures one wins.
+      const [stub] = await tx
+        .update(drivers)
+        .set({
+          firstName: '',
+          lastName: '',
+          email: null,
+          phone: null,
+          passwordHash: null,
+          totpSecretEnc: null,
+          mfaEnabled: false,
+          mfaMethod: null,
+          isActive: false,
+          emailVerified: false,
+          priceDisplay: null,
+          lastNotificationReadAt: null,
+          billingName: null,
+          billingStreet: null,
+          billingCity: null,
+          billingState: null,
+          billingZip: null,
+          billingCountry: null,
+          erasedAt,
+          updatedAt: erasedAt,
+        })
+        .where(and(eq(drivers.id, driverId), isNull(drivers.erasedAt)))
+        .returning({ id: drivers.id });
+      if (stub == null) throw driverErasedError();
+      const clearedAvatar = await clearAvatarInErasure(tx, driverId);
 
-    // Sessions keep their history: vehicle_id is set null by the foreign key.
-    const removedVehicles = await tx
-      .delete(vehicles)
-      .where(eq(vehicles.driverId, driverId))
-      .returning({ id: vehicles.id });
-    await deleteDriverNotificationPreferences(driverId, tx);
-    await tx.delete(driverPushTokens).where(eq(driverPushTokens.driverId, driverId));
-    await tx.delete(mfaChallenges).where(eq(mfaChallenges.driverId, driverId));
-    await deleteRecoveryCodes({ driverId }, tx);
-    await deleteWebauthnCredentials({ driverId }, tx);
-    await tx.delete(userTokens).where(eq(userTokens.driverId, driverId));
-    const labelsCleared = await clearDriverTokenLabels(tx, driverId);
-    return {
-      vehiclesRemoved: removedVehicles.length,
-      tokenLabelsCleared: labelsCleared,
-      avatar: clearedAvatar,
-    };
-  });
+      // Sessions keep their history: vehicle_id is set null by the foreign key.
+      const removedVehicles = await tx
+        .delete(vehicles)
+        .where(eq(vehicles.driverId, driverId))
+        .returning({ id: vehicles.id });
+      await deleteDriverNotificationPreferences(driverId, tx);
+      await tx.delete(driverPushTokens).where(eq(driverPushTokens.driverId, driverId));
+      await tx.delete(mfaChallenges).where(eq(mfaChallenges.driverId, driverId));
+      await deleteRecoveryCodes({ driverId }, tx);
+      await deleteWebauthnCredentials({ driverId }, tx);
+      await tx.delete(userTokens).where(eq(userTokens.driverId, driverId));
+      // Fleet cards go back to their fleet before the labels are cleared: the
+      // label is the fleet's, not the driver's.
+      const releasedCards = await releaseMemberFleetCards(
+        { driverId },
+        tokenActorOf(ctx.actor),
+        tx,
+      );
+      const labelsCleared = await clearDriverTokenLabels(tx, driverId);
+      return {
+        vehiclesRemoved: removedVehicles.length,
+        tokenLabelsCleared: labelsCleared,
+        avatar: clearedAvatar,
+        fleetCards: releasedCards,
+      };
+    },
+  );
+  await fleetCards.afterCommit();
 
   // The row no longer points at an image: every object under the driver's
   // prefixes goes, and a storage failure queues the purge for the worker.
@@ -173,6 +185,7 @@ export async function eraseDriver(
         vehiclesRemoved,
         tokensDeactivated,
         tokenLabelsCleared,
+        fleetCardsReleased: fleetCards.released,
         avatarRemoved,
       },
     },
@@ -186,6 +199,7 @@ export async function eraseDriver(
     vehiclesRemoved,
     tokensDeactivated,
     tokenLabelsCleared,
+    fleetCardsReleased: fleetCards.released,
     avatarRemoved,
   };
 }

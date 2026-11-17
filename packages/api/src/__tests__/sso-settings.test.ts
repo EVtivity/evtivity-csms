@@ -490,6 +490,29 @@ describe('SSO Settings routes', () => {
     expect(JSON.parse(response.body).code).toBe('SESSION_REQUIRED');
   });
 
+  it('PUT /sso/settings refuses the Fleet Manager role as the default role', async () => {
+    grantState.allow = true;
+    setupDbResults([], [{ name: 'fleet_manager' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/sso/settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        enabled: true,
+        provider: 'okta',
+        entryPoint: 'https://example.com/sso',
+        issuer: 'https://example.com',
+        autoProvision: true,
+        defaultRoleId: 'rol_000000000004',
+        attributeMapping: { email: 'email' },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.body);
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.details).toEqual({ field: 'defaultRoleId' });
+  });
+
   it('PUT /sso/settings refuses a default role beyond the editor and an unknown one', async () => {
     const payload = {
       enabled: true,

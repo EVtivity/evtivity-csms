@@ -121,6 +121,10 @@ export interface MatrixWorld {
   /** A second driver, member of no fleet. */
   driver2: string;
   token: string;
+  /** A fleet of its own, holding `fleetCard`: the site-restricted card write cases. */
+  cardFleet: string;
+  /** An RFID card of `cardFleet` no member holds. */
+  fleetCard: string;
   /** Fleet with stations at A, B and the unsited station, billing details set. */
   fleet: string;
   /** Fleet with a pricing group: membership writes need all-site access. */
@@ -141,6 +145,50 @@ export interface MatrixWorld {
   simUnattached: string;
   /** A vehicle of `driver`, a member of `fleet`: the vehicle of the departure fixtures. */
   vehicle: string;
+  /**
+   * What the fleet actors read (a fleet user assigned `fleet`, and one with no
+   * fleet). The matrix integration test seeds it after the site cases, since
+   * its sessions would change their counts.
+   */
+  fleetScope?: FleetScopeFixture;
+}
+
+/** The rows of `fleet` and of a second fleet the fleet user cases read. */
+export interface FleetScopeFixture {
+  /** A fleet no fleet actor is assigned to, with its own card, invoice and session. */
+  otherFleet: string;
+  /** A card of `fleet` given to `driver`, its value, and a second card the delete removes. */
+  card: string;
+  cardValue: string;
+  spareCard: string;
+  /** A card of the other fleet and its value. */
+  otherCard: string;
+  otherCardValue: string;
+  /** A fleet invoice of `fleet`, a member invoice of it (to `driver`), the other fleet's invoice. */
+  invoice: string;
+  memberInvoice: string;
+  otherInvoice: string;
+  /**
+   * Sessions at site A: billed to `fleet` on account last month (in the
+   * invoice preview), billed to `fleet` with a payment record, billed to a
+   * member, billed to the other fleet.
+   */
+  session: string;
+  paidSession: string;
+  memberSession: string;
+  otherSession: string;
+  /**
+   * Values no fleet route answers a fleet user: the member's email and
+   * phone, the vehicle VIN and EVCCID (a MAC address), the session
+   * transaction ids, the provider payment id, the member invoice number.
+   */
+  secretValues: string[];
+  /**
+   * API keys of the fleet user, set once the fleet actors exist: one the
+   * update narrows, a pool the revoke takes one from per request, and a key
+   * of another user the fleet user never reaches.
+   */
+  apiKeys?: { patch: number; revoke: number[]; otherUser: number };
 }
 
 type UrlFn = (f: SiteFixture, w: MatrixWorld) => string;
@@ -252,6 +300,8 @@ export interface CompanyEntry extends BaseEntry {
   kind: 'company';
   /** The code of the all-site guard's refusal. */
   expectCode: string;
+  /** Status of the refusal (default 404). */
+  status?: number;
   /** Expected status of the all-site admin's GET (default 200). */
   adminStatus?: number;
   control?: ControlSpec;
@@ -421,6 +471,59 @@ export const SITE_ISOLATION_DATA_PLAN_VARIANTS: MatrixEntry[] = [
     (f) => `/stations/${f.station}`,
     'STATION_NOT_FOUND',
     { unsited: true, body: () => ({ dataPlan: 'cellular' }) },
+  ),
+];
+
+/**
+ * Variants of the token writes that name a fleet: fleet RFID cards span every
+ * site, so a site-restricted operator gets 403 FORBIDDEN for any fleetId. Run
+ * with the matrix by the isolation integration test.
+ */
+export const SITE_ISOLATION_TOKEN_FLEET_VARIANTS: MatrixEntry[] = [
+  c('POST', '/tokens?fleetId', 'drivers:write', () => '/tokens', 'FORBIDDEN', {
+    status: 403,
+    body: (_f, w) => ({
+      idToken: 'MATRIX-FLEET-CARD-REFUSED',
+      tokenType: 'ISO14443',
+      fleetId: w.fleet,
+    }),
+  }),
+  c('PATCH', '/tokens/:id?fleetId', 'drivers:write', (_f, w) => `/tokens/${w.token}`, 'FORBIDDEN', {
+    status: 403,
+    body: (_f, w) => ({ fleetId: w.fleet }),
+  }),
+  // Any write of a card a fleet owns, whatever it changes.
+  c(
+    'PATCH',
+    '/tokens/:id?fleetCard',
+    'drivers:write',
+    (_f, w) => `/tokens/${w.fleetCard}`,
+    'FORBIDDEN',
+    {
+      status: 403,
+      body: () => ({ label: 'Renamed' }),
+    },
+  ),
+  c(
+    'DELETE',
+    '/tokens/:id?fleetCard',
+    'drivers:write',
+    (_f, w) => `/tokens/${w.fleetCard}`,
+    'FORBIDDEN',
+    {
+      status: 403,
+    },
+  ),
+  c(
+    'POST',
+    '/tokens/bulk-active?fleetCard',
+    'drivers:write',
+    () => '/tokens/bulk-active',
+    'FORBIDDEN',
+    {
+      status: 403,
+      body: (_f, w) => ({ ids: [w.token, w.fleetCard], isActive: false }),
+    },
   ),
 ];
 
@@ -1392,6 +1495,22 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   l('/fleets/:id/sessions', 'fleets:read', (_f, w) => `/fleets/${w.fleet}/sessions`, {
     unsited: true,
   }),
+  // The CSV export follows the fleet session list scope and filters.
+  l(
+    '/fleets/:id/sessions/export',
+    'fleets:read, sessions:read',
+    (_f, w) => `/fleets/${w.fleet}/sessions/export`,
+    { unsited: true },
+  ),
+  // One row of the fleet session list: a session at another site answers like a missing one.
+  s(
+    'GET',
+    '/fleets/:id/sessions/:sessionId',
+    'fleets:read, sessions:read',
+    (f, w) => `/fleets/${w.fleet}/sessions/${f.session}`,
+    'SESSION_NOT_FOUND',
+    { unsited: true },
+  ),
   l('/fleets/:id/metrics', 'fleets:read', (_f, w) => `/fleets/${w.fleet}/metrics`, {
     counts: [
       { path: 'totalSessions', all: 3, a: 1 },
@@ -5099,6 +5218,12 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   l('/fleets', 'fleets:read', undefined, {
     counts: [{ path: 'data.[name=Fleet 1].stationCount', all: 3, a: 1 }],
   }),
+  // The Dashboard fleet summary counts sessions at the caller's sites; the credit
+  // limit and the fleet invoices span every site: all-site users only.
+  l('/fleets/metrics-summary', 'fleets:read', () => '/fleets/metrics-summary?days=90', {
+    noLimit: true,
+    hidden: ['creditLimit', 'invoices'],
+  }),
   // REVIEW2 #15: credit and billing profile are company-wide money settings.
   l('/fleets/:id', 'fleets:read', (_f, w) => `/fleets/${w.fleet}`, {
     noLimit: true,
@@ -5118,6 +5243,47 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
       'autoInvoice',
     ],
   }),
+  // The fleet users of a fleet are company-wide accounts: all-site admins only.
+  c(
+    'GET',
+    '/fleets/:id/managers',
+    'fleets:read, users:read',
+    (_f, w) => `/fleets/${w.fleet}/managers`,
+    'FLEET_NOT_FOUND',
+  ),
+  // Fleet RFID card writes span every site: all-site operators and the fleet's
+  // own fleet users only (owner decision 2026-11-17); reads stay company-wide.
+  c(
+    'POST',
+    '/fleets/:id/cards',
+    'fleets:read, fleetCards:write',
+    (_f, w) => `/fleets/${w.cardFleet}/cards`,
+    'FLEET_NOT_FOUND',
+    { body: () => ({ idToken: 'MATRIX-FLEET-CARD-1' }) },
+  ),
+  c(
+    'POST',
+    '/fleets/:id/cards/import',
+    'fleets:read, fleetCards:write',
+    (_f, w) => `/fleets/${w.cardFleet}/cards/import`,
+    'FLEET_NOT_FOUND',
+    { body: () => ({ csv: 'idToken\nMATRIX-FLEET-IMPORT-1\n' }) },
+  ),
+  c(
+    'PATCH',
+    '/fleets/:id/cards/:tokenId',
+    'fleets:read, fleetCards:write',
+    (_f, w) => `/fleets/${w.cardFleet}/cards/${w.fleetCard}`,
+    'FLEET_NOT_FOUND',
+    { body: () => ({ label: 'Van 1' }) },
+  ),
+  c(
+    'DELETE',
+    '/fleets/:id/cards/:tokenId',
+    'fleets:read, fleetCards:write',
+    (_f, w) => `/fleets/${w.cardFleet}/cards/${w.fleetCard}`,
+    'FLEET_NOT_FOUND',
+  ),
   // REVIEW2 #12: fleet delete, members of a fleet with a pricing group or account
   // billing, and accountBillingOptOut need all-site access (owner decision).
   c('DELETE', '/fleets/:id', 'fleets:write', (_f, w) => `/fleets/${w.fleet}`, 'FLEET_NOT_FOUND', {
@@ -5283,6 +5449,17 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
     method,
     path,
     reason: 'driver tokens are company-wide records; token sessions are in the matrix',
+  })),
+  ...(
+    [
+      ['GET', '/fleets/:id/cards'],
+      ['GET', '/fleets/:id/cards/:tokenId/history'],
+    ] as const
+  ).map(([method, path]) => ({
+    method,
+    path,
+    reason:
+      'fleet RFID cards are company-wide records like driver tokens, with no site (writes in the matrix); fleet users: FLEET_SCOPE_ROUTES',
   })),
   ...(
     [
@@ -5453,5 +5630,402 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
     method: 'POST',
     path: '/webhooks/payments/*',
     reason: 'payment provider webhooks, signature-verified, no operator',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Fleet users
+// ---------------------------------------------------------------------------
+
+type FleetUrlFn = (w: MatrixWorld, fx: FleetScopeFixture) => string;
+
+/**
+ * A route open to fleet users (`config: { fleetScope: true }`). The coverage
+ * guard checks that these keys are exactly the routes whose source sets the
+ * flag; the matrix integration test sends each as a fleet user assigned
+ * `fleet` (own fleet: `status`), as a fleet user with no fleet (`noFleet`),
+ * and with every `other` URL (another fleet's resource, or a resource of the
+ * own fleet a fleet user may not read): 404 with its code. Every reply to a
+ * fleet user is checked for FLEET_SCOPE_FORBIDDEN_KEYS, the fixture's secret
+ * values and the other fleet's ids.
+ */
+export interface FleetScopeEntry {
+  method: MatrixMethod;
+  path: string;
+  /** Every permission the route needs (a fleet user lacking one gets 403). */
+  perm: string;
+  /** URL relative to /v1 on the actor's own fleet. */
+  url: FleetUrlFn;
+  body?: (w: MatrixWorld, fx: FleetScopeFixture) => unknown;
+  /** Status on the own fleet (default 200). */
+  status?: number;
+  /** Error code of that answer, when it is a refusal. */
+  code?: string;
+  /** Requests a fleet user may not read, each answering 404 with its code. */
+  other: { url: FleetUrlFn; code: string }[];
+  /**
+   * The answer to the fleet user with no fleet (default 403 FLEET_USER_NO_FLEETS; the own
+   * API key routes stay open to it).
+   */
+  noFleet?: { status: number; code?: string };
+  /** Ids the own-fleet reply holds: the checks run on real data. */
+  shows?: (w: MatrixWorld, fx: FleetScopeFixture) => string[];
+  /** Property names the reply never holds for a fleet user, whatever their value. */
+  hidden?: string[];
+  /** A PDF: only the status and content type are checked. */
+  pdf?: boolean;
+  /** The fleet card routes: the reply holds the card value and type. */
+  cardRoute?: boolean;
+}
+
+/**
+ * Property names no fleet-scope reply to a fleet user holds with a value (a
+ * null is allowed: the invoice detail answers paymentReference and metadata
+ * as null): an RFID value or type outside the fleet card routes, a Plug and
+ * Charge contract, OCPP transaction data, payment record fields, contact data
+ * and vehicle identifiers.
+ */
+export const FLEET_SCOPE_FORBIDDEN_KEYS: readonly string[] = [
+  'idToken',
+  'tokenType',
+  'contractId',
+  'emaid',
+  'transactionId',
+  'paymentRecordId',
+  'providerPaymentId',
+  'providerCustomerId',
+  'paymentMethodId',
+  'paymentReference',
+  'metadata',
+  'email',
+  'phone',
+  'billingContactEmails',
+  'avatar',
+  'vin',
+  'evccid',
+  'macAddress',
+];
+
+/** The card keys only the fleet card routes return. */
+export const FLEET_CARD_KEYS: readonly string[] = ['idToken', 'tokenType'];
+
+const FLEET_BILLING_KEYS = [
+  'creditLimitCents',
+  'creditLimitWarningPercent',
+  'accountInvoiceRecipient',
+  'billingLegalName',
+  'billingStreet',
+  'billingCity',
+  'billingState',
+  'billingZip',
+  'billingCountry',
+  'billingTaxId',
+  'invoiceLanguage',
+  'paymentTermsDays',
+  'autoInvoice',
+];
+
+const fl = (w: MatrixWorld): string => `/fleets/${w.fleet}`;
+const otherFleetUrl: FleetUrlFn = (_w, fx) => `/fleets/${fx.otherFleet}`;
+const fleetNotFound = (url: FleetUrlFn): { url: FleetUrlFn; code: string } => ({
+  url,
+  code: 'FLEET_NOT_FOUND',
+});
+const invoiceNotFound = (url: FleetUrlFn): { url: FleetUrlFn; code: string } => ({
+  url,
+  code: 'INVOICE_NOT_FOUND',
+});
+/** The other fleet's invoice, the own fleet's member invoice and a driver invoice. */
+const unreadableInvoices = (suffix: string): { url: FleetUrlFn; code: string }[] => [
+  invoiceNotFound((_w, fx) => `/invoices/${fx.otherInvoice}${suffix}`),
+  invoiceNotFound((_w, fx) => `/invoices/${fx.memberInvoice}${suffix}`),
+  invoiceNotFound((w) => `/invoices/${w.A.invoice}${suffix}`),
+];
+let fleetCardSeq = 0;
+let apiKeySeq = 0;
+let apiKeyRevokeSeq = 0;
+
+const apiKeysOf = (fx: FleetScopeFixture): NonNullable<FleetScopeFixture['apiKeys']> => {
+  if (fx.apiKeys == null) throw new Error('the fleet user API keys are not seeded');
+  return fx.apiKeys;
+};
+const otherUserKey = {
+  url: (_w: MatrixWorld, fx: FleetScopeFixture) => `/api-keys/${String(apiKeysOf(fx).otherUser)}`,
+  code: 'API_KEY_NOT_FOUND',
+};
+
+export const FLEET_SCOPE_ROUTES: FleetScopeEntry[] = [
+  {
+    method: 'GET',
+    path: '/fleets',
+    perm: 'fleets:read',
+    url: () => '/fleets?limit=100',
+    other: [],
+    shows: (w) => [w.fleet],
+    hidden: FLEET_BILLING_KEYS,
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id',
+    perm: 'fleets:read',
+    url: fl,
+    other: [fleetNotFound(otherFleetUrl), fleetNotFound((w) => `/fleets/${w.pricedFleet}`)],
+    shows: (w) => [w.fleet],
+    hidden: FLEET_BILLING_KEYS,
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/neighbors',
+    perm: 'fleets:read',
+    url: (w) => `${fl(w)}/neighbors`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/neighbors`)],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/drivers',
+    perm: 'fleets:read',
+    url: (w) => `${fl(w)}/drivers`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/drivers`)],
+    shows: (w) => [w.driver],
+    hidden: ['accountBillingOptOut', 'createdAt'],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/vehicles',
+    perm: 'fleets:read',
+    url: (w) => `${fl(w)}/vehicles`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/vehicles`)],
+    shows: (w) => [w.vehicle],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/sessions',
+    perm: 'fleets:read',
+    url: (w) => `${fl(w)}/sessions?limit=100`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/sessions`)],
+    shows: (_w, fx) => [fx.session, fx.paidSession],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/sessions/export',
+    perm: 'fleets:read, sessions:read',
+    url: (w) => `${fl(w)}/sessions/export`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/sessions/export`)],
+    shows: (_w, fx) => [fx.paidSession],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/sessions/:sessionId',
+    perm: 'fleets:read, sessions:read',
+    url: (w, fx) => `${fl(w)}/sessions/${fx.paidSession}`,
+    other: [
+      fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/sessions/${fx.otherSession}`),
+      { url: (w, fx) => `${fl(w)}/sessions/${fx.otherSession}`, code: 'SESSION_NOT_FOUND' },
+      { url: (w, fx) => `${fl(w)}/sessions/${fx.memberSession}`, code: 'SESSION_NOT_FOUND' },
+      // A session of a member that is not billed to the fleet.
+      { url: (w) => `${fl(w)}/sessions/${w.A.session}`, code: 'SESSION_NOT_FOUND' },
+    ],
+    shows: (_w, fx) => [fx.paidSession],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/metrics-summary',
+    perm: 'fleets:read',
+    url: (w) => `/fleets/metrics-summary?fleetId=${w.fleet}&days=90`,
+    other: [fleetNotFound((_w, fx) => `/fleets/metrics-summary?fleetId=${fx.otherFleet}&days=90`)],
+    shows: (_w, fx) => [fx.invoice],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/metrics',
+    perm: 'fleets:read',
+    url: (w) => `${fl(w)}/metrics`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/metrics`)],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/energy-history',
+    perm: 'fleets:read',
+    url: (w) => `${fl(w)}/energy-history?days=90`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/energy-history`)],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/billing/unbilled',
+    perm: 'payments:read',
+    url: (w) => `${fl(w)}/billing/unbilled`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/billing/unbilled`)],
+    // The preview totals per driver: the member of last month's fleet session.
+    shows: (w) => [w.driver],
+    hidden: ['members', 'excluded', 'excludedCount'],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/invoices',
+    perm: 'payments:read',
+    url: (w) => `${fl(w)}/invoices?limit=100`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/invoices`)],
+    shows: (_w, fx) => [fx.invoice],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/credit-limit',
+    perm: 'fleets:read, payments:read',
+    url: (w) => `${fl(w)}/credit-limit`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/credit-limit`)],
+  },
+  {
+    method: 'GET',
+    path: '/invoices/:id',
+    perm: 'payments:read',
+    url: (_w, fx) => `/invoices/${fx.invoice}`,
+    other: unreadableInvoices(''),
+    shows: (_w, fx) => [fx.invoice],
+  },
+  {
+    method: 'GET',
+    path: '/invoices/:id/pdf',
+    perm: 'payments:read',
+    url: (_w, fx) => `/invoices/${fx.invoice}/pdf`,
+    other: unreadableInvoices('/pdf'),
+    pdf: true,
+  },
+  {
+    method: 'GET',
+    path: '/invoices/:id/download',
+    perm: 'payments:read',
+    url: (_w, fx) => `/invoices/${fx.invoice}/download`,
+    other: unreadableInvoices('/download'),
+    shows: (_w, fx) => [fx.invoice],
+  },
+  {
+    method: 'GET',
+    path: '/invoices/print-logo',
+    perm: 'payments:read',
+    url: () => '/invoices/print-logo',
+    other: [],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/cards',
+    perm: 'fleets:read, fleetCards:read',
+    url: (w) => `${fl(w)}/cards?limit=100`,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/cards`)],
+    shows: (_w, fx) => [fx.card, fx.cardValue],
+    cardRoute: true,
+  },
+  {
+    method: 'GET',
+    path: '/fleets/:id/cards/:tokenId/history',
+    perm: 'fleets:read, fleetCards:read',
+    url: (w, fx) => `${fl(w)}/cards/${fx.card}/history`,
+    other: [
+      fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/cards/${fx.otherCard}/history`),
+      { url: (w, fx) => `${fl(w)}/cards/${fx.otherCard}/history`, code: 'TOKEN_NOT_FOUND' },
+    ],
+    cardRoute: true,
+  },
+  {
+    method: 'POST',
+    path: '/fleets/:id/cards',
+    perm: 'fleets:read, fleetCards:write',
+    url: (w) => `${fl(w)}/cards`,
+    body: () => {
+      fleetCardSeq += 1;
+      return { idToken: `FLEETSCOPE-NEW-${String(Date.now())}-${String(fleetCardSeq)}` };
+    },
+    status: 201,
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/cards`)],
+    cardRoute: true,
+  },
+  {
+    method: 'POST',
+    path: '/fleets/:id/cards/import',
+    perm: 'fleets:read, fleetCards:write',
+    url: (w) => `${fl(w)}/cards/import`,
+    body: () => {
+      fleetCardSeq += 1;
+      return { csv: `idToken\nFLEETSCOPE-IMPORT-${String(Date.now())}-${String(fleetCardSeq)}\n` };
+    },
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/cards/import`)],
+    cardRoute: true,
+  },
+  {
+    method: 'PATCH',
+    path: '/fleets/:id/cards/:tokenId',
+    perm: 'fleets:read, fleetCards:write',
+    url: (w, fx) => `${fl(w)}/cards/${fx.card}`,
+    body: () => ({ label: 'Van 12' }),
+    other: [
+      fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/cards/${fx.otherCard}`),
+      { url: (w, fx) => `${fl(w)}/cards/${fx.otherCard}`, code: 'TOKEN_NOT_FOUND' },
+    ],
+    shows: (_w, fx) => [fx.card],
+    cardRoute: true,
+  },
+  // The fleet user's own API keys: each key keeps the user's fleet scope and the
+  // fleet user permissions; a key of another user answers 404.
+  {
+    method: 'GET',
+    path: '/api-keys',
+    perm: 'settings.apiKeys:read',
+    url: () => '/api-keys',
+    other: [],
+    noFleet: { status: 200 },
+    shows: (_w, fx) => [`"id":${String(apiKeysOf(fx).patch)}`],
+  },
+  {
+    method: 'POST',
+    path: '/api-keys',
+    perm: 'settings.apiKeys:write',
+    url: () => '/api-keys',
+    body: () => {
+      apiKeySeq += 1;
+      return {
+        name: `fleet-scope-${String(Date.now())}-${String(apiKeySeq)}`,
+        permissions: ['fleets:read'],
+        proof: { kind: 'password', password: 'TestPassword1' },
+      };
+    },
+    status: 201,
+    other: [],
+    noFleet: { status: 201 },
+  },
+  {
+    method: 'PATCH',
+    path: '/api-keys/:id',
+    perm: 'settings.apiKeys:write',
+    url: (_w, fx) => `/api-keys/${String(apiKeysOf(fx).patch)}`,
+    body: () => ({ permissions: ['fleets:read'] }),
+    other: [otherUserKey],
+    noFleet: { status: 404, code: 'API_KEY_NOT_FOUND' },
+  },
+  {
+    method: 'DELETE',
+    path: '/api-keys/:id',
+    perm: 'settings.apiKeys:write',
+    // Each request revokes another key of the pool: a revoked key answers 404.
+    url: (_w, fx) => {
+      const pool = apiKeysOf(fx).revoke;
+      const id = pool[apiKeyRevokeSeq % pool.length] ?? 0;
+      apiKeyRevokeSeq += 1;
+      return `/api-keys/${String(id)}`;
+    },
+    other: [otherUserKey],
+    noFleet: { status: 404, code: 'API_KEY_NOT_FOUND' },
+  },
+  {
+    // A fleet user suspends a card (PATCH); only an operator deactivates it for good.
+    method: 'DELETE',
+    path: '/fleets/:id/cards/:tokenId',
+    perm: 'fleets:read, fleetCards:write',
+    url: (w, fx) => `${fl(w)}/cards/${fx.spareCard}`,
+    status: 403,
+    code: 'FORBIDDEN',
+    other: [
+      fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/cards/${fx.otherCard}`),
+      { url: (w, fx) => `${fl(w)}/cards/${fx.otherCard}`, code: 'TOKEN_NOT_FOUND' },
+    ],
+    cardRoute: true,
   },
 ];

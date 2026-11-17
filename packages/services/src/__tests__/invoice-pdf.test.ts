@@ -176,6 +176,7 @@ function detail(language: string): InvoiceDetail {
       language: null,
       sentAt: null,
       overdueNoticeSentAt: null,
+      fleetManagersNotifiedAt: null,
       issuedAt: now,
       dueAt: now,
       currency: 'EUR',

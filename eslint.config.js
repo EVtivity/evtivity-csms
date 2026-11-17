@@ -322,7 +322,12 @@ export default tseslint.config(
   {
     // Playwright E2E code (private repo only) is type-checked by e2e/tsconfig.json,
     // which the per-package tsconfigs found by the project service do not include.
-    files: ['e2e/**/*.ts', 'packages/*/e2e/**/*.ts', 'playwright.config.ts'],
+    files: [
+      'e2e/**/*.ts',
+      'packages/*/e2e/**/*.ts',
+      'playwright.config.ts',
+      'playwright.serial.config.ts',
+    ],
     languageOptions: {
       parserOptions: {
         projectService: false,

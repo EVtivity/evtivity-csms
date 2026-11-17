@@ -36,7 +36,8 @@ export async function sessionLimitReached(sessionId: string): Promise<SessionLim
       (SELECT 'CostLimitReached' FROM charging_sessions
        WHERE id = ${sessionId}
          AND (stopped_reason IN ('GuestHoldExhausted', 'PrepaidCreditExhausted')
-              OR (stopped_reason = 'AccountCreditLimit' AND status <> 'faulted')))
+              OR (stopped_reason IN ('AccountCreditLimit', 'CardMonthlyLimit')
+                  AND status <> 'faulted')))
     ) AS trigger_reason
   `;
   return row?.trigger_reason != null ? (LIMIT_TRIGGERS[row.trigger_reason] ?? null) : null;

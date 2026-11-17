@@ -32,7 +32,11 @@ vi.mock('@evtivity/ocpp', () => ({
   parseLocalContractCa: dbCall,
 }));
 
+const fleetCardsPerm = vi.hoisted(() => ({ granted: true }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    Promise.resolve(permission !== 'fleetCards:write' || fleetCardsPerm.granted),
   authorize:
     () =>
     async (

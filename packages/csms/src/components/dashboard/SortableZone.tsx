@@ -23,7 +23,9 @@ import {
  * A zone of dashboard widgets the user reorders by drag and drop: with a
  * pointer by the drag handle, or with the keyboard (Space picks up, the arrow
  * keys move, Space drops, Escape cancels), announced in the UI language.
- * Outside edit mode it renders its children only.
+ * Outside edit mode sorting is off; the element tree stays the same, so
+ * turning edit mode on or off never remounts a widget (the 3D site layout
+ * would rebuild its scene).
  */
 export function SortableZone({
   ids,
@@ -47,8 +49,6 @@ export function SortableZone({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-
-  if (!editing) return <>{children}</>;
 
   const name = (id: UniqueIdentifier): string => names[String(id)] ?? String(id);
   const announcements: Announcements = {
@@ -79,7 +79,7 @@ export function SortableZone({
         screenReaderInstructions: { draggable: t('dashboard.dnd.instructions') },
       }}
     >
-      <SortableContext items={ids} strategy={rectSortingStrategy}>
+      <SortableContext items={ids} strategy={rectSortingStrategy} disabled={!editing}>
         {children}
       </SortableContext>
     </DndContext>

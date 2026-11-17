@@ -193,6 +193,8 @@ export {
   loadBillingMemberships,
   pickAccountBilling,
   stampSessionBilling,
+  resolveFleetCardBilling,
+  stampFleetCardBilling,
   sessionBillingColumns,
   toSessionBilling,
   moveSessionBillingRecipient,
@@ -213,6 +215,7 @@ export {
   readFleetCreditLimit,
   fleetCreditRemaining,
   loadDriverAccountCredit,
+  loadFleetCardAccountCredit,
   claimFleetCreditLimitNotice,
   loadFleetBillingContacts,
   CEILING_EXTEND_HEADROOM_PERCENT,
@@ -222,6 +225,12 @@ export {
   extendFleetSessionCeiling,
   fleetCreditNoticesClaimed,
 } from './lib/fleet-credit-limit.js';
+export {
+  FLEET_MANAGER_NOTICE_PERMISSION,
+  loadFleetManagerRecipients,
+  claimFleetManagerInvoiceNotice,
+} from './lib/fleet-managers.js';
+export type { FleetManagerRecipient } from './lib/fleet-managers.js';
 export type {
   FleetCreditExposure,
   FleetCreditLevel,
@@ -232,6 +241,17 @@ export type {
   FleetCeilingExtension,
   CeilingExtensionInput,
 } from './lib/fleet-credit-limit.js';
+export {
+  readCardMonthlyLimit,
+  checkCardMonthlyLimit,
+  cardLimitBindsSession,
+  cardsMonthSpend,
+  claimCardMonthlyLimitNotice,
+} from './lib/card-monthly-limit.js';
+export type {
+  CardMonthlyLimitCheck,
+  CardMonthlyLimitNoticeTarget,
+} from './lib/card-monthly-limit.js';
 export {
   FLEET_CREDIT_RESERVATION_KEY,
   DEFAULT_FLEET_CREDIT_RESERVATION_CENTS,

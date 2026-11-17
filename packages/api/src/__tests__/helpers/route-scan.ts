@@ -53,6 +53,8 @@ export interface ScanResult {
   portal: string[];
   /** Registrations the scanner cannot resolve, `file:line text`. */
   unparsed: string[];
+  /** Routes whose options open them to fleet users (`config: { fleetScope: true }`). */
+  fleetScope?: string[];
 }
 
 /** One route registration: the file under src/ and the source text of the call. */
@@ -69,6 +71,7 @@ export function scanSource(
   routes: Set<string>,
   portal: Set<string>,
   registrations?: Map<string, RouteRegistration[]>,
+  fleetScope?: Set<string>,
 ): void {
   const sf = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true);
   const inPortal = rel.startsWith(`routes${path.sep}portal${path.sep}`);
@@ -77,6 +80,8 @@ export function scanSource(
   // position (value: the literal path, else null), and every `prop: '/path'`.
   const declarations = new Map<string, { scope: ts.Node; pos: number; value: string | null }[]>();
   const props = new Map<string, string[]>();
+  // For each property name, the `path` values of the object literals that hold it.
+  const pathsByProp = new Map<string, string[]>();
   const isScope = (node: ts.Node): boolean =>
     ts.isSourceFile(node) ||
     ts.isBlock(node) ||
@@ -120,6 +125,21 @@ export function scanSource(
       const value = literal(node.initializer);
       if (value?.startsWith('/') === true) {
         props.set(node.name.text, [...(props.get(node.name.text) ?? []), value]);
+      }
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      const pathProp = node.properties.find(
+        (p) => ts.isPropertyAssignment(p) && p.name.getText(sf) === 'path',
+      );
+      const value =
+        pathProp != null && ts.isPropertyAssignment(pathProp)
+          ? literal(pathProp.initializer)
+          : null;
+      if (value?.startsWith('/') === true) {
+        for (const p of node.properties) {
+          const name = p.name?.getText(sf);
+          if (name != null) pathsByProp.set(name, [...(pathsByProp.get(name) ?? []), value]);
+        }
       }
     }
     if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
@@ -173,6 +193,89 @@ export function scanSource(
   const where = (node: ts.Node): string => {
     const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     return `${rel}:${String(line + 1)} ${node.getText(sf).split('\n')[0] ?? ''}`;
+  };
+
+  const unwrap = (node: ts.Expression): ts.Expression =>
+    ts.isParenthesizedExpression(node) ? unwrap(node.expression) : node;
+
+  /** An object literal holding `config: { fleetScope: true }`. */
+  const holdsFleetScopeConfig = (node: ts.Expression): boolean => {
+    const options = unwrap(node);
+    return (
+      ts.isObjectLiteralExpression(options) &&
+      options.properties.some(
+        (p) => ts.isPropertyAssignment(p) && p.name.getText(sf) === 'config' && opensFleetScope(p),
+      )
+    );
+  };
+
+  /** `config: { fleetScope: true }`. */
+  const opensFleetScope = (config: ts.PropertyAssignment): boolean => {
+    const value = unwrap(config.initializer);
+    return (
+      ts.isObjectLiteralExpression(value) &&
+      value.properties.some(
+        (p) =>
+          ts.isPropertyAssignment(p) &&
+          p.name.getText(sf) === 'fleetScope' &&
+          p.initializer.kind === ts.SyntaxKind.TrueKeyword,
+      )
+    );
+  };
+
+  /**
+   * The paths of a registration its options open to fleet users: a literal
+   * `config: { fleetScope: true }` opens every path, a spread
+   * `...(target.prop != null ? { config: { fleetScope: true } } : {})` opens
+   * the paths of the object literals in the file that hold `prop`. Any other
+   * mention of `fleetScope` in the options (false, a variable) is unparsed (null).
+   */
+  const fleetScopePaths = (
+    options: ts.ObjectLiteralExpression,
+    paths: string[],
+  ): string[] | null => {
+    const mentions = options.properties.filter((p) => p.getText(sf).includes('fleetScope'));
+    if (mentions.length === 0) return [];
+    const [prop] = mentions;
+    if (mentions.length > 1 || prop == null) return null;
+    if (ts.isPropertyAssignment(prop) && prop.name.getText(sf) === 'config') {
+      return opensFleetScope(prop) ? paths : null;
+    }
+    if (!ts.isSpreadAssignment(prop)) return null;
+    const expr = unwrap(prop.expression);
+    if (!ts.isConditionalExpression(expr)) return null;
+    const cond = unwrap(expr.condition);
+    if (
+      !holdsFleetScopeConfig(expr.whenTrue) ||
+      expr.whenFalse.getText(sf).includes('fleetScope') ||
+      !ts.isBinaryExpression(cond) ||
+      cond.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsToken ||
+      cond.right.kind !== ts.SyntaxKind.NullKeyword ||
+      !ts.isPropertyAccessExpression(cond.left)
+    ) {
+      return null;
+    }
+    const holders = new Set(pathsByProp.get(cond.left.name.text) ?? []);
+    return paths.filter((p) => holders.has(p));
+  };
+
+  const markFleetScope = (
+    options: ts.Node | undefined,
+    methods: string[],
+    paths: string[],
+    call: ts.Node,
+  ): void => {
+    if (fleetScope == null || options == null) return;
+    if (!ts.isObjectLiteralExpression(options)) {
+      if (options.getText(sf).includes('fleetScope')) out.unparsed.push(where(call));
+      return;
+    }
+    const open = fleetScopePaths(options, paths);
+    if (open == null) {
+      out.unparsed.push(where(call));
+      return;
+    }
+    for (const p of open) for (const method of methods) fleetScope.add(`${method} ${p}`);
   };
 
   const add = (methods: string[], paths: string[], call: ts.Node): void => {
@@ -229,6 +332,7 @@ export function scanSource(
           }
           if (methods != null && paths?.every((p) => p.startsWith('/')) === true) {
             add(methods, paths, node);
+            markFleetScope(arg, methods, paths, node);
           } else {
             out.unparsed.push(where(node));
           }
@@ -248,6 +352,8 @@ export function scanSource(
           out.unparsed.push(where(node));
         } else if (paths?.every((p) => p.startsWith('/')) === true) {
           add(methods, paths, node);
+          // Options sit between the path and the handler.
+          if (node.arguments.length >= 3) markFleetScope(node.arguments[1], methods, paths, node);
         } else if (onInstance) {
           out.unparsed.push(where(node));
         }
@@ -266,6 +372,7 @@ export function scanRoutes(registrations?: Map<string, RouteRegistration[]>): Sc
   const out: ScanResult = { routes: [], portal: [], unparsed: [] };
   const routes = new Set<string>();
   const portal = new Set<string>();
+  const fleetScope = new Set<string>();
   for (const file of routeFiles()) {
     scanSource(
       path.relative(SRC, file),
@@ -274,9 +381,11 @@ export function scanRoutes(registrations?: Map<string, RouteRegistration[]>): Sc
       routes,
       portal,
       registrations,
+      fleetScope,
     );
   }
   out.routes = [...routes].sort();
   out.portal = [...portal].sort();
+  out.fleetScope = [...fleetScope].sort();
   return out;
 }

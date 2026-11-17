@@ -84,6 +84,20 @@ describe('AccountRfidCards', () => {
     expect((toggle as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('shows a fleet card read-only with the fleet that manages it', async () => {
+    mockGets([
+      card({ id: 'dtk_fleet', managedByFleet: true, fleetName: 'Acme Vans', label: 'Van 12' }),
+      card({ id: 'dtk_own', idToken: 'CARD0002' }),
+    ]);
+    renderCards();
+
+    expect(await screen.findByTestId('rfid-managed-by-fleet')).toBeTruthy();
+    expect(screen.getByText('rfid.managedByFleet')).toBeTruthy();
+    // Only the driver's own card keeps its rename button and switch.
+    expect(screen.getAllByRole('switch')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'rfid.renameCard' })).toHaveLength(1);
+  });
+
   it('lets the driver turn on a card the driver removed', async () => {
     mockGets([card({ isActive: false, blockedByOperator: false })]);
     renderCards();

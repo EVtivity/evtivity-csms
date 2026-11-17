@@ -739,6 +739,7 @@
     "FAVORITE_NOT_FOUND": "Favorite not found",
     "FLEET_CREDIT_LIMIT_REACHED": "The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.",
     "FLEET_DISABLED": "Fleet is disabled",
+    "FLEET_USER_NO_FLEETS": "No fleets are assigned to you. Contact your operator.",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "A process of an older release is still connected. Finish the upgrade, then change the fleet billing.",
     "FLEET_BILLING_VERSION_CHECK_STALE": "The worker's version check has not run recently, so the upgrade cannot be confirmed. Check that the worker is running, then change the fleet billing.",
     "FLEET_BILLING_CONTACT_REQUIRED": "The fleet needs at least one billing contact for automatic invoicing and invoice emails.",
@@ -1073,7 +1074,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "Your operator requires this notification on this channel, so it cannot be turned off",
     "STATION_UNITS_FEATURE_IN_USE": "Stations still use units. Turn off Uses Station Units on every station before turning off Enable Station Units.",
     "STATION_UNITS_FEATURE_OFF": "Station units are turned off. Turn on Enable Station Units in Settings > Integrations & Features first.",
-    "STATION_REPORTED_FIELD_LOCKED": "The station reports this value when it boots, so it cannot be changed here."
+    "STATION_REPORTED_FIELD_LOCKED": "The station reports this value when it boots, so it cannot be changed here.",
+    "FLEET_CARD_DEACTIVATED": "This RFID card was deactivated and cannot be turned on again",
+    "FLEET_CARD_NOT_BILLABLE": "The fleet does not bill on account, so its RFID cards cannot charge. Turn on account billing for the fleet first",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "The driver is not an active member of the fleet that owns this RFID card",
+    "FLEET_HAS_CARDS": "This fleet still owns RFID cards. Remove them from the fleet first.",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "A fleet user cannot hold this permission",
+    "INVALID_FLEET_IDS": "One or more fleetIds do not exist",
+    "TOKEN_MANAGED_BY_FLEET": "This RFID card belongs to your fleet. Contact your fleet to change it."
   },
   "validation": {
     "required": "This field is required",
@@ -1205,7 +1213,9 @@
     "renameFailed": "Could not rename the card. Try again.",
     "managedByOperator": "Your operator manages your RFID cards. To add, change or remove a card, or to block a lost one, contact the operator.",
     "noCardsAssigned": "No RFID cards are assigned to you.",
-    "contactSupport": "Contact Support"
+    "contactSupport": "Contact Support",
+    "managedByFleet": "Managed by {{fleet}}. Contact your fleet to change this card.",
+    "yourFleet": "your fleet"
   },
   "vehicles": {
     "addVehicle": "Add Vehicle",

@@ -5,6 +5,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { clearNotificationSettingsCache, clearStationMessageCache } from '@evtivity/lib';
 import {
+  clearAiSettingsCache,
   clearDriverRfidSelfServiceCache,
   clearStationUnitsFeatureCache,
   clearSecuritySettingsCache,
@@ -31,6 +32,7 @@ interface CacheInvalidateMessage {
     | 'sim_settings'
     | 'rfid_self_service'
     | 'station_units'
+    | 'ai_settings'
     | 'driver_active';
   userId?: string;
   driverId?: string;
@@ -67,6 +69,9 @@ interface CacheInvalidateMessage {
  *
  * `station_units` comes from a save of `stationUnits.enabled`: every pod
  * drops its cached value, so the unit controls follow the switch at once.
+ *
+ * `ai_settings` comes from a save of an AI setting: every pod drops its cached
+ * AI settings, so a surface turned on or off applies at once.
  *
  * `station_message` comes from requestStationMessageRepush after a station
  * message setting, company setting, or state template changes: the listeners
@@ -109,6 +114,9 @@ export async function startCacheInvalidateListener(
         return;
       case 'station_units':
         clearStationUnitsFeatureCache();
+        return;
+      case 'ai_settings':
+        clearAiSettingsCache();
         return;
       case 'driver_active':
         // A deactivated driver's or ended session's portal streams end on

@@ -10,6 +10,8 @@ import {
 } from '@evtivity/lib/dashboard-layout';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
+import { useIsFleetUser } from '@/lib/auth';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 
 export const DASHBOARD_LAYOUT_QUERY_KEY = ['dashboard-layout'] as const;
 const LAYOUT_URL = '/v1/users/me/dashboard-layout';
@@ -56,6 +58,8 @@ export function useDashboardLayout(): DashboardLayoutState {
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const fleetUser = useIsFleetUser();
+  const fleetsEnabled = useFeatureFlags().flags.fleetEnabled;
 
   const query = useQuery({
     queryKey: DASHBOARD_LAYOUT_QUERY_KEY,
@@ -103,7 +107,9 @@ export function useDashboardLayout(): DashboardLayoutState {
     },
   });
 
-  const layout = query.data?.layout ?? (query.isError ? defaultDashboardLayout() : null);
+  const layout =
+    query.data?.layout ??
+    (query.isError ? defaultDashboardLayout({ fleetUser, fleetsEnabled }) : null);
   return {
     layout,
     customized: query.data?.customized ?? false,

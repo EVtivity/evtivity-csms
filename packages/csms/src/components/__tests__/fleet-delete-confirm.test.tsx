@@ -25,7 +25,7 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-vi.mock('@/lib/auth', () => ({ useHasAllSiteAccess: () => true }));
+vi.mock('@/lib/auth', () => ({ useHasAllSiteAccess: () => true, useHasPermission: () => true }));
 vi.mock('@/lib/timezone', () => ({
   useUserTimezone: () => 'UTC',
   formatDateTime: (value: string) => value,

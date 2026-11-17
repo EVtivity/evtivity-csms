@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
-import { faultUnbilledSession, writeCsmsSessionAudit } from '@evtivity/database';
+import {
+  cardLimitBindsSession,
+  faultUnbilledSession,
+  writeCsmsSessionAudit,
+} from '@evtivity/database';
 import { notificationMoney, publishOcppCommand } from '@evtivity/lib';
 import type { StationMessageState } from '@evtivity/lib';
 import {
@@ -12,6 +16,7 @@ import {
 } from '@evtivity/services/refused-start-stop';
 import type { PaymentStopTarget } from '@evtivity/services/refused-start-stop';
 import { dispatchDriverNotification, ALL_TEMPLATES_DIRS } from '../notification-dispatcher.js';
+import { sendSessionCardMonthlyLimitNotice } from '../card-limit-notice.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
 
 /** What the claim of a ceiling stop returns for the driver's prepaid notice. */
@@ -33,7 +38,8 @@ export type PaymentStopReason =
   | 'AnonymousSession'
   | 'PrepaidCreditExhausted'
   | 'GuestHoldExhausted'
-  | 'AccountCreditLimit';
+  | 'AccountCreditLimit'
+  | 'CardMonthlyLimit';
 
 /** Driver notice of a session the fleet credit limit refused at its start or stopped at its ceiling. */
 export const ACCOUNT_CREDIT_LIMIT_EVENT = 'payment.AccountCreditLimit';
@@ -42,7 +48,8 @@ export const ACCOUNT_CREDIT_LIMIT_EVENT = 'payment.AccountCreditLimit';
 export type CeilingStopReason =
   | 'PrepaidCreditExhausted'
   | 'GuestHoldExhausted'
-  | 'AccountCreditLimit';
+  | 'AccountCreditLimit'
+  | 'CardMonthlyLimit';
 
 /**
  * The reason of a stop at the cost ceiling, from how the session is paid:
@@ -56,7 +63,10 @@ export type CeilingStopReason =
 export function ceilingStopReason(session: {
   billingMode: string | null;
   tokenId: string | null;
+  /** The ceiling is what the session's fleet card may still spend this month. */
+  cardLimitBound?: boolean;
 }): CeilingStopReason {
+  if (session.cardLimitBound === true) return 'CardMonthlyLimit';
   if (session.billingMode === 'account') return 'AccountCreditLimit';
   return session.tokenId != null ? 'PrepaidCreditExhausted' : 'GuestHoldExhausted';
 }
@@ -137,8 +147,14 @@ export async function stopSessionForPayment(
   // The claim is shared with a 2.1 station's CostLimitReached report
   // (noteCostLimitReached), so the notices go out once.
   const accountAtCeiling = reason === 'AccountCreditLimit' && options.atCeiling === true;
+  const cardAtCeiling = reason === 'CardMonthlyLimit' && options.atCeiling === true;
   let ceilingStop: CeilingStopRow | null = null;
-  if (reason === 'PrepaidCreditExhausted' || reason === 'GuestHoldExhausted' || accountAtCeiling) {
+  if (
+    reason === 'PrepaidCreditExhausted' ||
+    reason === 'GuestHoldExhausted' ||
+    accountAtCeiling ||
+    cardAtCeiling
+  ) {
     try {
       ceilingStop = await claimCeilingStop(sql, sessionId, reason, 'any');
       if (ceilingStop == null) return;
@@ -152,7 +168,8 @@ export async function stopSessionForPayment(
     options.faultUnbilled === true ||
     reason === 'PaymentFailed' ||
     reason === 'MissingPaymentMethod' ||
-    (reason === 'AccountCreditLimit' && !accountAtCeiling);
+    (reason === 'AccountCreditLimit' && !accountAtCeiling) ||
+    (reason === 'CardMonthlyLimit' && !cardAtCeiling);
   let faulted = false;
   if (eagerCleanup) {
     try {
@@ -181,13 +198,16 @@ export async function stopSessionForPayment(
   // the stop waits for the grace period (the fault above is already done).
   let stopDeferred = false;
   if (
-    reason === 'AccountCreditLimit' &&
-    !accountAtCeiling &&
+    ((reason === 'AccountCreditLimit' && !accountAtCeiling) ||
+      (reason === 'CardMonthlyLimit' && !cardAtCeiling)) &&
     options.startRefused === true &&
     options.transactionEnded !== true
   ) {
     try {
-      await enqueueRefusedStartStop(target);
+      await enqueueRefusedStartStop(
+        target,
+        reason === 'CardMonthlyLimit' ? 'card_monthly_limit' : 'account_credit_limit',
+      );
       stopDeferred = true;
     } catch (err) {
       logger.warn(
@@ -226,6 +246,10 @@ export async function stopSessionForPayment(
   } else if (accountAtCeiling) {
     // Only the call that claimed the stop gets here.
     await sendAccountCeilingNotices(deps, target);
+  } else if (cardAtCeiling) {
+    // Only the call that claimed the stop gets here.
+    await showPaymentStopMessage(deps, target, 'card_monthly_limit');
+    trackCardMonthlyLimitNotice(deps, target);
   } else {
     // A guest paid by card at the QR checkout; the hold ended the session
     // as the checkout said. No station message.
@@ -237,6 +261,7 @@ export async function stopSessionForPayment(
       PrepaidCreditExhausted: 'prepaid_exhausted',
       GuestHoldExhausted: null,
       AccountCreditLimit: 'account_credit_limit',
+      CardMonthlyLimit: 'card_monthly_limit',
     };
     // A deferred stop shows its message from the job, with the stop.
     const messageState = stopDeferred ? null : stateByReason[reason];
@@ -245,6 +270,9 @@ export async function stopSessionForPayment(
 
   if (reason === 'AccountCreditLimit' && faulted) {
     await sendAccountCreditLimitNotice(deps, target);
+  }
+  if (reason === 'CardMonthlyLimit' && faulted) {
+    trackCardMonthlyLimitNotice(deps, target);
   }
 
   // The audit helper logs its own failures (fail-open).
@@ -390,6 +418,15 @@ export async function noteCostLimitReached(
     await sendPrepaidExhaustedNotices(deps, target, prepaid);
     return true;
   }
+  // A fleet card whose ceiling is its monthly limit stops for the card, not
+  // the fleet credit, and its ceiling never grows past the card.
+  if (await cardLimitBindsSession(deps.sql, target.sessionId)) {
+    const card = await claimCeilingStop(deps.sql, target.sessionId, 'CardMonthlyLimit', 'any');
+    if (card == null) return false;
+    await showPaymentStopMessage(deps, target, 'card_monthly_limit');
+    trackCardMonthlyLimitNotice(deps, target);
+    return true;
+  }
   if (options.accountCeilingRaised === true) return false;
   const account = await claimCeilingStop(
     deps.sql,
@@ -420,7 +457,9 @@ async function claimCeilingStop(
       SET stopped_reason = ${reason}, updated_at = now()
       WHERE id = ${sessionId} AND status = 'active' AND stopped_reason IS NULL
         AND (${only} <> 'prepaid' OR (token_id IS NOT NULL AND cost_ceiling_cents IS NOT NULL
-             AND billing_mode IS DISTINCT FROM 'account'))
+             AND billing_mode IS DISTINCT FROM 'account'
+             AND NOT EXISTS (SELECT 1 FROM driver_tokens fc
+                             WHERE fc.id = token_id AND fc.fleet_id IS NOT NULL)))
         AND (${only} <> 'account' OR (billing_mode = 'account' AND cost_ceiling_cents IS NOT NULL))
       RETURNING id, driver_id, token_id, station_id, cost_ceiling_cents, currency
     )
@@ -440,6 +479,16 @@ async function claimCeilingStop(
  * `payment.AccountCreditLimit` notice of an account session stopped at the
  * fleet credit it reserved (plan S8). Both fail-open (P9).
  */
+/**
+ * The member notice of a fleet RFID card the monthly limit refused or
+ * stopped, in the background (fail-open; tracked so shutdown waits for it).
+ */
+function trackCardMonthlyLimitNotice(deps: ProjectionDeps, target: StopTarget): void {
+  void deps.eventBus.track(
+    sendSessionCardMonthlyLimitNotice(deps, target.sessionId, target.ocppStationId),
+  );
+}
+
 async function sendAccountCeilingNotices(deps: ProjectionDeps, target: StopTarget): Promise<void> {
   await showPaymentStopMessage(deps, target, 'account_credit_limit');
   await sendAccountCreditLimitNotice(deps, target);

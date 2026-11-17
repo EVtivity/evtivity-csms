@@ -18,6 +18,16 @@ const h = vi.hoisted(() => ({
   existingInvoices: new Set<string>(),
   // Invoice ids a concurrent seed inserts between the existence check and the insert.
   racedInvoices: new Set<string>(),
+  // INSERT ... RETURNING statements (by table) that hit a conflict and return no row.
+  conflicts: new Set<string>(),
+  audits: [] as Array<Record<string, unknown>>,
+}));
+
+vi.mock('../lib/audit.js', () => ({
+  writeAudit: vi.fn((_config: unknown, args: Record<string, unknown>) => {
+    h.audits.push(args);
+    return Promise.resolve();
+  }),
 }));
 
 const dialect = new PgDialect();
@@ -53,6 +63,7 @@ vi.mock('../config.js', () => ({
 const { FLEET_BILLING_DEMO, fleetBillingDemoSessions, seedFleetBillingDemo } =
   await import('../seed-fleet-billing.js');
 const { allocateInvoiceNumber } = await import('../lib/invoice-number.js');
+const { FLEET_USER_PERMISSIONS } = await import('@evtivity/lib');
 
 const NOW = new Date('2026-10-08T12:00:00Z');
 
@@ -62,6 +73,8 @@ beforeEach(() => {
   h.rolledBack = 0;
   h.existingInvoices = new Set();
   h.racedInvoices = new Set();
+  h.conflicts = new Set();
+  h.audits = [];
   vi.mocked(allocateInvoiceNumber).mockClear();
 });
 
@@ -78,7 +91,16 @@ function fakeSql(): { sql: unknown; calls: Call[] } {
           h.existingInvoices.has(values[0] as string) ? [{ '?column?': 1 }] : [],
         );
       }
-      if (text.includes('RETURNING id')) return Promise.resolve([{ id: values[0] }]);
+      if (text.includes('FROM fleets WHERE id')) {
+        return Promise.resolve([{ id: values[0] }]);
+      }
+      if (text.includes('FROM roles WHERE name')) {
+        return Promise.resolve([{ id: 'rol_000000000004' }]);
+      }
+      if (text.includes('RETURNING id')) {
+        const table = /INSERT INTO (\w+)/.exec(text)?.[1] ?? '';
+        return Promise.resolve(h.conflicts.has(table) ? [] : [{ id: values[0] }]);
+      }
       return Promise.resolve([]);
     },
     { json: (value: unknown) => value },
@@ -185,6 +207,61 @@ describe('seedFleetBillingDemo', () => {
     await seedFleetBillingDemo(sql as never, seedInput);
     expect(allocateInvoiceNumber).not.toHaveBeenCalled();
     expect(h.calls.some((c) => c.text.includes('INSERT INTO invoices ('))).toBe(false);
+  });
+
+  it('adds the Fleet Manager user with Fleets access, the fleet permissions and the fleet', async () => {
+    const { sql } = fakeSql();
+    await seedFleetBillingDemo(sql as never, seedInput);
+
+    const user = h.calls.find((c) => c.text.includes('INSERT INTO users'));
+    expect(user?.text).toContain("'fleets'");
+    expect(user?.text).toContain('ON CONFLICT (email) DO NOTHING');
+    expect(user?.values).toContain(FLEET_BILLING_DEMO.fleetUserEmail);
+    expect(user?.values).toContain('rol_000000000004');
+    expect(await argon2.verify(user?.values[2] as string, 'fleet123')).toBe(true);
+    const userId = user?.values[0];
+    const permissions = h.calls
+      .filter((c) => c.text.includes('INSERT INTO user_permissions'))
+      .map((c) => c.values[1]);
+    expect(permissions).toEqual([...FLEET_USER_PERMISSIONS]);
+    const assignment = h.calls.find((c) => c.text.includes('INSERT INTO user_fleet_assignments'));
+    expect(assignment?.values.slice(1)).toEqual([userId, FLEET_BILLING_DEMO.fleetId]);
+  });
+
+  it('leaves an existing fleet user, its permissions and its fleets untouched', async () => {
+    h.conflicts = new Set(['users']);
+    const { sql } = fakeSql();
+    await seedFleetBillingDemo(sql as never, seedInput);
+    expect(h.calls.some((c) => c.text.includes('INSERT INTO user_permissions'))).toBe(false);
+    expect(h.calls.some((c) => c.text.includes('INSERT INTO user_fleet_assignments'))).toBe(false);
+  });
+
+  it('adds a pool card and a member card to the fleet, each audited once', async () => {
+    const { sql } = fakeSql();
+    await seedFleetBillingDemo(sql as never, seedInput);
+
+    const cards = h.calls.filter((c) => c.text.includes('INSERT INTO driver_tokens'));
+    expect(cards.map((c) => c.values.slice(0, 3))).toEqual([
+      [FLEET_BILLING_DEMO.poolCardId, null, FLEET_BILLING_DEMO.fleetId],
+      [
+        FLEET_BILLING_DEMO.memberCardId,
+        FLEET_BILLING_DEMO.accountDriverId,
+        FLEET_BILLING_DEMO.fleetId,
+      ],
+    ]);
+    const cardIds: unknown[] = [FLEET_BILLING_DEMO.poolCardId, FLEET_BILLING_DEMO.memberCardId];
+    const cardAudits = h.audits.filter((a) => cardIds.includes(a['entityId']));
+    expect(cardAudits.map((a) => [a['entityId'], a['action'], a['actor']])).toEqual([
+      [FLEET_BILLING_DEMO.poolCardId, 'created', 'system'],
+      [FLEET_BILLING_DEMO.memberCardId, 'created', 'system'],
+    ]);
+  });
+
+  it('audits no card a previous run inserted', async () => {
+    h.conflicts = new Set(['driver_tokens', 'users']);
+    const { sql } = fakeSql();
+    await seedFleetBillingDemo(sql as never, seedInput);
+    expect(h.audits).toEqual([]);
   });
 
   it('rolls the number back when a concurrent seed inserted the invoice first', async () => {

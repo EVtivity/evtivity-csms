@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, sql } from 'drizzle-orm';
 import {
@@ -29,13 +29,14 @@ import { sessionListSort } from '../lib/sorts/session-list-sort.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
+import { FLEET_CARD_MONTHLY_LIMIT_MAX_CENTS } from '@evtivity/lib/fleet-card';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { authorize } from '../middleware/rbac.js';
-import { getUserSiteIds } from '../lib/site-access.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
+import { getUserSiteIds, isAllSiteUser } from '../lib/site-access.js';
 import { sessionsAtSites } from '../lib/session-site-scope.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { tokenLabelSchema } from '../lib/token-label.js';
@@ -65,10 +66,10 @@ const tokenItem = z
     revokedAt: z.coerce.date().nullable().describe('Timestamp the token was last deactivated'),
     revokedReason: z.string().nullable().describe('Optional operator-supplied reason'),
     deactivatedBy: z
-      .enum(['operator', 'driver', 'system'])
+      .enum(['operator', 'driver', 'system', 'fleet'])
       .nullable()
       .describe(
-        'Who deactivated the token, null while active. A driver can reactivate only a token the driver deactivated',
+        'Who deactivated the token, null while active (fleet: a fleet user). A driver can reactivate only a token the driver deactivated',
       ),
     prepaidBalanceCents: z
       .number()
@@ -81,6 +82,18 @@ const tokenItem = z
       .string()
       .nullable()
       .describe('Vehicle the card belongs to (a vehicle of the card driver), null for none'),
+    fleetId: z
+      .string()
+      .nullable()
+      .describe('Fleet that owns the card (a fleet RFID card), null for a driver card'),
+    monthlyLimitCents: z
+      .number()
+      .nullable()
+      .optional()
+      .describe(
+        'Monthly spending limit of a fleet card in cents of the company currency, null for none',
+      ),
+    fleetName: z.string().nullable().describe('Name of the fleet that owns the card, null if none'),
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
     driverFirstName: z
@@ -114,6 +127,17 @@ const tokenCreated = z
       .string()
       .nullable()
       .describe('Vehicle the card belongs to (a vehicle of the card driver), null for none'),
+    fleetId: z
+      .string()
+      .nullable()
+      .describe('Fleet that owns the card (a fleet RFID card), null for a driver card'),
+    monthlyLimitCents: z
+      .number()
+      .nullable()
+      .optional()
+      .describe(
+        'Monthly spending limit of a fleet card in cents of the company currency, null for none',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
   })
@@ -157,6 +181,17 @@ const tokenParams = z.object({
   id: ID_PARAMS.driverTokenId.describe('Token ID'),
 });
 
+const monthlyLimitSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(FLEET_CARD_MONTHLY_LIMIT_MAX_CENTS)
+  .nullable()
+  .optional()
+  .describe(
+    'Most a fleet card may cost in one calendar month of the system timezone, in cents of the company currency (1 to 100000000); null for no limit. A card without a fleet answers 400 VALIDATION_ERROR; a card moved out of its fleet loses its limit',
+  );
+
 const createTokenBody = z.object({
   driverId: ID_PARAMS.driverId.optional().describe('Driver ID to assign this token to'),
   idToken: z.string().min(1).max(255).describe('Token identifier'),
@@ -170,6 +205,13 @@ const createTokenBody = z.object({
     .describe(
       'Vehicle the card belongs to (a card per bus), a vehicle of the card driver; null for none. Another driver vehicle answers 400 VALIDATION_ERROR',
     ),
+  fleetId: ID_PARAMS.fleetId
+    .nullable()
+    .optional()
+    .describe(
+      'Fleet that owns the card (a fleet RFID card), null for a driver card. A card with a fleet and a driver needs the driver to be an active member of that fleet (400 FLEET_CARD_DRIVER_NOT_MEMBER); an unknown fleet answers 404 FLEET_NOT_FOUND',
+    ),
+  monthlyLimitCents: monthlyLimitSchema,
 });
 
 const updateTokenBody = z
@@ -200,6 +242,13 @@ const updateTokenBody = z
       .describe(
         'Vehicle the card belongs to (a card per bus), a vehicle of the card driver; null for none. Another driver vehicle answers 400 VALIDATION_ERROR',
       ),
+    fleetId: ID_PARAMS.fleetId
+      .nullable()
+      .optional()
+      .describe(
+        'Fleet that owns the card (a fleet RFID card), null for a driver card. A card with a fleet and a driver needs the driver to be an active member of that fleet (400 FLEET_CARD_DRIVER_NOT_MEMBER); an unknown fleet answers 404 FLEET_NOT_FOUND',
+      ),
+    monthlyLimitCents: monthlyLimitSchema,
     expectedPrepaidBalanceCents: z
       .number()
       .int()
@@ -240,6 +289,7 @@ const importTokenBody = z.object({
 const tokenFilterQuery = {
   tokenType: z.string().max(20).optional().describe('Filter by token type'),
   status: z.enum(['active', 'inactive']).optional().describe('Filter by token status'),
+  fleetId: ID_PARAMS.fleetId.optional().describe('Filter by the fleet that owns the card'),
 };
 
 const tokenListQuery = paginationQuery.extend({
@@ -255,6 +305,57 @@ const tokenExportQuery = z.object({
   search: z.string().max(255).optional().describe('Search token value or driver name or email'),
   ...tokenFilterQuery,
 });
+
+const FLEET_CARD_SITE_SCOPE = {
+  error: 'Only an operator with access to every site changes a fleet RFID card',
+  code: 'FORBIDDEN',
+} as const;
+
+const FLEET_CARD_PERMISSION = {
+  error: 'Changing fleet RFID cards needs the fleetCards:write permission',
+  code: 'INSUFFICIENT_PERMISSIONS',
+} as const;
+
+/**
+ * Fleet RFID cards are a feature permission on this shared route: a card's
+ * fleet, its monthly limit and every write of a card that has a fleet need
+ * fleetCards:write on top of drivers:write. True when the reply was sent; the
+ * token service checks again on the locked row (fleetCardsWrite).
+ */
+async function refuseFleetCardPermission(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  check: {
+    tokenIds?: readonly string[] | undefined;
+    fleetId?: string | null | undefined;
+    monthlyLimitCents?: number | null | undefined;
+  },
+): Promise<boolean> {
+  if (await requestHasPermission(request, 'fleetCards:write')) return false;
+  const fieldSet = check.fleetId != null || check.monthlyLimitCents != null;
+  if (!fieldSet && !(await tokenService.anyFleetCard(check.tokenIds ?? []))) return false;
+  await reply.status(403).send(FLEET_CARD_PERMISSION);
+  return true;
+}
+
+/**
+ * Fleet cards span every site: a site-restricted operator writes none of them,
+ * whatever it changes. True when the reply was sent; the token service checks
+ * again on the locked row.
+ */
+async function refuseFleetCardWrite(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  tokenId: string,
+  fleetId?: string | null,
+): Promise<boolean> {
+  const { userId } = request.user as { userId: string };
+  if (await isAllSiteUser(userId)) return false;
+  const current = fleetId != null ? null : await tokenService.getToken(tokenId);
+  if (fleetId == null && current?.fleetId == null) return false;
+  await reply.status(403).send(FLEET_CARD_SITE_SCOPE);
+  return true;
+}
 
 export function tokenRoutes(app: FastifyInstance): void {
   app.get(
@@ -368,6 +469,10 @@ export function tokenRoutes(app: FastifyInstance): void {
               .object({ updated: z.number().int().min(0).describe('Number of tokens updated') })
               .loose(),
           ),
+          403: errorWith(
+            'A site-restricted operator named a fleet RFID card, or a caller without fleetCards:write did',
+            [ERROR_CODES.FORBIDDEN, ERROR_CODES.INSUFFICIENT_PERMISSIONS],
+          ),
           409: errorWith('Inactive driver or a revoked Plug and Charge contract', [
             ERROR_CODES.DRIVER_INACTIVE,
             ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
@@ -377,13 +482,23 @@ export function tokenRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { ids, isActive } = request.body as z.infer<typeof bulkActiveBody>;
+      if (await refuseFleetCardPermission(request, reply, { tokenIds: ids })) return;
       try {
         return await tokenService.bulkSetActive(
           ids,
           isActive,
           tokenService.tokenActorOf(getAuditActor(request)),
+          { fleetCardsWrite: await requestHasPermission(request, 'fleetCards:write') },
         );
       } catch (err) {
+        if (err instanceof tokenService.FleetCardSiteScopeError) {
+          await reply.status(403).send(FLEET_CARD_SITE_SCOPE);
+          return;
+        }
+        if (err instanceof tokenService.FleetCardPermissionError) {
+          await reply.status(403).send(FLEET_CARD_PERMISSION);
+          return;
+        }
         if (err instanceof tokenService.PncContractTokenError) {
           await reply.status(409).send({
             error: 'This token is the eMAID of a Plug and Charge contract',
@@ -525,15 +640,26 @@ export function tokenRoutes(app: FastifyInstance): void {
         body: zodSchema(createTokenBody),
         response: {
           201: itemResponse(tokenCreated),
-          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          400: errorWith('The driver is not an active member of the card fleet', [
+            ERROR_CODES.FLEET_CARD_DRIVER_NOT_MEMBER,
+          ]),
+          403: errorWith(
+            'A site-restricted operator named a fleet, or a caller without fleetCards:write set a fleet or a monthly limit or re-added a fleet card',
+            [ERROR_CODES.FORBIDDEN, ERROR_CODES.INSUFFICIENT_PERMISSIONS],
+          ),
+          404: errorWith('Driver or fleet not found', [
+            ERROR_CODES.DRIVER_NOT_FOUND,
+            ERROR_CODES.FLEET_NOT_FOUND,
+          ]),
           409: errorWith(
-            "Duplicate token, inactive driver, a Plug and Charge contract token, another driver's vehicle id, or a balance on a reactivated card that already holds one",
+            "Duplicate token, inactive driver, a Plug and Charge contract token, another driver's vehicle id, a balance on a reactivated card that already holds one, or a fleet that does not bill on account",
             [
               ERROR_CODES.TOKEN_DUPLICATE,
               ERROR_CODES.DRIVER_INACTIVE,
               ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
               ERROR_CODES.VEHICLE_ID_IN_USE,
               ERROR_CODES.PREPAID_BALANCE_CONFLICT,
+              ERROR_CODES.FLEET_CARD_NOT_BILLABLE,
             ],
           ),
         },
@@ -541,10 +667,18 @@ export function tokenRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const body = parseZodRequest(createTokenBody, request.body);
+      // Fleet cards span every site: a site-restricted operator names no fleet.
+      const { userId } = request.user as { userId: string };
+      if (body.fleetId != null && !(await isAllSiteUser(userId))) {
+        await reply.status(403).send(FLEET_CARD_SITE_SCOPE);
+        return;
+      }
+      if (await refuseFleetCardPermission(request, reply, body)) return;
       try {
         const token = await tokenService.createToken(
           body,
           tokenService.tokenActorOf(getAuditActor(request)),
+          { fleetCardsWrite: await requestHasPermission(request, 'fleetCards:write') },
         );
         await reply.status(201).send(token);
       } catch (err) {
@@ -554,6 +688,32 @@ export function tokenRoutes(app: FastifyInstance): void {
           await reply.status(409).send({
             error: 'The card already holds a prepaid balance: change it on the token',
             code: 'PREPAID_BALANCE_CONFLICT',
+          });
+          return;
+        }
+        if (err instanceof tokenService.FleetCardSiteScopeError) {
+          await reply.status(403).send(FLEET_CARD_SITE_SCOPE);
+          return;
+        }
+        if (err instanceof tokenService.FleetCardPermissionError) {
+          await reply.status(403).send(FLEET_CARD_PERMISSION);
+          return;
+        }
+        if (err instanceof tokenService.TokenFleetNotFoundError) {
+          await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+          return;
+        }
+        if (err instanceof tokenService.FleetCardNotBillableError) {
+          await reply.status(409).send({
+            error: 'The fleet does not bill on account, so its RFID cards cannot charge',
+            code: 'FLEET_CARD_NOT_BILLABLE',
+          });
+          return;
+        }
+        if (err instanceof tokenService.FleetCardDriverNotMemberError) {
+          await reply.status(400).send({
+            error: 'The driver is not an active member of the fleet',
+            code: 'FLEET_CARD_DRIVER_NOT_MEMBER',
           });
           return;
         }
@@ -603,21 +763,28 @@ export function tokenRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTokenBody),
         response: {
           200: itemResponse(tokenCreated),
-          400: errorWith('prepaidBalanceCents without expectedPrepaidBalanceCents', [
-            ERROR_CODES.VALIDATION_ERROR,
-          ]),
-          404: errorWith('Token or driver not found', [
+          400: errorWith(
+            'prepaidBalanceCents without expectedPrepaidBalanceCents, or a fleet card given to a driver that is not an active member of the fleet',
+            [ERROR_CODES.VALIDATION_ERROR, ERROR_CODES.FLEET_CARD_DRIVER_NOT_MEMBER],
+          ),
+          403: errorWith(
+            'A site-restricted operator changed a fleet RFID card, or a caller without fleetCards:write did',
+            [ERROR_CODES.FORBIDDEN, ERROR_CODES.INSUFFICIENT_PERMISSIONS],
+          ),
+          404: errorWith('Token, driver or fleet not found', [
             ERROR_CODES.TOKEN_NOT_FOUND,
             ERROR_CODES.DRIVER_NOT_FOUND,
+            ERROR_CODES.FLEET_NOT_FOUND,
           ]),
           409: errorWith(
-            'Duplicate token, inactive driver, a Plug and Charge contract token, a vehicle id in use, or a stale expectedPrepaidBalanceCents',
+            'Duplicate token, inactive driver, a Plug and Charge contract token, a vehicle id in use, a stale expectedPrepaidBalanceCents, or a fleet that does not bill on account',
             [
               ERROR_CODES.TOKEN_DUPLICATE,
               ERROR_CODES.DRIVER_INACTIVE,
               ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
               ERROR_CODES.VEHICLE_ID_IN_USE,
               ERROR_CODES.PREPAID_BALANCE_CONFLICT,
+              ERROR_CODES.FLEET_CARD_NOT_BILLABLE,
             ],
           ),
         },
@@ -626,11 +793,22 @@ export function tokenRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof tokenParams>;
       const body = parseZodRequest(updateTokenBody, request.body);
+      if (await refuseFleetCardWrite(request, reply, id, body.fleetId)) return;
+      if (
+        await refuseFleetCardPermission(request, reply, {
+          tokenIds: [id],
+          fleetId: body.fleetId,
+          monthlyLimitCents: body.monthlyLimitCents,
+        })
+      ) {
+        return;
+      }
       try {
         const token = await tokenService.updateToken(
           id,
           body,
           tokenService.tokenActorOf(getAuditActor(request)),
+          { fleetCardsWrite: await requestHasPermission(request, 'fleetCards:write') },
         );
         if (token == null) {
           await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
@@ -638,6 +816,32 @@ export function tokenRoutes(app: FastifyInstance): void {
         }
         return token;
       } catch (err) {
+        if (err instanceof tokenService.FleetCardSiteScopeError) {
+          await reply.status(403).send(FLEET_CARD_SITE_SCOPE);
+          return;
+        }
+        if (err instanceof tokenService.FleetCardPermissionError) {
+          await reply.status(403).send(FLEET_CARD_PERMISSION);
+          return;
+        }
+        if (err instanceof tokenService.TokenFleetNotFoundError) {
+          await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+          return;
+        }
+        if (err instanceof tokenService.FleetCardNotBillableError) {
+          await reply.status(409).send({
+            error: 'The fleet does not bill on account, so its RFID cards cannot charge',
+            code: 'FLEET_CARD_NOT_BILLABLE',
+          });
+          return;
+        }
+        if (err instanceof tokenService.FleetCardDriverNotMemberError) {
+          await reply.status(400).send({
+            error: 'The driver is not an active member of the fleet',
+            code: 'FLEET_CARD_DRIVER_NOT_MEMBER',
+          });
+          return;
+        }
         if (err instanceof tokenService.TokenDriverNotFoundError) {
           await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
           return;
@@ -697,6 +901,10 @@ export function tokenRoutes(app: FastifyInstance): void {
         params: zodSchema(tokenParams),
         response: {
           200: itemResponse(tokenCreated),
+          403: errorWith(
+            'A site-restricted operator deleted a fleet RFID card, or a caller without fleetCards:write did',
+            [ERROR_CODES.FORBIDDEN, ERROR_CODES.INSUFFICIENT_PERMISSIONS],
+          ),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
           409: errorWith('Token in use, or the eMAID of an active Plug and Charge contract', [
             ERROR_CODES.TOKEN_IN_USE,
@@ -707,6 +915,8 @@ export function tokenRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof tokenParams>;
+      if (await refuseFleetCardWrite(request, reply, id)) return;
+      if (await refuseFleetCardPermission(request, reply, { tokenIds: [id] })) return;
 
       const [activeSession] = await db
         .select({ id: chargingSessions.id })
@@ -726,8 +936,17 @@ export function tokenRoutes(app: FastifyInstance): void {
         token = await tokenService.deleteToken(
           id,
           tokenService.tokenActorOf(getAuditActor(request)),
+          { fleetCardsWrite: await requestHasPermission(request, 'fleetCards:write') },
         );
       } catch (err) {
+        if (err instanceof tokenService.FleetCardSiteScopeError) {
+          await reply.status(403).send(FLEET_CARD_SITE_SCOPE);
+          return;
+        }
+        if (err instanceof tokenService.FleetCardPermissionError) {
+          await reply.status(403).send(FLEET_CARD_PERMISSION);
+          return;
+        }
         if (err instanceof tokenService.PncContractTokenError) {
           await reply.status(409).send({
             error: 'This token is the eMAID of a Plug and Charge contract',

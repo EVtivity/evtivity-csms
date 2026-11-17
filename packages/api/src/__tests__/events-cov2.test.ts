@@ -8,6 +8,10 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('@evtivity/database', () => ({
   db: {},
   client: {},
@@ -49,6 +53,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
+import { resetFleetScopeMock, setMockUserAccess } from './helpers/fleet-scope-mock.js';
 import { getUserSessionState } from '../lib/user-active.js';
 import { startCacheInvalidateListener } from '../services/cache-invalidate-listener.js';
 import {
@@ -164,6 +169,25 @@ describe('event stream fan-out', () => {
 
     scoped.req.destroy();
     admin.req.destroy();
+  }, 5000);
+
+  it('keeps a fleet user stream open but delivers it no event', async () => {
+    getUserSiteIds.mockResolvedValueOnce([]).mockResolvedValueOnce(null);
+    setMockUserAccess('usr_fleet', { kind: 'fleets', fleetIds: ['flt_aaaaaaaaaaaa'] });
+    const fleet = await openStream(port, app.jwt.sign({ userId: 'usr_fleet', roleId: 'rol_1' }));
+    const admin = await openStream(port, app.jwt.sign({ userId: 'usr_2', roleId: 'rol_1' }));
+    const handler = handlers[0]!;
+
+    handler(JSON.stringify({ type: 'ai.x', n: 1 }));
+    handler(JSON.stringify({ eventType: 'token.changed', tokenId: 'tok_1', n: 2 }));
+    await admin.waitFor('"n":2');
+
+    expect(admin.chunks.join('')).toContain('"n":1');
+    expect(fleet.chunks.join('')).not.toContain('data:');
+
+    fleet.req.destroy();
+    admin.req.destroy();
+    resetFleetScopeMock();
   }, 5000);
 
   it('unsubscribes when the last client disconnects and resubscribes for a new client', async () => {

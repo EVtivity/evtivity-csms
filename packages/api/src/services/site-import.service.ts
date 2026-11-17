@@ -495,10 +495,13 @@ export async function importSitesCsv(
         // in both paths, so the import can neither move it nor add EVSEs
         // and connectors to it. The message is the same whatever the reason,
         // so it does not say where the station is.
+        // Locked, so a boot that reports the model or serial number meanwhile
+        // waits and the reported field check below decides on the row it sees.
         const [previous] = await tx
           .select()
           .from(chargingStations)
-          .where(eq(chargingStations.stationId, stationId));
+          .where(eq(chargingStations.stationId, stationId))
+          .for('update');
         if (previous != null && !siteInScope(allowedSiteIds ?? null, previous.siteId)) {
           for (const entry of stationRows) {
             result.errors.push(

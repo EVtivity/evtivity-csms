@@ -12,11 +12,13 @@ import { AiAssistantLauncher } from '@/components/ai/AiAssistantLauncher';
 import { AiAlertsBanner } from '@/components/ai/alerts/AiAlertsBanner';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { UserDropdown } from '@/components/layout/UserDropdown';
-import { useAuth, useHasAllSiteAccess } from '@/lib/auth';
+import { useAuth, useHasAllSiteAccess, useIsFleetUser } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { useEventStream } from '@/hooks/use-event-stream';
 import { api } from '@/lib/api';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { FleetsOffPage } from '@/components/FleetsOffPage';
+import { NoFleetsPage } from '@/components/NoFleetsPage';
 import { useSimsExist } from '@/hooks/use-sims-exist';
 import { visibleNavEntries, type NavEntry } from '@/navigation/registry';
 import { usePaymentTerminalFeature } from '@/components/payment-terminals/payment-terminal-types';
@@ -87,6 +89,9 @@ function SidebarContent({
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebar-collapsed';
 
+/** The pages a fleet user without a fleet still opens. */
+const NO_FLEET_PATHS: ReadonlySet<string> = new Set(['/profile', '/settings']);
+
 export function Layout(): React.JSX.Element {
   const { t } = useTranslation();
   useEventStream();
@@ -137,12 +142,16 @@ export function Layout(): React.JSX.Element {
 
   const permissions = useAuth((s) => s.permissions);
   const hasAllSiteAccess = useHasAllSiteAccess();
+  const isFleetUser = useIsFleetUser();
+  const fleetIds = useAuth((s) => s.fleetIds);
   const { available: paymentTerminalsEnabled } = usePaymentTerminalFeature();
   const simsExist = useSimsExist(featureFlags.simEnabled);
   const visibleNavItems = visibleNavEntries(
     permissions,
     { ...featureFlags, paymentTerminalsEnabled, simsExist },
     hasAllSiteAccess,
+    undefined,
+    isFleetUser,
   );
 
   useEffect(() => {
@@ -235,7 +244,15 @@ export function Layout(): React.JSX.Element {
         <main className="flex-1 overflow-auto bg-background px-4 py-4 lg:px-6 lg:py-6">
           {/* Settings > AI shows the same alerts at its top. */}
           {!onAiSettings && <AiAlertsBanner className="mb-4" />}
-          <Outlet />
+          {/* While Fleets is off a fleet user keeps only its profile. */}
+          {isFleetUser && !featureFlags.fleetEnabled && location.pathname !== '/profile' ? (
+            <FleetsOffPage />
+          ) : isFleetUser && fleetIds.length === 0 && !NO_FLEET_PATHS.has(location.pathname) ? (
+            // A fleet user without a fleet keeps its profile and its API keys.
+            <NoFleetsPage />
+          ) : (
+            <Outlet />
+          )}
         </main>
       </div>
       <AiAssistantLauncher />

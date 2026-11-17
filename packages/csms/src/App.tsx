@@ -14,6 +14,7 @@ import { Layout } from '@/components/Layout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminRoute } from '@/components/AdminRoute';
 import { AllSiteRoute } from '@/components/AllSiteRoute';
+import { FleetUserRoute } from '@/components/FleetUserRoute';
 import { Login } from '@/pages/Login';
 import { ForgotPassword } from '@/pages/ForgotPassword';
 import { ResetPassword } from '@/pages/ResetPassword';
@@ -308,7 +309,9 @@ export function App(): React.JSX.Element {
                 <Route
                   element={
                     <ProtectedRoute>
-                      <Layout />
+                      <FleetUserRoute>
+                        <Layout />
+                      </FleetUserRoute>
                     </ProtectedRoute>
                   }
                 >

@@ -27,7 +27,11 @@ import {
   FLEET_INVOICE_PERIOD_PATTERN,
   type FleetInvoiceResult,
 } from '@evtivity/services/fleet-invoice.service';
-import { sendAccountInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
+import {
+  notifyFleetManagersOfInvoice,
+  sendAccountInvoiceEmail,
+} from '@evtivity/services/fleet-invoice-notice';
+import { config } from '../lib/config.js';
 import { enqueueMemberInvoiceBatch } from '@evtivity/services/fleet-invoice-run';
 import { getInvoice } from '@evtivity/services/invoice.service';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
@@ -45,7 +49,11 @@ import { errorWith, itemResponse, paginatedResponse } from '../lib/response-sche
 import { authorize } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
-import { refuseSiteRestrictedFleetBilling } from '../lib/fleet-billing-access.js';
+import {
+  refuseFleetBillingRead,
+  refuseSiteRestrictedFleetBilling,
+} from '../lib/fleet-billing-access.js';
+import { isFleetUser } from '../lib/fleet-scope.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { invoiceDetailItem, invoiceListItem, invoiceListColumns } from './invoices.js';
 import { moveSessionsBilling } from '../services/session-billing-recipient.service.js';
@@ -156,8 +164,14 @@ const batchResponse = z
 
 const driverTotal = z
   .object({
-    driverId: z.string().nullable().describe('Driver ID; null when the driver was deleted'),
+    driverId: z
+      .string()
+      .nullable()
+      .describe('Driver ID; null when the driver was deleted or for the fleet RFID cards'),
     driverName: z.string().describe('Driver name'),
+    fleetCards: z
+      .boolean()
+      .describe('True for the sessions of fleet RFID cards no member held (no driver)'),
     sessionCount: z.number().int().describe('Sessions billed for the driver'),
     energyWh: z.number().describe('Energy delivered in Wh'),
     netCents: z.number().int().describe('Net amount in cents'),
@@ -229,8 +243,15 @@ const unbilledResponse = z
     drivers: z.array(driverTotal).describe('Totals per driver, ordered by name'),
     excluded: z
       .array(excludedSession)
-      .describe('Unbilled account sessions the invoice leaves off (at most 100)'),
-    excludedCount: z.number().int().describe('Number of sessions left off'),
+      .optional()
+      .describe(
+        'Unbilled account sessions the invoice leaves off (at most 100). Left out for a fleet user',
+      ),
+    excludedCount: z
+      .number()
+      .int()
+      .optional()
+      .describe('Number of sessions left off. Left out for a fleet user'),
     existingInvoice: periodInvoice
       .nullable()
       .describe(
@@ -238,8 +259,9 @@ const unbilledResponse = z
       ),
     members: z
       .array(memberTotal)
+      .optional()
       .describe(
-        'Member invoices of the period, ordered by name: each driver with unbilled member-billed sessions with a cost or a live member invoice of the period. The totals above cover the fleet sessions only',
+        'Member invoices of the period, ordered by name: each driver with unbilled member-billed sessions with a cost or a live member invoice of the period. The totals above cover the fleet sessions only. Left out for a fleet user',
       ),
   })
   .loose();
@@ -307,11 +329,12 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
     '/fleets/:id/billing/unbilled',
     {
       onRequest: [authorize('payments:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'Preview the fleet invoice of a period',
         description:
-          'What the fleet invoice of a calendar month (system timezone) would bill: the fleet sessions billed on account (no payment record) that no invoice billed yet and that ended before the end of the month, with a cost in the company currency, per driver. Sessions in another currency, without a final cost or with a zero cost are listed in excluded and left off. existingInvoice names the live invoice of the period. Sessions billed to a member (fleets that invoice each driver) are not in the totals: members lists what each member invoice of the period would bill. Reads only. A fleet invoice spans sites: a user restricted to some sites gets 404 FLEET_NOT_FOUND.',
+          'What the fleet invoice of a calendar month (system timezone) would bill: the fleet sessions billed on account (no payment record) that no invoice billed yet and that ended before the end of the month, with a cost in the company currency, per driver. Sessions in another currency, without a final cost or with a zero cost are listed in excluded and left off. existingInvoice names the live invoice of the period. Sessions billed to a member (fleets that invoice each driver) are not in the totals: members lists what each member invoice of the period would bill. Reads only. A fleet invoice spans sites: a user restricted to some sites gets 404 FLEET_NOT_FOUND. A fleet user reads only its assigned fleets and gets the fleet sessions only: no members, excluded or excludedCount.',
         operationId: 'previewFleetInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -324,12 +347,17 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const { id } = request.params as z.infer<typeof fleetParams>;
+      if (await refuseFleetBillingRead(request, reply, id)) return;
       const { period } = request.query as z.infer<typeof unbilledQuery>;
       const month = period ?? previousPeriod(new Date(), await getSystemTimezone());
       // FLEET_NOT_FOUND and VALIDATION_ERROR are AppErrors the error handler sends.
-      return previewFleetInvoice(id, month);
+      const preview = await previewFleetInvoice(id, month);
+      const { userId } = request.user as { userId: string };
+      if (!(await isFleetUser(userId))) return preview;
+      // A fleet user sees only the sessions billed to the fleet: member invoices are
+      // the members' own documents, and a session left off names its driver and cost.
+      return { ...preview, members: undefined, excluded: undefined, excludedCount: undefined };
     },
   );
 
@@ -386,6 +414,11 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
       } catch (err) {
         request.log.warn({ err, invoiceId: invoice.id }, 'Fleet invoice email failed; continuing');
       }
+      await notifyFleetManagersOfInvoice(
+        invoice.id,
+        { templatesDirs: ALL_TEMPLATES_DIRS, csmsUrl: config.CSMS_URL },
+        request.log,
+      );
 
       const detail = await getInvoice(invoice.id);
       await reply.status(201).send({
@@ -593,11 +626,12 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
     '/fleets/:id/invoices',
     {
       onRequest: [authorize('payments:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: "List a fleet's invoices and credit notes",
         description:
-          'The account invoices of the fleet and the credit notes that credit them, newest first, with the billed period and when each was last emailed (sentAt): fleet invoices and, for a fleet that invoices its members, the member invoices of each driver (memberBilled, driverId, driverName). recipient filters fleet or member invoices. A fleet invoice spans sites: a user restricted to some sites gets 404 FLEET_NOT_FOUND.',
+          'The account invoices of the fleet and the credit notes that credit them, newest first, with the billed period and when each was last emailed (sentAt): fleet invoices and, for a fleet that invoices its members, the member invoices of each driver (memberBilled, driverId, driverName). recipient filters fleet or member invoices. A fleet invoice spans sites: a user restricted to some sites gets 404 FLEET_NOT_FOUND. A fleet user reads only its assigned fleets and only the fleet invoices and their credit notes, never member invoices.',
         operationId: 'listFleetInvoices',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -609,14 +643,17 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const { id } = request.params as z.infer<typeof fleetParams>;
+      if (await refuseFleetBillingRead(request, reply, id)) return;
       const query = request.query as z.infer<typeof fleetInvoiceListQuery>;
       const { page, limit, recipient } = query;
-      const where =
-        recipient == null
-          ? eq(invoices.fleetId, id)
-          : and(eq(invoices.fleetId, id), eq(invoices.memberBilled, recipient === 'member'));
+      const { userId } = request.user as { userId: string };
+      const fleetUser = await isFleetUser(userId);
+      const where = and(
+        eq(invoices.fleetId, id),
+        recipient == null ? undefined : eq(invoices.memberBilled, recipient === 'member'),
+        fleetUser ? eq(invoices.memberBilled, false) : undefined,
+      );
       const [data, countResult] = await Promise.all([
         db
           .select({

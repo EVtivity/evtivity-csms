@@ -1,12 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AI_PROVIDER_IDS, decryptString } from '@evtivity/lib';
 import {
   SEED_ENCRYPTED_KEY_MAP,
+  applySeedStationUnitsSetting,
   isPlaintextSecretSettingKey,
   mapSeedSettings,
   seedSettingRows,
@@ -175,5 +176,28 @@ describe('seedSettingRows', () => {
       expect(row.key.endsWith('Enc')).toBe(true);
       expect(String(row.value)).not.toContain('plain-');
     }
+  });
+});
+
+describe('applySeedStationUnitsSetting', () => {
+  it('writes the value through the writer', async () => {
+    const write = vi.fn(() => Promise.resolve({ ok: true as const }));
+    expect(await applySeedStationUnitsSetting(true, write)).toContain('set to true');
+    expect(write).toHaveBeenCalledWith(true);
+  });
+
+  it('keeps the setting on while stations use units', async () => {
+    const write = vi.fn(() =>
+      Promise.resolve({ ok: false as const, reason: 'in_use' as const, stationCount: 2 }),
+    );
+    expect(await applySeedStationUnitsSetting(false, write)).toContain(
+      'kept on: 2 stations use units',
+    );
+  });
+
+  it('refuses a value that is not a boolean, writing nothing', async () => {
+    const write = vi.fn(() => Promise.resolve({ ok: true as const }));
+    await expect(applySeedStationUnitsSetting('false', write)).rejects.toThrow('use true or false');
+    expect(write).not.toHaveBeenCalled();
   });
 });

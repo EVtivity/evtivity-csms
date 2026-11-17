@@ -103,11 +103,18 @@ import {
   seedElectricityRateRows,
   seedSessionElectricityCostCents,
 } from './seed-electricity-rates.js';
-import { mapSeedSettings, seedSettingRows } from './seed-settings.js';
+import {
+  SEED_STATION_UNITS_KEY,
+  applySeedStationUnitsSetting,
+  mapSeedSettings,
+  seedSettingRows,
+} from './seed-settings.js';
+import { writeStationUnitsSetting } from './lib/station-units-setting.js';
 import { demoStationProtocol, STATION_MODELS, STATION_MODELS_16 } from './seed-station-defs.js';
 import argon2 from 'argon2';
 import {
   calculateCo2AvoidedKg,
+  FLEET_MANAGER_ROLE_NAME,
   permissionCatalog,
   STATION_MESSAGE_DEFAULTS,
   STATION_MESSAGE_LANGUAGES,
@@ -873,7 +880,21 @@ async function seed(): Promise<void> {
   console.log(
     `  ${String(addedSettings.length)} settings added, ${String(settingsRows.length - addedSettings.length)} existing kept.`,
   );
-  const explicitRows = settingsRows.filter((row) => row.key in explicitSettings);
+  // Enable Station Units goes through its writer: off is refused while a
+  // station uses units, as on the settings route.
+  const stationUnitsRow = settingsRows.find(
+    (row) => row.key === SEED_STATION_UNITS_KEY && row.key in explicitSettings,
+  );
+  const explicitRows = settingsRows.filter(
+    (row) => row.key in explicitSettings && row.key !== SEED_STATION_UNITS_KEY,
+  );
+  if (applyConfig && stationUnitsRow != null) {
+    console.log(
+      await applySeedStationUnitsSetting(stationUnitsRow.value, (value) =>
+        writeStationUnitsSetting(value, 'upsert'),
+      ),
+    );
+  }
   if (applyConfig && explicitRows.length > 0) {
     await db
       .insert(settings)
@@ -988,7 +1009,12 @@ async function seed(): Promise<void> {
 
     const adminRoleId = await ensureRole('admin', 'Full system access', ['*']);
     await ensureRole('operator', 'Operational access', permissionCatalog.defaultsFor('operator'));
-    console.log('  2 roles ensured.');
+    await ensureRole(
+      FLEET_MANAGER_ROLE_NAME,
+      'Fleet access',
+      permissionCatalog.defaultsFor(FLEET_MANAGER_ROLE_NAME),
+    );
+    console.log('  3 roles ensured.');
 
     // An existing admin keeps its password: a rerun must never reset it.
     const adminUserId = await ensureUser({
@@ -1031,6 +1057,12 @@ async function seed(): Promise<void> {
     .limit(1);
   if (demoMarker != null) {
     console.log('  Demo dataset already present (CS-0003 exists); skipping demo generation.');
+    // Demo rows added after an install was seeded, each created only while missing.
+    const { seedFleetUsersDemo } = await import('./seed-fleet-billing.js');
+    const fleetUsers = await seedFleetUsersDemo(client);
+    console.log(
+      `  Demo fleet user: ${fleetUsers.fleetUser}, ${String(fleetUsers.fleetCards)} demo fleet RFID cards created.`,
+    );
     console.log('Seed complete (demo data skipped).');
     await client.end();
     return;
@@ -1471,7 +1503,12 @@ async function seed(): Promise<void> {
     operatorPermissions,
   );
   await ensureRole('viewer', 'Read-only access', []);
-  console.log('  3 roles ensured.');
+  await ensureRole(
+    FLEET_MANAGER_ROLE_NAME,
+    'Fleet access',
+    permissionCatalog.defaultsFor(FLEET_MANAGER_ROLE_NAME),
+  );
+  console.log('  4 roles ensured.');
 
   // ------ Users (20) ------
   const passwordHash = await argon2.hash('admin123');
@@ -1515,7 +1552,10 @@ async function seed(): Promise<void> {
   const createdUsers = await db.select({ id: users.id, roleId: users.roleId }).from(users);
 
   const permRows: { userId: string; permission: string }[] = [];
+  // Only the admin and operator rows above: a rerun must not give a user of
+  // another role (the demo fleet user) the operator defaults.
   for (const u of createdUsers) {
+    if (u.roleId !== adminRoleId && u.roleId !== operatorRoleId) continue;
     const defaults = permissionCatalog.defaultsFor(u.roleId === adminRoleId ? 'admin' : 'operator');
     for (const perm of defaults) {
       permRows.push({ userId: u.id, permission: perm });

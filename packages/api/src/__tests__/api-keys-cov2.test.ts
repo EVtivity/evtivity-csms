@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -10,6 +10,10 @@ const mockApiKeyService = vi.hoisted(() => ({
   listApiKeys: vi.fn(),
   revokeApiKey: vi.fn(),
 }));
+
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
 
 vi.mock('../services/api-key.service.js', () => mockApiKeyService);
 
@@ -148,6 +152,7 @@ vi.mock('../lib/user-management-scope.js', async (importOriginal) => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
+import { resetFleetScopeMock, setMockUserAccess } from './helpers/fleet-scope-mock.js';
 import { apiKeyRoutes } from '../routes/api-keys.js';
 import { db, writeAudit } from '@evtivity/database';
 
@@ -251,6 +256,92 @@ describe('API key routes: validation and update paths', () => {
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('PERMISSIONS_EXCEED_OWN');
       expect(mockApiKeyService.createApiKey).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fleet user keys', () => {
+    beforeEach(() => {
+      setMockUserAccess(VALID_USER_ID, { kind: 'fleets', fleetIds: [] });
+      effectivePermissions.value = ['fleets:read', 'sessions:read'];
+    });
+    afterEach(() => {
+      resetFleetScopeMock();
+    });
+
+    it('refuses a key scope outside the fleet user list on create and names it', async () => {
+      setupDbResults([]);
+      const res = await post({ name: 'Fleet', permissions: ['fleets:read', 'stations:read'] });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
+        details: { permissions: ['stations:read'] },
+      });
+      expect(mockApiKeyService.createApiKey).not.toHaveBeenCalled();
+    });
+
+    it('refuses widening a key past the fleet user list on update', async () => {
+      setupDbResults([{ id: 5, permissions: ['fleets:read'] }]);
+      const res = await patch('5', { permissions: ['fleets:write'] });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('FLEET_USER_PERMISSION_NOT_ALLOWED');
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('lets a fleet user narrow its key within the list', async () => {
+      setupDbResults([{ id: 5, permissions: ['fleets:read', 'sessions:read'] }], []);
+      const res = await patch('5', { permissions: ['fleets:read'] });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('lets a fleet user key hold the API key permissions of the list', async () => {
+      effectivePermissions.value = [
+        'fleets:read',
+        'settings.apiKeys:read',
+        'settings.apiKeys:write',
+      ];
+      setupDbResults(
+        [
+          {
+            id: 5,
+            permissions: ['fleets:read', 'settings.apiKeys:read', 'settings.apiKeys:write'],
+          },
+        ],
+        [],
+      );
+      const res = await patch('5', { permissions: ['settings.apiKeys:read'] });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('opens the own key routes to fleet users and keeps the routes on other users closed', async () => {
+      const routes: { method: string; url: string; fleetScope: boolean }[] = [];
+      const probe = Fastify();
+      probe.addHook('onRoute', (r) => {
+        const methods = Array.isArray(r.method) ? r.method : [r.method];
+        for (const method of methods) {
+          routes.push({
+            method,
+            url: r.url,
+            fleetScope: (r.config as { fleetScope?: boolean } | undefined)?.fleetScope === true,
+          });
+        }
+      });
+      await registerAuth(probe);
+      apiKeyRoutes(probe);
+      await probe.ready();
+      await probe.close();
+      const open = routes
+        .filter((r) => r.fleetScope && r.method !== 'HEAD')
+        .map((r) => `${r.method} ${r.url}`)
+        .sort();
+      expect(open).toEqual([
+        'DELETE /api-keys/:id',
+        'GET /api-keys',
+        'PATCH /api-keys/:id',
+        'POST /api-keys',
+      ]);
+      expect(routes.filter((r) => r.url.startsWith('/users/')).every((r) => !r.fleetScope)).toBe(
+        true,
+      );
     });
   });
 

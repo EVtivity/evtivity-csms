@@ -70,6 +70,8 @@ vi.mock('@evtivity/database', () => ({
   client: {},
   driverTokens: {},
   drivers: {},
+  fleets: {},
+  fleetDrivers: {},
   users: {},
   tokenAuditLog: {},
   stationLocalAuthEntries: {},

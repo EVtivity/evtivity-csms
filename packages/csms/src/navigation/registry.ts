@@ -67,6 +67,14 @@ export interface NavEntry {
    * answers 404 to site-restricted users).
    */
   requiresAllSiteAccess?: boolean;
+  /** The entry a fleet user sees; a fleet user sees no other entry. */
+  fleetScope?: boolean;
+  /**
+   * The permission a fleet user needs for a `fleetScope` entry, in place of
+   * `requiredPermission` (the Dashboard: fleets:read, a fleet user never holds
+   * dashboard:read).
+   */
+  fleetScopePermission?: string;
 }
 
 /** Every settings tab's read permission: the Settings entry shows when the user holds any. */
@@ -87,6 +95,9 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     icon: LayoutDashboard,
     order: 10,
     requiredPermission: 'dashboard:read',
+    // A fleet user's Dashboard shows its fleet cards and charts.
+    fleetScope: true,
+    fleetScopePermission: 'fleets:read',
   },
   // Infrastructure
   {
@@ -144,6 +155,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     order: 70,
     requiredPermission: 'fleets:read',
     isVisible: (flags) => flags.fleetEnabled,
+    fleetScope: true,
   },
   {
     to: '/tokens',
@@ -247,27 +259,37 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     icon: Settings,
     order: 180,
     requiredPermission: SETTINGS_NAV_PERMISSIONS,
+    // A fleet user reaches its API Keys tab here (settings.apiKeys:read).
+    fleetScope: true,
   },
 ];
 
 /**
  * The entries a user with `permissions` sees under `flags`, in sidebar order.
- * `hasAllSiteAccess` false hides the company-wide entries.
+ * `hasAllSiteAccess` false hides the company-wide entries; a fleet user sees
+ * only the entries marked `fleetScope` (Dashboard, Fleets, and Settings for its API keys),
+ * and none while Fleets is off.
  */
 export function visibleNavEntries(
   permissions: string[],
   flags: NavFlags,
   hasAllSiteAccess: boolean,
   entries: readonly NavEntry[] = NAV_ENTRIES,
+  isFleetUser = false,
 ): NavEntry[] {
+  // While Fleets is off the API answers a fleet user no route at all.
+  if (isFleetUser && !flags.fleetEnabled) return [];
   return entries
     .filter((entry) => {
+      if (isFleetUser && entry.fleetScope !== true) return false;
       if (entry.isVisible != null && !entry.isVisible(flags)) return false;
       if (entry.requiresAllSiteAccess === true && !hasAllSiteAccess) return false;
       const required =
-        typeof entry.requiredPermission === 'string'
-          ? [entry.requiredPermission]
-          : entry.requiredPermission;
+        isFleetUser && entry.fleetScopePermission != null
+          ? [entry.fleetScopePermission]
+          : typeof entry.requiredPermission === 'string'
+            ? [entry.requiredPermission]
+            : entry.requiredPermission;
       return required.some((p) => hasPermissionCheck(permissions, p));
     })
     .sort((a, b) => a.order - b.order);

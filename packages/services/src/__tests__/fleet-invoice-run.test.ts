@@ -94,6 +94,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => pubsub }));
 vi.mock('../fleet-invoice-notice.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../fleet-invoice-notice.js')>()),
   sendAccountInvoiceEmail: vi.fn(() => Promise.resolve({ status: 'sent', recipients: 1 })),
+  notifyFleetManagersOfInvoice: vi.fn(() => Promise.resolve(0)),
 }));
 
 vi.mock('../invoice-audit.js', async (importOriginal) => ({
@@ -118,7 +119,7 @@ import {
   findMemberPeriodInvoice,
   findPeriodInvoice,
 } from '../fleet-invoice.service.js';
-import { sendAccountInvoiceEmail } from '../fleet-invoice-notice.js';
+import { notifyFleetManagersOfInvoice, sendAccountInvoiceEmail } from '../fleet-invoice-notice.js';
 import { writeInvoiceSentAudit } from '../invoice-audit.js';
 import { generateInvoicePdf } from '../invoice-pdf.service.js';
 import {
@@ -297,6 +298,8 @@ describe('runScheduledFleetInvoice', () => {
       actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
       log,
     });
+    // The fleet's fleet users hear of the new invoice too (once, claimed by the notice).
+    expect(notifyFleetManagersOfInvoice).toHaveBeenCalledWith('inv_new', deps, log);
   });
 
   it('answers nothing to bill and an unknown fleet without failing', async () => {

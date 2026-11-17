@@ -13,6 +13,7 @@ import {
   deleteUserDashboardLayout,
   existingDashboardSiteIds,
   getUserDashboardLayout,
+  isFleetEnabled,
   saveUserDashboardLayout,
 } from '@evtivity/database';
 import {
@@ -23,10 +24,12 @@ import {
   defaultDashboardLayout,
   resolveDashboardLayout,
   type DashboardLayout,
+  type DashboardLayoutAudience,
 } from '@evtivity/lib/dashboard-layout';
 import type { JwtPayload } from '../plugins/auth.js';
 import { selfService } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { isFleetUser } from '../lib/fleet-scope.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { errorWith, itemResponse } from '../lib/response-schemas.js';
@@ -98,6 +101,15 @@ const layoutResponse = z
 
 type LayoutReplyItem = DashboardLayout['charts'][number] & { siteUnavailable?: true };
 
+/**
+ * Whose layout it is: a fleet user sees its fleet items by default, and while
+ * the Fleets feature is off no fleet item is in any layout.
+ */
+async function layoutAudience(userId: string): Promise<DashboardLayoutAudience> {
+  const [fleetUser, fleetsEnabled] = await Promise.all([isFleetUser(userId), isFleetEnabled()]);
+  return { fleetUser, fleetsEnabled };
+}
+
 /** The sites of the layout that exist and the user may access. */
 async function accessibleSites(userId: string, layout: DashboardLayout): Promise<Set<string>> {
   const chosen = layout.charts
@@ -146,8 +158,9 @@ export function userDashboardLayoutRoutes(app: FastifyInstance): void {
     async (request) => {
       const { userId } = request.user as JwtPayload;
       const stored = await getUserDashboardLayout(userId);
+      const audience = await layoutAudience(userId);
       return {
-        layout: await scopedLayout(userId, resolveDashboardLayout(stored)),
+        layout: await scopedLayout(userId, resolveDashboardLayout(stored, audience)),
         customized: stored != null,
       };
     },
@@ -177,7 +190,9 @@ export function userDashboardLayoutRoutes(app: FastifyInstance): void {
       if (problem != null) {
         return res.status(400).send({ error: problem, code: ERROR_CODES.VALIDATION_ERROR });
       }
-      const layout = resolveDashboardLayout(request.body);
+      // Stored with the fleet items while Fleets is off, so they keep their place.
+      const audience = await layoutAudience(userId);
+      const layout = resolveDashboardLayout(request.body, { ...audience, fleetsEnabled: true });
       const allowed = await accessibleSites(userId, layout);
       // A site outside the user's scope answers like a missing one.
       if (layout.charts.some((c) => typeof c.siteId === 'string' && !allowed.has(c.siteId))) {
@@ -187,7 +202,7 @@ export function userDashboardLayoutRoutes(app: FastifyInstance): void {
         });
       }
       await saveUserDashboardLayout(userId, layout);
-      return { layout, customized: true };
+      return { layout: resolveDashboardLayout(layout, audience), customized: true };
     },
   );
 
@@ -206,7 +221,7 @@ export function userDashboardLayoutRoutes(app: FastifyInstance): void {
     async (request) => {
       const { userId } = request.user as JwtPayload;
       await deleteUserDashboardLayout(userId);
-      return { layout: defaultDashboardLayout(), customized: false };
+      return { layout: defaultDashboardLayout(await layoutAudience(userId)), customized: false };
     },
   );
 }

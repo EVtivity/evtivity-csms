@@ -73,7 +73,11 @@ import {
 } from '../services/ai-insight-scope.service.js';
 import { auditStationChange } from '../lib/station-audit.js';
 import { stationUnitsFeatureOffError } from '../lib/station-units-feature.js';
-import { reportedFieldChange } from '../lib/station-reported-fields.js';
+import {
+  ReportedFieldLockedError,
+  reportedFieldChange,
+  type ReportedStationField,
+} from '../lib/station-reported-fields.js';
 import {
   assertNotLoadManaged,
   assertNotPlanProfileId,
@@ -1348,6 +1352,13 @@ async function stationRevenueScope(userId: string): Promise<SQL[]> {
   return siteIds == null ? [] : [revenueAtSites(siteIds)];
 }
 
+const reportedIdentityColumns = {
+  model: chargingStations.model,
+  serialNumber: chargingStations.serialNumber,
+  modelReportedAt: chargingStations.modelReportedAt,
+  serialNumberReportedAt: chargingStations.serialNumberReportedAt,
+};
+
 export function stationRoutes(app: FastifyInstance): void {
   app.get(
     '/stations',
@@ -2073,24 +2084,24 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       // The model and serial number a station reported at its boot are its own:
-      // a change answers 409 before anything else is written.
-      if (body.model !== undefined || body.serialNumber !== undefined) {
+      // a change answers 409 before anything else is written, and the update's
+      // transaction checks again on the locked row (a boot can report one meanwhile).
+      const sendReportedFieldLocked = async (field: ReportedStationField): Promise<void> => {
+        await reply.status(409).send({
+          error: `The station reports its ${field === 'model' ? 'model' : 'serial number'} when it boots, so it cannot be changed here`,
+          code: 'STATION_REPORTED_FIELD_LOCKED',
+          field,
+        });
+      };
+      const writesReportedField = body.model !== undefined || body.serialNumber !== undefined;
+      if (writesReportedField) {
         const [identity] = await db
-          .select({
-            model: chargingStations.model,
-            serialNumber: chargingStations.serialNumber,
-            modelReportedAt: chargingStations.modelReportedAt,
-            serialNumberReportedAt: chargingStations.serialNumberReportedAt,
-          })
+          .select(reportedIdentityColumns)
           .from(chargingStations)
           .where(eq(chargingStations.id, id));
         const lockedField = identity == null ? null : reportedFieldChange(identity, body);
         if (lockedField != null) {
-          await reply.status(409).send({
-            error: `The station reports its ${lockedField === 'model' ? 'model' : 'serial number'} when it boots, so it cannot be changed here`,
-            code: 'STATION_REPORTED_FIELD_LOCKED',
-            field: lockedField,
-          });
+          await sendReportedFieldLocked(lockedField);
           return;
         }
       }
@@ -2197,97 +2208,117 @@ export function stationRoutes(app: FastifyInstance): void {
       // Run the chargingStations UPDATE, any css_stations sync and the entered
       // ICCID atomically so a failure rolls the whole update back instead of
       // leaving the tables out of sync.
-      const result = await db.transaction(async (tx) => {
-        // The unit writer turns the switch under the station lock its unit
-        // writes take, so off never leaves a unit behind; a refusal rolls the
-        // whole update back.
-        if (usesUnits !== undefined) {
-          const switched = await setStationUsesUnits(id, usesUnits, tx);
-          if (!switched.ok && switched.reason === 'feature_off')
-            throw stationUnitsFeatureOffError();
-          if (!switched.ok && switched.reason === 'units_in_use') {
-            throw new AppError(
-              'Delete the units of this station before turning off Uses Station Units',
-              409,
-              'STATION_UNITS_IN_USE',
-            );
+      const runUpdate = () =>
+        db.transaction(async (tx) => {
+          if (writesReportedField) {
+            const [locked] = await tx
+              .select(reportedIdentityColumns)
+              .from(chargingStations)
+              .where(eq(chargingStations.id, id))
+              .for('update');
+            const lockedField = locked == null ? null : reportedFieldChange(locked, body);
+            if (lockedField != null) throw new ReportedFieldLockedError(lockedField);
           }
-        }
-        const [updated] = await tx
-          .update(chargingStations)
-          .set(updates)
-          .where(eq(chargingStations.id, id))
-          .returning({
-            id: chargingStations.id,
-            stationId: chargingStations.stationId,
-            siteId: chargingStations.siteId,
-            vendorId: chargingStations.vendorId,
-            model: chargingStations.model,
-            serialNumber: chargingStations.serialNumber,
-            firmwareVersion: chargingStations.firmwareVersion,
-            availability: chargingStations.availability,
-            disabledReason: chargingStations.disabledReason,
-            firmwareState: chargingStations.firmwareState,
-            onboardingStatus: chargingStations.onboardingStatus,
-            isOnline: chargingStations.isOnline,
-            isSimulator: chargingStations.isSimulator,
-            loadPriority: chargingStations.loadPriority,
-            securityProfile: chargingStations.securityProfile,
-            pendingSecurityProfile: chargingStations.pendingSecurityProfile,
-            ocppProtocol: chargingStations.ocppProtocol,
-            hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
-            portalListed: chargingStations.portalListed,
-            usesUnits: chargingStations.usesUnits,
-            createdAt: chargingStations.createdAt,
-            updatedAt: chargingStations.updatedAt,
-          });
-
-        if (updated == null) return null;
-
-        // A site move drops the old site's layout position and places the
-        // station on a free slot of the new site.
-        if (beforeStation != null && beforeStation.siteId !== updated.siteId) {
-          await moveStationLayout(tx, updated.id, updated.siteId);
-        }
-
-        if (body.isSimulator !== undefined) {
-          if (body.isSimulator) {
-            await enableCssPair(
-              {
-                stationId: updated.stationId,
-                ocppProtocol: isOcpp2x(updated.ocppProtocol) ? updated.ocppProtocol : 'ocpp1.6',
-                securityProfile: updated.securityProfile,
-                serverUrl: config.OCPP_SERVER_URL,
-                tlsServerUrl: config.OCPP_TLS_SERVER_URL,
-                password: password ?? null,
-                // SP3 cert population is out of scope for this task
-              },
-              tx,
-            );
-          } else {
-            await disableCssPair(updated.stationId, tx);
+          // The unit writer turns the switch under the station lock its unit
+          // writes take, so off never leaves a unit behind; a refusal rolls the
+          // whole update back.
+          if (usesUnits !== undefined) {
+            const switched = await setStationUsesUnits(id, usesUnits, tx);
+            if (!switched.ok && switched.reason === 'feature_off')
+              throw stationUnitsFeatureOffError();
+            if (!switched.ok && switched.reason === 'units_in_use') {
+              throw new AppError(
+                'Delete the units of this station before turning off Uses Station Units',
+                409,
+                'STATION_UNITS_IN_USE',
+              );
+            }
           }
-        }
+          const [updated] = await tx
+            .update(chargingStations)
+            .set(updates)
+            .where(eq(chargingStations.id, id))
+            .returning({
+              id: chargingStations.id,
+              stationId: chargingStations.stationId,
+              siteId: chargingStations.siteId,
+              vendorId: chargingStations.vendorId,
+              model: chargingStations.model,
+              serialNumber: chargingStations.serialNumber,
+              firmwareVersion: chargingStations.firmwareVersion,
+              availability: chargingStations.availability,
+              disabledReason: chargingStations.disabledReason,
+              firmwareState: chargingStations.firmwareState,
+              onboardingStatus: chargingStations.onboardingStatus,
+              isOnline: chargingStations.isOnline,
+              isSimulator: chargingStations.isSimulator,
+              loadPriority: chargingStations.loadPriority,
+              securityProfile: chargingStations.securityProfile,
+              pendingSecurityProfile: chargingStations.pendingSecurityProfile,
+              ocppProtocol: chargingStations.ocppProtocol,
+              hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
+              portalListed: chargingStations.portalListed,
+              usesUnits: chargingStations.usesUnits,
+              createdAt: chargingStations.createdAt,
+              updatedAt: chargingStations.updatedAt,
+            });
 
-        // An entered ICCID is the operator's word for the SIM: it attaches the
-        // SIM, confirmed only when the person has access to every site. It never
-        // fails the update for a SIM conflict.
-        const simAttachment =
-          iccidEntry == null
-            ? 'off'
-            : await enterStationIccid(
-                updated.id,
-                body.iccid ?? null,
+          if (updated == null) return null;
+
+          // A site move drops the old site's layout position and places the
+          // station on a free slot of the new site.
+          if (beforeStation != null && beforeStation.siteId !== updated.siteId) {
+            await moveStationLayout(tx, updated.id, updated.siteId);
+          }
+
+          if (body.isSimulator !== undefined) {
+            if (body.isSimulator) {
+              await enableCssPair(
                 {
-                  actor: { audit: getAuditActor(request), userId },
-                  log: request.log,
-                  ...iccidEntry,
+                  stationId: updated.stationId,
+                  ocppProtocol: isOcpp2x(updated.ocppProtocol) ? updated.ocppProtocol : 'ocpp1.6',
+                  securityProfile: updated.securityProfile,
+                  serverUrl: config.OCPP_SERVER_URL,
+                  tlsServerUrl: config.OCPP_TLS_SERVER_URL,
+                  password: password ?? null,
+                  // SP3 cert population is out of scope for this task
                 },
                 tx,
               );
+            } else {
+              await disableCssPair(updated.stationId, tx);
+            }
+          }
 
-        return { updated, simAttachment };
-      });
+          // An entered ICCID is the operator's word for the SIM: it attaches the
+          // SIM, confirmed only when the person has access to every site. It never
+          // fails the update for a SIM conflict.
+          const simAttachment =
+            iccidEntry == null
+              ? 'off'
+              : await enterStationIccid(
+                  updated.id,
+                  body.iccid ?? null,
+                  {
+                    actor: { audit: getAuditActor(request), userId },
+                    log: request.log,
+                    ...iccidEntry,
+                  },
+                  tx,
+                );
+
+          return { updated, simAttachment };
+        });
+      let result: Awaited<ReturnType<typeof runUpdate>>;
+      try {
+        result = await runUpdate();
+      } catch (err) {
+        if (err instanceof ReportedFieldLockedError) {
+          await sendReportedFieldLocked(err.field);
+          return;
+        }
+        throw err;
+      }
 
       if (result == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

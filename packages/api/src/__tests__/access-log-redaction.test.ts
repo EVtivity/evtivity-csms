@@ -286,6 +286,14 @@ describe('redactAccessLogBody', () => {
     expect(JSON.stringify(out)).not.toContain('BUS-7');
   });
 
+  it('logs only the size of a fleet RFID card CSV import', () => {
+    const csv = 'idToken,tokenType,label,memberEmail\r\nCARD-1,ISO14443,Van 1,a@b.example\n';
+    const out = redactAccessLogBody('/v1/fleets/:id/cards/import', { csv });
+    expect(out).toEqual({ csvBytes: Buffer.byteLength(csv, 'utf8'), csvRows: 2 });
+    expect(JSON.stringify(out)).not.toContain('CARD-1');
+    expect(JSON.stringify(out)).not.toContain('a@b.example');
+  });
+
   it('redacts an IMSI wherever it is sent', () => {
     expect(
       redactAccessLogBody('/v1/sims/:id', { label: 'Kiosk', imsi: '310260000000001' }),

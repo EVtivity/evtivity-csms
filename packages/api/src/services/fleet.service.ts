@@ -37,7 +37,7 @@ import {
   sessionUnitJoin,
 } from '../lib/session-charging-point.js';
 import { providerSwitchStore } from '../lib/provider-switch.js';
-import { AppError } from '@evtivity/lib';
+import { AppError, escapeLikePattern } from '@evtivity/lib';
 import {
   notifyAccountBillingChange,
   enqueueFleetBillingFanout,
@@ -50,6 +50,7 @@ import {
   fleetReservations,
   fleetStations,
   drivers,
+  driverTokens,
   vehicles,
   chargingStations,
   chargingSessions,
@@ -60,6 +61,8 @@ import {
   pricingGroups,
 } from '@evtivity/database';
 import type { PaginationParams } from '../lib/pagination.js';
+import { ALL_SITES_READER, type FleetReader } from '../lib/fleet-reader.js';
+import { fleetPaidSessionCondition } from '../lib/fleet-scope.js';
 import type { ListSortParams } from '../lib/list-sort.js';
 import {
   fleetDriverCountSql,
@@ -76,26 +79,39 @@ import {
 } from '@evtivity/services/station-derived-status';
 import { driverAvatarColumns } from './driver-avatar.service.js';
 import { withAvatars } from './account-avatar.js';
+import {
+  markFleetCardListsChanged,
+  releaseMemberFleetCards,
+  type TokenActor,
+} from './token.service.js';
 
 /**
- * Lists fleets. Fleets are company-wide records, so every fleet is listed;
- * with `siteIds` (a site-restricted user) the station count covers only the
- * fleet's stations at those sites.
+ * Lists fleets. Fleets are company-wide records, so every fleet is listed for
+ * an operator; with `siteIds` (a site-restricted user) the station count covers
+ * only the fleet's stations at those sites. A fleet user lists only its
+ * assigned fleets, with no station count (it has no sites).
  */
 export async function listFleets(
   params: PaginationParams & ListSortParams,
-  siteIds: string[] | null = null,
+  reader: FleetReader = ALL_SITES_READER,
 ) {
   const { page, limit, search } = params;
   const offset = (page - 1) * limit;
+  const siteIds = reader.kind === 'sites' ? reader.siteIds : [];
 
   let where = undefined;
   if (search) {
-    const pattern = `%${search}%`;
+    const pattern = `%${escapeLikePattern(search)}%`;
     where = or(
       ilike(fleets.id, pattern),
       ilike(fleets.name, pattern),
       ilike(fleets.description, pattern),
+    );
+  }
+  if (reader.kind === 'fleets') {
+    where = and(
+      where,
+      reader.fleetIds.length > 0 ? inArray(fleets.id, reader.fleetIds) : sql`false`,
     );
   }
 
@@ -171,8 +187,18 @@ const fleetHasReservationsError = (): AppError =>
     'FLEET_HAS_RESERVATIONS',
   );
 
+const fleetHasCardsError = (): AppError =>
+  new AppError(
+    'The fleet owns RFID cards and cannot be deleted. Move the cards out of the fleet first.',
+    409,
+    'FLEET_HAS_CARDS',
+  );
+
 /** The foreign key from fleet_reservations to fleets (no ON DELETE action). */
 const FLEET_RESERVATIONS_FLEET_FK = 'fleet_reservations_fleet_id_fleets_id_fk';
+
+/** The foreign key from driver_tokens to fleets (ON DELETE RESTRICT). */
+const DRIVER_TOKENS_FLEET_FK = 'driver_tokens_fleet_id_fleets_id_fk';
 
 /**
  * Deletes a fleet. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are
@@ -180,6 +206,7 @@ const FLEET_RESERVATIONS_FLEET_FK = 'fleet_reservations_fleet_id_fleets_id_fk';
  * RESTRICT): their billing (unbilled, invoiced, paid) stays with the fleet.
  * Refused with 409 FLEET_HAS_RESERVATIONS while a fleet reservation (any
  * status, cancelled ones included) names the fleet: reservations are history.
+ * Refused with 409 FLEET_HAS_CARDS while an RFID card names the fleet.
  * A row added between the checks and the delete trips its foreign key, mapped
  * by constraint name to the same codes.
  */
@@ -196,12 +223,19 @@ export async function deleteFleet(id: string) {
     .where(eq(fleetReservations.fleetId, id))
     .limit(1);
   if (booked != null) throw fleetHasReservationsError();
+  const [card] = await db
+    .select({ id: driverTokens.id })
+    .from(driverTokens)
+    .where(eq(driverTokens.fleetId, id))
+    .limit(1);
+  if (card != null) throw fleetHasCardsError();
   try {
     const [fleet] = await db.delete(fleets).where(eq(fleets.id, id)).returning();
     return fleet ?? null;
   } catch (err) {
     if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
       if (pgConstraintName(err) === FLEET_RESERVATIONS_FLEET_FK) throw fleetHasReservationsError();
+      if (pgConstraintName(err) === DRIVER_TOKENS_FLEET_FK) throw fleetHasCardsError();
       throw fleetHasBillingError();
     }
     throw err;
@@ -324,6 +358,9 @@ export async function setFleetAccountBilling(
   if (result == null) return null;
   const { fleet, diff } = result;
   if (diff == null) return fleet;
+  // A fleet card no member holds is listed on stations only while its fleet
+  // can be billed, so the lists holding such cards need a push.
+  if (diff.after.accountBillingEnabled !== undefined) await markFleetCardListsChanged(fleetId);
 
   await writeAudit(
     { table: fleetAuditLog, idColumn: 'fleet_id' },
@@ -708,13 +745,42 @@ export async function notifyMemberLeft(
   );
 }
 
+/** Filters of the fleet member list (the member pickers search it). */
+export interface FleetDriverFilter {
+  search?: string | undefined;
+  /** Only active members. */
+  active?: boolean | undefined;
+}
+
+/**
+ * The members of a fleet. A fleet user gets only the name and status of each
+ * member: no contact, billing or avatar fields, and its search matches the
+ * name only, so it tells nothing about a member's email.
+ */
 export async function getFleetDrivers(
   fleetId: string,
   page: number,
   limit: number,
   sort: ListSortParams = {},
+  reader: FleetReader = ALL_SITES_READER,
+  filter: FleetDriverFilter = {},
 ) {
   const offset = (page - 1) * limit;
+  const conditions = [eq(fleetDrivers.fleetId, fleetId)];
+  if (filter.active === true) conditions.push(eq(drivers.isActive, true));
+  if (filter.search != null && filter.search.trim() !== '') {
+    const pattern = `%${escapeLikePattern(filter.search.trim())}%`;
+    const byName = [
+      ilike(drivers.firstName, pattern),
+      ilike(drivers.lastName, pattern),
+      sql`(${drivers.firstName} || ' ' || ${drivers.lastName}) ILIKE ${pattern}`,
+    ];
+    const match = or(
+      ...(reader.kind === 'fleets' ? byName : [...byName, ilike(drivers.email, pattern)]),
+    );
+    if (match != null) conditions.push(match);
+  }
+  const where = and(...conditions);
 
   const [data, countRows] = await Promise.all([
     db
@@ -731,17 +797,30 @@ export async function getFleetDrivers(
       })
       .from(fleetDrivers)
       .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
-      .where(eq(fleetDrivers.fleetId, fleetId))
+      .where(where)
       .orderBy(...driverListSort.orderBy(sort))
       .limit(limit)
       .offset(offset),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(fleetDrivers)
-      .where(eq(fleetDrivers.fleetId, fleetId)),
+      .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
+      .where(where),
   ]);
 
-  return { data: await withAvatars(data), total: countRows[0]?.count ?? 0 };
+  const total = countRows[0]?.count ?? 0;
+  if (reader.kind === 'fleets') {
+    return {
+      data: data.map((d) => ({
+        id: d.id,
+        firstName: d.firstName,
+        lastName: d.lastName,
+        isActive: d.isActive,
+      })),
+      total,
+    };
+  }
+  return { data: await withAvatars(data), total };
 }
 
 export async function addDriverToFleet(fleetId: string, driverId: string) {
@@ -756,12 +835,28 @@ export async function addDriverToFleet(fleetId: string, driverId: string) {
   return record ?? null;
 }
 
-export async function removeDriverFromFleet(fleetId: string, driverId: string) {
-  const [record] = await db
-    .delete(fleetDrivers)
-    .where(and(eq(fleetDrivers.fleetId, fleetId), eq(fleetDrivers.driverId, driverId)))
-    .returning();
-  return record ?? null;
+/**
+ * Removes a member from a fleet and, in the same transaction, takes back the
+ * fleet's RFID cards the member held (given to no member and suspended, so
+ * the fleet can hand them out again).
+ */
+export async function removeDriverFromFleet(
+  fleetId: string,
+  driverId: string,
+  actor: TokenActor = { type: 'system' },
+) {
+  const result = await db.transaction(async (tx) => {
+    const [record] = await tx
+      .delete(fleetDrivers)
+      .where(and(eq(fleetDrivers.fleetId, fleetId), eq(fleetDrivers.driverId, driverId)))
+      .returning();
+    if (record == null) return null;
+    const cards = await releaseMemberFleetCards({ driverId, fleetId }, actor, tx);
+    return { record, cards };
+  });
+  if (result == null) return null;
+  await result.cards.afterCommit();
+  return result.record;
 }
 
 /**
@@ -821,11 +916,13 @@ export async function removeStationFromFleet(fleetId: string, stationId: string)
   return record ?? null;
 }
 
+/** The vehicles of the fleet's members. A fleet user gets no VIN. */
 export async function getFleetVehicles(
   fleetId: string,
   page: number,
   limit: number,
   sort: ListSortParams = {},
+  reader: FleetReader = ALL_SITES_READER,
 ) {
   const offset = (page - 1) * limit;
 
@@ -855,12 +952,14 @@ export async function getFleetVehicles(
       .where(eq(fleetDrivers.fleetId, fleetId)),
   ]);
 
-  return { data, total: countRows[0]?.count ?? 0 };
+  const total = countRows[0]?.count ?? 0;
+  if (reader.kind === 'fleets') return { data: data.map((v) => withoutKeys(v, ['vin'])), total };
+  return { data, total };
 }
 
 export async function searchAvailableVehicles(fleetId: string, search: string, limit: number) {
   const fleetDriverSubquery = sql`SELECT driver_id FROM fleet_drivers WHERE fleet_id = ${fleetId}`;
-  const pattern = `%${search}%`;
+  const pattern = `%${escapeLikePattern(search)}%`;
 
   return db
     .select({
@@ -893,15 +992,55 @@ export async function searchAvailableVehicles(fleetId: string, search: string, l
 }
 
 /**
- * The sessions of the fleet's drivers. `siteIds` (the operator's
- * `getUserSiteIds()`) keeps the sessions that happened at those sites; null
- * keeps all. The same scope applies to the fleet metrics and energy history.
+ * The sessions of a fleet. An operator sees the sessions of the fleet's drivers
+ * and of the fleet's RFID cards, at its sites (`siteIds` null keeps every site).
+ * A fleet user sees the sessions billed to the fleet on account and not passed
+ * on to a member, at every site. The same scope applies to the fleet metrics and
+ * energy history.
  */
-function fleetSessionFilter(fleetId: string, siteIds: string[] | null) {
+function fleetSessionFilter(fleetId: string, reader: FleetReader) {
+  if (reader.kind === 'fleets') {
+    return and(fleetPaidSessionCondition([fleetId]), inOperatorStation(chargingSessions.stationId));
+  }
   return and(
-    sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`,
+    or(
+      sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`,
+      sql`${chargingSessions.tokenId} IN (select id from driver_tokens where fleet_id = ${fleetId})`,
+    ),
     inOperatorStation(chargingSessions.stationId),
-    siteIds != null ? sessionsAtSites(siteIds) : undefined,
+    reader.siteIds != null ? sessionsAtSites(reader.siteIds) : undefined,
+  );
+}
+
+/** The optional filters of the fleet session list and its export. */
+export interface FleetSessionFilters {
+  /** Sessions started at or after this time. */
+  from?: Date | null;
+  /** Sessions started at or before this time. */
+  to?: Date | null;
+  /** Sessions of this member of the fleet (a driver who is not a member lists nothing). */
+  driverId?: string | undefined;
+  /** Sessions with this RFID card of the fleet (another card lists nothing). */
+  tokenId?: string | undefined;
+}
+
+/** The filter conditions on top of the reader's fleet session scope. */
+export function fleetSessionFilterConditions(fleetId: string, filters: FleetSessionFilters) {
+  return and(
+    filters.from != null ? gte(chargingSessions.startedAt, filters.from) : undefined,
+    filters.to != null ? sql`${chargingSessions.startedAt} <= ${filters.to}` : undefined,
+    filters.driverId != null
+      ? and(
+          eq(chargingSessions.driverId, filters.driverId),
+          sql`exists (select 1 from fleet_drivers where fleet_id = ${fleetId} and driver_id = ${filters.driverId})`,
+        )
+      : undefined,
+    filters.tokenId != null
+      ? and(
+          eq(chargingSessions.tokenId, filters.tokenId),
+          sql`exists (select 1 from driver_tokens where id = ${filters.tokenId} and fleet_id = ${fleetId})`,
+        )
+      : undefined,
   );
 }
 
@@ -909,11 +1048,15 @@ export async function getFleetSessions(
   fleetId: string,
   page: number,
   limit: number,
-  siteIds: string[] | null,
+  reader: FleetReader,
   sortParams: ListSortParams = {},
+  filters: FleetSessionFilters = {},
 ) {
   const offset = (page - 1) * limit;
-  const driverFilter = fleetSessionFilter(fleetId, siteIds);
+  const driverFilter = and(
+    fleetSessionFilter(fleetId, reader),
+    fleetSessionFilterConditions(fleetId, filters),
+  );
 
   const [rows, countRows] = await Promise.all([
     db
@@ -949,14 +1092,72 @@ export async function getFleetSessions(
       .where(driverFilter),
   ]);
 
-  return { data: rows, total: countRows[0]?.count ?? 0 };
+  const total = countRows[0]?.count ?? 0;
+  if (reader.kind === 'fleets') {
+    return { data: rows.map((row) => fleetUserSessionRow(row, reader.paymentsRead)), total };
+  }
+  return { data: rows, total };
 }
 
-export async function getFleetMetrics(fleetId: string, months: number, siteIds: string[] | null) {
+/** At most this many rows go into one fleet session export. */
+export const FLEET_SESSION_EXPORT_MAX_ROWS = 50_000;
+
+/**
+ * The rows of a fleet session export: the fleet session list of the reader
+ * with its filters, newest first. A fleet user's rows carry no RFID card value
+ * and no OCPP transaction id; the driver is a name only.
+ */
+export async function listFleetSessionsForExport(
+  fleetId: string,
+  reader: FleetReader,
+  filters: FleetSessionFilters,
+) {
+  const rows = await db
+    .select({
+      id: chargingSessions.id,
+      status: chargingSessions.status,
+      startedAt: chargingSessions.startedAt,
+      endedAt: chargingSessions.endedAt,
+      energyDeliveredWh: chargingSessions.energyDeliveredWh,
+      siteName: sites.name,
+      stationName: chargingStations.stationId,
+      ...sessionChargingPointColumns,
+      // An erased member keeps no name: the rows say only that the driver was erased.
+      driverName: sql<
+        string | null
+      >`case when ${drivers.erasedAt} is not null then null else nullif(trim(concat_ws(' ', ${drivers.firstName}, ${drivers.lastName})), '') end`,
+      driverErased: sql<boolean>`(${drivers.erasedAt} is not null)`,
+      cardLabel: sql<
+        string | null
+      >`case when ${driverTokens.fleetId} = ${fleetId} then ${driverTokens.label} else null end`,
+      idToken: driverTokens.idToken,
+      transactionId: chargingSessions.transactionId,
+      currentCostCents: chargingSessions.currentCostCents,
+      finalCostCents: chargingSessions.finalCostCents,
+      currency: sessionCurrencySql(),
+    })
+    .from(chargingSessions)
+    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+    .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
+    .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+    .leftJoin(driverTokens, eq(chargingSessions.tokenId, driverTokens.id))
+    .leftJoin(sessionEvse, sessionEvseJoin)
+    .leftJoin(sessionUnit, sessionUnitJoin)
+    .leftJoin(sessionConnector, sessionConnectorJoin)
+    .where(and(fleetSessionFilter(fleetId, reader), fleetSessionFilterConditions(fleetId, filters)))
+    .orderBy(desc(chargingSessions.startedAt), desc(chargingSessions.id))
+    .limit(FLEET_SESSION_EXPORT_MAX_ROWS);
+  if (reader.kind === 'fleets') {
+    return rows.map((row) => ({ ...row, idToken: null, transactionId: null }));
+  }
+  return rows;
+}
+
+export async function getFleetMetrics(fleetId: string, months: number, reader: FleetReader) {
   const since = new Date();
   since.setMonth(since.getMonth() - months);
 
-  const driverFilter = fleetSessionFilter(fleetId, siteIds);
+  const driverFilter = fleetSessionFilter(fleetId, reader);
 
   // Three independent aggregations — fan them in parallel so the metrics
   // endpoint is bounded by the slowest query, not the sum.
@@ -1004,15 +1205,11 @@ export async function getFleetMetrics(fleetId: string, months: number, siteIds: 
   };
 }
 
-export async function getFleetEnergyHistory(
-  fleetId: string,
-  days: number,
-  siteIds: string[] | null,
-) {
+export async function getFleetEnergyHistory(fleetId: string, days: number, reader: FleetReader) {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  const driverFilter = fleetSessionFilter(fleetId, siteIds);
+  const driverFilter = fleetSessionFilter(fleetId, reader);
 
   const rows = await db
     .select({
@@ -1066,4 +1263,70 @@ export async function removePricingGroupFromFleet(fleetId: string, pricingGroupI
     )
     .returning();
   return record ?? null;
+}
+
+/**
+ * A session row as a fleet user reads it: no OCPP transaction id, and the cost
+ * only with payments:read.
+ */
+function fleetUserSessionRow<T extends object>(row: T, paymentsRead: boolean): Partial<T> {
+  return withoutKeys(row, paymentsRead ? ['transactionId'] : ['transactionId', ...COST_KEYS]);
+}
+
+const COST_KEYS = ['currentCostCents', 'finalCostCents', 'currency'] as const;
+
+/** A copy of a row without some of its fields. */
+function withoutKeys<T extends object>(row: T, keys: readonly string[]): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(row).filter(([key]) => !keys.includes(key)),
+  ) as Partial<T>;
+}
+
+/**
+ * One session of the fleet session list, in a reduced view: where, when, how
+ * much energy, the driver's name and the label of a card the fleet owns, and
+ * the cost only with `includeCost`. Never the RFID value, a payment record,
+ * meter values or OCPP data. Null when the session is not in the reader's
+ * fleet session list.
+ */
+export async function getFleetSession(
+  fleetId: string,
+  sessionId: string,
+  reader: FleetReader,
+  includeCost: boolean,
+) {
+  const [row] = await db
+    .select({
+      id: chargingSessions.id,
+      status: chargingSessions.status,
+      startedAt: chargingSessions.startedAt,
+      endedAt: chargingSessions.endedAt,
+      energyDeliveredWh: chargingSessions.energyDeliveredWh,
+      siteName: sites.name,
+      stationName: chargingStations.stationId,
+      ...sessionChargingPointColumns,
+      // An erased member keeps no name: the rows say only that the driver was erased.
+      driverName: sql<
+        string | null
+      >`case when ${drivers.erasedAt} is not null then null else nullif(trim(concat_ws(' ', ${drivers.firstName}, ${drivers.lastName})), '') end`,
+      driverErased: sql<boolean>`(${drivers.erasedAt} is not null)`,
+      // The label of a member's own card is the member's: only a fleet card's shows.
+      cardLabel: sql<
+        string | null
+      >`case when ${driverTokens.fleetId} = ${fleetId} then ${driverTokens.label} else null end`,
+      currentCostCents: chargingSessions.currentCostCents,
+      finalCostCents: chargingSessions.finalCostCents,
+      currency: sessionCurrencySql(),
+    })
+    .from(chargingSessions)
+    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+    .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
+    .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+    .leftJoin(driverTokens, eq(chargingSessions.tokenId, driverTokens.id))
+    .leftJoin(sessionEvse, sessionEvseJoin)
+    .leftJoin(sessionUnit, sessionUnitJoin)
+    .leftJoin(sessionConnector, sessionConnectorJoin)
+    .where(and(eq(chargingSessions.id, sessionId), fleetSessionFilter(fleetId, reader)));
+  if (row == null) return null;
+  return includeCost ? row : withoutKeys(row, COST_KEYS);
 }

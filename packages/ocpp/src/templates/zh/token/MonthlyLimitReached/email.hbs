@@ -1,0 +1,6 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{firstName}}，您好：</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>此 RFID 卡已达到每月消费限额：</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>{{idToken}}</strong> ({{tokenType}})</p>
+{{#if label}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>标签: {{label}}</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您的车队 <strong>{{fleetName}}</strong> 设置的每月限额 {{limitFormatted}} 已用完，此卡在下个月之前无法再开始充电。</p>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>如本月需要更多额度，请联系您的车队管理员。</p>

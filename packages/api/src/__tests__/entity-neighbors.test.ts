@@ -131,6 +131,13 @@ vi.mock('drizzle-orm', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { entityNeighborRoutes } from '../routes/entity-neighbors.js';
 import { simVisibleWhere } from '../lib/sim-site-scope.js';
+import { inArray } from 'drizzle-orm';
+import { fleets as fakeFleets } from '@evtivity/database';
+import { resetFleetScopeMock, setMockUserAccess } from './helpers/fleet-scope-mock.js';
+
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -275,5 +282,58 @@ describe('Entity neighbor routes', () => {
       });
       expect([200, 404]).toContain(res.statusCode);
     }
+  });
+});
+
+describe('Entity neighbor routes for a fleet user', () => {
+  let app: FastifyInstance;
+  let token: string;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    token = app.jwt.sign({ userId: 'fleet-user', roleId: 'rol_x' });
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+  beforeEach(() => {
+    resetFleetScopeMock();
+    setMockUserAccess('fleet-user', { kind: 'fleets', fleetIds: ['flt_a'] });
+    vi.mocked(inArray).mockClear();
+  });
+
+  it('pages only through the assigned fleets', async () => {
+    setupDbResults([{ createdAt: '2026-06-01T00:00:00Z' }], [{ id: 'flt_b' }], []);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/fleets/flt_a/neighbors',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ prevId: 'flt_b', nextId: null });
+    const fleetIdColumn = (fakeFleets as { id: unknown }).id;
+    expect(vi.mocked(inArray)).toHaveBeenCalledWith(fleetIdColumn, ['flt_a']);
+  });
+
+  it('answers 404 FLEET_NOT_FOUND when the current fleet is outside the scope', async () => {
+    setupDbResults([]);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/fleets/flt_other/neighbors',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: 'FLEET_NOT_FOUND' });
+  });
+
+  it('opens only the fleet neighbors route to fleet users', () => {
+    const scoped: string[] = [];
+    const probe = Fastify();
+    probe.addHook('onRoute', (route) => {
+      const config = route.config as { fleetScope?: boolean } | undefined;
+      if (config?.fleetScope === true && route.method !== 'HEAD') scoped.push(route.url);
+    });
+    entityNeighborRoutes(probe);
+    expect(scoped).toEqual(['/fleets/:id/neighbors']);
   });
 });

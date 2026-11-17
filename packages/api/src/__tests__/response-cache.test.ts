@@ -12,6 +12,10 @@ const access = vi.hoisted(() => ({
   permissions: new Map<string, string[]>(),
 }));
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn((userId: string) => Promise.resolve(access.sites.get(userId) ?? null)),
   requireAllSiteAccess: vi.fn(
@@ -201,6 +205,19 @@ describe('buildScopeHash', () => {
     expect(a).not.toBe(buildScopeHash(null, ['sites:read', 'stations:read']));
     expect(a).not.toBe(buildScopeHash(['site_a', 'site_b'], ['sites:read']));
     expect(buildScopeHash(null, [])).not.toBe(buildScopeHash([], []));
+    // The access scope and its fleets count; a sites user keeps its earlier hash.
+    expect(buildScopeHash([], [], { kind: 'sites' })).toBe(buildScopeHash([], []));
+    const fleets = buildScopeHash([], ['fleets:read'], {
+      kind: 'fleets',
+      fleetIds: ['flt_b', 'flt_a'],
+    });
+    expect(fleets).toBe(
+      buildScopeHash([], ['fleets:read'], { kind: 'fleets', fleetIds: ['flt_a', 'flt_b'] }),
+    );
+    expect(fleets).not.toBe(buildScopeHash([], ['fleets:read']));
+    expect(fleets).not.toBe(
+      buildScopeHash([], ['fleets:read'], { kind: 'fleets', fleetIds: ['flt_a'] }),
+    );
   });
 });
 

@@ -1,0 +1,38 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}님 안녕하세요,{{else}}안녕하세요,{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{companyName}}에서 차량대을 관리하세요</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 12px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{companyName}}에서 {{#if fleetNames}}다음 차량대의 관리자로 초대했습니다: {{fleetNames}}{{else}}차량대 관리자로 초대했습니다{{/if}}. 차량대 관리자는 다음을 할 수 있습니다.</p>
+<ul
+  style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;padding-left:20px;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>
+  <li style="margin:0 0 8px 0;">차량대이 언제 어디서 충전했는지 각 세션의 에너지와 비용과 함께 확인합니다.</li>
+  <li style="margin:0 0 8px 0;">차량대 청구서와 사용한 신용 한도를 확인합니다.</li>
+  <li style="margin:0 0 8px 0;">RFID 카드를 추가하고 구성원에게 지급하며 끄고 켭니다.</li>
+</ul>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>아래 버튼을 클릭하여 비밀번호를 설정하세요. 이 링크는 24시간 후에 만료됩니다.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  <tr>
+    <td align='center' style='padding:32px 0;'>
+      <a
+        href='{{setPasswordUrl}}'
+        style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;"
+      >비밀번호 설정</a>
+    </td>
+  </tr>
+</table>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>이 이메일을 예상하지 못한 경우 무시하셔도 됩니다.</p>

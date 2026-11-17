@@ -7,6 +7,7 @@ import { db, users, userSiteAssignments, chargingStations } from '@evtivity/data
 import { createLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import type { ErrorCode } from './error-codes.generated.js';
+import { clearFleetScopeCacheLocal } from './fleet-scope.js';
 import { siteInScope } from './site-scope.js';
 
 interface SiteAccessCache {
@@ -20,7 +21,8 @@ const CACHE_TTL_MS = 60_000;
 /**
  * Returns the site IDs the user can access.
  * Returns null if the user has all-site access (no filtering needed).
- * Returns an empty array if the user has no site assignments.
+ * Returns an empty array if the user has no site assignments, and for a
+ * fleet user (access scope `fleets`), which has no sites.
  */
 export async function getUserSiteIds(userId: string): Promise<string[] | null> {
   const cached = cache.get(userId);
@@ -29,11 +31,11 @@ export async function getUserSiteIds(userId: string): Promise<string[] | null> {
   }
 
   const [user] = await db
-    .select({ hasAllSiteAccess: users.hasAllSiteAccess })
+    .select({ hasAllSiteAccess: users.hasAllSiteAccess, accessScope: users.accessScope })
     .from(users)
     .where(eq(users.id, userId));
 
-  if (user == null) {
+  if (user == null || user.accessScope === 'fleets') {
     const result: string[] = [];
     cache.set(userId, { siteIds: result, expiresAt: Date.now() + CACHE_TTL_MS });
     return result;
@@ -54,15 +56,17 @@ export async function getUserSiteIds(userId: string): Promise<string[] | null> {
   return siteIds;
 }
 
-/** Clear the in-process cache only. Used by the cache-invalidate pub/sub
- *  listener so a broadcast invalidation does not re-publish. */
+/** Clear the in-process cache only, the fleet access scope included. Used by
+ *  the cache-invalidate pub/sub listener so a broadcast invalidation does not
+ *  re-publish. */
 export function clearSiteAccessCacheLocal(userId: string): void {
   cache.delete(userId);
+  clearFleetScopeCacheLocal(userId);
 }
 
 /**
- * Invalidate the cached site access for a user.
- * Call this when site assignments are modified.
+ * Invalidate the cached site access and access scope for a user.
+ * Call this when site or fleet assignments or the access scope are modified.
  * Also broadcasts to other API pods so they drop their local entry too.
  */
 export function invalidateSiteAccessCache(userId: string): void {

@@ -243,6 +243,8 @@ export interface FleetSessionCandidate {
   id: string;
   driverId: string | null;
   driverName: string;
+  /** Started by a fleet RFID card no member held: no driver, billed to the fleet. */
+  fleetCard?: boolean;
   stationName: string;
   siteName: string | null;
   endedAt: Date | null;
@@ -272,6 +274,8 @@ export interface FleetInvoiceExcludedSession {
 export interface FleetInvoiceDriverTotal {
   driverId: string | null;
   driverName: string;
+  /** The sessions of the fleet's RFID cards no member held, listed without a driver. */
+  fleetCards: boolean;
   sessionCount: number;
   energyWh: number;
   netCents: number;
@@ -292,18 +296,30 @@ export interface FleetInvoicePlan {
   energyWh: number;
 }
 
-/** Driver grouping key: the driver id, or '' for a session whose driver was deleted. */
-function driverKey(driverId: string | null): string {
-  return driverId ?? '';
+/** The grouping key of the sessions of fleet RFID cards no member held. */
+const FLEET_CARDS_KEY = 'fleet-cards';
+
+/**
+ * Driver grouping key: the driver id, the fleet cards key for a fleet card
+ * session, or '' for a session whose driver was deleted.
+ */
+function driverKey(driverId: string | null, fleetCard = false): string {
+  return driverId ?? (fleetCard ? FLEET_CARDS_KEY : '');
 }
 
-function compareDrivers(
-  a: { driverName: string; driverId: string | null },
-  b: { driverName: string; driverId: string | null },
-): number {
+interface DriverSortKey {
+  driverName: string;
+  driverId: string | null;
+  fleetCard?: boolean;
+  fleetCards?: boolean;
+}
+
+function compareDrivers(a: DriverSortKey, b: DriverSortKey): number {
   const byName = a.driverName.localeCompare(b.driverName);
   if (byName !== 0) return byName;
-  return driverKey(a.driverId).localeCompare(driverKey(b.driverId));
+  const keyOf = (x: DriverSortKey): string =>
+    driverKey(x.driverId, x.fleetCard === true || x.fleetCards === true);
+  return keyOf(a).localeCompare(keyOf(b));
 }
 
 function exclusionOf(
@@ -377,7 +393,10 @@ export function planFleetInvoice(
       session.siteName != null && session.siteName !== ''
         ? `${session.siteName} ${session.stationName}`
         : session.stationName;
-    const description = `Charging session ${sessionDate}, ${place}, ${session.driverName} (${(sessionEnergy / 1000).toFixed(2)} kWh)`;
+    const fleetCard = session.driverId == null && session.fleetCard === true;
+    // A fleet card session names no person and never the card's label.
+    const who = fleetCard ? 'Fleet RFID card' : session.driverName;
+    const description = `Charging session ${sessionDate}, ${place}, ${who} (${(sessionEnergy / 1000).toFixed(2)} kWh)`;
     const sessionLines = fleetSessionLines(forInvoice).map(
       (line): LineDraft => ({
         ...line,
@@ -388,6 +407,7 @@ export function planFleetInvoice(
           sessionDate,
           energyWh: sessionEnergy,
           ...(session.driverId != null ? { driverId: session.driverId } : {}),
+          ...(fleetCard ? { fleetCard: true } : {}),
           driverName: session.driverName,
           stationName: place,
         },
@@ -396,11 +416,12 @@ export function planFleetInvoice(
     lines.push(...sessionLines);
     energyWh += sessionEnergy;
 
-    const key = driverKey(session.driverId);
+    const key = driverKey(session.driverId, fleetCard);
     const sums = taxTotals(sessionLines);
     const current = totals.get(key) ?? {
       driverId: session.driverId,
       driverName: session.driverName,
+      fleetCards: fleetCard,
       sessionCount: 0,
       energyWh: 0,
       netCents: 0,
@@ -506,6 +527,7 @@ export async function loadFleetInvoiceCandidates(
       : sql`AND cs.ended_at >= ${options.startsAt.toISOString()}::timestamptz`;
   const rows = (await executor.execute(sql`
     SELECT cs.id, cs.driver_id, d.first_name, d.last_name, st.station_id AS station_name,
+           (cs.driver_id IS NULL AND cs.token_id IS NOT NULL) AS fleet_card,
            si.name AS site_name, cs.ended_at, cs.energy_delivered_wh, cs.final_cost_cents,
            upper(cs.currency) AS currency, cs.tariff_tax_rate, cs.cost_breakdown
     FROM charging_sessions cs
@@ -533,6 +555,7 @@ export async function loadFleetInvoiceCandidates(
       id: String(row['id']),
       driverId: typeof row['driver_id'] === 'string' ? row['driver_id'] : null,
       driverName: `${first} ${last}`.trim(),
+      fleetCard: row['fleet_card'] === true,
       stationName: typeof row['station_name'] === 'string' ? row['station_name'] : '',
       siteName: typeof row['site_name'] === 'string' ? row['site_name'] : null,
       endedAt: ended == null ? null : new Date(ended as string | Date),

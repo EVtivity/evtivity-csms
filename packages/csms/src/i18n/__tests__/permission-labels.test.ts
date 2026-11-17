@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { permissionCatalog } from '@evtivity/lib/permissions';
+import { BUILT_IN_ROLE_NAMES } from '../../lib/role-label';
 import en from '../locales/en.json';
 import de from '../locales/de.json';
 import es from '../locales/es.json';
@@ -29,6 +30,7 @@ describe('permission editor labels', () => {
     ...permissionCatalog.groups().map((g) => g.labelKey),
     'users.permissionRead',
     'users.permissionWrite',
+    ...BUILT_IN_ROLE_NAMES.map((name) => `users.roleNames.${name}`),
   ];
 
   for (const [lang, messages] of Object.entries(LOCALES)) {

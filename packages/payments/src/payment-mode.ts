@@ -12,7 +12,8 @@
  *   the balance is debited at the end, no card hold.
  * - `account`: a driver session billed to a fleet (charge on account): the
  *   session's write-once stamp `billing_mode = 'account'`. No card, no hold,
- *   no payment record; the fleet invoice bills it.
+ *   no payment record; the fleet invoice bills it. A session a fleet RFID
+ *   card no member held started is account without a driver.
  * - `card`: a driver session, paid with the driver's saved card (hold at
  *   the start, capture at the end).
  * - `guest`: a guest checkout or ad hoc payment session (guest_sessions row);
@@ -36,6 +37,11 @@ export interface SessionPaymentFacts {
   /** The session is billed to a fleet account (`charging_sessions.billing_mode = 'account'`). */
   account: boolean;
   driverId: string | null;
+  /**
+   * The session was started by a fleet RFID card no member held, which is
+   * billed on account to its fleet without a driver.
+   */
+  fleetCard?: boolean;
   /** A guest_sessions row matched the session's token. */
   guestSession: boolean;
 }
@@ -44,7 +50,7 @@ export function classifySessionPayment(facts: SessionPaymentFacts): SessionPayme
   if (facts.isRoaming) return 'roaming';
   if (facts.freeVend) return 'free_vend';
   if (facts.prepaid) return 'prepaid';
-  if (facts.account && facts.driverId != null) return 'account';
+  if (facts.account && (facts.driverId != null || facts.fleetCard === true)) return 'account';
   if (facts.driverId != null) return 'card';
   if (facts.guestSession) return 'guest';
   return 'anonymous';

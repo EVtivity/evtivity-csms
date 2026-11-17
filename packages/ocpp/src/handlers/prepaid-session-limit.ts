@@ -149,3 +149,27 @@ export async function accountSessionCeilingCents(
   const ceiling = row?.['cost_ceiling_cents'] as number | string | null | undefined;
   return ceiling != null ? Number(ceiling) : null;
 }
+
+/**
+ * The cost ceiling of a session whose fleet RFID card has a monthly spending
+ * limit: what the payment gate reserved for it (the smaller of the fleet
+ * credit and what the card may still spend this month). Null when the
+ * session has no ceiling or its card no limit.
+ */
+export async function cardLimitedSessionCeilingCents(
+  stationId: string,
+  transactionId: string,
+): Promise<number | null> {
+  const [row] = await client`
+    SELECT cs.cost_ceiling_cents
+    FROM charging_sessions cs
+    JOIN charging_stations st ON st.id = cs.station_id
+    JOIN driver_tokens dt ON dt.id = cs.token_id
+    WHERE st.station_id = ${stationId}
+      AND cs.transaction_id = ${transactionId}
+      AND dt.monthly_limit_cents IS NOT NULL
+    LIMIT 1
+  `;
+  const ceiling = row?.['cost_ceiling_cents'] as number | string | null | undefined;
+  return ceiling != null ? Number(ceiling) : null;
+}

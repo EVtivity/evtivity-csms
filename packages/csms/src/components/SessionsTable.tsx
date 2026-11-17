@@ -191,17 +191,19 @@ function SessionChargingPointCell({
   session,
   hideSiteName,
   hideStationName,
+  linkStation,
 }: {
   session: Session;
   hideSiteName: boolean;
   hideStationName: boolean;
+  linkStation: boolean;
 }): React.JSX.Element {
   const chargingPointPath = useChargingPointPath();
   const path = chargingPointPath(session, {
     hideSite: hideSiteName,
     hideStation: hideStationName,
   });
-  if (hideStationName) {
+  if (hideStationName || !linkStation) {
     return path === '' ? (
       <span className="text-muted-foreground">-</span>
     ) : (
@@ -253,6 +255,10 @@ interface SessionsTableProps {
   sort?: ListSort<SessionSortKey> | undefined;
   /** The keys the list's endpoint sorts by; other headers stay plain. */
   sortKeys?: readonly SessionSortKey[];
+  /** What a row click does; by default it opens the session page. */
+  onRowClick?: (session: Session) => void;
+  /** Station and driver as links; false for readers without those pages (fleet users). */
+  linkEntities?: boolean;
 }
 
 export const SessionsTable = memo(function SessionsTable({
@@ -268,6 +274,8 @@ export const SessionsTable = memo(function SessionsTable({
   visibility,
   sort,
   sortKeys = SESSION_SORT_KEYS,
+  onRowClick,
+  linkEntities = true,
 }: SessionsTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -362,7 +370,8 @@ export const SessionsTable = memo(function SessionsTable({
                 className="cursor-pointer"
                 data-testid={`session-row-${session.id}`}
                 onClick={() => {
-                  void navigate(`/sessions/${session.id}`);
+                  if (onRowClick != null) onRowClick(session);
+                  else void navigate(`/sessions/${session.id}`);
                 }}
               >
                 {isVisible('sessionId') && (
@@ -376,6 +385,7 @@ export const SessionsTable = memo(function SessionsTable({
                       session={session}
                       hideSiteName={hideSiteName}
                       hideStationName={hideStationName}
+                      linkStation={linkEntities}
                     />
                   </TableCell>
                 )}
@@ -383,6 +393,8 @@ export const SessionsTable = memo(function SessionsTable({
                   <TableCell className="whitespace-nowrap">
                     {session.freeVend === true ? (
                       <span className="text-muted-foreground">{t('sessions.freeVend')}</span>
+                    ) : session.driverName != null && !linkEntities ? (
+                      session.driverName
                     ) : session.driverName != null ? (
                       <Link
                         to={`/drivers/${session.driverId ?? ''}`}

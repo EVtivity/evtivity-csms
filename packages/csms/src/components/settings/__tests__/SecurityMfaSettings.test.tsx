@@ -81,7 +81,7 @@ describe('SecurityMfaSettings', () => {
     const select = screen.getByLabelText('settings.mfaRequired');
     expect((select as HTMLSelectElement).value).toBe('off');
     fireEvent.change(select, { target: { value: 'roles' } });
-    const admin = await screen.findByRole('checkbox', { name: 'admin' });
+    const admin = await screen.findByRole('checkbox', { name: 'users.roleNames.admin' });
     fireEvent.click(admin);
     fireEvent.click(screen.getByRole('button', { name: /common.save/ }));
     await waitFor(() => {
@@ -103,9 +103,20 @@ describe('SecurityMfaSettings', () => {
       mfa: { emailEnabled: true, totpEnabled: true, smsEnabled: false, required: 'roles' },
       roleNames: ROLE_NAMES,
     });
-    expect(await screen.findByRole('checkbox', { name: 'admin' })).toBeTruthy();
-    expect(screen.getByRole('checkbox', { name: 'operator' })).toBeTruthy();
+    expect(await screen.findByRole('checkbox', { name: 'users.roleNames.admin' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'users.roleNames.operator' })).toBeTruthy();
     expect(getMock).not.toHaveBeenCalledWith('/v1/roles');
+  });
+
+  it('offers the Fleet Manager role by its label and a custom role by its name', async () => {
+    renderWith({
+      mfa: { emailEnabled: true, totpEnabled: true, smsEnabled: false, required: 'roles' },
+      roleNames: ['admin', 'fleet_manager', 'night_shift'],
+    });
+    expect(
+      await screen.findByRole('checkbox', { name: 'users.roleNames.fleet_manager' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'night_shift' })).toBeTruthy();
   });
 
   it('keeps the stored roles when another mode is saved', async () => {
@@ -254,9 +265,13 @@ describe('SecurityMfaSettings', () => {
       },
       roleNames: ROLE_NAMES,
     });
-    const operator = await screen.findByRole<HTMLInputElement>('checkbox', { name: 'operator' });
+    const operator = await screen.findByRole<HTMLInputElement>('checkbox', {
+      name: 'users.roleNames.operator',
+    });
     expect(operator.checked).toBe(true);
-    expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'admin' }).checked).toBe(false);
+    expect(
+      screen.getByRole<HTMLInputElement>('checkbox', { name: 'users.roleNames.admin' }).checked,
+    ).toBe(false);
   });
   it('shows Unsaved changes after an edit, keeps Save off without one and shows Saved after a save', async () => {
     putMock.mockResolvedValue({ success: true });

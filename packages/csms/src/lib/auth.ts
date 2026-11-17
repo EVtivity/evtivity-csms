@@ -17,6 +17,7 @@ import {
   type UiTheme,
 } from './theme';
 import { mfaPendingFromReply, type MfaPendingReply, type MfaPendingState } from './mfa-pending';
+import type { UserAccessScope } from '@evtivity/lib/user-access-scope';
 import {
   mfaEnrollmentFromReply,
   type MfaEnrollmentReply,
@@ -59,11 +60,25 @@ interface MeResponse extends User {
   themePreference: Theme;
   permissions: string[];
   hasAllSiteAccess: boolean;
+  accessScope?: UserAccessScope;
+  fleetIds?: string[];
 }
 
 interface AccessInfo {
   permissions: string[];
   hasAllSiteAccess: boolean;
+  accessScope: UserAccessScope;
+  fleetIds: string[];
+}
+
+/** The access fields of a /v1/users/me reply; an older API without them means the sites scope. */
+function accessOf(me: MeResponse): AccessInfo {
+  return {
+    permissions: me.permissions,
+    hasAllSiteAccess: me.hasAllSiteAccess,
+    accessScope: me.accessScope === 'fleets' ? 'fleets' : 'sites',
+    fleetIds: me.fleetIds ?? [],
+  };
 }
 
 /**
@@ -74,10 +89,10 @@ interface AccessInfo {
 async function fetchAccessInfo(): Promise<AccessInfo> {
   try {
     const me = await api.get<MeResponse>('/v1/users/me');
-    return { permissions: me.permissions, hasAllSiteAccess: me.hasAllSiteAccess };
+    return accessOf(me);
   } catch (err) {
     console.warn('Could not load the current user access, signing in without it', err);
-    return { permissions: [], hasAllSiteAccess: false };
+    return { permissions: [], hasAllSiteAccess: false, accessScope: 'sites', fleetIds: [] };
   }
 }
 
@@ -92,6 +107,12 @@ interface AuthState {
    * false: hiding a control is the safe side, and the API enforces access anyway.
    */
   hasAllSiteAccess: boolean;
+  /**
+   * `fleets` for a fleet user: it reaches only the fleets in `fleetIds` (the
+   * Fleets pages); the API answers 404 everywhere else.
+   */
+  accessScope: UserAccessScope;
+  fleetIds: string[];
   /** The Mode (light or dark). */
   theme: Theme;
   /** The theme (Default, Soft, High Contrast). */
@@ -112,6 +133,8 @@ interface AuthState {
   clearMfaEnrollment: () => void;
   logout: () => Promise<void>;
   hydrate: () => void;
+  /** Reads the access scope and fleets again (a fleet user's fleets changed). */
+  refreshAccess: () => Promise<void>;
   retryConnection: () => void;
   setLanguage: (language: string) => Promise<void>;
   setTimezone: (timezone: string) => Promise<void>;
@@ -174,6 +197,11 @@ export function useHasAllSiteAccess(): boolean {
   return useAuth((s) => s.hasAllSiteAccess);
 }
 
+/** Hook: returns true for a fleet user, who sees only its fleets. */
+export function useIsFleetUser(): boolean {
+  return useAuth((s) => s.accessScope === 'fleets');
+}
+
 /**
  * Hook: returns true if the current user has the permission and access to all
  * sites, which a company-wide route needs on top of the permission.
@@ -217,6 +245,8 @@ export const useAuth = create<AuthState>((set, get) => ({
   role: initial.role,
   permissions: [],
   hasAllSiteAccess: false,
+  accessScope: 'sites',
+  fleetIds: [],
   theme: initial.theme,
   uiTheme: initial.uiTheme,
   isAuthenticated: initial.isAuthenticated,
@@ -264,6 +294,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       role: loginData.role?.name ?? null,
       permissions: access.permissions,
       hasAllSiteAccess: access.hasAllSiteAccess,
+      accessScope: access.accessScope,
+      fleetIds: access.fleetIds,
       theme: loginData.user.themePreference,
       uiTheme,
       isAuthenticated: true,
@@ -290,6 +322,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       role,
       permissions: access.permissions,
       hasAllSiteAccess: access.hasAllSiteAccess,
+      accessScope: access.accessScope,
+      fleetIds: access.fleetIds,
       theme: user.themePreference,
       uiTheme,
       isAuthenticated: true,
@@ -338,6 +372,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       role: null,
       permissions: [],
       hasAllSiteAccess: false,
+      accessScope: 'sites',
+      fleetIds: [],
       isAuthenticated: false,
       signedOut: true,
     });
@@ -370,8 +406,7 @@ export const useAuth = create<AuthState>((set, get) => ({
           theme: me.themePreference,
           uiTheme,
           role: me.role?.name ?? null,
-          permissions: me.permissions,
-          hasAllSiteAccess: me.hasAllSiteAccess,
+          ...accessOf(me),
           isAuthenticated: true,
           signedOut: false,
           isHydrating: false,
@@ -390,10 +425,22 @@ export const useAuth = create<AuthState>((set, get) => ({
           role: null,
           permissions: [],
           hasAllSiteAccess: false,
+          accessScope: 'sites',
+          fleetIds: [],
           isAuthenticated: false,
           isHydrating: false,
         });
       });
+  },
+
+  refreshAccess: async () => {
+    if (!get().isAuthenticated) return;
+    try {
+      const me = await api.get<MeResponse>('/v1/users/me');
+      set(accessOf(me));
+    } catch (err: unknown) {
+      console.warn('Reading the access scope again failed', err);
+    }
   },
 
   retryConnection: () => {

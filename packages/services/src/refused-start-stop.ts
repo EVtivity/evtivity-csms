@@ -17,7 +17,12 @@ export interface PaymentStopTarget {
   transactionId: string;
   ocppStationId: string;
   stationDbId: string;
+  /** The station message of the stop; absent is the fleet credit limit one. */
+  message?: RefusedStartMessage;
 }
+
+/** Why a start was refused: the fleet credit limit or the card's monthly limit. */
+export type RefusedStartMessage = 'account_credit_limit' | 'card_monthly_limit';
 
 /**
  * How long the CSMS waits before it stops a transaction whose start it
@@ -47,8 +52,12 @@ export function refusedStartStopJobId(sessionId: string): string {
  * cannot be added (Redis down, a Redis ACL without the queue grant): the
  * caller then stops the transaction at once.
  */
-export async function enqueueRefusedStartStop(target: PaymentStopTarget): Promise<void> {
-  await jobQueue(PAYMENT_STOP_QUEUE, PAYMENT_STOP_JOB_OPTIONS).add(REFUSED_START_STOP_JOB, target, {
+export async function enqueueRefusedStartStop(
+  target: PaymentStopTarget,
+  message: RefusedStartMessage = 'account_credit_limit',
+): Promise<void> {
+  const data: PaymentStopTarget = { ...target, message };
+  await jobQueue(PAYMENT_STOP_QUEUE, PAYMENT_STOP_JOB_OPTIONS).add(REFUSED_START_STOP_JOB, data, {
     jobId: refusedStartStopJobId(target.sessionId),
     delay: REFUSED_START_STOP_GRACE_MS,
   });
@@ -85,7 +94,8 @@ export async function runRefusedStartStop(
     action: 'RequestStopTransaction',
     payload: { transactionId: target.transactionId },
   });
-  await showPaymentStopMessage({ sql, pubsub, logger }, target, 'account_credit_limit');
+  const message = target.message ?? 'account_credit_limit';
+  await showPaymentStopMessage({ sql, pubsub, logger }, target, message);
   await writeCsmsSessionAudit(
     {
       sessionId: target.sessionId,
@@ -96,7 +106,7 @@ export async function runRefusedStartStop(
       after: {
         command: 'RequestStopTransaction',
         transactionId: target.transactionId,
-        reason: 'AccountCreditLimit',
+        reason: message === 'card_monthly_limit' ? 'CardMonthlyLimit' : 'AccountCreditLimit',
       },
       notes: `The station did not end the refused transaction within ${String(REFUSED_START_STOP_GRACE_MS / 1000)} s`,
     },

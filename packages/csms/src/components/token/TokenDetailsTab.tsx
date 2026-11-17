@@ -30,6 +30,8 @@ import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
 import { useSavedToast } from '@/components/saved-message';
 import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
+import { TokenFleetSelect } from '@/components/token/TokenFleetSelect';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 
 interface TokenData {
   id: string;
@@ -41,13 +43,16 @@ interface TokenData {
   expiresAt?: string | null;
   revokedAt?: string | null;
   revokedReason?: string | null;
-  deactivatedBy?: 'operator' | 'driver' | 'system' | null;
+  deactivatedBy?: 'operator' | 'driver' | 'system' | 'fleet' | null;
   prepaidBalanceCents: number | null;
   createdAt: string;
   updatedAt: string;
   driverFirstName: string | null;
   driverLastName: string | null;
   driverEmail: string | null;
+  /** The fleet that owns the card, null for a driver's own card. */
+  fleetId?: string | null;
+  fleetName?: string | null;
 }
 
 interface TokenDetailsTabProps {
@@ -62,12 +67,17 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
   const queryClient = useQueryClient();
   const { currency } = useCompanyCurrency();
   const { toast } = useToast();
+  // A fleet card changes only with fleetCards:write and access to every site.
+  const canWriteFleetCards = useHasPermission('fleetCards:write');
+  const allSites = useHasAllSiteAccess();
+  const cardWritable = token.fleetId == null || (canWriteFleetCards && allSites);
 
   const [editing, setEditing] = useState(false);
   const [idToken, setIdToken] = useState('');
   const [tokenType, setTokenType] = useState('');
   const [label, setLabel] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [fleetId, setFleetId] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [isPrepaid, setIsPrepaid] = useState(false);
   const [prepaidBalance, setPrepaidBalance] = useState('');
@@ -85,6 +95,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
       tokenType?: string;
       label?: string | null;
       driverId?: string | null;
+      fleetId?: string | null;
       isActive?: boolean;
       expiresAt?: string | null;
       prepaidBalanceCents?: number | null;
@@ -116,6 +127,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
     setTokenType(token.tokenType);
     setLabel(token.label ?? '');
     setIsActive(token.isActive);
+    setFleetId(token.fleetId ?? '');
     setExpiresAt(token.expiresAt != null ? formatDateTimeLocal(new Date(token.expiresAt)) : '');
     setIsPrepaid(token.prepaidBalanceCents != null);
     setLoadedBalanceCents(token.prepaidBalanceCents ?? null);
@@ -163,6 +175,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
       tokenType,
       label: label.trim() !== '' ? label.trim() : null,
       driverId: selectedDriver?.id ?? null,
+      ...((token.fleetId ?? '') !== fleetId ? { fleetId: fleetId === '' ? null : fleetId } : {}),
       isActive,
       expiresAt: expiresAt.trim() !== '' ? new Date(expiresAt).toISOString() : null,
       ...(balanceCents !== loadedBalanceCents
@@ -176,7 +189,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
       <TabPanel
         title={t('common.details')}
         actions={
-          !editing ? (
+          !editing && cardWritable ? (
             <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
               <EditButton label={t('common.edit')} onClick={startEdit} />
               <RemoveButton
@@ -243,6 +256,14 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
               <Label className="leading-6">{t('tokens.driver')}</Label>
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
             </div>
+            <TokenFleetSelect
+              id="edit-fleet"
+              value={fleetId}
+              onChange={setFleetId}
+              current={
+                token.fleetId != null ? { id: token.fleetId, name: token.fleetName ?? null } : null
+              }
+            />
             <div className="flex items-center gap-2">
               <Checkbox
                 id="edit-active"
@@ -339,6 +360,16 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
                 )}
               </dd>
             </div>
+            {token.fleetId != null && (
+              <div>
+                <dt className="text-muted-foreground">{t('tokens.fleet')}</dt>
+                <dd className="font-medium">
+                  <Link to={`/fleets/${token.fleetId}`} className="hover:underline">
+                    {token.fleetName ?? t('tokens.fleet')}
+                  </Link>
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-muted-foreground">{t('common.status')}</dt>
               <dd className="font-medium">

@@ -64,6 +64,10 @@ interface VehiclesTableProps {
   showAutocharge?: boolean;
   /** The list's sort (a fleet's vehicles); without it the headers do not sort. */
   sort?: ListSort<VehicleSortKey> | undefined;
+  /** Leaves the VIN column out (fleet users never see vehicle identifiers). */
+  hideVin?: boolean;
+  /** Shows the driver as text, not a link to the driver page. */
+  plainDriver?: boolean;
 }
 
 export function VehiclesTable({
@@ -81,12 +85,14 @@ export function VehiclesTable({
   onRowClick,
   showAutocharge = false,
   sort,
+  hideVin = false,
+  plainDriver = false,
 }: VehiclesTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const timezone = useUserTimezone();
   const hasActions = onEdit != null || onDelete != null;
-  const baseCols = 5;
+  const baseCols = hideVin ? 4 : 5;
   const colSpan = baseCols + (showDriver ? 1 : 0) + (hasActions ? 1 : 0) + (showAutocharge ? 3 : 0);
 
   return (
@@ -109,9 +115,11 @@ export function VehiclesTable({
               <SortableTableHead sortKey="year" sort={sort}>
                 {t('vehicles.year')}
               </SortableTableHead>
-              <SortableTableHead sortKey="vin" sort={sort}>
-                {t('vehicles.vin')}
-              </SortableTableHead>
+              {!hideVin && (
+                <SortableTableHead sortKey="vin" sort={sort}>
+                  {t('vehicles.vin')}
+                </SortableTableHead>
+              )}
               <SortableTableHead sortKey="licensePlate" sort={sort}>
                 {t('vehicles.licensePlate')}
               </SortableTableHead>
@@ -149,7 +157,8 @@ export function VehiclesTable({
                   {v.make ?? 'n/a'}
                 </TableCell>
                 <TableCell>{v.model ?? 'n/a'}</TableCell>
-                {showDriver && (
+                {showDriver && plainDriver && <TableCell>{v.driverName ?? 'n/a'}</TableCell>}
+                {showDriver && !plainDriver && (
                   <TableCell>
                     <button
                       type="button"
@@ -164,7 +173,7 @@ export function VehiclesTable({
                   </TableCell>
                 )}
                 <TableCell>{v.year ?? 'n/a'}</TableCell>
-                <TableCell>{v.vin ?? 'n/a'}</TableCell>
+                {!hideVin && <TableCell>{v.vin ?? 'n/a'}</TableCell>}
                 <TableCell>{v.licensePlate ?? 'n/a'}</TableCell>
                 {showAutocharge && (
                   <>

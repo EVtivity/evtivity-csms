@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { sessionChargingPointShape } from '../lib/session-charging-point.js';
 import * as fleetService from '../services/fleet.service.js';
@@ -21,23 +21,33 @@ import type { AccountInvoiceRecipient } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { AppError, OCPP_PROTOCOLS } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { userLanguage } from '../lib/user-language.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
+import { logTimeRangeQuery, parseLogTimeRange } from '../lib/date-range.js';
+import {
+  FLEET_SESSION_EXPORT_MAX_DAYS,
+  fleetSessionExportRange,
+  fleetSessionsCsv,
+} from '../lib/fleet-session-export.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { fleetListSort } from '../lib/sorts/fleet-list-sort.js';
 import { driverListSort } from '../lib/sorts/driver-list-sort.js';
 import { vehicleListSort } from '../lib/sorts/vehicle-list-sort.js';
 import { fleetSessionListSort } from '../lib/sorts/session-list-sort.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import {
   checkStationSiteAccess,
   getUserSiteIds,
   requireAllSiteAccess,
 } from '../lib/site-access.js';
 import {
+  refuseFleetBillingRead,
   refuseSiteRestrictedFleetBilling,
   refuseSiteRestrictedFleetMembership,
 } from '../lib/fleet-billing-access.js';
+import { requireFleetAccess } from '../lib/fleet-scope.js';
+import { fleetReaderOf, sortsByHiddenField } from '../lib/fleet-reader.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import {
@@ -50,6 +60,7 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { INVOICE_LANGUAGES } from '@evtivity/services/invoice-labels';
 import { avatarItem } from '../lib/avatar-item.js';
+import { tokenActorOf } from '../services/token.service.js';
 
 // Company-wide configuration: a site-restricted user gets this 404 before any
 // read or write (requireAllSiteAccess, features/site-access-control.md).
@@ -169,15 +180,29 @@ const fleetDriverItem = z
     id: z.string().describe('Driver identifier'),
     firstName: z.string().max(100).nullable().describe('Driver first name'),
     lastName: z.string().max(100).nullable().describe('Driver last name'),
-    email: z.email().max(255).nullable().describe('Driver email address'),
-    phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
+    email: z
+      .email()
+      .max(255)
+      .nullable()
+      .optional()
+      .describe('Driver email address (left out for a fleet user)'),
+    phone: z
+      .string()
+      .max(50)
+      .nullable()
+      .optional()
+      .describe('Driver phone number in E.164 format (left out for a fleet user)'),
     isActive: z.boolean().describe('Whether the driver account is enabled'),
     accountBillingOptOut: z
       .boolean()
+      .optional()
       .describe(
-        'The member pays by card although the fleet bills on account (opt-out of charge on account)',
+        'The member pays by card although the fleet bills on account (opt-out of charge on account; left out for a fleet user)',
       ),
-    createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
+    createdAt: z.coerce
+      .date()
+      .optional()
+      .describe('Timestamp when the driver was created (left out for a fleet user)'),
     avatar: avatarItem.optional(),
   })
   .loose();
@@ -258,7 +283,12 @@ const fleetVehicleItem = z
       .regex(/^\d{4}$/)
       .nullable()
       .describe('Model year (4-digit)'),
-    vin: z.string().max(17).nullable().describe('Vehicle identification number (17 chars)'),
+    vin: z
+      .string()
+      .max(17)
+      .nullable()
+      .optional()
+      .describe('Vehicle identification number (17 chars; left out for a fleet user)'),
     licensePlate: z.string().max(20).nullable().describe('Vehicle license plate'),
   })
   .loose();
@@ -270,7 +300,11 @@ const fleetSessionItem = z
     stationName: z.string().max(255).nullable().describe('Station OCPP id (display label)'),
     siteName: z.string().max(255).nullable().describe('Site name where the station is located'),
     ...sessionChargingPointShape,
-    transactionId: z.string().nullable().describe('OCPP transaction identifier'),
+    transactionId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('OCPP transaction identifier (left out for a fleet user)'),
     status: z
       .string()
       .max(50)
@@ -289,14 +323,26 @@ const fleetSessionItem = z
       .number()
       .int()
       .min(0)
-      .describe('Running cost in cents during active session'),
+      .optional()
+      .describe(
+        'Running cost in cents during active session (left out for a fleet user without payments:read)',
+      ),
     finalCostCents: z
       .number()
       .int()
       .min(0)
       .nullable()
-      .describe('Final billed cost in cents after session completes'),
-    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
+      .optional()
+      .describe(
+        'Final billed cost in cents after session completes (left out for a fleet user without payments:read)',
+      ),
+    currency: z
+      .string()
+      .length(3)
+      .optional()
+      .describe(
+        'ISO 4217 currency the session is billed in (left out for a fleet user without payments:read)',
+      ),
   })
   .loose();
 
@@ -363,14 +409,60 @@ const fleetParams = z.object({
   id: ID_PARAMS.fleetId.describe('Fleet ID'),
 });
 
+const fleetSessionParams = fleetParams.extend({
+  sessionId: ID_PARAMS.sessionId.describe('Charging session ID'),
+});
+
+const fleetSessionDetailItem = z
+  .object({
+    id: z.string().describe('Charging session identifier'),
+    status: z.string().max(50).describe('Session status (active, completed, faulted, etc.)'),
+    startedAt: z.coerce.date().nullable().describe('Timestamp when the session started'),
+    endedAt: z.coerce.date().nullable().describe('Timestamp when the session ended'),
+    energyDeliveredWh: z.number().min(0).describe('Total energy delivered in watt-hours'),
+    siteName: z.string().max(255).nullable().describe('Site the session happened at'),
+    stationName: z.string().max(255).nullable().describe('Station OCPP id (display label)'),
+    ...sessionChargingPointShape,
+    driverName: z
+      .string()
+      .nullable()
+      .describe('Name of the driver, null for a fleet card and for an erased driver'),
+    driverErased: z
+      .boolean()
+      .optional()
+      .describe('The driver of the session was erased: no name or other personal data is shown'),
+    cardLabel: z
+      .string()
+      .nullable()
+      .describe('Label of the fleet RFID card the session used; null for any other card'),
+    currentCostCents: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe('Running cost in cents (only with payments:read)'),
+    finalCostCents: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe('Final cost in cents (only with payments:read)'),
+    currency: z
+      .string()
+      .length(3)
+      .optional()
+      .describe('ISO 4217 currency of the cost (only with payments:read)'),
+  })
+  .loose();
+
 const createFleetBody = z.object({
-  name: z.string().max(255),
-  description: z.string().max(500).optional(),
+  name: z.string().max(255).describe('Fleet display name'),
+  description: z.string().max(500).optional().describe('Fleet description'),
 });
 
 const updateFleetBody = z.object({
-  name: z.string().max(255).optional(),
-  description: z.string().max(500).optional(),
+  name: z.string().max(255).optional().describe('Fleet display name'),
+  description: z.string().max(500).optional().describe('Fleet description'),
 });
 
 const INVOICE_RECIPIENTS = [
@@ -525,12 +617,41 @@ const sessionsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10).describe('Items per page'),
 });
 
+const fleetSessionFilterQuery = {
+  from: logTimeRangeQuery.from.describe('ISO datetime, sessions started at or after it'),
+  to: logTimeRangeQuery.to.describe(
+    'ISO datetime, sessions started at or before it; must not be before `from`',
+  ),
+  driverId: ID_PARAMS.driverId
+    .optional()
+    .describe('Sessions of this fleet member only; a driver who is not a member lists nothing'),
+  tokenId: ID_PARAMS.driverTokenId
+    .optional()
+    .describe(
+      'Sessions with this fleet RFID card only; a card the fleet does not own lists nothing',
+    ),
+};
+
 const fleetSessionsQuery = sessionsQuery.extend({
   ...fleetSessionListSort.query,
+  ...fleetSessionFilterQuery,
 });
 
 const fleetListQuery = paginationQuery.extend({ ...fleetListSort(null).query });
-const fleetDriversQuery = sessionsQuery.extend({ ...driverListSort.query });
+
+const HIDDEN_SORT = {
+  error: 'This list cannot be sorted by a field you are not shown',
+  code: 'VALIDATION_ERROR',
+} as const;
+const fleetDriversQuery = sessionsQuery.extend({
+  ...driverListSort.query,
+  search: z
+    .string()
+    .max(100)
+    .optional()
+    .describe('Matches the member name (for an operator also the email), as typed'),
+  active: z.enum(['true', 'false']).optional().describe('true lists only active members'),
+});
 const fleetVehiclesQuery = sessionsQuery.extend({ ...vehicleListSort.query });
 
 const metricsQuery = z.object({
@@ -574,9 +695,12 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets',
     {
       onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'List fleets',
+        description:
+          'Every fleet for an operator. A fleet user lists only its assigned fleets, with a station count of 0 (it has no sites).',
         operationId: 'listFleets',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(fleetListQuery),
@@ -585,8 +709,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const params = request.query as z.infer<typeof fleetListQuery>;
-      const { userId } = request.user as { userId: string };
-      return fleetService.listFleets(params, await getUserSiteIds(userId));
+      return fleetService.listFleets(params, await fleetReaderOf(request));
     },
   );
 
@@ -594,11 +717,12 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets/:id',
     {
       onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'Get a fleet by ID',
         description:
-          'A user restricted to some sites does not get the billing profile and credit limit fields: account billing spans every site.',
+          'A user restricted to some sites, and a fleet user, does not get the billing profile and credit limit fields: account billing spans every site. A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).',
         operationId: 'getFleet',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -610,6 +734,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
+      if (!(await requireFleetAccess(request, reply, id))) return;
       const fleet = await fleetService.getFleet(id);
       if (fleet == null) {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
@@ -724,15 +849,16 @@ export function fleetRoutes(app: FastifyInstance): void {
         summary: 'Delete a fleet',
         operationId: 'deleteFleet',
         description:
-          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead. Refused with 409 FLEET_HAS_RESERVATIONS while any fleet reservation (cancelled ones included) names the fleet: reservations are kept as history. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the fleet spans every site.',
+          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead. Refused with 409 FLEET_HAS_RESERVATIONS while any fleet reservation (cancelled ones included) names the fleet: reservations are kept as history. Refused with 409 FLEET_HAS_CARDS while the fleet owns RFID cards. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the fleet spans every site.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         response: {
           200: itemResponse(fleetItem),
           404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
-          409: errorWith('Fleet has account billing or fleet reservations', [
+          409: errorWith('Fleet has account billing, fleet reservations or RFID cards', [
             ERROR_CODES.FLEET_HAS_OPEN_BILLING,
             ERROR_CODES.FLEET_HAS_RESERVATIONS,
+            ERROR_CODES.FLEET_HAS_CARDS,
           ]),
         },
       },
@@ -752,6 +878,10 @@ export function fleetRoutes(app: FastifyInstance): void {
         }
         if (err instanceof AppError && err.code === 'FLEET_HAS_RESERVATIONS') {
           await reply.status(409).send({ error: err.message, code: 'FLEET_HAS_RESERVATIONS' });
+          return;
+        }
+        if (err instanceof AppError && err.code === 'FLEET_HAS_CARDS') {
+          await reply.status(409).send({ error: err.message, code: 'FLEET_HAS_CARDS' });
           return;
         }
         throw err;
@@ -904,11 +1034,12 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets/:id/credit-limit',
     {
       onRequest: [authorize('fleets:read', 'payments:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: "Get a fleet's credit limit and exposure",
         description:
-          'The credit limit of the account billing and the exposure it is checked against: ended account sessions on no invoice, account sessions on an issued unpaid invoice, and the running cost of active account sessions, in the company currency. Sessions with a payment record are paid by card and do not count. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.',
+          'The credit limit of the account billing and the exposure it is checked against: ended account sessions on no invoice, account sessions on an issued unpaid invoice, and the running cost of active account sessions, in the company currency. Sessions with a payment record are paid by card and do not count. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site. A fleet user reads only its assigned fleets.',
         operationId: 'getFleetCreditLimit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -920,7 +1051,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
+      if (await refuseFleetBillingRead(request, reply, id)) return;
       const view = await fleetService.getFleetCreditLimit(id);
       if (view == null) {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
@@ -972,20 +1103,40 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets/:id/drivers',
     {
       onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'List drivers in a fleet',
+        description:
+          'A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND) and gets each member with id, name and status only.',
         operationId: 'listFleetDrivers',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         querystring: zodSchema(fleetDriversQuery),
-        response: { 200: paginatedResponse(fleetDriverItem) },
+        response: {
+          200: paginatedResponse(fleetDriverItem),
+          400: errorWith('A fleet user sorted by a field it is not shown', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { page, limit, sort, order } = request.query as z.infer<typeof fleetDriversQuery>;
-      return fleetService.getFleetDrivers(id, page, limit, { sort, order });
+      if (!(await requireFleetAccess(request, reply, id))) return;
+      const { page, limit, sort, order, search, active } = request.query as z.infer<
+        typeof fleetDriversQuery
+      >;
+      const reader = await fleetReaderOf(request);
+      if (sortsByHiddenField(reader, 'drivers', sort)) {
+        await reply.status(400).send(HIDDEN_SORT);
+        return;
+      }
+      return fleetService.getFleetDrivers(id, page, limit, { sort, order }, reader, {
+        search,
+        active: active === 'true',
+      });
     },
   );
 
@@ -1151,7 +1302,11 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id, driverId } = request.params as z.infer<typeof driverParams>;
       if (await refuseSiteRestrictedFleetMembership(request, reply, id)) return;
-      const record = await fleetService.removeDriverFromFleet(id, driverId);
+      const record = await fleetService.removeDriverFromFleet(
+        id,
+        driverId,
+        tokenActorOf(getAuditActor(request)),
+      );
       if (record == null) {
         await reply
           .status(404)
@@ -1348,20 +1503,34 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets/:id/vehicles',
     {
       onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'List vehicles in a fleet',
+        description: 'A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).',
         operationId: 'listFleetVehicles',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         querystring: zodSchema(fleetVehiclesQuery),
-        response: { 200: paginatedResponse(fleetVehicleItem) },
+        response: {
+          200: paginatedResponse(fleetVehicleItem),
+          400: errorWith('A fleet user sorted by a field it is not shown', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
+      if (!(await requireFleetAccess(request, reply, id))) return;
       const { page, limit, sort, order } = request.query as z.infer<typeof fleetVehiclesQuery>;
-      return fleetService.getFleetVehicles(id, page, limit, { sort, order });
+      const reader = await fleetReaderOf(request);
+      if (sortsByHiddenField(reader, 'vehicles', sort)) {
+        await reply.status(400).send(HIDDEN_SORT);
+        return;
+      }
+      return fleetService.getFleetVehicles(id, page, limit, { sort, order }, reader);
     },
   );
 
@@ -1377,8 +1546,17 @@ export function fleetRoutes(app: FastifyInstance): void {
         params: zodSchema(fleetParams),
         querystring: zodSchema(
           z.object({
-            search: z.string().default(''),
-            limit: z.coerce.number().int().min(1).max(100).default(10),
+            search: z
+              .string()
+              .default('')
+              .describe('Search the vehicle make, model, VIN and plate and the driver name'),
+            limit: z.coerce
+              .number()
+              .int()
+              .min(1)
+              .max(100)
+              .default(10)
+              .describe('Most vehicles to list'),
           }),
         ),
         response: { 200: arrayResponse(fleetVehicleItem) },
@@ -1397,26 +1575,135 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets/:id/sessions',
     {
       onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'List charging sessions for a fleet',
         description:
-          "The charging sessions of the fleet's drivers. A user restricted to some sites sees only the sessions at those sites.",
+          "The charging sessions of the fleet's drivers and of the fleet's RFID cards, filtered by start time (from, to), member (driverId) and fleet RFID card (tokenId). A user restricted to some sites sees only the sessions at those sites. A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND) and sees the sessions billed to the fleet on account and not passed on to a member, at every site.",
         operationId: 'listFleetSessions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         querystring: zodSchema(fleetSessionsQuery),
-        response: { 200: paginatedResponse(fleetSessionItem) },
+        response: {
+          200: paginatedResponse(fleetSessionItem),
+          400: errorWith('Invalid filter', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { page, limit, sort, order } = request.query as z.infer<typeof fleetSessionsQuery>;
-      const { userId } = request.user as { userId: string };
-      return fleetService.getFleetSessions(id, page, limit, await getUserSiteIds(userId), {
-        sort,
-        order,
+      if (!(await requireFleetAccess(request, reply, id))) return;
+      const { page, limit, sort, order, driverId, tokenId, ...range } = request.query as z.infer<
+        typeof fleetSessionsQuery
+      >;
+      const reader = await fleetReaderOf(request);
+      if (sortsByHiddenField(reader, 'sessions', sort)) {
+        await reply.status(400).send(HIDDEN_SORT);
+        return;
+      }
+      return fleetService.getFleetSessions(
+        id,
+        page,
+        limit,
+        reader,
+        { sort, order },
+        { ...parseLogTimeRange(range), driverId, tokenId },
+      );
+    },
+  );
+
+  app.get(
+    '/fleets/:id/sessions/export',
+    {
+      onRequest: [authorize('fleets:read', 'sessions:read')],
+      config: {
+        fleetScope: true,
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+          keyGenerator: (request: FastifyRequest) => {
+            const user = request.user as { userId?: string } | undefined;
+            return user?.userId ?? request.ip;
+          },
+        },
+      },
+      schema: {
+        tags: ['Fleets'],
+        summary: 'Export the charging sessions of a fleet as CSV',
+        description: `The fleet session list with its filters (from, to, driverId, tokenId), newest first, at most ${String(fleetService.FLEET_SESSION_EXPORT_MAX_ROWS)} rows. The start time range covers at most ${String(FLEET_SESSION_EXPORT_MAX_DAYS)} days: to defaults to now and from to ${String(FLEET_SESSION_EXPORT_MAX_DAYS)} days before it; a longer range answers 400 VALIDATION_ERROR. Columns: sessionId, startedAt, endedAt, status, site, station, unit, evse, connector, connectorType, driver (name; an erased member reads Erased driver in the exporting user's language), cardLabel (the label of a fleet RFID card), energyKwh; cost and currency only with payments:read; rfidCard and transactionId for operators only, never for a fleet user. Every text cell is formula safe. 10 exports a minute per user. A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).`,
+        operationId: 'exportFleetSessions',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(fleetParams),
+        querystring: zodSchema(z.object(fleetSessionFilterQuery)),
+        response: {
+          400: errorWith('Invalid filter or range', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof fleetParams>;
+      if (!(await requireFleetAccess(request, reply, id))) return;
+      const { driverId, tokenId, ...range } = request.query as z.infer<
+        z.ZodObject<typeof fleetSessionFilterQuery>
+      >;
+      const reader = await fleetReaderOf(request);
+      const rows = await fleetService.listFleetSessionsForExport(id, reader, {
+        ...fleetSessionExportRange(parseLogTimeRange(range)),
+        driverId,
+        tokenId,
       });
+      const { userId } = request.user as { userId: string };
+      const csv = fleetSessionsCsv(rows, {
+        cost: await requestHasPermission(request, 'payments:read'),
+        operator: reader.kind === 'sites',
+        language: await userLanguage(userId, request.log),
+      });
+      await reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename=fleet-sessions.csv')
+        .send(csv);
+    },
+  );
+
+  app.get(
+    '/fleets/:id/sessions/:sessionId',
+    {
+      onRequest: [authorize('fleets:read', 'sessions:read')],
+      config: { fleetScope: true },
+      schema: {
+        tags: ['Fleets'],
+        summary: 'Get a session of a fleet',
+        description:
+          'One session of the fleet session list in a reduced view: site, station, EVSE, times, energy, the driver name and the label of a fleet RFID card, and the cost only with payments:read. Never the RFID value, a payment record, meter values or OCPP data. A session outside the fleet session list of the caller answers 404 SESSION_NOT_FOUND; a fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).',
+        operationId: 'getFleetSession',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(fleetSessionParams),
+        response: {
+          200: itemResponse(fleetSessionDetailItem),
+          404: errorWith('Fleet or session not found', [
+            ERROR_CODES.FLEET_NOT_FOUND,
+            ERROR_CODES.SESSION_NOT_FOUND,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, sessionId } = request.params as z.infer<typeof fleetSessionParams>;
+      if (!(await requireFleetAccess(request, reply, id))) return;
+      const session = await fleetService.getFleetSession(
+        id,
+        sessionId,
+        await fleetReaderOf(request),
+        await requestHasPermission(request, 'payments:read'),
+      );
+      if (session == null) {
+        await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+        return;
+      }
+      return session;
     },
   );
 
@@ -1426,23 +1713,27 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets/:id/metrics',
     {
       onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'Get fleet metrics',
         description:
-          'Session, energy and driver metrics of the fleet. For a user restricted to some sites the session figures count only the sessions at those sites.',
+          'Session, energy and driver metrics of the fleet, over the sessions of the fleet session list. For a user restricted to some sites the session figures count only the sessions at those sites. A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).',
         operationId: 'getFleetMetrics',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         querystring: zodSchema(metricsQuery),
-        response: { 200: itemResponse(fleetMetricsItem) },
+        response: {
+          200: itemResponse(fleetMetricsItem),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
+      if (!(await requireFleetAccess(request, reply, id))) return;
       const { months } = request.query as z.infer<typeof metricsQuery>;
-      const { userId } = request.user as { userId: string };
-      return fleetService.getFleetMetrics(id, months, await getUserSiteIds(userId));
+      return fleetService.getFleetMetrics(id, months, await fleetReaderOf(request));
     },
   );
 
@@ -1452,23 +1743,27 @@ export function fleetRoutes(app: FastifyInstance): void {
     '/fleets/:id/energy-history',
     {
       onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'Get fleet energy delivery history',
         description:
-          "Energy delivered per day to the fleet's drivers. For a user restricted to some sites only the sessions at those sites count.",
+          'Energy delivered per day over the sessions of the fleet session list. For a user restricted to some sites only the sessions at those sites count. A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).',
         operationId: 'getFleetEnergyHistory',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         querystring: zodSchema(energyHistoryQuery),
-        response: { 200: arrayResponse(energyHistoryItem) },
+        response: {
+          200: arrayResponse(energyHistoryItem),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
+      if (!(await requireFleetAccess(request, reply, id))) return;
       const { days } = request.query as z.infer<typeof energyHistoryQuery>;
-      const { userId } = request.user as { userId: string };
-      return fleetService.getFleetEnergyHistory(id, days, await getUserSiteIds(userId));
+      return fleetService.getFleetEnergyHistory(id, days, await fleetReaderOf(request));
     },
   );
 

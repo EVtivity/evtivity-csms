@@ -9,8 +9,17 @@ import {
   createPermissionCatalog,
   permissionCatalog,
   PermissionCatalog,
+  FLEET_USER_PERMISSIONS,
+  FLEET_MANAGER_DEFAULTS,
+  withinFleetUserPermissions,
+  fleetUserPermissionsOutside,
   AI_MCP_USE_PERMISSION,
 } from '../permissions.js';
+import {
+  USER_ACCESS_SCOPES,
+  FLEET_MANAGER_ROLE_NAME,
+  isUserAccessScope,
+} from '../user-access-scope.js';
 
 describe('hasPermission', () => {
   it('returns true when the exact permission is present', () => {
@@ -93,9 +102,9 @@ describe('hasAnySettingsPermission', () => {
 describe('built-in permission catalog', () => {
   const all = permissionCatalog.all();
 
-  it('holds 40 resources with read and write each', () => {
-    expect(permissionCatalog.groups()).toHaveLength(40);
-    expect(all).toHaveLength(80);
+  it('holds 41 resources with read and write each', () => {
+    expect(permissionCatalog.groups()).toHaveLength(41);
+    expect(all).toHaveLength(82);
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -132,7 +141,9 @@ describe('built-in permission catalog', () => {
 
   it('gives operator operational access without settings or users:write', () => {
     const operator = permissionCatalog.defaultsFor('operator');
-    expect(operator).toHaveLength(50);
+    expect(operator).toHaveLength(52);
+    expect(operator).toContain('fleetCards:read');
+    expect(operator).toContain('fleetCards:write');
     expect(operator).toContain('securityEvents:read');
     expect(operator).not.toContain('securityEvents:write');
     expect(operator).toContain('paymentTerminals:write');
@@ -178,8 +189,10 @@ describe('built-in permission catalog', () => {
     permissionCatalog.defaultsFor('operator').push('x:read');
     const [first] = permissionCatalog.groups();
     if (first != null) first.resource = 'changed';
-    expect(permissionCatalog.all()).toHaveLength(80);
-    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(50);
+    expect(permissionCatalog.all()).toHaveLength(82);
+    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(52);
+    permissionCatalog.defaultsFor('fleet_manager').push('x:read');
+    expect(permissionCatalog.defaultsFor('fleet_manager')).toHaveLength(7);
     expect(permissionCatalog.groups()[0]?.resource).toBe('dashboard');
   });
 });
@@ -264,5 +277,64 @@ describe('AI roadmap permissions (TC-AI-C-12)', () => {
     ]);
     const viewer = permissionCatalog.defaultsFor('viewer');
     expect(viewer.filter((p) => /^ai(Usage|Mcp):/.test(p))).toEqual([]);
+  });
+});
+
+describe('fleet user permissions', () => {
+  it('lists the seven fleet user permissions, all in the catalog', () => {
+    expect([...FLEET_USER_PERMISSIONS]).toEqual([
+      'fleets:read',
+      'sessions:read',
+      'payments:read',
+      'fleetCards:read',
+      'fleetCards:write',
+      'settings.apiKeys:read',
+      'settings.apiKeys:write',
+    ]);
+    for (const p of FLEET_USER_PERMISSIONS) expect(permissionCatalog.isKnown(p)).toBe(true);
+  });
+
+  it('gives the fleet_manager role the fleet user permissions as a copy', () => {
+    expect(FLEET_MANAGER_ROLE_NAME).toBe('fleet_manager');
+    const defaults = permissionCatalog.defaultsFor(FLEET_MANAGER_ROLE_NAME);
+    expect(defaults).toEqual([...FLEET_MANAGER_DEFAULTS]);
+    defaults.push('stations:read');
+    expect(permissionCatalog.defaultsFor('fleet_manager')).toEqual([...FLEET_USER_PERMISSIONS]);
+  });
+
+  it('accepts permissions inside the list, an empty list included', () => {
+    expect(withinFleetUserPermissions([])).toBe(true);
+    expect(withinFleetUserPermissions(['fleets:read', 'fleetCards:write'])).toBe(true);
+    expect(withinFleetUserPermissions([...FLEET_USER_PERMISSIONS])).toBe(true);
+    expect(fleetUserPermissionsOutside(['fleetCards:read', 'payments:read'])).toEqual([]);
+    expect(withinFleetUserPermissions(['settings.apiKeys:read', 'settings.apiKeys:write'])).toBe(
+      true,
+    );
+  });
+
+  it('refuses every write outside fleet cards and every other permission', () => {
+    const refused = [
+      'fleets:write',
+      'sessions:write',
+      'payments:write',
+      'stations:read',
+      'drivers:read',
+      'settings.system:read',
+      'settings.security:write',
+      'users:read',
+      'unknown:read',
+    ];
+    for (const p of refused) expect(withinFleetUserPermissions(['fleets:read', p])).toBe(false);
+    expect(fleetUserPermissionsOutside(['fleets:read', ...refused])).toEqual(refused);
+  });
+});
+
+describe('user access scopes', () => {
+  it('knows sites and fleets only', () => {
+    expect([...USER_ACCESS_SCOPES]).toEqual(['sites', 'fleets']);
+    expect(isUserAccessScope('sites')).toBe(true);
+    expect(isUserAccessScope('fleets')).toBe(true);
+    expect(isUserAccessScope('all')).toBe(false);
+    expect(isUserAccessScope(null)).toBe(false);
   });
 });

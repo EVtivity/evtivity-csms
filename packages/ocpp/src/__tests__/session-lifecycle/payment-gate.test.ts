@@ -24,6 +24,7 @@ const {
   mockDispatchDriverNotification,
   mockDispatchSystemNotification,
   mockStampSessionBilling,
+  mockStampFleetCardBilling,
   mockCheckFleetCreditLimit,
   mockDispatchFleetCreditLimitNotices,
   mockSessionGroupHasPaidTariff,
@@ -36,6 +37,7 @@ const {
   mockDispatchDriverNotification: vi.fn(),
   mockDispatchSystemNotification: vi.fn(),
   mockStampSessionBilling: vi.fn(),
+  mockStampFleetCardBilling: vi.fn(),
   mockCheckFleetCreditLimit: vi.fn(),
   mockDispatchFleetCreditLimitNotices: vi.fn(),
   mockSessionGroupHasPaidTariff: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   stampSessionBilling: mockStampSessionBilling,
+  stampFleetCardBilling: mockStampFleetCardBilling,
   checkFleetCreditLimit: mockCheckFleetCreditLimit,
   sessionGroupHasPaidTariff: mockSessionGroupHasPaidTariff,
 }));
@@ -311,6 +314,77 @@ describe('planPaymentGate', () => {
     ).toEqual(expected);
   });
 
+  describe('a fleet card with a monthly spending limit', () => {
+    const memberCard = { ...input, driverId: 'drv-1', tokenId: 'dtk-1' };
+    const spent = { tokenId: 'dtk-1', remainingCents: 0, ceilingCents: 0 };
+
+    it('stops a session the card limit leaves no ceiling, whoever holds the card', () => {
+      const stop = {
+        kind: 'stop',
+        why: 'card_monthly_limit',
+        reason: 'CardMonthlyLimit',
+        tokenId: 'dtk-1',
+        notice: null,
+      };
+      expect(planPaymentGate(memberCard, card, null, spent)).toEqual(stop);
+      expect(planPaymentGate(memberCard, account, null, spent)).toEqual(stop);
+      expect(
+        planPaymentGate(
+          { ...input, driverId: null, fleetCardFleetId: 'flt-1', tokenId: 'dtk-1' },
+          account,
+          null,
+          spent,
+        ),
+      ).toEqual(stop);
+    });
+
+    it('lets a session with limit left go on to the usual decision', () => {
+      expect(
+        planPaymentGate(memberCard, account, null, {
+          ...spent,
+          remainingCents: 900,
+          ceilingCents: 900,
+        }),
+      ).toEqual({ kind: 'allow', why: 'account' });
+    });
+  });
+
+  describe('a fleet card no member holds', () => {
+    const fleetCard = { ...input, driverId: null, fleetCardFleetId: 'flt-1' };
+
+    it('runs on account to its fleet, whatever the tariff', () => {
+      expect(planPaymentGate(fleetCard, account)).toEqual({ kind: 'allow', why: 'account' });
+    });
+
+    it('stops at the fleet credit limit like an account session', () => {
+      expect(
+        planPaymentGate(fleetCard, account, {
+          fleetId: 'flt-1',
+          level: 'reached',
+          remainingCents: 0,
+          ceilingCents: 0,
+        }),
+      ).toMatchObject({ kind: 'stop', why: 'account_credit_limit', fleetId: 'flt-1' });
+    });
+
+    it('stops with MissingPaymentMethod when the fleet cannot bill it (no stamp)', () => {
+      expect(planPaymentGate(fleetCard, null)).toEqual({
+        kind: 'stop',
+        why: 'fleet_card_not_billable',
+        reason: 'MissingPaymentMethod',
+        fleetId: 'flt-1',
+        notice: null,
+      });
+    });
+
+    it('keeps prepaid first: a funded prepaid fleet card is allowed', () => {
+      expect(planPaymentGate({ ...fleetCard, prepaidBalanceCents: 500 }, null)).toEqual({
+        kind: 'allow',
+        why: 'prepaid_funded',
+      });
+    });
+  });
+
   it('stops an account start whose reserved ceiling is 0 below the limit', () => {
     expect(
       planPaymentGate({ ...input, driverId: 'drv-1' }, account, {
@@ -543,6 +617,91 @@ describe('runPaymentGate', () => {
       expect(logger.error).not.toHaveBeenCalled();
     },
   );
+
+  it('stamps a fleet card session on account to its fleet and reserves its credit', async () => {
+    mockStampFleetCardBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+    });
+    mockCheckFleetCreditLimit.mockResolvedValue(null);
+
+    const decision = await runPaymentGate(deps, { ...input, fleetCardFleetId: 'flt-1' });
+
+    expect(decision).toEqual({ kind: 'allow', why: 'account' });
+    expect(mockStampFleetCardBilling).toHaveBeenCalledWith(deps.sql, 'sess-1', 'flt-1');
+    expect(mockStampSessionBilling).not.toHaveBeenCalled();
+    expect(mockCheckFleetCreditLimit).toHaveBeenCalledWith(deps.sql, 'flt-1', {
+      reserveForSessionId: 'sess-1',
+    });
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+  });
+
+  it('stops a fleet card session whose fleet cannot bill it as MissingPaymentMethod', async () => {
+    mockStampFleetCardBilling.mockResolvedValue(null);
+
+    const decision = await runPaymentGate(deps, { ...input, fleetCardFleetId: 'flt-1' });
+
+    expect(decision).toMatchObject({ kind: 'stop', why: 'fleet_card_not_billable' });
+    expect(mockStopSessionForPayment).toHaveBeenCalledWith(
+      deps,
+      expect.objectContaining({ sessionId: 'sess-1' }),
+      'MissingPaymentMethod',
+      expect.anything(),
+    );
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+  });
+
+  it("stamps a member's fleet card session on account to the card's fleet, never by the member's billing", async () => {
+    mockStampFleetCardBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-card',
+      fleetName: 'Card Fleet',
+    });
+    mockCheckFleetCreditLimit.mockResolvedValue(null);
+
+    const decision = await runPaymentGate(deps, {
+      ...input,
+      driverId: 'drv-1',
+      fleetCardFleetId: 'flt-card',
+    });
+
+    expect(decision).toEqual({ kind: 'allow', why: 'account' });
+    expect(mockStampFleetCardBilling).toHaveBeenCalledWith(deps.sql, 'sess-1', 'flt-card');
+    expect(mockStampSessionBilling).not.toHaveBeenCalled();
+    expect(mockCheckFleetCreditLimit).toHaveBeenCalledWith(deps.sql, 'flt-card', {
+      reserveForSessionId: 'sess-1',
+    });
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+  });
+
+  it("stops a member's fleet card session while its fleet does not bill on account, never charging the member", async () => {
+    mockStampFleetCardBilling.mockResolvedValue(null);
+
+    const decision = await runPaymentGate(deps, {
+      ...input,
+      driverId: 'drv-1',
+      fleetCardFleetId: 'flt-card',
+    });
+
+    expect(decision).toMatchObject({
+      kind: 'stop',
+      why: 'fleet_card_not_billable',
+      reason: 'MissingPaymentMethod',
+    });
+    expect(mockStampSessionBilling).not.toHaveBeenCalled();
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+  });
+
+  it('never stamps a prepaid fleet card session', async () => {
+    const decision = await runPaymentGate(deps, {
+      ...input,
+      fleetCardFleetId: 'flt-1',
+      prepaidBalanceCents: 500,
+    });
+    expect(decision).toEqual({ kind: 'allow', why: 'prepaid_funded' });
+    expect(mockStampFleetCardBilling).not.toHaveBeenCalled();
+  });
 
   it('stops the session unbilled when the selected provider is not usable in this process', async () => {
     mockActivePaymentProvider.mockResolvedValue(null);

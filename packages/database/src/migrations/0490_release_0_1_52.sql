@@ -1,5 +1,62 @@
 -- v0.1.52 release migration. Idempotent: every statement can run again.
 --
+-- Fleet users and fleet RFID cards (data passes first, before the ALTER TABLE
+-- statements of this file). The Fleet Manager role: a user of it reaches only
+-- the fleets assigned to it. Inserted once by id and name, never rewritten.
+INSERT INTO "roles" ("id", "name", "description")
+SELECT 'rol_000000000004', 'fleet_manager', 'Fleet access'
+WHERE NOT EXISTS (SELECT 1 FROM "roles" WHERE "name" = 'fleet_manager')
+ON CONFLICT ("id") DO NOTHING;
+--> statement-breakpoint
+-- Fleet users manage their own API keys: settings.apiKeys read and write are
+-- defaults of the Fleet Manager role. Granted once to the users of that role:
+-- while none of them holds settings.apiKeys:read yet, so a rerun never grants
+-- back a permission an admin removed.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM "user_permissions" up
+    JOIN "users" u ON u."id" = up."user_id"
+    JOIN "roles" r ON r."id" = u."role_id" AND r."name" = 'fleet_manager'
+    WHERE up."permission" = 'settings.apiKeys:read'
+  ) THEN
+    INSERT INTO "user_permissions" ("user_id", "permission")
+    SELECT u."id", p."permission"
+    FROM "users" u
+    JOIN "roles" r ON r."id" = u."role_id" AND r."name" = 'fleet_manager'
+    CROSS JOIN (VALUES ('settings.apiKeys:read'), ('settings.apiKeys:write')) AS p("permission")
+    ON CONFLICT ("user_id", "permission") DO NOTHING;
+  END IF;
+END $$;
+--> statement-breakpoint
+-- The fleetCards permissions are role defaults of operators (read and write)
+-- and viewers (read). Granted once: while no user holds fleetCards:read yet.
+-- The admin grant below and sync-admin-permissions.ts give them to admins, so
+-- a rerun skips this block and never grants back a permission an admin removed.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "user_permissions" WHERE "permission" = 'fleetCards:read') THEN
+    INSERT INTO "user_permissions" ("user_id", "permission")
+    SELECT u."id", p."permission"
+    FROM "users" u
+    JOIN "roles" r ON r."id" = u."role_id"
+    JOIN (VALUES
+      ('operator', 'fleetCards:read'),
+      ('operator', 'fleetCards:write'),
+      ('viewer', 'fleetCards:read')
+    ) AS p("role", "permission") ON p."role" = r."name"
+    ON CONFLICT ("user_id", "permission") DO NOTHING;
+  END IF;
+END $$;
+--> statement-breakpoint
+-- Admins hold every catalog permission (sync-admin-permissions.ts grants them
+-- after each migrate too; this keeps the grant for an install that runs the
+-- SQL alone).
+INSERT INTO "user_permissions" ("user_id", "permission")
+SELECT u."id", p."permission"
+FROM "users" u
+JOIN "roles" r ON r."id" = u."role_id" AND r."name" = 'admin'
+CROSS JOIN (VALUES ('fleetCards:read'), ('fleetCards:write')) AS p("permission")
+ON CONFLICT ("user_id", "permission") DO NOTHING;
+--> statement-breakpoint
 -- Station units: an operator groups the EVSEs of one OCPP station into named
 -- physical units (a master box and its extenders). No existing row changes: an
 -- EVSE starts with no unit (unit_id null), so a station without units stays as
@@ -228,3 +285,100 @@ FROM (
 ) b
 WHERE b."station_id" = cs."id"
   AND (cs."model_reported_at" IS NULL OR (cs."serial_number_reported_at" IS NULL AND b."serial_at" IS NOT NULL));
+--> statement-breakpoint
+-- Fleet users: access_scope 'fleets' reaches only the fleets of
+-- user_fleet_assignments, never a site. Every existing user stays 'sites'.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "access_scope" varchar(10) DEFAULT 'sites' NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_access_scope_check";
+--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_access_scope_check"
+  CHECK ("access_scope" IN ('sites', 'fleets'));
+--> statement-breakpoint
+ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_fleet_scope_check";
+--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_fleet_scope_check"
+  CHECK ("access_scope" <> 'fleets' OR NOT "has_all_site_access");
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "user_fleet_assignments" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL,
+  "fleet_id" text NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "user_fleet_assignments_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE,
+  CONSTRAINT "user_fleet_assignments_fleet_id_fleets_id_fk" FOREIGN KEY ("fleet_id") REFERENCES "fleets"("id") ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_user_fleet_assignments_user_id" ON "user_fleet_assignments" ("user_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_user_fleet_assignments_fleet_id" ON "user_fleet_assignments" ("fleet_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_user_fleet_assignments_unique" ON "user_fleet_assignments" ("user_id", "fleet_id");
+--> statement-breakpoint
+-- Fleet RFID cards: the fleet that owns a card, null on every existing card.
+-- A fleet that still owns cards cannot be deleted (RESTRICT).
+ALTER TABLE "driver_tokens" ADD COLUMN IF NOT EXISTS "fleet_id" text;
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "driver_tokens" ADD CONSTRAINT "driver_tokens_fleet_id_fleets_id_fk"
+    FOREIGN KEY ("fleet_id") REFERENCES "fleets"("id") ON DELETE RESTRICT;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_driver_tokens_fleet_id" ON "driver_tokens" ("fleet_id") WHERE "fleet_id" IS NOT NULL;
+--> statement-breakpoint
+-- A fleet user can deactivate a fleet card: deactivated_by 'fleet'.
+ALTER TABLE "driver_tokens" DROP CONSTRAINT IF EXISTS "driver_tokens_deactivated_by_check";
+--> statement-breakpoint
+ALTER TABLE "driver_tokens" ADD CONSTRAINT "driver_tokens_deactivated_by_check"
+  CHECK ("deactivated_by" IS NULL OR "deactivated_by" IN ('operator', 'driver', 'system', 'fleet'));
+--> statement-breakpoint
+-- Fleet manager notices: the claim that tells a fleet's fleet users of a new
+-- fleet invoice once (null on every existing invoice: none is sent for them).
+ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "fleet_managers_notified_at" timestamp with time zone;
+--> statement-breakpoint
+-- Fleet RFID card notices to the member a card is given to or taken back from (on by default).
+INSERT INTO driver_event_settings (event_type, is_enabled) VALUES
+  ('token.FleetCardAssigned', true),
+  ('token.FleetCardTakenBack', true)
+ON CONFLICT (event_type) DO NOTHING;
+--> statement-breakpoint
+-- Monthly spending limit of a fleet RFID card, in cents of the company
+-- currency (null on every existing card: no limit).
+ALTER TABLE "driver_tokens" ADD COLUMN IF NOT EXISTS "monthly_limit_cents" integer;
+--> statement-breakpoint
+ALTER TABLE "driver_tokens" DROP CONSTRAINT IF EXISTS "driver_tokens_monthly_limit_check";
+--> statement-breakpoint
+ALTER TABLE "driver_tokens" ADD CONSTRAINT "driver_tokens_monthly_limit_check"
+  CHECK ("monthly_limit_cents" IS NULL OR "monthly_limit_cents" > 0);
+--> statement-breakpoint
+-- The station screen of a session a fleet RFID card's monthly limit stopped,
+-- in the six display languages. ON CONFLICT DO NOTHING keeps operator edits.
+INSERT INTO "station_message_templates" ("state", "language", "body") VALUES
+  ('card_monthly_limit', 'en', E'Monthly limit of this card reached.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}'),
+  ('card_monthly_limit', 'de', E'Monatslimit dieser Karte erreicht.\nLaden beendet.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}'),
+  ('card_monthly_limit', 'es', E'Límite mensual de esta tarjeta alcanzado.\nCarga detenida.\n{{#if supportPhone}}Soporte: {{supportPhone}}{{/if}}'),
+  ('card_monthly_limit', 'ko', E'이 카드의 월 한도에 도달했습니다.\n충전이 중지되었습니다.\n{{#if supportPhone}}고객센터: {{supportPhone}}{{/if}}'),
+  ('card_monthly_limit', 'zh', E'此卡已达到每月限额。\n充电已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}'),
+  ('card_monthly_limit', 'zh-TW', E'此卡已達每月限額。\n充電已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}')
+ON CONFLICT DO NOTHING;
+--> statement-breakpoint
+-- The claim that sends the member holding a fleet RFID card the notice of its
+-- monthly spending limit once per card, month (system timezone) and limit.
+CREATE TABLE IF NOT EXISTS "card_monthly_limit_notices" (
+  "token_id" text NOT NULL,
+  "period_start" date NOT NULL,
+  "limit_cents" integer NOT NULL,
+  "sent_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "card_monthly_limit_notices_pkey" PRIMARY KEY ("token_id", "period_start", "limit_cents")
+);
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "card_monthly_limit_notices" ADD CONSTRAINT "card_monthly_limit_notices_token_id_driver_tokens_id_fk"
+    FOREIGN KEY ("token_id") REFERENCES "driver_tokens"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+--> statement-breakpoint
+-- The driver notice of a fleet RFID card that reached its monthly spending limit (on by default).
+INSERT INTO driver_event_settings (event_type, is_enabled) VALUES
+  ('token.MonthlyLimitReached', true)
+ON CONFLICT (event_type) DO NOTHING;

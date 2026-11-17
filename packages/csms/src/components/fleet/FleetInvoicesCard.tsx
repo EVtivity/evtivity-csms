@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
+import { GuidedEmptyState } from '@/components/ui/guided-empty-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Label } from '@/components/ui/label';
 import { MonthPicker } from '@/components/ui/month-picker';
@@ -28,7 +29,7 @@ import { INVOICE_STATUS_VARIANT } from '@/components/driver/DriverInvoicesTab';
 import type { DriverInvoice } from '@/components/driver/DriverInvoicesTab';
 import { api, ApiError } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
-import { useHasPermission } from '@/lib/auth';
+import { useHasPermission, useIsFleetUser } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents, formatNumber } from '@/lib/formatting';
 import { formatPeriodMonth, previousMonth } from '@/lib/fleet-invoice';
@@ -73,13 +74,16 @@ export interface FleetUnbilledPreview {
   drivers: Array<{
     driverId: string | null;
     driverName: string;
+    /** The sessions of the fleet's RFID cards no member held. */
+    fleetCards?: boolean;
     sessionCount: number;
     energyWh: number;
     netCents: number;
     taxCents: number;
     totalCents: number;
   }>;
-  excluded: Array<{
+  /** Left out for a fleet user, who sees only the sessions billed to the fleet. */
+  excluded?: Array<{
     sessionId: string;
     stationName?: string;
     driverId: string | null;
@@ -89,7 +93,7 @@ export interface FleetUnbilledPreview {
     currency: string;
     finalCostCents: number | null;
   }>;
-  excludedCount: number;
+  excludedCount?: number;
   existingInvoice: { id: string; invoiceNumber: string; status: string } | null;
   /** Member invoices of the period (fleets that invoice each driver); the totals above leave them out. */
   members?: FleetMemberPreview[];
@@ -169,6 +173,8 @@ function FleetUnbilledCard({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('payments:write');
+  // A fleet user has no driver or session pages to open.
+  const isFleetUser = useIsFleetUser();
   const [period, setPeriod] = useState(previousMonth());
   const [confirmOpen, setConfirmOpen] = useState(false);
   // Until when the preview follows an "Invoice All Members" run in the background.
@@ -319,9 +325,20 @@ function FleetUnbilledCard({
                   </TableHeader>
                   <TableBody>
                     {data.drivers.map((driver) => (
-                      <TableRow key={driver.driverId ?? 'unknown'}>
+                      <TableRow
+                        key={
+                          driver.driverId ??
+                          (driver.fleetCards === true ? 'fleet-cards' : 'unknown')
+                        }
+                      >
                         <TableCell>
-                          {driver.driverId != null ? (
+                          {driver.driverId != null && isFleetUser ? (
+                            driver.driverName !== '' ? (
+                              driver.driverName
+                            ) : (
+                              t('invoices.unknownDriver')
+                            )
+                          ) : driver.driverId != null ? (
                             <Link
                               to={`/drivers/${driver.driverId}`}
                               className="text-link hover:underline"
@@ -330,6 +347,8 @@ function FleetUnbilledCard({
                                 ? driver.driverName
                                 : t('invoices.unknownDriver')}
                             </Link>
+                          ) : driver.fleetCards === true ? (
+                            t('invoices.fleetCards')
                           ) : (
                             t('invoices.unknownDriver')
                           )}
@@ -374,7 +393,7 @@ function FleetUnbilledCard({
               }}
             />
           )}
-          {data.excludedCount > 0 && (
+          {data.excluded != null && (data.excludedCount ?? 0) > 0 && (
             <div className="space-y-2" data-testid="fleet-invoice-excluded">
               <p className="font-medium">
                 {t('fleets.invoices.excludedTitle', { count: data.excludedCount })}
@@ -382,16 +401,24 @@ function FleetUnbilledCard({
               <ul className="space-y-1 text-muted-foreground">
                 {data.excluded.map((session) => (
                   <li key={session.sessionId}>
-                    <Link
-                      to={`/sessions/${session.sessionId}`}
-                      className="text-link hover:underline"
-                    >
-                      {sessionLabel(
+                    {isFleetUser ? (
+                      sessionLabel(
                         t,
                         { stationOcppId: session.stationName, startedAt: session.endedAt },
                         timezone,
-                      )}
-                    </Link>
+                      )
+                    ) : (
+                      <Link
+                        to={`/sessions/${session.sessionId}`}
+                        className="text-link hover:underline"
+                      >
+                        {sessionLabel(
+                          t,
+                          { stationOcppId: session.stationName, startedAt: session.endedAt },
+                          timezone,
+                        )}
+                      </Link>
+                    )}
                     {' · '}
                     {session.driverName !== '' ? session.driverName : t('invoices.unknownDriver')}
                     {' · '}
@@ -436,6 +463,8 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
   const queryClient = useQueryClient();
   const timezone = useUserTimezone();
   const canWrite = useHasPermission('payments:write');
+  // A fleet user reads only fleet invoices, so there is nothing to filter by recipient.
+  const isFleetUser = useIsFleetUser();
   const [page, setPage] = useState(1);
   const [recipientFilter, setRecipientFilter] = useState<'' | AccountInvoiceRecipient>('');
   const [sendTarget, setSendTarget] = useState<FleetInvoiceRow | null>(null);
@@ -488,22 +517,24 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
       data-testid="fleet-billing-invoices"
       title={t('fleets.invoices.listTitle')}
       actions={
-        <div className="space-y-1">
-          <Label htmlFor="fleet-invoice-recipient-filter">{t('fleets.invoices.recipient')}</Label>
-          <Select
-            id="fleet-invoice-recipient-filter"
-            className="sm:w-48"
-            value={recipientFilter}
-            onChange={(event) => {
-              setRecipientFilter(event.target.value as '' | AccountInvoiceRecipient);
-              setPage(1);
-            }}
-          >
-            <option value="">{t('fleets.invoices.recipientAll')}</option>
-            <option value="fleet">{t('fleets.invoices.recipientFleet')}</option>
-            <option value="member">{t('fleets.invoices.recipientMember')}</option>
-          </Select>
-        </div>
+        isFleetUser ? undefined : (
+          <div className="space-y-1">
+            <Label htmlFor="fleet-invoice-recipient-filter">{t('fleets.invoices.recipient')}</Label>
+            <Select
+              id="fleet-invoice-recipient-filter"
+              className="sm:w-48"
+              value={recipientFilter}
+              onChange={(event) => {
+                setRecipientFilter(event.target.value as '' | AccountInvoiceRecipient);
+                setPage(1);
+              }}
+            >
+              <option value="">{t('fleets.invoices.recipientAll')}</option>
+              <option value="fleet">{t('fleets.invoices.recipientFleet')}</option>
+              <option value="member">{t('fleets.invoices.recipientMember')}</option>
+            </Select>
+          </div>
+        )
       }
     >
       {isLoading ? (
@@ -515,7 +546,16 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
           }}
         />
       ) : rows.length === 0 ? (
-        <EmptyState>{t('fleets.invoices.noInvoices')}</EmptyState>
+        recipientFilter === '' ? (
+          <GuidedEmptyState
+            title={t('fleets.invoices.empty.title')}
+            description={t(
+              isFleetUser ? 'fleets.invoices.empty.fleetUser' : 'fleets.invoices.empty.description',
+            )}
+          />
+        ) : (
+          <EmptyState>{t('fleets.invoices.noInvoices')}</EmptyState>
+        )
       ) : (
         <>
           <div className="overflow-x-auto">

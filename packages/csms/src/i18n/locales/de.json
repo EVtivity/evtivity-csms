@@ -618,6 +618,33 @@
       "empty": "Keine Sicherheitsereignisse in diesem Zeitraum.",
       "noStations": "Keine Stationen mit Ereignissen dieses Schweregrads.",
       "criticalRow": "kritisch"
+    },
+    "fleet": {
+      "title": "Flotten",
+      "picker": "Flotte",
+      "allFleets": "Alle Flotten werden angezeigt. Wählen Sie eine, um nur diese zu sehen.",
+      "oneFleet": "Eine Flotte wird angezeigt. Leeren Sie die Auswahl, um alle Flotten zu sehen.",
+      "sessions": "Flotten-Ladevorgänge",
+      "sessionsInfo": "Ladevorgänge der Flotten, die im Zeitraum begonnen haben.",
+      "energy": "Flottenenergie",
+      "energyInfo": "Von diesen Ladevorgängen gelieferte Energie.",
+      "cost": "Flottenkosten",
+      "costInfo": "Kosten dieser Ladevorgänge in der Firmenwährung.",
+      "creditUsed": "Genutztes Kreditlimit",
+      "creditUsedInfo": "Die Flotte, die ihrem Kreditlimit am nächsten ist: was sie jetzt schuldet (nicht abgerechnete, abgerechnete und laufende Ladevorgänge) als Anteil an ihrem Limit. Eine einzelne Flotte zeigt ihren eigenen Anteil.",
+      "creditUsedOf": "{{used}} von {{limit}}",
+      "creditUsedFleet": "{{fleet}}: {{used}} von {{limit}}",
+      "noCreditLimit": "Kein Kreditlimit festgelegt",
+      "energyChart": "Flottenenergie pro Tag",
+      "energyChartInfo": "Pro Tag von den Flotten-Ladevorgängen im Zeitraum gelieferte Energie.",
+      "sessionsChart": "Flotten-Ladevorgänge pro Tag",
+      "sessionsChartInfo": "Pro Tag im Zeitraum begonnene Flotten-Ladevorgänge.",
+      "costChart": "Flottenkosten pro Tag",
+      "costChartInfo": "Kosten pro Tag der Flotten-Ladevorgänge im Zeitraum.",
+      "invoicesChart": "Neueste Flottenrechnungen",
+      "invoicesInfo": "Die neuesten Rechnungen und Gutschriften der Flotten.",
+      "noInvoices": "Noch keine Flottenrechnungen.",
+      "creditNote": "Gutschrift"
     }
   },
   "sites": {
@@ -1903,7 +1930,8 @@
       "not_held": "Beim Start dieses Ladevorgangs wurde keine Kartenreservierung angelegt, daher wurde nichts berechnet. Zahlungen waren damals aus oder der Zahlungsanbieter war nicht verfügbar.",
       "viewInvoice": "Rechnung Anzeigen",
       "openGuestTab": "Gast-Ladevorgang Öffnen",
-      "openPaymentSettings": "Zahlungseinstellungen Öffnen"
+      "openPaymentSettings": "Zahlungseinstellungen Öffnen",
+      "card_monthly_limit": "Das Monatslimit dieser Flotten-RFID-Karte hat diesen Ladevorgang beim Start abgelehnt, daher wurde nichts berechnet."
     },
     "noTransactionEvents": "Keine Transaktionsereignisse",
     "refund": "Erstattung",
@@ -2282,6 +2310,12 @@
     "createUser": "Benutzer erstellen",
     "searchPlaceholder": "Benutzer suchen...",
     "role": "Rolle",
+    "roleNames": {
+      "admin": "Administrator",
+      "operator": "Betreiber",
+      "viewer": "Betrachter",
+      "fleet_manager": "Flottenmanager"
+    },
     "lastLogin": "Letzte Anmeldung",
     "allRoles": "Alle Rollen",
     "allStatuses": "Alle Status",
@@ -2327,6 +2361,7 @@
       "sessions": "Ladevorgänge",
       "drivers": "Fahrer",
       "fleets": "Flotten",
+      "fleetCards": "Flotten-RFID-Karten",
       "reservations": "Reservierungen",
       "support": "Supportfälle",
       "payments": "Zahlungen",
@@ -2386,7 +2421,19 @@
     "ssoLinkWithdraw": "Zurückziehen",
     "ssoLinkProofHint": "Bestätigen Sie Ihre Identität, damit sich Single Sign-On als dieses Konto anmelden darf.",
     "ssoUnlink": "Verknüpfung entfernen",
-    "ssoUnlinkProofHint": "Bestätigen Sie Ihre Identität, um die Verknüpfung dieses Kontos mit seinem Benutzer beim Identitätsanbieter zu entfernen."
+    "ssoUnlinkProofHint": "Bestätigen Sie Ihre Identität, um die Verknüpfung dieses Kontos mit seinem Benutzer beim Identitätsanbieter zu entfernen.",
+    "access": {
+      "label": "Zugriff",
+      "sites": "Standorte",
+      "fleets": "Flotten",
+      "sitesDescription": "Der Benutzer sieht die Stationen, Ladevorgänge und Daten der unten ausgewählten Standorte.",
+      "fleetsDescription": "Der Benutzer sieht nur die unten aufgeführten Flotten: ihre Ladevorgänge, Mitglieder, Rechnungen und RFID-Karten, und keinen Standort.",
+      "fleetsCount": "{{count}} Flotte(n)",
+      "noFleetsPicked": "Noch keine Flotte hinzugefügt. Suchen Sie unten nach einer Flotte, um sie hinzuzufügen.",
+      "removeFleet": "{{name}} entfernen",
+      "unknownFleet": "Flotte",
+      "allScopes": "Alle Zugriffe"
+    }
   },
   "profile": {
     "title": "Profil",
@@ -2674,7 +2721,12 @@
       "recipientMember": "Fahrer",
       "billedTo": "Rechnung An",
       "sendMemberTitle": "Fahrerrechnung Senden",
-      "sendMemberConfirm": "{{number}} mit PDF an den Fahrer senden?"
+      "sendMemberConfirm": "{{number}} mit PDF an den Fahrer senden?",
+      "empty": {
+        "title": "Noch keine Rechnungen",
+        "description": "Flottenrechnungen erscheinen hier, sobald sie ausgestellt sind: jeden Monat durch den Monatslauf, wenn Automatische Monatsrechnung aktiviert ist, oder mit Rechnung erstellen unter Nicht abgerechnete Ladevorgänge.",
+        "fleetUser": "Flottenrechnungen erscheinen hier, sobald der Betreiber sie ausstellt, meist einmal im Monat."
+      }
     },
     "bookingStatus": {
       "scheduled": "Geplant",
@@ -2816,6 +2868,122 @@
       "arrivalIncomplete": "Geben Sie Ankunftsdatum und -zeit beide oder keines von beiden ein.",
       "arrivalBeforeDeparture": "Die erwartete Ankunft muss vor der Abfahrt liegen.",
       "arrivalSocRange": "Geben Sie eine ganze Zahl von 0 bis 100 ein."
+    },
+    "cards": {
+      "title": "RFID-Karten",
+      "description": "RFID-Karten dieser Flotte. Eine Karte ohne Mitglied lädt auf das Flottenkonto.",
+      "searchPlaceholder": "Karte oder Bezeichnung suchen...",
+      "addCard": "RFID-Karte Hinzufügen",
+      "value": "RFID-Karte",
+      "member": "Mitglied",
+      "noMember": "Kein Mitglied",
+      "noCards": "Keine RFID-Karten",
+      "status": {
+        "active": "Aktiv",
+        "suspended": "Ausgeschaltet",
+        "deactivated": "Deaktiviert"
+      },
+      "editCard": "RFID-Karte Bearbeiten",
+      "deactivate": "Deaktivieren",
+      "deactivateTitle": "RFID-Karte Deaktivieren?",
+      "deactivateDescription": "Die RFID-Karte {{value}} funktioniert an keiner Station mehr und kann nicht wieder eingeschaltet werden. Sie bleibt in der Liste.",
+      "labelHint": "Optionaler Name, an dem Sie die Karte erkennen, zum Beispiel \"Transporter 12\".",
+      "memberHint": "Geben Sie die Karte einem aktiven Mitglied der Flotte, oder lassen Sie sie ohne Mitglied, damit sie auf das Flottenkonto lädt.",
+      "active": "Aktiv",
+      "activeHint": "Entfernen Sie das Häkchen, um die Karte auszuschalten. Sie können sie später wieder einschalten.",
+      "lockedDeactivated": "Diese RFID-Karte wurde deaktiviert und kann nicht wieder eingeschaltet werden.",
+      "lockedByOperator": "Ein Betreiber hat diese RFID-Karte ausgeschaltet. Wenden Sie sich an den Betreiber, um sie wieder einzuschalten.",
+      "searchMembers": "Mitglieder suchen...",
+      "import": {
+        "open": "CSV importieren",
+        "title": "RFID-Karten importieren",
+        "description": "Fügen Sie dieser Flotte viele RFID-Karten aus einer CSV-Datei hinzu. Jede Zeile wird wie eine einzelne Karte hinzugefügt; eine abgelehnte Zeile ändert nichts.",
+        "columns": "Spalten: idToken (der Kartenwert, erforderlich), tokenType (ISO14443, wenn leer), label, memberEmail (ein aktives Mitglied der Flotte). Höchstens 2000 Zeilen und 512 KB.",
+        "columnsFleetUser": "Spalten: idToken (der Kartenwert, Pflicht), tokenType (ISO14443, wenn leer) und label. Lassen Sie die Spalte memberEmail leer: Geben Sie die Karten nach dem Import hier an Mitglieder. Höchstens 2000 Zeilen und 512 KB.",
+        "template": "Vorlage herunterladen",
+        "chooseFile": "Datei auswählen",
+        "chooseFirst": "Wählen Sie zuerst eine CSV-Datei aus.",
+        "tooLarge": "Die Datei ist größer als 512 KB.",
+        "failed": "Der Import ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+        "submit": "CSV importieren",
+        "created": "Hinzugefügt: {{count}}",
+        "refused": "Abgelehnt: {{count}}",
+        "refusedRow": "Zeile {{row}}: {{field}}, {{reason}}",
+        "reasons": {
+          "missing": "fehlt",
+          "invalid": "ungültig",
+          "duplicate": "bereits registriert",
+          "not_found": "kein aktives Mitglied der Flotte"
+        }
+      },
+      "history": {
+        "open": "Verlauf",
+        "title": "Verlauf der RFID-Karte",
+        "description": "Änderungen an der RFID-Karte {{value}}, solange sie zu dieser Flotte gehörte, neueste zuerst.",
+        "empty": "Noch keine Änderungen erfasst",
+        "by": "Von {{who}}",
+        "viaApiKey": "{{who}} (API-Schlüssel)",
+        "someMember": "einem Mitglied",
+        "noLabel": "keine Bezeichnung",
+        "reasonMemberLeft": "Das Mitglied hat die Flotte verlassen.",
+        "actor": {
+          "fleet_user": "Flottenmanager",
+          "operator": "Betreiber",
+          "driver": "Fahrer",
+          "system": "System"
+        },
+        "change": {
+          "added": "Hinzugefügt",
+          "moved_into_fleet": "In die Flotte verschoben",
+          "moved_out_of_fleet": "Aus der Flotte verschoben",
+          "given": "An {{member}} vergeben",
+          "taken_back": "Von {{member}} zurückgenommen",
+          "renamed": "Bezeichnung von {{from}} in {{to}} geändert",
+          "turned_off": "Ausgeschaltet",
+          "turned_on": "Eingeschaltet",
+          "deactivated": "Deaktiviert",
+          "changed": "Geändert",
+          "deleted": "Gelöscht",
+          "limit_changed": "Monatslimit geändert"
+        }
+      },
+      "monthlyLimit": {
+        "column": "Dieser Monat",
+        "label": "Monatslimit",
+        "hint": "Der höchste Betrag, den diese Karte in einem Kalendermonat kosten darf, gleich wer mit ihr lädt. Ladevorgänge über dem Limit werden abgelehnt, und ein Ladevorgang endet, wenn er es erreicht. Leer lassen für kein Limit.",
+        "invalid": "Geben Sie einen Betrag von 0,01 bis 1.000.000,00 ein oder lassen Sie das Feld leer.",
+        "none": "(kein Limit)",
+        "spentOfLimit": "{{spent}} von {{limit}}",
+        "thisMonth": "Dieser Monat"
+      },
+      "empty": {
+        "title": "Noch keine RFID-Karten",
+        "description": "Fügen Sie die RFID-Karten der Flotte einzeln hinzu oder importieren Sie viele auf einmal aus einer CSV-Datei. Eine Karte, die ein Mitglied erhält, lädt wie dessen eigene Karte. Eine Karte ohne Mitglied wird über das Flottenkonto abgerechnet.",
+        "readOnly": "Die RFID-Karten der Flotte erscheinen hier, sobald sie hinzugefügt wurden."
+      }
+    },
+    "sessionDialog": {
+      "title": "Ladevorgang",
+      "card": "Bezeichnung der RFID-Karte"
+    },
+    "searchFleets": "Flotten suchen...",
+    "sessionFilters": {
+      "member": "Mitglied",
+      "rfidCard": "RFID-Karte",
+      "searchCards": "RFID-Karten suchen..."
+    },
+    "managers": {
+      "title": "Flottenmanager",
+      "description": "Flottenbenutzer, die diese Flotte im CSMS verwalten. Sie sehen nur die ihnen zugewiesenen Flotten.",
+      "add": "Flottenmanager hinzufügen",
+      "empty": "Dieser Flotte ist kein Flottenmanager zugewiesen.",
+      "permissions": "Berechtigungen",
+      "lastSignIn": "Letzte Anmeldung",
+      "neverSignedIn": "Nie"
+    },
+    "sessionsEmpty": {
+      "none": "Noch keine Ladevorgänge. Ladevorgänge erscheinen hier, wenn Mitglieder über das Flottenkonto laden oder die RFID-Karten der Flotte genutzt werden.",
+      "filtered": "Keine Ladevorgänge entsprechen diesen Filtern."
     }
   },
   "tokens": {
@@ -2891,9 +3059,13 @@
     "deactivatedByValue": {
       "operator": "Betreiber",
       "driver": "Fahrer",
-      "system": "System"
+      "system": "System",
+      "fleet": "Flotte"
     },
-    "deactivationReason": "Grund der Deaktivierung"
+    "deactivationReason": "Grund der Deaktivierung",
+    "fleet": "Flotte",
+    "noFleet": "Keine Flotte",
+    "fleetHint": "Die Flotte, der diese RFID-Karte gehört. Eine Karte ohne Mitglied lädt auf das Flottenkonto, und ein Mitglied der Flotte kann die Karte erhalten."
   },
   "commands": {
     "advancedCommand": "Erweiterter Befehl",
@@ -4427,7 +4599,11 @@
       "security.RetentionLowered": "Datenaufbewahrung Verkürzt",
       "security.PaymentTerminalSettingsChanged": "Zahlungsterminal-Einstellungen Geändert",
       "fleet.DepotRequestsRefused": "Anfragen des Busdepotsystems abgelehnt",
-      "security.DepotSystemChanged": "Busdepotsystem geändert"
+      "security.DepotSystemChanged": "Busdepotsystem geändert",
+      "fleet.ManagerCreditLimitWarning": "Kreditlimit-Warnung für Flottenmanager",
+      "fleet.ManagerCreditLimitReached": "Kreditlimit erreicht für Flottenmanager",
+      "fleet.ManagerInvoiceIssued": "Neue Rechnung für Flottenmanager",
+      "operator.FleetManagerInvite": "Einladung für Flottenmanager"
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
     "htmlPreview": "HTML-Vorschau",
@@ -4448,7 +4624,8 @@
       "mandatory": "Pflicht",
       "notConfigured": "Nicht eingerichtet: Auf diesem Kanal wird nichts gesendet.",
       "explanation": "Fahrer sehen eine Pflichtbenachrichtigung gesperrt eingeschaltet, als von Ihnen vorgeschrieben gekennzeichnet."
-    }
+    },
+    "fleetManagerEvents": "Hinweise für Flottenmanager"
   },
   "reservations": {
     "title": "Reservierungen",
@@ -4652,6 +4829,7 @@
     "FAVORITE_NOT_FOUND": "Favorit nicht gefunden",
     "FLEET_CREDIT_LIMIT_REACHED": "Das Kreditlimit der Flotte, über die Ihre Ladevorgänge abgerechnet werden, ist erreicht. Wenden Sie sich an Ihren Flottenverwalter.",
     "FLEET_DISABLED": "Flotte ist deaktiviert",
+    "FLEET_USER_NO_FLEETS": "Ihnen sind keine Flotten zugewiesen. Wenden Sie sich an Ihren Betreiber.",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "Ein Prozess einer älteren Version ist noch verbunden. Schließen Sie das Upgrade ab und ändern Sie dann die Abrechnung der Flotte.",
     "FLEET_BILLING_VERSION_CHECK_STALE": "Die Versionsprüfung des Workers ist in letzter Zeit nicht gelaufen, daher lässt sich das Upgrade nicht bestätigen. Prüfen Sie, ob der Worker läuft, und ändern Sie dann die Abrechnung der Flotte.",
     "FLEET_BILLING_CONTACT_REQUIRED": "Die Flotte benötigt mindestens einen Rechnungskontakt für die automatische Rechnungsstellung und den Rechnungsversand per E-Mail.",
@@ -4986,7 +5164,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden",
     "STATION_UNITS_FEATURE_IN_USE": "Es gibt noch Ladestationen mit Einheiten. Deaktivieren Sie Verwendet Stationseinheiten an jeder Ladestation, bevor Sie Stationseinheiten aktivieren ausschalten.",
     "STATION_UNITS_FEATURE_OFF": "Stationseinheiten sind ausgeschaltet. Aktivieren Sie zuerst Stationseinheiten aktivieren unter Einstellungen > Integrationen und Funktionen.",
-    "STATION_REPORTED_FIELD_LOCKED": "Die Ladestation meldet diesen Wert beim Start, daher kann er hier nicht geändert werden."
+    "STATION_REPORTED_FIELD_LOCKED": "Die Ladestation meldet diesen Wert beim Start, daher kann er hier nicht geändert werden.",
+    "FLEET_CARD_DEACTIVATED": "Diese RFID-Karte wurde deaktiviert und kann nicht wieder aktiviert werden",
+    "FLEET_CARD_NOT_BILLABLE": "Die Flotte rechnet nicht auf Rechnung ab, daher können ihre RFID-Karten nicht laden. Aktivieren Sie zuerst die Abrechnung auf Rechnung für die Flotte",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "Der Fahrer ist kein aktives Mitglied der Flotte, der diese RFID-Karte gehört",
+    "FLEET_HAS_CARDS": "Dieser Flotte gehören noch RFID-Karten. Entfernen Sie sie zuerst aus der Flotte.",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "Ein Flottenbenutzer kann diese Berechtigung nicht haben",
+    "INVALID_FLEET_IDS": "Eine oder mehrere fleetIds existieren nicht",
+    "TOKEN_MANAGED_BY_FLEET": "Diese RFID-Karte gehört Ihrer Flotte. Wenden Sie sich an Ihre Flotte, um sie zu ändern."
   },
   "logs": {
     "title": "Protokolle",
@@ -6197,7 +6382,8 @@
     "varTerminalAmount": "Vorautorisierter oder bezahlter Betrag in der Unternehmenswährung",
     "varPaymentApproved": "Gesetzt, wenn die Karte akzeptiert wurde",
     "varPlugInAnyConnector": "Gesetzt, wenn der Fahrer an einem beliebigen Anschluss einstecken kann (Terminal für die ganze Station)",
-    "varReceiptUrl": "Link zum Zahlungsbeleg"
+    "varReceiptUrl": "Link zum Zahlungsbeleg",
+    "stateCardMonthlyLimit": "Monatslimit der Karte erreicht"
   },
   "audit": {
     "title": "Auditprotokoll",
@@ -6660,6 +6846,7 @@
     "taxId": "USt-IdNr.: {{id}}",
     "driverSubtotal": "Zwischensumme {{driver}}",
     "unknownDriver": "Unbekannter Fahrer",
+    "fleetCards": "RFID-Karten der Flotte",
     "confirmResendFleet": "Diese Rechnung mit PDF an die Rechnungskontakte der Flotte senden?",
     "sentAt": "Per E-Mail gesendet",
     "overdueNoticeSentAt": "Zahlungserinnerung gesendet",
@@ -7821,5 +8008,13 @@
   "connectorTypeNames": {
     "other": "Sonstige",
     "pantograph": "Stromabnehmer"
+  },
+  "fleetsOff": {
+    "title": "Flottenverwaltung Ist Ausgeschaltet",
+    "message": "Die Flottenverwaltung ist ausgeschaltet. Wenden Sie sich an Ihren Betreiber."
+  },
+  "noFleets": {
+    "title": "Keine Flotten zugewiesen",
+    "message": "Ihnen sind keine Flotten zugewiesen. Wenden Sie sich an Ihren Betreiber."
   }
 }

@@ -13,12 +13,17 @@ const { state, svc, selectDistinctMock } = vi.hoisted(() => {
   class VehicleIdTokenInUseError extends Error {}
   class PrepaidBalanceConflictError extends Error {}
   class PrepaidBalanceExpectedError extends Error {}
+  class TokenFleetNotFoundError extends Error {}
+  class FleetCardNotBillableError extends Error {}
+  class FleetCardDriverNotMemberError extends Error {}
+  class FleetCardSiteScopeError extends Error {}
+  class FleetCardPermissionError extends Error {}
   // A plain function (not a mock) so the per-test mockReset keeps it.
   function tokenActorOf(actor: { actorUserId: string | null }) {
     return { type: 'operator', userId: actor.actorUserId };
   }
   return {
-    state: { results: [] as unknown[][], index: 0 },
+    state: { results: [] as unknown[][], index: 0, allSites: true },
     svc: {
       DuplicateTokenError,
       TokenDriverNotFoundError,
@@ -27,6 +32,12 @@ const { state, svc, selectDistinctMock } = vi.hoisted(() => {
       VehicleIdTokenInUseError,
       PrepaidBalanceConflictError,
       PrepaidBalanceExpectedError,
+      TokenFleetNotFoundError,
+      FleetCardNotBillableError,
+      FleetCardDriverNotMemberError,
+      FleetCardSiteScopeError,
+      FleetCardPermissionError,
+      anyFleetCard: vi.fn(() => Promise.resolve(false)),
       tokenActorOf,
       listTokens: vi.fn(),
       getToken: vi.fn(),
@@ -64,7 +75,11 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
+const fleetCardsPerm = vi.hoisted(() => ({ granted: true }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    Promise.resolve(permission !== 'fleetCards:write' || fleetCardsPerm.granted),
   authorize:
     () =>
     async (
@@ -105,6 +120,10 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@evtivity/services/company-currency', () => ({ sessionCurrencySql: vi.fn() }));
 
 vi.mock('../services/token.service.js', () => svc);
+vi.mock('../lib/site-access.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/site-access.js')>()),
+  isAllSiteUser: vi.fn(() => Promise.resolve(state.allSites)),
+}));
 
 import { registerAuth } from '../plugins/auth.js';
 import { tokenRoutes } from '../routes/tokens.js';
@@ -126,6 +145,7 @@ function token(overrides: Record<string, unknown> = {}): Record<string, unknown>
     deactivatedBy: null,
     prepaidBalanceCents: null,
     vehicleId: null,
+    fleetId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -150,6 +170,7 @@ describe('token routes (cov2)', () => {
 
   beforeEach(() => {
     setupDbResults();
+    state.allSites = true;
     for (const fn of Object.values(svc)) {
       if (typeof fn === 'function' && 'mockReset' in fn) fn.mockReset();
     }
@@ -178,10 +199,12 @@ describe('token routes (cov2)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ updated: 2 });
-    expect(svc.bulkSetActive).toHaveBeenCalledWith([TOKEN_ID, 'dtk_000000000002'], false, {
-      type: 'operator',
-      userId: USER_ID,
-    });
+    expect(svc.bulkSetActive).toHaveBeenCalledWith(
+      [TOKEN_ID, 'dtk_000000000002'],
+      false,
+      { type: 'operator', userId: USER_ID },
+      { fleetCardsWrite: true },
+    );
   });
 
   it('POST /tokens/bulk-active refuses an empty id list', async () => {
@@ -219,6 +242,173 @@ describe('token routes (cov2)', () => {
     expect(svc.createToken).toHaveBeenCalledWith(
       expect.objectContaining({ idToken: 'RFID-1', label: 'Spare card' }),
       expect.anything(),
+      { fleetCardsWrite: true },
+    );
+  });
+
+  it('POST /tokens passes the fleet of a fleet card to the token service', async () => {
+    svc.createToken.mockResolvedValueOnce(token({ fleetId: 'flt_000000000001' }));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tokens',
+      headers: auth,
+      payload: { idToken: 'RFID-1', tokenType: 'ISO14443', fleetId: 'flt_000000000001' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().fleetId).toBe('flt_000000000001');
+    expect(svc.createToken).toHaveBeenCalledWith(
+      expect.objectContaining({ fleetId: 'flt_000000000001' }),
+      expect.anything(),
+      { fleetCardsWrite: true },
+    );
+  });
+
+  it('refuses a fleet from a site-restricted operator on POST /tokens with 403, before any write', async () => {
+    state.allSites = false;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tokens',
+      headers: auth,
+      payload: { idToken: 'RFID-1', tokenType: 'ISO14443', fleetId: 'flt_000000000001' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('FORBIDDEN');
+    expect(svc.createToken).not.toHaveBeenCalled();
+  });
+
+  it('lets a site-restricted operator create a card without a fleet', async () => {
+    state.allSites = false;
+    svc.createToken.mockResolvedValueOnce(token());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tokens',
+      headers: auth,
+      payload: { idToken: 'RFID-1', tokenType: 'ISO14443', fleetId: null },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it('refuses a site-restricted operator a fleet change on PATCH /tokens/:id with 403', async () => {
+    state.allSites = false;
+    const moveIn = await app.inject({
+      method: 'PATCH',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+      payload: { fleetId: 'flt_000000000001' },
+    });
+    expect(moveIn.statusCode).toBe(403);
+    expect(moveIn.json().code).toBe('FORBIDDEN');
+    svc.getToken.mockResolvedValueOnce(token({ fleetId: 'flt_000000000001' }));
+    const moveOut = await app.inject({
+      method: 'PATCH',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+      payload: { fleetId: null },
+    });
+    expect(moveOut.statusCode).toBe(403);
+    expect(svc.updateToken).not.toHaveBeenCalled();
+  });
+
+  it('lets a site-restricted operator send fleetId null for a card without a fleet', async () => {
+    state.allSites = false;
+    svc.getToken.mockResolvedValueOnce(token());
+    svc.updateToken.mockResolvedValueOnce(token());
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+      payload: { fleetId: null, label: 'Spare' },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('refuses a site-restricted operator any change or delete of a fleet card with 403', async () => {
+    state.allSites = false;
+    svc.getToken.mockResolvedValue(token({ fleetId: 'flt_000000000001' }));
+    const rename = await app.inject({
+      method: 'PATCH',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+      payload: { label: 'Renamed' },
+    });
+    expect(rename.statusCode).toBe(403);
+    const removed = await app.inject({
+      method: 'DELETE',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+    });
+    expect(removed.statusCode).toBe(403);
+    expect(removed.json().code).toBe('FORBIDDEN');
+    expect(svc.updateToken).not.toHaveBeenCalled();
+    expect(svc.deleteToken).not.toHaveBeenCalled();
+  });
+
+  it('maps the bulk refusal of a fleet card to 403', async () => {
+    svc.bulkSetActive.mockRejectedValueOnce(new svc.FleetCardSiteScopeError());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tokens/bulk-active',
+      headers: auth,
+      payload: { ids: [TOKEN_ID], isActive: false },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('FORBIDDEN');
+  });
+
+  it('maps the token service refusal of a fleet write to 403', async () => {
+    svc.updateToken.mockRejectedValueOnce(new svc.FleetCardSiteScopeError());
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+      payload: { fleetId: 'flt_000000000001' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('FORBIDDEN');
+  });
+
+  it('PATCH /tokens/:id moves a card out of its fleet with fleetId null', async () => {
+    svc.updateToken.mockResolvedValueOnce(token());
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+      payload: { fleetId: null },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(svc.updateToken).toHaveBeenCalledWith(
+      TOKEN_ID,
+      expect.objectContaining({ fleetId: null }),
+      expect.anything(),
+      { fleetCardsWrite: true },
+    );
+  });
+
+  it('GET /tokens filters by fleet and returns the fleet name', async () => {
+    svc.listTokens.mockResolvedValueOnce({
+      data: [
+        {
+          ...token({ fleetId: 'flt_000000000001' }),
+          fleetName: 'Acme Vans',
+          driverFirstName: null,
+          driverLastName: null,
+          driverEmail: null,
+        },
+      ],
+      total: 1,
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/tokens?fleetId=flt_000000000001',
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data[0]).toMatchObject({
+      fleetId: 'flt_000000000001',
+      fleetName: 'Acme Vans',
+    });
+    expect(svc.listTokens).toHaveBeenCalledWith(
+      expect.objectContaining({ fleetId: 'flt_000000000001' }),
     );
   });
 
@@ -297,7 +487,9 @@ describe('token routes (cov2)', () => {
         });
         expect(res.statusCode).toBe(200);
         expect(res.json().label).toBe(label);
-        expect(svc.updateToken).toHaveBeenLastCalledWith(TOKEN_ID, { label }, expect.anything());
+        expect(svc.updateToken).toHaveBeenLastCalledWith(TOKEN_ID, { label }, expect.anything(), {
+          fleetCardsWrite: true,
+        });
       }
     });
 
@@ -332,6 +524,7 @@ describe('token routes (cov2)', () => {
         TOKEN_ID,
         expect.objectContaining({ label }),
         expect.anything(),
+        { fleetCardsWrite: true },
       );
     });
 
@@ -349,6 +542,7 @@ describe('token routes (cov2)', () => {
         TOKEN_ID,
         { idToken: 'RFID-2' },
         { type: 'operator', userId: USER_ID },
+        { fleetCardsWrite: true },
       );
     });
 
@@ -390,7 +584,11 @@ describe('token routes (cov2)', () => {
       const res = await app.inject({ method: 'DELETE', url: `/tokens/${TOKEN_ID}`, headers: auth });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ id: TOKEN_ID, idToken: 'RFID-1' });
-      expect(svc.deleteToken).toHaveBeenCalledWith(TOKEN_ID, { type: 'operator', userId: USER_ID });
+      expect(svc.deleteToken).toHaveBeenCalledWith(
+        TOKEN_ID,
+        { type: 'operator', userId: USER_ID },
+        { fleetCardsWrite: true },
+      );
     });
   });
 });

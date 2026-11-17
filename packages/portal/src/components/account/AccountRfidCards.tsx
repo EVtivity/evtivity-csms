@@ -29,6 +29,9 @@ interface DriverToken {
   expiresAt?: string | null;
   /** The operator deactivated the card: only the operator can reactivate it. */
   blockedByOperator?: boolean;
+  /** A fleet owns the card: only the fleet changes it. */
+  managedByFleet?: boolean;
+  fleetName?: string | null;
 }
 
 /** The API refused a change because the operator manages the cards. */
@@ -210,13 +213,18 @@ export function AccountRfidCards(): React.JSX.Element {
                     <p className="text-xs text-muted-foreground">{token.tokenType}</p>
                   </>
                 )}
+                {token.managedByFleet === true && (
+                  <p className="text-xs text-muted-foreground" data-testid="rfid-managed-by-fleet">
+                    {t('rfid.managedByFleet', { fleet: token.fleetName ?? t('rfid.yourFleet') })}
+                  </p>
+                )}
                 {token.blockedByOperator === true ? (
                   <p className="text-xs text-destructive">{t('rfid.blockedByOperator')}</p>
                 ) : token.isActive && isExpired(token) ? (
                   <p className="text-xs text-destructive">{t('rfid.expired')}</p>
                 ) : null}
               </div>
-              {selfService && (
+              {selfService && token.managedByFleet !== true && (
                 <div className="flex shrink-0 items-center gap-2">
                   <Button
                     variant="ghost"

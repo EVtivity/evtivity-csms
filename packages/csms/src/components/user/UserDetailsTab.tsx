@@ -3,7 +3,7 @@
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { EditButton } from '@/components/edit-button';
 import { CancelButton } from '@/components/cancel-button';
@@ -30,6 +30,16 @@ import {
   type ProofRejection,
 } from '@/components/FactorProofField';
 import { useMfaStatus } from '@/components/profile/mfa-status';
+import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
+import {
+  UserAccessField,
+  offeredRoles,
+  userAccessBody,
+  userAccessKindOf,
+  type UserAccessKind,
+} from '@/components/user/UserAccessField';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { roleLabel } from '@/lib/role-label';
 
 export interface UserDetailUser {
   id: string;
@@ -41,6 +51,9 @@ export interface UserDetailUser {
   isActive: boolean;
   hasAllSiteAccess: boolean;
   siteIds: string[];
+  /** `fleets` for a fleet user, who reaches only the fleets in `fleetIds`. */
+  accessScope?: 'sites' | 'fleets';
+  fleetIds?: string[];
   /** The user's permissions (GET /v1/users/:id). */
   permissions?: string[];
   mfaEnabled?: boolean;
@@ -59,11 +72,6 @@ export interface UserDetailUser {
 }
 
 export interface UserRole {
-  id: string;
-  name: string;
-}
-
-interface Site {
   id: string;
   name: string;
 }
@@ -104,8 +112,10 @@ export function UserDetailsTab({
   const [phone, setPhone] = useState('');
   const [roleId, setRoleId] = useState('');
   const [isActive, setIsActive] = useState(true);
-  const [hasAllSiteAccess, setHasAllSiteAccess] = useState(false);
+  const [accessKind, setAccessKind] = useState<UserAccessKind>('sites');
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
+  const [selectedFleetIds, setSelectedFleetIds] = useState<string[]>([]);
+  const { fleetEnabled } = useFeatureFlags().flags;
   const [hasSubmittedEdit, setHasSubmittedEdit] = useState(false);
   // Moving an admin-equivalent user's email or phone, or reactivating one, takes a
   // fresh proof of the signed-in account.
@@ -132,13 +142,6 @@ export function UserDetailsTab({
     (isAdminEquivalent(held) || isAdminEquivalent(roleDefaults ?? held));
   const needsProof = proofKinds.length > 0 && (roleGrants || accountOfAdmin);
 
-  const { data: sitesData } = useQuery({
-    queryKey: ['sites-for-select'],
-    queryFn: () => api.get<{ data: Site[] }>('/v1/sites?limit=100'),
-    enabled: editing,
-  });
-  const sitesList = sitesData?.data ?? [];
-
   const updateMutation = useMutation({
     mutationFn: (body: {
       email?: string;
@@ -147,8 +150,10 @@ export function UserDetailsTab({
       phone?: string | null;
       roleId?: string;
       isActive?: boolean;
+      accessScope?: 'sites' | 'fleets';
       hasAllSiteAccess?: boolean;
       siteIds?: string[];
+      fleetIds?: string[];
       proof?: FactorProof;
     }) => api.patch<UserDetailUser>(`/v1/users/${userId}`, body),
     onError: (err: unknown) => {
@@ -168,8 +173,9 @@ export function UserDetailsTab({
     setPhone(user.phone ?? '');
     setRoleId(user.roleId);
     setIsActive(user.isActive);
-    setHasAllSiteAccess(user.hasAllSiteAccess);
+    setAccessKind(userAccessKindOf(user));
     setSelectedSiteIds(user.siteIds);
+    setSelectedFleetIds(user.fleetIds ?? []);
     setProof(null);
     setProofFailure(null);
     setProofRound((n) => n + 1);
@@ -189,7 +195,12 @@ export function UserDetailsTab({
     }
     // A site-restricted operator cannot leave a user without a site: the
     // user would drop out of its view (the API answers 400 INVALID_SITE_IDS).
-    if (canAdminister && !canGrantAllSites && selectedSiteIds.length === 0) {
+    if (
+      canAdminister &&
+      accessKind === 'sites' &&
+      !canGrantAllSites &&
+      selectedSiteIds.length === 0
+    ) {
       errors.siteIds = t('users.siteAccessRequired');
     }
     return errors;
@@ -226,13 +237,13 @@ export function UserDetailsTab({
       phone: phone.trim() || null,
       roleId,
       isActive,
-      hasAllSiteAccess,
-      siteIds: hasAllSiteAccess ? [] : selectedSiteIds,
+      ...userAccessBody(accessKind, selectedSiteIds, selectedFleetIds),
     });
   }
 
   function getRoleName(rid: string): string {
-    return roles?.find((r) => r.id === rid)?.name ?? rid;
+    const name = roles?.find((r) => r.id === rid)?.name;
+    return name != null ? roleLabel(name, t) : rid;
   }
 
   return (
@@ -326,15 +337,23 @@ export function UserDetailsTab({
                   value={roleId}
                   onChange={(e) => {
                     setRoleId(e.target.value);
+                    // The Fleet Manager role makes a fleet user.
+                    if (
+                      roles?.find((r) => r.id === e.target.value)?.name === FLEET_MANAGER_ROLE_NAME
+                    ) {
+                      setAccessKind('fleets');
+                    }
                   }}
                   className={hasSubmittedEdit && editErrors.roleId ? 'border-destructive' : ''}
                 >
                   <option value="">{t('users.selectRole')}</option>
-                  {roles?.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
-                  ))}
+                  {offeredRoles(roles ?? [], canGrantAllSites && fleetEnabled, user.roleId).map(
+                    (role) => (
+                      <option key={role.id} value={role.id}>
+                        {roleLabel(role.name, t)}
+                      </option>
+                    ),
+                  )}
                 </Select>
                 {hasSubmittedEdit && editErrors.roleId && (
                   <p className="text-sm text-destructive">{editErrors.roleId}</p>
@@ -350,58 +369,18 @@ export function UserDetailsTab({
                 />
                 <Label htmlFor="edit-active">{t('common.active')}</Label>
               </div>
-              <div className="space-y-2">
-                <Label className="leading-6">{t('users.siteAccess')}</Label>
-                {/* Only an operator with access to every site may grant it. */}
-                {canGrantAllSites && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="edit-all-sites"
-                        checked={hasAllSiteAccess}
-                        onChange={(e) => {
-                          setHasAllSiteAccess(e.target.checked);
-                          if (e.target.checked) setSelectedSiteIds([]);
-                        }}
-                      />
-                      <Label htmlFor="edit-all-sites">{t('users.allSites')}</Label>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {t('users.allSitesDescription')}
-                    </p>
-                  </>
-                )}
-                {!hasAllSiteAccess && (
-                  <div
-                    className={`max-h-48 overflow-y-auto rounded-md border p-3 space-y-2 ${
-                      hasSubmittedEdit && editErrors.siteIds
-                        ? 'border-destructive'
-                        : 'border-border'
-                    }`}
-                  >
-                    {sitesList.length === 0 && <p className="text-xs text-muted-foreground">n/a</p>}
-                    {sitesList.map((site) => (
-                      <div key={site.id} className="flex items-center gap-2">
-                        <Checkbox
-                          id={`edit-site-${site.id}`}
-                          checked={selectedSiteIds.includes(site.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedSiteIds((prev) => [...prev, site.id]);
-                            } else {
-                              setSelectedSiteIds((prev) => prev.filter((sid) => sid !== site.id));
-                            }
-                          }}
-                        />
-                        <Label htmlFor={`edit-site-${site.id}`}>{site.name}</Label>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {hasSubmittedEdit && editErrors.siteIds && (
-                  <p className="text-xs text-destructive">{editErrors.siteIds}</p>
-                )}
-              </div>
+              <UserAccessField
+                idPrefix="edit"
+                kind={accessKind}
+                onKindChange={setAccessKind}
+                siteIds={selectedSiteIds}
+                onSiteIdsChange={setSelectedSiteIds}
+                fleetIds={selectedFleetIds}
+                onFleetIdsChange={setSelectedFleetIds}
+                canGrantAllSites={canGrantAllSites}
+                fleetEnabled={fleetEnabled}
+                error={hasSubmittedEdit ? editErrors.siteIds : undefined}
+              />
             </>
           )}
           {needsProof && (
@@ -462,11 +441,13 @@ export function UserDetailsTab({
             </dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">{t('users.siteAccess')}</dt>
+            <dt className="text-muted-foreground">{t('users.access.label')}</dt>
             <dd className="font-medium">
-              {user.hasAllSiteAccess
-                ? t('users.allSites')
-                : t('users.sitesCount', { count: user.siteIds.length })}
+              {user.accessScope === 'fleets'
+                ? t('users.access.fleetsCount', { count: user.fleetIds?.length ?? 0 })
+                : user.hasAllSiteAccess
+                  ? t('users.allSites')
+                  : t('users.sitesCount', { count: user.siteIds.length })}
             </dd>
           </div>
           <div>

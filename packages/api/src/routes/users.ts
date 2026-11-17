@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import type { JwtPayload } from '../plugins/auth.js';
 import crypto from 'node:crypto';
@@ -23,6 +23,7 @@ import {
   db,
   client,
   getMfaConfig,
+  isFleetEnabled,
   readMfaConfig,
   writeAudit,
   userAuditLog,
@@ -31,8 +32,10 @@ import {
   users,
   roles,
   sites,
+  fleets,
   userTokens,
   userSiteAssignments,
+  userFleetAssignments,
   userNotificationPreferences,
   chatbotAiConfigs,
   userPermissions,
@@ -85,6 +88,7 @@ import {
   ssoManagedUser,
 } from '../lib/operator-session.js';
 import { sendPasswordChangedNotice } from '../lib/password-changed-notice.js';
+import { sendOperatorInvite } from '../lib/operator-invite.js';
 import { verifyPassword } from '../lib/password-verify.js';
 import { checkCurrentPassword } from '../lib/current-password.js';
 import {
@@ -166,7 +170,12 @@ import {
   sendMfaTokenExpired,
 } from '../lib/mfa-enrollment.js';
 import { hasMfa, mfaMethodGate, passkeyGate, usableFactors } from '../lib/mfa-factors.js';
-import { authorize, invalidatePermissionCache, selfService } from '../middleware/rbac.js';
+import {
+  authorize,
+  invalidatePermissionCache,
+  selfService,
+  withinFleetUserCeiling,
+} from '../middleware/rbac.js';
 import { avatarItem } from '../lib/avatar-item.js';
 import { withAvatars } from '../services/account-avatar.js';
 import { purgeUserAvatarOnDelete, userAvatarColumns } from '../services/user-avatar.service.js';
@@ -180,7 +189,16 @@ import {
   manageableUsersCondition,
   roleDefaultPermissions,
 } from '../lib/user-management-scope.js';
-import { permissionCatalog, AI_EFFORTS, AI_PROVIDER_IDS, isAiEffort } from '@evtivity/lib';
+import {
+  permissionCatalog,
+  AI_EFFORTS,
+  AI_PROVIDER_IDS,
+  fleetUserPermissionsOutside,
+  isAiEffort,
+} from '@evtivity/lib';
+import type { UserAccessScope } from '@evtivity/lib/user-access-scope';
+import { FLEET_MANAGER_ROLE_NAME, USER_ACCESS_SCOPES } from '@evtivity/lib/user-access-scope';
+import { isFleetUser, userAccessFields } from '../lib/fleet-scope.js';
 import { isValidTimezone } from '@evtivity/lib/timezone';
 import {
   newPasswordSchema,
@@ -201,10 +219,6 @@ function personalSystemPrompt(surface: AiSurface, text: string | undefined): str
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = process.env['API_TEMPLATES_DIR'] ?? resolve(currentDir, '..', 'templates');
-const OCPP_TEMPLATES_DIR =
-  process.env['OCPP_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
-const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, TEMPLATES_DIR];
 
 const SMS_MFA_PHONE_REQUIRED = {
   error: 'The user signs in with SMS codes: turn them off before you remove the phone number',
@@ -237,6 +251,9 @@ const SELF_RESET_FORBIDDEN = {
   code: 'SELF_EDIT_FORBIDDEN',
 } as const;
 
+const accessScopeField = z.enum(USER_ACCESS_SCOPES).optional();
+const fleetIdsField = z.array(ID_PARAMS.fleetId).max(500).optional();
+
 /** The fresh proof a session sends with an account change that grants lasting access. */
 const accountProof = factorProof
   .optional()
@@ -245,9 +262,12 @@ const accountProof = factorProof
   );
 
 const createUserBody = z.object({
-  email: z.email().transform((s) => s.trim().toLowerCase()),
-  firstName: z.string().max(100).optional(),
-  lastName: z.string().max(100).optional(),
+  email: z
+    .email()
+    .transform((s) => s.trim().toLowerCase())
+    .describe('Email address of the new user, stored trimmed and lower case'),
+  firstName: z.string().max(100).optional().describe('First name'),
+  lastName: z.string().max(100).optional().describe('Last name'),
   phone: z.string().max(50).optional().describe('Mobile phone number'),
   roleId: ID_PARAMS.roleId.describe('Role ID to assign to the user'),
   hasAllSiteAccess: z.boolean().default(false).describe('Whether the user can access all sites'),
@@ -263,6 +283,12 @@ const createUserBody = z.object({
     .describe(
       'Permissions of the new user, each one you hold (default: the role defaults). Sent here, one request and one proof create a user with its final permissions.',
     ),
+  accessScope: accessScopeField.describe(
+    'What the user reaches: sites (all sites or its siteIds) or fleets (only its fleetIds; no site access, and only fleets:read, sessions:read, payments:read, fleetCards:read and fleetCards:write). Default: fleets for the fleet_manager role, else sites. Only a user with access to every site sends fleets (403 FORBIDDEN otherwise), and only while the Fleets feature is on (403 FLEET_DISABLED)',
+  ),
+  fleetIds: fleetIdsField.describe(
+    'Fleet IDs a fleets-scope user reaches (none allowed for the sites scope). An unknown fleet answers 400 INVALID_FLEET_IDS',
+  ),
   proof: accountProof.describe(
     'Fresh proof of the signed-in account, required from a session when the new user is admin-equivalent (every permission, or users:write, settings.security:write, settings.apiKeys:write, settings.system:write or settings.payment:write)',
   ),
@@ -286,8 +312,8 @@ const updateUserBody = z.object({
     .transform((v) => v.trim().toLowerCase())
     .optional()
     .describe('Sign-in email address, where password reset links go'),
-  firstName: z.string().max(100).optional(),
-  lastName: z.string().max(100).optional(),
+  firstName: z.string().max(100).optional().describe('First name'),
+  lastName: z.string().max(100).optional().describe('Last name'),
   phone: z.string().max(50).nullable().optional().describe('Mobile phone number'),
   roleId: ID_PARAMS.roleId.optional().describe('Role ID to assign to the user'),
   isActive: z.boolean().optional().describe('Whether the user account is active'),
@@ -299,7 +325,7 @@ const updateUserBody = z.object({
     .describe(
       'IANA timezone (e.g. America/New_York). An unknown zone returns 400 VALIDATION_ERROR.',
     ),
-  themePreference: z.enum(['light', 'dark']).optional(),
+  themePreference: z.enum(['light', 'dark']).optional().describe('Light or dark mode of the CSMS'),
   hasAllSiteAccess: z.boolean().optional().describe('Whether the user can access all sites'),
   siteIds: z
     .array(z.string())
@@ -313,6 +339,12 @@ const updateUserBody = z.object({
     .describe(
       'Allow SSO to link this password account at its next SSO sign-in (cleared once linked). Turning it on from a session needs proof',
     ),
+  accessScope: accessScopeField.describe(
+    'Move the user to sites (its fleet assignments are cleared) or fleets (its site access is cleared; its permissions, or the new role defaults, must be within the fleet user list, else 400 FLEET_USER_PERMISSION_NOT_ALLOWED). A role change to fleet_manager without accessScope moves it to fleets. Only a user with access to every site sends fleets or fleetIds (403 FORBIDDEN), and only while the Fleets feature is on (403 FLEET_DISABLED)',
+  ),
+  fleetIds: fleetIdsField.describe(
+    'Fleet IDs of a fleets-scope user (replaces existing assignments). An unknown fleet answers 400 INVALID_FLEET_IDS',
+  ),
   proof: accountProof.describe(
     'Fresh proof of the signed-in account, required from a session to change the email or phone of an admin-equivalent user or reactivate one, for a role change that grants permissions, and to allow the SSO link',
   ),
@@ -324,8 +356,8 @@ const updateUserBody = z.object({
 // non-admin operator can save their own profile (the admin-only PATCH
 // /v1/users/:id remains the only path to mutate those).
 const updateMeBody = z.object({
-  firstName: z.string().max(100).optional(),
-  lastName: z.string().max(100).optional(),
+  firstName: z.string().max(100).optional().describe('First name'),
+  lastName: z.string().max(100).optional().describe('Last name'),
   phone: z
     .string()
     .max(50)
@@ -369,7 +401,7 @@ const mfaResetBody = z.object({
 });
 
 const changePasswordBody = z.object({
-  currentPassword: z.string().min(1),
+  currentPassword: z.string().min(1).describe('The current password'),
   newPassword: newPasswordSchema,
 });
 
@@ -399,6 +431,7 @@ const userSelect = {
   isActive: users.isActive,
   mustResetPassword: users.mustResetPassword,
   hasAllSiteAccess: users.hasAllSiteAccess,
+  accessScope: users.accessScope,
   language: users.language,
   timezone: users.timezone,
   themePreference: users.themePreference,
@@ -457,6 +490,28 @@ const userItem = z
       .describe(
         'The user avatar (GET /users, GET /users/:id). Read-only: only the user sets it (PUT /users/me/avatar)',
       ),
+    accessScope: z
+      .enum(USER_ACCESS_SCOPES)
+      .optional()
+      .describe(
+        'What the user reaches: sites (all sites or its sites) or fleets (its fleets only)',
+      ),
+    fleetIds: z
+      .array(z.string())
+      .optional()
+      .describe('Fleets of a fleets-scope user (GET /users/:id and the writes), empty otherwise'),
+    fleetCount: z
+      .number()
+      .nullable()
+      .optional()
+      .describe('Number of fleets of a fleets-scope user (GET /users), null for the sites scope'),
+    fleetNames: z
+      .array(z.string())
+      .nullable()
+      .optional()
+      .describe(
+        'Names of the fleets of a fleets-scope user, by name (GET /users), null for the sites scope',
+      ),
   })
   .loose();
 
@@ -505,6 +560,16 @@ const userWithRole = z
       .nullable()
       .describe('Joined role record'),
     avatar: avatarItem.optional().describe('The own avatar (GET /users/me, PATCH /users/me)'),
+    accessScope: z
+      .enum(USER_ACCESS_SCOPES)
+      .optional()
+      .describe(
+        'What the user reaches: sites (all sites or its sites) or fleets (its fleets only)',
+      ),
+    fleetIds: z
+      .array(z.string())
+      .optional()
+      .describe('Fleets a fleets-scope user reaches, empty for the sites scope'),
   })
   .loose();
 
@@ -517,6 +582,60 @@ const userCreated = z
     roleId: z.string().describe('Identifier of the assigned role'),
   })
   .loose();
+
+/** The 400 body field of a fleet user permission refusal. */
+const fleetPermissionErrorFields = {
+  details: z
+    .object({
+      permissions: z
+        .array(z.string())
+        .describe(
+          'The permissions outside the fleet user list (FLEET_USER_PERMISSION_NOT_ALLOWED)',
+        ),
+    })
+    .loose()
+    .optional()
+    .describe('With FLEET_USER_PERMISSION_NOT_ALLOWED: the refused permissions'),
+};
+
+/** Answers 400 FLEET_USER_PERMISSION_NOT_ALLOWED naming the permissions refused. */
+async function sendFleetPermissionRefusal(
+  reply: FastifyReply,
+  outside: readonly string[],
+): Promise<void> {
+  await reply.status(400).send({
+    error: `A fleet user cannot hold: ${outside.join(', ')}`,
+    code: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
+    details: { permissions: [...outside] },
+  });
+}
+
+/** The fleets assigned to a fleets-scope user, sorted; none for the sites scope (no read). */
+async function fleetIdsOf(user: { id: string; accessScope?: string }): Promise<string[]> {
+  if (user.accessScope !== 'fleets') return [];
+  const rows = await db
+    .select({ fleetId: userFleetAssignments.fleetId })
+    .from(userFleetAssignments)
+    .where(eq(userFleetAssignments.userId, user.id));
+  return rows.map((r) => r.fleetId).sort();
+}
+
+/** True when every id names an existing fleet. */
+async function fleetsExist(fleetIds: readonly string[]): Promise<boolean> {
+  if (fleetIds.length === 0) return true;
+  const found = await db
+    .select({ id: fleets.id })
+    .from(fleets)
+    .where(inArray(fleets.id, [...fleetIds]));
+  return found.length === fleetIds.length;
+}
+
+const INVALID_FLEET_IDS_REPLY = {
+  error: 'One or more fleetIds do not exist',
+  code: 'INVALID_FLEET_IDS',
+} as const;
+
+const FLEET_DISABLED_REPLY = { error: 'Fleet is disabled', code: 'FLEET_DISABLED' } as const;
 
 const roleItem = z
   .object({
@@ -787,6 +906,7 @@ export function userRoutes(app: FastifyInstance): void {
           timezone: user.timezone,
           themePreference: user.themePreference,
           uiTheme: user.uiTheme,
+          ...(await userAccessFields(user.id)),
         },
         role: role ? { id: role.id, name: role.name } : null,
       };
@@ -1379,6 +1499,7 @@ export function userRoutes(app: FastifyInstance): void {
           timezone: user.timezone,
           themePreference: user.themePreference,
           uiTheme: user.uiTheme,
+          ...(await userAccessFields(user.id)),
         },
         role: role ? { id: role.id, name: role.name } : null,
       };
@@ -1422,10 +1543,13 @@ export function userRoutes(app: FastifyInstance): void {
           .where(eq(userPermissions.userId, userId)),
       ]);
 
+      const stored = permRows.map((r) => r.permission);
       return {
         ...user,
+        fleetIds: await fleetIdsOf(user),
         role: role[0] ? { id: role[0].id, name: role[0].name } : null,
-        permissions: permRows.map((r) => r.permission),
+        // A fleet user acts with the fleet user permissions only, stale rows included.
+        permissions: user.accessScope === 'fleets' ? withinFleetUserCeiling(stored) : stored,
       };
     },
   );
@@ -1834,6 +1958,12 @@ export function userRoutes(app: FastifyInstance): void {
           paginationQuery.extend({
             roleId: ID_PARAMS.roleId.optional().describe('Filter by role ID'),
             status: z.enum(['active', 'inactive']).optional().describe('Filter by user status'),
+            accessScope: z
+              .enum(USER_ACCESS_SCOPES)
+              .optional()
+              .describe(
+                'Filter by access scope: sites (operators of all sites or their sites) or fleets (fleet managers)',
+              ),
             ...userListSort.query,
           }),
         ),
@@ -1845,8 +1975,9 @@ export function userRoutes(app: FastifyInstance): void {
         ListSortParams & {
           roleId?: string;
           status?: 'active' | 'inactive';
+          accessScope?: (typeof USER_ACCESS_SCOPES)[number];
         };
-      const { page, limit, search, roleId, status } = query;
+      const { page, limit, search, roleId, status, accessScope } = query;
       const offset = (page - 1) * limit;
 
       // A site-restricted operator sees only users within its sites.
@@ -1870,6 +2001,9 @@ export function userRoutes(app: FastifyInstance): void {
       }
       if (status != null) {
         conditions.push(eq(users.isActive, status === 'active'));
+      }
+      if (accessScope != null) {
+        conditions.push(eq(users.accessScope, accessScope));
       }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -1902,12 +2036,33 @@ export function userRoutes(app: FastifyInstance): void {
           .where(inArray(userSiteAssignments.userId, userIds))
           .groupBy(userSiteAssignments.userId);
       }
+      const fleetUserIds = data.filter((u) => u.accessScope === 'fleets').map((u) => u.id);
+      let fleetRows: { userId: string; name: string }[] = [];
+      if (fleetUserIds.length > 0) {
+        fleetRows = await db
+          .select({ userId: userFleetAssignments.userId, name: fleets.name })
+          .from(userFleetAssignments)
+          .innerJoin(fleets, eq(fleets.id, userFleetAssignments.fleetId))
+          .where(inArray(userFleetAssignments.userId, fleetUserIds))
+          .orderBy(fleets.name, fleets.id);
+      }
       const siteCountMap = new Map(siteCounts.map((r) => [r.userId, r.count]));
+      const fleetNameMap = new Map<string, string[]>();
+      for (const row of fleetRows) {
+        const names = fleetNameMap.get(row.userId) ?? [];
+        names.push(row.name);
+        fleetNameMap.set(row.userId, names);
+      }
 
-      const enriched = data.map((u) => ({
-        ...u,
-        siteCount: u.hasAllSiteAccess ? null : (siteCountMap.get(u.id) ?? 0),
-      }));
+      const enriched = data.map((u) => {
+        const fleetNames = u.accessScope === 'fleets' ? (fleetNameMap.get(u.id) ?? []) : null;
+        return {
+          ...u,
+          siteCount: u.hasAllSiteAccess ? null : (siteCountMap.get(u.id) ?? 0),
+          fleetCount: fleetNames?.length ?? null,
+          fleetNames,
+        };
+      });
 
       return { data: enriched, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
         (typeof enriched)[number]
@@ -1934,14 +2089,17 @@ export function userRoutes(app: FastifyInstance): void {
             [
               ERROR_CODES.ROLE_NOT_FOUND,
               ERROR_CODES.INVALID_SITE_IDS,
+              ERROR_CODES.INVALID_FLEET_IDS,
               ERROR_CODES.INVALID_PERMISSIONS,
+              ERROR_CODES.FLEET_USER_PERMISSION_NOT_ALLOWED,
               ...SESSION_PROOF_ERROR_CODES,
             ],
-            sessionProofErrorFields,
+            { ...sessionProofErrorFields, ...fleetPermissionErrorFields },
           ),
-          403: errorWith('Grant exceeds own access', [
+          403: errorWith('Grant exceeds own access, or the Fleets feature is off', [
             ERROR_CODES.FORBIDDEN,
             ERROR_CODES.PERMISSIONS_EXCEED_OWN,
+            ERROR_CODES.FLEET_DISABLED,
           ]),
           409: errorWith('Email already in use', [ERROR_CODES.DUPLICATE_EMAIL]),
         },
@@ -1950,6 +2108,12 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = parseZodRequest(createUserBody, request.body);
       const actor = await getUserManagementActor(request);
+
+      // Only an operator with access to every site creates a fleet user.
+      if ((body.accessScope === 'fleets' || body.fleetIds !== undefined) && actor.siteIds != null) {
+        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        return;
+      }
 
       // A site-restricted operator never grants access to every site.
       if (body.hasAllSiteAccess && actor.siteIds != null) {
@@ -1989,6 +2153,34 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(400).send({ error: 'Role does not exist', code: 'ROLE_NOT_FOUND' });
         return;
       }
+      const fleetManagerRole = role.name === FLEET_MANAGER_ROLE_NAME;
+      const createScope: UserAccessScope =
+        body.accessScope ?? (fleetManagerRole ? 'fleets' : 'sites');
+      if (createScope === 'fleets' || fleetManagerRole) {
+        if (actor.siteIds != null) {
+          await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+          return;
+        }
+        if (!(await isFleetEnabled())) {
+          await reply.status(403).send(FLEET_DISABLED_REPLY);
+          return;
+        }
+      }
+      const createFleetIds = [...new Set(body.fleetIds ?? [])];
+      if (
+        createScope === 'fleets'
+          ? body.hasAllSiteAccess || (body.siteIds?.length ?? 0) > 0
+          : createFleetIds.length > 0
+      ) {
+        await reply.status(400).send({
+          error:
+            createScope === 'fleets'
+              ? 'A fleet user has no site access: leave out hasAllSiteAccess and siteIds'
+              : 'fleetIds need accessScope fleets',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
       // The new user gets the permissions sent, else the role's defaults: an
       // operator grants only permissions it holds itself.
       const createPermissions = [...new Set(body.permissions ?? roleDefaultPermissions(role.name))];
@@ -2000,11 +2192,22 @@ export function userRoutes(app: FastifyInstance): void {
         });
         return;
       }
+      if (createScope === 'fleets') {
+        const outside = fleetUserPermissionsOutside(createPermissions);
+        if (outside.length > 0) {
+          await sendFleetPermissionRefusal(reply, outside);
+          return;
+        }
+      }
       if (!(await canGrantPermissions(request, createPermissions))) {
         await reply.status(403).send({
           error: 'Permissions must be a subset of your own permissions',
           code: 'PERMISSIONS_EXCEED_OWN',
         });
+        return;
+      }
+      if (!(await fleetsExist(createFleetIds))) {
+        await reply.status(400).send(INVALID_FLEET_IDS_REPLY);
         return;
       }
 
@@ -2013,7 +2216,9 @@ export function userRoutes(app: FastifyInstance): void {
       // input first so duplicates don't trip the (userId, siteId) UNIQUE
       // constraint on insert.
       const createSiteIds =
-        body.hasAllSiteAccess || body.siteIds == null ? [] : [...new Set(body.siteIds)];
+        createScope === 'fleets' || body.hasAllSiteAccess || body.siteIds == null
+          ? []
+          : [...new Set(body.siteIds)];
       if (createSiteIds.length > 0) {
         const found = await db
           .select({ id: sites.id })
@@ -2061,7 +2266,8 @@ export function userRoutes(app: FastifyInstance): void {
             phone: createPhone,
             roleId: body.roleId,
             mustResetPassword: true,
-            hasAllSiteAccess: body.hasAllSiteAccess,
+            hasAllSiteAccess: createScope === 'sites' && body.hasAllSiteAccess,
+            accessScope: createScope,
           })
           .returning({
             id: users.id,
@@ -2078,6 +2284,11 @@ export function userRoutes(app: FastifyInstance): void {
           await tx
             .insert(userSiteAssignments)
             .values(createSiteIds.map((siteId) => ({ userId: created.id, siteId })));
+        }
+        if (createFleetIds.length > 0) {
+          await tx
+            .insert(userFleetAssignments)
+            .values(createFleetIds.map((fleetId) => ({ userId: created.id, fleetId })));
         }
         if (createPermissions.length > 0) {
           await tx
@@ -2107,18 +2318,12 @@ export function userRoutes(app: FastifyInstance): void {
       const csmsUrl = apiConfig.CSMS_URL;
       const setPasswordUrl = `${csmsUrl}/reset-password?token=${rawToken}`;
 
-      void dispatchSystemNotification(
-        client,
-        'operator.UserCreated',
-        { email: user.email, phone: user.phone ?? undefined, userId: user.id, language: 'en' },
-        {
-          firstName: user.firstName ?? '',
-          lastName: user.lastName ?? '',
-          email: user.email,
-          setPasswordUrl,
-        },
-        ALL_TEMPLATES_DIRS,
-      );
+      await sendOperatorInvite(
+        { ...user, language: 'en', accessScope: createScope },
+        setPasswordUrl,
+      ).catch((err: unknown) => {
+        request.log.warn({ err, userId: user.id }, 'Invitation email failed');
+      });
 
       const auditActor = getAuditActor(request);
       await writeAudit(
@@ -2130,8 +2335,10 @@ export function userRoutes(app: FastifyInstance): void {
           ...auditActor,
           after: {
             ...user,
-            hasAllSiteAccess: body.hasAllSiteAccess,
+            hasAllSiteAccess: createScope === 'sites' && body.hasAllSiteAccess,
             siteIds: body.hasAllSiteAccess ? [] : createSiteIds,
+            accessScope: createScope,
+            fleetIds: createFleetIds,
             permissions: createPermissions,
           },
         },
@@ -2141,8 +2348,10 @@ export function userRoutes(app: FastifyInstance): void {
 
       await reply.status(201).send({
         ...user,
-        hasAllSiteAccess: body.hasAllSiteAccess,
+        hasAllSiteAccess: createScope === 'sites' && body.hasAllSiteAccess,
         siteIds: body.hasAllSiteAccess ? [] : (body.siteIds ?? []),
+        accessScope: createScope,
+        fleetIds: createFleetIds,
       });
     },
   );
@@ -2191,6 +2400,7 @@ export function userRoutes(app: FastifyInstance): void {
       return {
         ...user,
         siteIds: assignments.map((a) => a.siteId),
+        fleetIds: await fleetIdsOf(user),
         permissions: permRows.map((r) => r.permission),
       };
     },
@@ -2214,15 +2424,21 @@ export function userRoutes(app: FastifyInstance): void {
             [
               ERROR_CODES.ROLE_NOT_FOUND,
               ERROR_CODES.INVALID_SITE_IDS,
+              ERROR_CODES.INVALID_FLEET_IDS,
+              ERROR_CODES.FLEET_USER_PERMISSION_NOT_ALLOWED,
               ...SESSION_PROOF_ERROR_CODES,
             ],
-            sessionProofErrorFields,
+            { ...sessionProofErrorFields, ...fleetPermissionErrorFields },
           ),
-          403: errorWith('Self edit forbidden or grant exceeds own access', [
-            ERROR_CODES.SELF_EDIT_FORBIDDEN,
-            ERROR_CODES.FORBIDDEN,
-            ERROR_CODES.PERMISSIONS_EXCEED_OWN,
-          ]),
+          403: errorWith(
+            'Self edit forbidden, grant exceeds own access, or the Fleets feature is off',
+            [
+              ERROR_CODES.SELF_EDIT_FORBIDDEN,
+              ERROR_CODES.FORBIDDEN,
+              ERROR_CODES.PERMISSIONS_EXCEED_OWN,
+              ERROR_CODES.FLEET_DISABLED,
+            ],
+          ),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
           409: errorWith('Email already in use', [ERROR_CODES.DUPLICATE_EMAIL]),
         },
@@ -2248,6 +2464,8 @@ export function userRoutes(app: FastifyInstance): void {
           body.isActive !== undefined ||
           body.hasAllSiteAccess !== undefined ||
           body.siteIds !== undefined ||
+          body.accessScope !== undefined ||
+          body.fleetIds !== undefined ||
           body.ssoLinkAllowed !== undefined
         ) {
           await reply.status(403).send({
@@ -2279,6 +2497,8 @@ export function userRoutes(app: FastifyInstance): void {
         body.roleId !== undefined ||
         body.hasAllSiteAccess !== undefined ||
         body.siteIds !== undefined ||
+        body.accessScope !== undefined ||
+        body.fleetIds !== undefined ||
         body.phone !== undefined ||
         body.email !== undefined ||
         body.ssoLinkAllowed !== undefined;
@@ -2293,8 +2513,14 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // A site-restricted operator never grants access to every site.
-      if (body.hasAllSiteAccess === true && actor.siteIds != null) {
+      // A site-restricted operator never grants access to every site, and
+      // never makes a fleet user.
+      if (
+        (body.hasAllSiteAccess === true ||
+          body.accessScope === 'fleets' ||
+          body.fleetIds !== undefined) &&
+        actor.siteIds != null
+      ) {
         await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
         return;
       }
@@ -2339,6 +2565,7 @@ export function userRoutes(app: FastifyInstance): void {
       // user's permissions to the role defaults, so a site-restricted
       // operator may only pick a role whose defaults it holds itself.
       let newRoleDefaults: string[] = [];
+      let toFleetManagerRole = false;
       if (body.roleId !== undefined) {
         const [role] = await db
           .select({ id: roles.id, name: roles.name })
@@ -2350,13 +2577,71 @@ export function userRoutes(app: FastifyInstance): void {
           return;
         }
         newRoleDefaults = roleDefaultPermissions(role.name);
-        if (!(await canGrantPermissions(request, newRoleDefaults))) {
-          await reply.status(403).send({
-            error: 'Permissions must be a subset of your own permissions',
-            code: 'PERMISSIONS_EXCEED_OWN',
-          });
+        toFleetManagerRole = role.name === FLEET_MANAGER_ROLE_NAME;
+      }
+
+      // The access scope after the change: the one sent, else fleets for a
+      // move to the fleet_manager role, else the stored one.
+      const scopeAfter: UserAccessScope =
+        body.accessScope ?? (toFleetManagerRole ? 'fleets' : before.accessScope);
+      const scopeChanged = scopeAfter !== before.accessScope;
+      if (
+        toFleetManagerRole ||
+        (scopeChanged && scopeAfter === 'fleets') ||
+        body.fleetIds !== undefined
+      ) {
+        if (actor.siteIds != null) {
+          await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
           return;
         }
+        if (!(await isFleetEnabled())) {
+          await reply.status(403).send(FLEET_DISABLED_REPLY);
+          return;
+        }
+      }
+      const patchFleetIds = body.fleetIds === undefined ? undefined : [...new Set(body.fleetIds)];
+      if (
+        scopeAfter === 'fleets'
+          ? body.hasAllSiteAccess === true || (body.siteIds?.length ?? 0) > 0
+          : (patchFleetIds?.length ?? 0) > 0
+      ) {
+        await reply.status(400).send({
+          error:
+            scopeAfter === 'fleets'
+              ? 'A fleet user has no site access: leave out hasAllSiteAccess and siteIds'
+              : 'fleetIds need accessScope fleets',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+      // A fleet user holds only the fleet user permissions: the new role
+      // defaults, or its stored permissions when it moves to fleets.
+      if (scopeAfter === 'fleets' && (scopeChanged || body.roleId !== undefined)) {
+        const permissionsAfter =
+          body.roleId !== undefined
+            ? newRoleDefaults
+            : (
+                await db
+                  .select({ permission: userPermissions.permission })
+                  .from(userPermissions)
+                  .where(eq(userPermissions.userId, id))
+              ).map((r) => r.permission);
+        const outside = fleetUserPermissionsOutside(permissionsAfter);
+        if (outside.length > 0) {
+          await sendFleetPermissionRefusal(reply, outside);
+          return;
+        }
+      }
+      if (body.roleId !== undefined && !(await canGrantPermissions(request, newRoleDefaults))) {
+        await reply.status(403).send({
+          error: 'Permissions must be a subset of your own permissions',
+          code: 'PERMISSIONS_EXCEED_OWN',
+        });
+        return;
+      }
+      if (patchFleetIds != null && !(await fleetsExist(patchFleetIds))) {
+        await reply.status(400).send(INVALID_FLEET_IDS_REPLY);
+        return;
       }
 
       // Pre-validate site assignments before any write, so a bad siteId
@@ -2429,11 +2714,22 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
       if (body.hasAllSiteAccess !== undefined) fields['hasAllSiteAccess'] = body.hasAllSiteAccess;
       if (body.ssoLinkAllowed !== undefined) fields['ssoLinkAllowed'] = body.ssoLinkAllowed;
+      if (scopeChanged) fields['accessScope'] = scopeAfter;
+      // A fleet user never has all-site access.
+      if (scopeChanged && scopeAfter === 'fleets') fields['hasAllSiteAccess'] = false;
 
-      // The audit row of a site or role change keeps the earlier sites and
-      // permissions.
-      const accessChange = body.roleId !== undefined || patchSiteIds !== undefined;
-      let beforeAccess: { siteIds: string[]; permissions: string[] } | null = null;
+      // Moving to fleets drops the site assignments, moving to sites the
+      // fleet assignments.
+      const siteIdsAfter = scopeChanged && scopeAfter === 'fleets' ? [] : patchSiteIds;
+      const fleetIdsAfter = scopeChanged && scopeAfter === 'sites' ? [] : patchFleetIds;
+      const fleetAccessChange = scopeChanged || fleetIdsAfter !== undefined;
+
+      // The audit row of a site, fleet, scope or role change keeps the earlier
+      // sites, fleets and permissions.
+      const accessChange =
+        body.roleId !== undefined || siteIdsAfter !== undefined || fleetAccessChange;
+      let beforeAccess: { siteIds: string[]; fleetIds: string[]; permissions: string[] } | null =
+        null;
       if (accessChange) {
         const [beforeSites, beforePermissions] = await Promise.all([
           db
@@ -2447,6 +2743,7 @@ export function userRoutes(app: FastifyInstance): void {
         ]);
         beforeAccess = {
           siteIds: beforeSites.map((a) => a.siteId),
+          fleetIds: await fleetIdsOf(before),
           permissions: beforePermissions.map((r) => r.permission),
         };
       }
@@ -2464,15 +2761,23 @@ export function userRoutes(app: FastifyInstance): void {
         // Reset and invite links already sent went to the old address.
         if (emailChanged) await revokeUserEmailLinks(id, tx);
 
-        // A role change ends the access tokens issued under the old role.
-        if (body.roleId !== undefined) await bumpSessionVersion(id, tx);
+        // A role, scope or fleet change ends the access tokens issued before.
+        if (body.roleId !== undefined || fleetAccessChange) await bumpSessionVersion(id, tx);
 
-        if (patchSiteIds !== undefined) {
+        if (siteIdsAfter !== undefined) {
           await tx.delete(userSiteAssignments).where(eq(userSiteAssignments.userId, id));
-          if (patchSiteIds.length > 0) {
+          if (siteIdsAfter.length > 0) {
             await tx
               .insert(userSiteAssignments)
-              .values(patchSiteIds.map((siteId) => ({ userId: id, siteId })));
+              .values(siteIdsAfter.map((siteId) => ({ userId: id, siteId })));
+          }
+        }
+        if (fleetIdsAfter !== undefined) {
+          await tx.delete(userFleetAssignments).where(eq(userFleetAssignments.userId, id));
+          if (fleetIdsAfter.length > 0) {
+            await tx
+              .insert(userFleetAssignments)
+              .values(fleetIdsAfter.map((fleetId) => ({ userId: id, fleetId })));
           }
         }
 
@@ -2514,9 +2819,15 @@ export function userRoutes(app: FastifyInstance): void {
         );
       }
 
-      // Invalidate site access cache when site access fields change
-      if (body.hasAllSiteAccess !== undefined || body.siteIds !== undefined) {
+      // Invalidate site access cache (the access scope with it) when site
+      // or fleet access fields change
+      if (body.hasAllSiteAccess !== undefined || siteIdsAfter !== undefined || fleetAccessChange) {
         invalidateSiteAccessCache(id);
+      }
+      if (fleetAccessChange) {
+        // The permission ceiling follows the scope; streams of the old scope end.
+        invalidatePermissionCache(id);
+        if (body.roleId === undefined) announceSessionChange(id);
       }
 
       // Deactivation: end every session, API key and emailed link at once
@@ -2550,7 +2861,7 @@ export function userRoutes(app: FastifyInstance): void {
         sendSecurityNotice({ userId }, 'security.PermissionsGranted', variables, request.log);
       }
 
-      // Re-fetch site assignments and permissions for the response
+      // Re-fetch site and fleet assignments and permissions for the response
       const [assignments, permRows] = await Promise.all([
         db
           .select({ siteId: userSiteAssignments.siteId })
@@ -2561,12 +2872,17 @@ export function userRoutes(app: FastifyInstance): void {
           .from(userPermissions)
           .where(eq(userPermissions.userId, id)),
       ]);
+      const fleetIdsNow = await fleetIdsOf(updated);
 
       const auditActor = getAuditActor(request);
       let action: string = 'updated';
       if (body.roleId !== undefined && body.roleId !== before.roleId) {
         action = 'role_changed';
-      } else if (body.hasAllSiteAccess !== undefined || body.siteIds !== undefined) {
+      } else if (
+        body.hasAllSiteAccess !== undefined ||
+        body.siteIds !== undefined ||
+        fleetAccessChange
+      ) {
         action = 'site_access_changed';
       } else if (
         body.ssoLinkAllowed !== undefined &&
@@ -2585,7 +2901,9 @@ export function userRoutes(app: FastifyInstance): void {
           after: {
             ...updated,
             siteIds: assignments.map((a) => a.siteId),
-            ...(accessChange ? { permissions: permRows.map((r) => r.permission) } : {}),
+            ...(accessChange
+              ? { fleetIds: fleetIdsNow, permissions: permRows.map((r) => r.permission) }
+              : {}),
           },
         },
         db,
@@ -2595,6 +2913,7 @@ export function userRoutes(app: FastifyInstance): void {
       return {
         ...updated,
         siteIds: assignments.map((a) => a.siteId),
+        fleetIds: fleetIdsNow,
         permissions: permRows.map((r) => r.permission),
       };
     },
@@ -2908,6 +3227,7 @@ export function userRoutes(app: FastifyInstance): void {
           lastName: users.lastName,
           isActive: users.isActive,
           language: users.language,
+          accessScope: users.accessScope,
         })
         .from(users)
         .where(eq(users.id, id));
@@ -2948,23 +3268,9 @@ export function userRoutes(app: FastifyInstance): void {
       const csmsUrl = apiConfig.CSMS_URL;
       const setPasswordUrl = `${csmsUrl}/reset-password?token=${rawToken}`;
 
-      void dispatchSystemNotification(
-        client,
-        'operator.UserCreated',
-        {
-          email: user.email,
-          phone: user.phone ?? undefined,
-          userId: user.id,
-          language: user.language,
-        },
-        {
-          firstName: user.firstName ?? '',
-          lastName: user.lastName ?? '',
-          email: user.email,
-          setPasswordUrl,
-        },
-        ALL_TEMPLATES_DIRS,
-      );
+      await sendOperatorInvite(user, setPasswordUrl).catch((err: unknown) => {
+        request.log.warn({ err, userId: user.id }, 'Invitation email failed');
+      });
 
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
@@ -3274,6 +3580,7 @@ export function userRoutes(app: FastifyInstance): void {
           timezone: user.timezone,
           themePreference: user.themePreference,
           uiTheme: user.uiTheme,
+          ...(await userAccessFields(user.id)),
         },
         role: role ? { id: role.id, name: role.name } : null,
         ...(recoveryCodesRemaining != null ? { recoveryCodesRemaining } : {}),
@@ -3766,9 +4073,14 @@ export function userRoutes(app: FastifyInstance): void {
   );
 
   const mfaConfirmBody = z.object({
-    method: z.enum(['email', 'totp', 'sms']),
-    code: z.string().min(6).max(6),
-    challengeId: z.coerce.number().int().min(1).optional(),
+    method: z.enum(['email', 'totp', 'sms']).describe('The method being set up'),
+    code: z.string().min(6).max(6).describe('The six-digit code of the method'),
+    challengeId: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('The challenge of an emailed or texted code'),
     proof: factorProof
       .optional()
       .describe(
@@ -4057,6 +4369,7 @@ export function userRoutes(app: FastifyInstance): void {
                 timezone: signedIn.timezone,
                 themePreference: signedIn.themePreference,
                 uiTheme: signedIn.uiTheme,
+                ...(await userAccessFields(signedIn.id)),
               },
               role:
                 signedIn.roleId != null && signedIn.roleName != null
@@ -5013,6 +5326,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Get current user permissions',
+        description:
+          'The permissions the signed-in user acts with. For a fleet user, the stored ones cut to the fleet user list.',
         operationId: 'getMyPermissions',
         security: [{ bearerAuth: [] }],
         response: { 200: arrayResponse(z.string()) },
@@ -5025,8 +5340,9 @@ export function userRoutes(app: FastifyInstance): void {
         .select({ permission: userPermissions.permission })
         .from(userPermissions)
         .where(eq(userPermissions.userId, userId));
-
-      return rows.map((r) => r.permission);
+      const stored = rows.map((r) => r.permission);
+      // A fleet user acts with the fleet user permissions only, stale rows included.
+      return (await isFleetUser(userId)) ? withinFleetUserCeiling(stored) : stored;
     },
   );
 
@@ -5073,7 +5389,7 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Replace a user permissions',
         description:
-          'Replaces the permissions of another user, each one you hold. From a signed-in session, a list that adds a permission needs `proof` (400 VALIDATION_ERROR with proofKinds without it); removing needs none. The user and the caller get a security.PermissionsGranted notice.',
+          'Replaces the permissions of another user, each one you hold. A fleets-scope user takes only fleets:read, sessions:read, payments:read, fleetCards:read and fleetCards:write (400 FLEET_USER_PERMISSION_NOT_ALLOWED). From a signed-in session, a list that adds a permission needs `proof` (400 VALIDATION_ERROR with proofKinds without it); removing needs none. The user and the caller get a security.PermissionsGranted notice.',
         operationId: 'updateUserPermissions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
@@ -5081,9 +5397,13 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           200: arrayResponse(z.string()),
           400: errorWith(
-            'Invalid permissions, or a missing or wrong proof',
-            [ERROR_CODES.INVALID_PERMISSIONS, ...SESSION_PROOF_ERROR_CODES],
-            sessionProofErrorFields,
+            'Invalid permissions, a permission a fleet user cannot hold, or a missing or wrong proof',
+            [
+              ERROR_CODES.INVALID_PERMISSIONS,
+              ERROR_CODES.FLEET_USER_PERMISSION_NOT_ALLOWED,
+              ...SESSION_PROOF_ERROR_CODES,
+            ],
+            { ...sessionProofErrorFields, ...fleetPermissionErrorFields },
           ),
           403: errorWith('Forbidden', [
             ERROR_CODES.FORBIDDEN,
@@ -5108,7 +5428,10 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       const actor = await getUserManagementActor(request);
-      const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, id));
+      const [user] = await db
+        .select({ id: users.id, accessScope: users.accessScope })
+        .from(users)
+        .where(eq(users.id, id));
 
       // The target's current permissions must be within the actor's own too:
       // no one rewrites (or strips) the permissions of a more privileged user.
@@ -5125,6 +5448,13 @@ export function userRoutes(app: FastifyInstance): void {
           code: 'INVALID_PERMISSIONS',
         });
         return;
+      }
+      if (user.accessScope === 'fleets') {
+        const outside = fleetUserPermissionsOutside(permissions);
+        if (outside.length > 0) {
+          await sendFleetPermissionRefusal(reply, outside);
+          return;
+        }
       }
 
       // An operator grants only permissions it holds.

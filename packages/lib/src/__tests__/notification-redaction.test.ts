@@ -47,6 +47,14 @@ describe('redactSensitiveNotificationContent', () => {
     expect(redactSensitiveNotificationContent(html, 'operator.UserCreated')).not.toContain(TOKEN);
   });
 
+  it('redacts the set-password link of a fleet manager invitation and keeps the guide link', () => {
+    const guide = 'https://evtivity.com/docs/guides/fleet-manager-setup';
+    const html = `<a href='https://csms.test/reset-password?token&#x3D;${TOKEN}'>Set</a> <a href='${guide}'>Guide</a>`;
+    const redacted = redactSensitiveNotificationContent(html, 'operator.FleetManagerInvite');
+    expect(redacted).not.toContain(TOKEN);
+    expect(redacted).toContain(guide);
+  });
+
   it('leaves non-sensitive events unchanged', () => {
     const html = `<a href='https://portal.test/activate?token&#x3D;${TOKEN}'>x</a>`;
     expect(redactSensitiveNotificationContent(html, 'session.Started')).toBe(html);

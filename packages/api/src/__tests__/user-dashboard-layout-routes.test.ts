@@ -23,7 +23,14 @@ vi.mock('../lib/site-access.js', () => ({
   ),
 }));
 
+// The Fleets switch and the fleet users (a fleet user sees its fleet items by default).
+const fleetState = vi.hoisted(() => ({ enabled: true, fleetUsers: new Set<string>() }));
+vi.mock('../lib/fleet-scope.js', () => ({
+  isFleetUser: vi.fn((userId: string) => Promise.resolve(fleetState.fleetUsers.has(userId))),
+}));
+
 vi.mock('@evtivity/database', () => ({
+  isFleetEnabled: vi.fn(() => Promise.resolve(fleetState.enabled)),
   getUserDashboardLayout: vi.fn((userId: string) => Promise.resolve(store.get(userId) ?? null)),
   saveUserDashboardLayout: vi.fn((userId: string, layout: unknown) => {
     store.set(userId, layout);
@@ -260,5 +267,38 @@ describe('dashboard layout routes', () => {
 
   it('is never served from the response cache', () => {
     expect(matchCacheRule('/v1/users/me/dashboard-layout')).toBeNull();
+  });
+
+  it('shows a fleet user its fleet charts by default and skips them while Fleets is off', async () => {
+    fleetState.fleetUsers.add('usr_000000000003');
+    const fleetToken = app.jwt.sign({ userId: 'usr_000000000003', roleId: 'rol_000000000004' });
+    const fleetIds = [
+      'chart.fleetEnergy',
+      'chart.fleetSessions',
+      'chart.fleetCost',
+      'chart.fleetInvoices',
+    ];
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: URL,
+        headers: { authorization: `Bearer ${fleetToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const charts = res.json().layout.charts as Array<{ id: string; hidden: boolean }>;
+      for (const id of fleetIds) expect(charts.find((c) => c.id === id)?.hidden, id).toBe(false);
+
+      fleetState.enabled = false;
+      const off = await app.inject({
+        method: 'GET',
+        url: URL,
+        headers: { authorization: `Bearer ${fleetToken}` },
+      });
+      const offCharts = off.json().layout.charts as Array<{ id: string }>;
+      expect(offCharts.some((c) => fleetIds.includes(c.id))).toBe(false);
+    } finally {
+      fleetState.enabled = true;
+      fleetState.fleetUsers.delete('usr_000000000003');
+    }
   });
 });

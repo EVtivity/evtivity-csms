@@ -14,6 +14,8 @@ import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-th
 
 interface SessionsChartProps {
   data: { date: string; count: number }[];
+  /** Defaults to Sessions per Day. */
+  title?: string;
   actions?: React.ReactNode;
   info?: string;
   /** The state of the query behind the chart; omitted, the chart shows as given. */
@@ -22,6 +24,7 @@ interface SessionsChartProps {
 
 export function SessionsChart({
   data,
+  title,
   actions,
   info,
   state,
@@ -75,7 +78,7 @@ export function SessionsChart({
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base flex items-center gap-1.5">
-          {t('charts.sessionsPerDay')}
+          {title ?? t('charts.sessionsPerDay')}
           {info != null && <InfoTooltip content={<div className="max-w-56">{info}</div>} />}
         </CardTitle>
         {actions}

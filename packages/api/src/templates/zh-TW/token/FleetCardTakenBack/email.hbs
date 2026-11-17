@@ -1,0 +1,5 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{firstName}}，您好：</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您的車隊 <strong>{{fleetName}}</strong> 已收回此 RFID 卡：</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>{{idToken}}</strong>（{{tokenType}}）</p>
+{{#if label}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>標籤：{{label}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>此卡將無法再為您開始充電。如有疑問，請聯絡您的車隊經理。</p>

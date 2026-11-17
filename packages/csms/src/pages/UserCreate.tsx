@@ -1,9 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Checkbox } from '@/components/ui/checkbox';
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
@@ -13,7 +12,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { permissionCatalog } from '@evtivity/lib/permissions';
+import { FLEET_USER_PERMISSIONS, permissionCatalog } from '@evtivity/lib/permissions';
+import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
+import {
+  UserAccessField,
+  offeredRoles,
+  userAccessBody,
+  type UserAccessKind,
+} from '@/components/user/UserAccessField';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { roleLabel } from '@/lib/role-label';
 import { PermissionEditor } from '@/components/PermissionEditor';
 import { useHasAllSiteAccess } from '@/lib/auth';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
@@ -44,9 +52,9 @@ interface Role {
   name: string;
 }
 
-interface Site {
-  id: string;
-  name: string;
+/** The permissions a fleet user may hold, from a list (write implies read for fleet cards). */
+function withinFleetUser(perms: readonly string[]): string[] {
+  return perms.filter((p) => (FLEET_USER_PERMISSIONS as readonly string[]).includes(p));
 }
 
 export function UserCreate(): React.JSX.Element {
@@ -60,9 +68,19 @@ export function UserCreate(): React.JSX.Element {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
+  // A fleet page link (Add Fleet Manager) opens the form with a role and a fleet chosen.
+  const [searchParams] = useSearchParams();
+  const presetRole = searchParams.get('role');
+  const presetFleetId = searchParams.get('fleetId');
   const [roleId, setRoleId] = useState('');
-  const [hasAllSiteAccess, setHasAllSiteAccess] = useState(false);
+  const [accessKind, setAccessKind] = useState<UserAccessKind>(
+    presetFleetId != null ? 'fleets' : 'sites',
+  );
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
+  const [selectedFleetIds, setSelectedFleetIds] = useState<string[]>(
+    presetFleetId != null && presetFleetId !== '' ? [presetFleetId] : [],
+  );
+  const { fleetEnabled } = useFeatureFlags().flags;
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [avatar, setAvatar] = useState<AvatarChoice | null>(null);
@@ -79,19 +97,30 @@ export function UserCreate(): React.JSX.Element {
     queryFn: () => api.get<Role[]>('/v1/roles'),
   });
 
-  const { data: sitesData } = useQuery({
-    queryKey: ['sites-for-select'],
-    queryFn: () => api.get<{ data: Site[] }>('/v1/sites?limit=100'),
-  });
-  const sitesList = sitesData?.data ?? [];
+  // The preset role is chosen once the roles have loaded.
+  useEffect(() => {
+    if (presetRole == null || roleId !== '' || roles == null) return;
+    const preset = roles.find((r) => r.name === presetRole);
+    if (preset != null) setRoleId(preset.id);
+  }, [presetRole, roles]);
 
-  // When role changes, reset permissions to the defaults the server gives that role
+  // When the role changes, the permissions start at the role defaults; the Fleet Manager
+  // role makes a fleet user, who holds only the fleet user permissions.
   useEffect(() => {
     if (roleId === '' || roles == null) return;
     const selectedRole = roles.find((r) => r.id === roleId);
     if (selectedRole == null) return;
-    setSelectedPermissions(permissionCatalog.defaultsFor(selectedRole.name));
+    const defaults = permissionCatalog.defaultsFor(selectedRole.name);
+    const fleets = selectedRole.name === FLEET_MANAGER_ROLE_NAME || accessKind === 'fleets';
+    if (selectedRole.name === FLEET_MANAGER_ROLE_NAME) setAccessKind('fleets');
+    setSelectedPermissions(fleets ? withinFleetUser(defaults) : defaults);
+    // Only a role change resets the permissions, not an access change.
   }, [roleId, roles]);
+
+  function changeAccessKind(kind: UserAccessKind): void {
+    setAccessKind(kind);
+    if (kind === 'fleets') setSelectedPermissions((prev) => withinFleetUser(prev));
+  }
 
   const createMutation = useMutation({
     mutationFn: async (body: {
@@ -99,8 +128,10 @@ export function UserCreate(): React.JSX.Element {
       firstName?: string;
       lastName?: string;
       roleId: string;
-      hasAllSiteAccess: boolean;
+      accessScope: 'sites' | 'fleets';
+      hasAllSiteAccess?: boolean;
       siteIds?: string[];
+      fleetIds?: string[];
       permissions: string[];
       proof?: FactorProof;
     }) => {
@@ -140,7 +171,7 @@ export function UserCreate(): React.JSX.Element {
     if (!firstName.trim()) errors.firstName = t('validation.required');
     if (!lastName.trim()) errors.lastName = t('validation.required');
     if (!roleId) errors.roleId = t('validation.selectRequired');
-    if (!hasAllSiteAccess && selectedSiteIds.length === 0) {
+    if (accessKind === 'sites' && selectedSiteIds.length === 0) {
       errors.siteIds = t('users.siteAccessRequired');
     }
     return errors;
@@ -157,13 +188,12 @@ export function UserCreate(): React.JSX.Element {
     createMutation.mutate({
       email,
       roleId,
-      hasAllSiteAccess,
+      ...userAccessBody(accessKind, selectedSiteIds, selectedFleetIds),
       permissions: selectedPermissions,
       ...(needsProof && proof != null ? { proof } : {}),
       ...(firstName.trim() !== '' ? { firstName } : {}),
       ...(lastName.trim() !== '' ? { lastName } : {}),
       ...(phone.trim() !== '' ? { phone } : {}),
-      ...(hasAllSiteAccess ? {} : { siteIds: selectedSiteIds }),
     });
   }
 
@@ -263,9 +293,9 @@ export function UserCreate(): React.JSX.Element {
                 className={hasSubmitted && errors.roleId ? 'border-destructive' : ''}
               >
                 <option value="">{t('users.selectRole')}</option>
-                {roles?.map((role) => (
+                {offeredRoles(roles ?? [], canGrantAllSites && fleetEnabled).map((role) => (
                   <option key={role.id} value={role.id}>
-                    {role.name}
+                    {roleLabel(role.name, t)}
                   </option>
                 ))}
               </Select>
@@ -282,58 +312,26 @@ export function UserCreate(): React.JSX.Element {
                   <p className="text-xs text-muted-foreground mb-4">
                     {t('users.permissionsDescription')}
                   </p>
-                  <PermissionEditor value={selectedPermissions} onChange={setSelectedPermissions} />
+                  <PermissionEditor
+                    value={selectedPermissions}
+                    onChange={setSelectedPermissions}
+                    allowed={accessKind === 'fleets' ? FLEET_USER_PERMISSIONS : undefined}
+                  />
                 </CardContent>
               </Card>
             )}
-            <div className="space-y-2">
-              <Label className="leading-6">{t('users.siteAccess')}</Label>
-              {/* Only an operator with access to every site may grant it. */}
-              {canGrantAllSites && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="create-all-sites"
-                      checked={hasAllSiteAccess}
-                      onChange={(e) => {
-                        setHasAllSiteAccess(e.target.checked);
-                        if (e.target.checked) setSelectedSiteIds([]);
-                      }}
-                    />
-                    <Label htmlFor="create-all-sites">{t('users.allSites')}</Label>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{t('users.allSitesDescription')}</p>
-                </>
-              )}
-              {!hasAllSiteAccess && (
-                <div
-                  className={`max-h-48 overflow-y-auto rounded-md border p-3 space-y-2 ${
-                    hasSubmitted && errors.siteIds ? 'border-destructive' : 'border-border'
-                  }`}
-                >
-                  {sitesList.length === 0 && <p className="text-xs text-muted-foreground">n/a</p>}
-                  {sitesList.map((site) => (
-                    <div key={site.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`site-${site.id}`}
-                        checked={selectedSiteIds.includes(site.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedSiteIds((prev) => [...prev, site.id]);
-                          } else {
-                            setSelectedSiteIds((prev) => prev.filter((id) => id !== site.id));
-                          }
-                        }}
-                      />
-                      <Label htmlFor={`site-${site.id}`}>{site.name}</Label>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {hasSubmitted && errors.siteIds && (
-                <p className="text-xs text-destructive">{errors.siteIds}</p>
-              )}
-            </div>
+            <UserAccessField
+              idPrefix="create"
+              kind={accessKind}
+              onKindChange={changeAccessKind}
+              siteIds={selectedSiteIds}
+              onSiteIdsChange={setSelectedSiteIds}
+              fleetIds={selectedFleetIds}
+              onFleetIdsChange={setSelectedFleetIds}
+              canGrantAllSites={canGrantAllSites}
+              fleetEnabled={fleetEnabled}
+              error={hasSubmitted ? errors.siteIds : undefined}
+            />
             {needsProof && (
               <FactorProofField
                 idPrefix="user-create-proof"

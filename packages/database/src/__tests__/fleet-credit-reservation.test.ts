@@ -37,10 +37,31 @@ interface FakeSession {
  * that answers the credit queries from that state. begin() runs one
  * transaction at a time, as the fleet row lock (FOR UPDATE) does.
  */
-function fakeFleet(limitCents: number | null, sessions: FakeSession[]) {
+function fakeFleet(
+  limitCents: number | null,
+  sessions: FakeSession[],
+  options: { cardFleetId?: string; lockedFleetIds?: string[][] } = {},
+) {
   let lock: Promise<unknown> = Promise.resolve();
   const fn = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     const text = strings.join('?');
+    if (text.includes('SELECT dt.fleet_id FROM charging_sessions')) {
+      return Promise.resolve(
+        options.cardFleetId == null ? [] : [{ fleet_id: options.cardFleetId }],
+      );
+    }
+    if (text.includes('FROM fleets WHERE id = ANY')) {
+      const ids = values[0] as string[];
+      options.lockedFleetIds?.push(ids);
+      return Promise.resolve(
+        ids.map((id) => ({
+          id,
+          name: 'Acme',
+          credit_limit_cents: limitCents,
+          credit_limit_warning_percent: 80,
+        })),
+      );
+    }
     if (text.includes('FROM fleets WHERE id')) {
       return Promise.resolve([
         { name: 'Acme', credit_limit_cents: limitCents, credit_limit_warning_percent: 80 },
@@ -67,9 +88,11 @@ function fakeFleet(limitCents: number | null, sessions: FakeSession[]) {
       session.ceiling ??= reservation;
       return Promise.resolve([{ cost_ceiling_cents: session.ceiling }]);
     }
-    if (text.includes('SELECT cost_ceiling_cents FROM charging_sessions')) {
+    if (text.includes('SELECT cost_ceiling_cents, token_id FROM charging_sessions')) {
       const session = sessions.find((s) => s.id === values[0] && s.status === 'active');
-      return Promise.resolve(session == null ? [] : [{ cost_ceiling_cents: session.ceiling }]);
+      return Promise.resolve(
+        session == null ? [] : [{ cost_ceiling_cents: session.ceiling, token_id: null }],
+      );
     }
     if (text.includes('SET cost_ceiling_cents = ?, updated_at')) {
       const [next, id] = values as [number, string];
@@ -194,6 +217,24 @@ describe('checkFleetCreditLimit with a bounded reservation', () => {
 });
 
 describe('extendFleetSessionCeiling', () => {
+  it('locks the card fleet with the billing fleet, in id order, for a card of another fleet', async () => {
+    const lockedFleetIds: string[][] = [];
+    const sessions = [active('ses_a', 400, 330)];
+    const sql = fakeFleet(10_000, sessions, { cardFleetId: 'flt_0card', lockedFleetIds });
+    await extendFleetSessionCeiling(sql, 'flt_1', 'ses_a', { pricedCents: 330 });
+    expect(lockedFleetIds).toEqual([['flt_0card', 'flt_1']]);
+  });
+
+  it('locks only the billing fleet when the card belongs to it', async () => {
+    const lockedFleetIds: string[][] = [];
+    const sql = fakeFleet(10_000, [active('ses_a', 400, 330)], {
+      cardFleetId: 'flt_1',
+      lockedFleetIds,
+    });
+    await extendFleetSessionCeiling(sql, 'flt_1', 'ses_a', { pricedCents: 330 });
+    expect(lockedFleetIds).toEqual([['flt_1']]);
+  });
+
   it('grows the ceiling by a slice once the headroom is below 20 % of the slice', async () => {
     const sessions = [active('ses_a', 400, 330)];
     const sql = fakeFleet(10_000, sessions);

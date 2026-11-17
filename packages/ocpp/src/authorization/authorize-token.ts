@@ -16,11 +16,14 @@
 
 import { eq, and, ne, or, type SQL } from 'drizzle-orm';
 import { cardMayAuthorizeVehicleId } from '@evtivity/lib/vehicle-id';
+import { CARD_MONTHLY_LIMIT_REASON as CARD_MONTHLY_LIMIT } from '@evtivity/lib/fleet-card';
 import { stationTokenCondition } from './station-token-match.js';
 import {
   client,
   db,
   loadDriverAccountCredit,
+  loadFleetCardAccountCredit,
+  readCardMonthlyLimit,
   driverTokens,
   drivers,
   resolveOcpiTokenOwner,
@@ -37,6 +40,7 @@ import {
 import type { OcpiTokenOwnerResult } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { logAuthorizeAttempt, parseOcpiValidThru } from './authorize-log.js';
+import { sendCardMonthlyLimitNotice } from '../server/card-limit-notice.js';
 import { prepaidCredit } from './prepaid.js';
 import { isIssuedCentralToken } from './issued-central-tokens.js';
 import {
@@ -57,6 +61,12 @@ const NO_MATCH = {
 
 /** The authorize reason of a driver whose billing fleet has no credit left. */
 export const ACCOUNT_CREDIT_LIMIT_REASON = 'account_credit_limit';
+
+/** The authorize reason of a fleet card that reached its monthly spending limit. */
+export const CARD_MONTHLY_LIMIT_REASON = CARD_MONTHLY_LIMIT;
+
+/** The authorize reason of a fleet card no member holds while its fleet cannot bill it. */
+export const FLEET_CARD_NOT_BILLABLE_REASON = 'fleet_card_not_billable';
 
 /** The token type logged for an untyped (1.6) idTag, as the 1.6 handlers name it in events. */
 const UNTYPED_LOG_TOKEN_TYPE = 'ISO14443';
@@ -99,7 +109,8 @@ export async function authorizeToken(
 
   decision = await checkConcurrentTransaction(input, rules, decision, logger);
   decision = applyPrepaidCredit(decision);
-  return checkAccountCredit(input, rules, decision, logger);
+  decision = await checkAccountCredit(input, rules, decision, logger);
+  return checkCardMonthlyLimit(input, rules, decision, logger);
 }
 
 /**
@@ -135,6 +146,18 @@ export function recordAuthorizeDecision(
       'Recording the authorize attempt failed; the decision stands',
     );
   });
+  if (
+    decision.reason === CARD_MONTHLY_LIMIT_REASON &&
+    decision.status === 'no_credit' &&
+    decision.matchedTokenId != null
+  ) {
+    // Fail-open in the background: the notice never delays the answer.
+    void sendCardMonthlyLimitNotice(
+      { sql: client, logger },
+      decision.matchedTokenId,
+      input.stationId,
+    );
+  }
 }
 
 /** The info log line that names how a decision was reached. */
@@ -151,6 +174,10 @@ export function authorizeDecisionMessage(decision: AuthorizeDecision): string {
   if (decision.source === 'guest') return `Guest session token ${decision.status}`;
   if (decision.source === 'vehicle') return `Autocharge vehicle ${decision.status}`;
   if (decision.reason === ACCOUNT_CREDIT_LIMIT_REASON) return 'Fleet credit limit reached';
+  if (decision.reason === CARD_MONTHLY_LIMIT_REASON) return 'Fleet card monthly limit reached';
+  if (decision.reason === FLEET_CARD_NOT_BILLABLE_REASON) {
+    return 'Fleet card refused: its fleet does not bill on account';
+  }
   if (decision.status === 'no_credit') return 'Prepaid token without credit';
   if (decision.status !== 'accepted') return 'Token rejected by status';
   return 'Token accepted';
@@ -240,10 +267,12 @@ function tokenCondition(input: AuthorizeTokenInput): SQL {
 const TOKEN_COLUMNS = {
   id: driverTokens.id,
   driverId: driverTokens.driverId,
+  fleetId: driverTokens.fleetId,
   isActive: driverTokens.isActive,
   expiresAt: driverTokens.expiresAt,
   revokedAt: driverTokens.revokedAt,
   prepaidBalanceCents: driverTokens.prepaidBalanceCents,
+  monthlyLimitCents: driverTokens.monthlyLimitCents,
   // Null for a token without a driver (left join).
   driverIsActive: drivers.isActive,
 };
@@ -251,10 +280,12 @@ const TOKEN_COLUMNS = {
 interface TokenRow {
   id: string;
   driverId: string | null;
+  fleetId: string | null;
   isActive: boolean;
   expiresAt: Date | null;
   revokedAt: Date | null;
   prepaidBalanceCents: number | null;
+  monthlyLimitCents?: number | null;
   driverIsActive: boolean | null;
 }
 
@@ -309,6 +340,8 @@ function acceptedToken(row: TokenRow, echoGroupId: boolean): AuthorizeDecision {
     source: 'driver_token',
     matchedTokenId: row.id,
     matchedDriverId: row.driverId ?? null,
+    ...(row.fleetId != null ? { fleetCardFleetId: row.fleetId } : {}),
+    ...(row.fleetId != null && row.monthlyLimitCents != null ? { cardMonthlyLimited: true } : {}),
     expiresAt: row.expiresAt,
     prepaid: false,
     prepaidBalanceCents: row.prepaidBalanceCents ?? null,
@@ -752,6 +785,9 @@ async function checkConcurrentTransaction(
  */
 function applyPrepaidCredit(decision: AuthorizeDecision): AuthorizeDecision {
   if (decision.status !== 'accepted') return decision;
+  // A fleet card charges on account to its fleet, never from a balance, so the
+  // fleet's billing and credit decide (checkAccountCredit).
+  if (decision.fleetCardFleetId != null) return decision;
   const credit = prepaidCredit(decision.prepaidBalanceCents);
   if (credit === 'not_prepaid') return decision;
   if (credit === 'credit') return { ...decision, prepaid: true };
@@ -779,6 +815,11 @@ function applyPrepaidCredit(decision: AuthorizeDecision): AuthorizeDecision {
  * payment gate reserves the session's ceiling and stops a start without
  * credit. A failed lookup keeps the decision (logged at warn): the gate
  * checks again.
+ *
+ * A fleet card charges on account to its own fleet, whoever holds it: in every
+ * context that checks credit it is Blocked (`fleet_card_not_billable`) while
+ * Fleets is off or the fleet's account billing is off, and its fleet's credit
+ * decides, never the billing fleet of the member who holds it.
  */
 async function checkAccountCredit(
   input: AuthorizeTokenInput,
@@ -786,21 +827,35 @@ async function checkAccountCredit(
   decision: AuthorizeDecision,
   logger: Logger,
 ): Promise<AuthorizeDecision> {
+  const fleetCardFleetId = decision.fleetCardFleetId;
   if (
     rules.accountCredit === 'off' ||
     decision.status !== 'accepted' ||
     decision.prepaid ||
-    decision.matchedDriverId == null
+    (decision.matchedDriverId == null && fleetCardFleetId == null)
   ) {
     return decision;
   }
   try {
-    const credit = await loadDriverAccountCredit(client, decision.matchedDriverId, {
+    const options = {
       excludeTransaction:
         input.transactionId != null
           ? { stationId: input.stationId, transactionId: input.transactionId }
           : undefined,
-    });
+    };
+    const credit =
+      fleetCardFleetId != null
+        ? await loadFleetCardAccountCredit(client, fleetCardFleetId, options)
+        : await loadDriverAccountCredit(client, decision.matchedDriverId ?? '', options);
+    if (credit === 'unbillable') {
+      return {
+        ...decision,
+        status: 'blocked',
+        outcome: 'blocked',
+        reason: FLEET_CARD_NOT_BILLABLE_REASON,
+        echoGroupId: false,
+      };
+    }
     if (credit == null) return decision;
     if (rules.accountCredit === 'refuse' && credit.remainingCents <= 0) {
       return {
@@ -816,6 +871,56 @@ async function checkAccountCredit(
     logger.warn(
       { err, stationId: input.stationId, idToken: input.token.value },
       'Fleet credit limit lookup failed; keeping the decision',
+    );
+    return decision;
+  }
+}
+
+/**
+ * A fleet RFID card with a monthly spending limit: in a context that checks
+ * credit, an accepted card whose sessions of this month (this transaction
+ * left out) reached the limit is refused (2.1 NoCredit, 1.6 Blocked, reason
+ * card_monthly_limit); the 2.1 Started context only marks the decision so
+ * the response sends the session's ceiling as maxCost. Read without a lock;
+ * the payment gate checks again under the fleet row lock. A failed read
+ * keeps the decision (warn).
+ */
+async function checkCardMonthlyLimit(
+  input: AuthorizeTokenInput,
+  rules: AuthorizeContextRules,
+  decision: AuthorizeDecision,
+  logger: Logger,
+): Promise<AuthorizeDecision> {
+  if (
+    rules.accountCredit === 'off' ||
+    decision.status !== 'accepted' ||
+    decision.cardMonthlyLimited !== true ||
+    decision.matchedTokenId == null
+  ) {
+    return decision;
+  }
+  try {
+    const card = await readCardMonthlyLimit(client, decision.matchedTokenId, {
+      excludeTransaction:
+        input.transactionId != null
+          ? { stationId: input.stationId, transactionId: input.transactionId }
+          : undefined,
+    });
+    if (card == null) return decision;
+    if (rules.accountCredit === 'refuse' && card.remainingCents <= 0) {
+      return {
+        ...decision,
+        status: 'no_credit',
+        outcome: 'no_credit',
+        reason: CARD_MONTHLY_LIMIT_REASON,
+        echoGroupId: false,
+      };
+    }
+    return decision;
+  } catch (err) {
+    logger.warn(
+      { err, stationId: input.stationId, idToken: input.token.value },
+      'Fleet card monthly limit lookup failed; keeping the decision',
     );
     return decision;
   }

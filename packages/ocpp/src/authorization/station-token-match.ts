@@ -42,6 +42,8 @@ export function stationTokenCondition(value: string, type?: string | null): SQL 
 export interface LinkableStationToken {
   id: string;
   driverId: string | null;
+  /** The fleet that owns the card, null for a driver's own card. */
+  fleetId: string | null;
   prepaidBalanceCents: number | null;
 }
 
@@ -58,6 +60,7 @@ export async function findLinkableStationTokens(
     .select({
       id: driverTokens.id,
       driverId: driverTokens.driverId,
+      fleetId: driverTokens.fleetId,
       prepaidBalanceCents: driverTokens.prepaidBalanceCents,
     })
     .from(driverTokens)

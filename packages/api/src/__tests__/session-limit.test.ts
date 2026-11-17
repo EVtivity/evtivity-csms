@@ -48,6 +48,7 @@ describe('sessionLimitReached', () => {
   it('reports the cost limit for an account session stopped at its fleet credit, not a refused start', async () => {
     rows = [{ trigger_reason: 'CostLimitReached' }];
     expect(await sessionLimitReached('s1')).toBe('cost');
-    expect(queries[0]).toContain("stopped_reason = 'AccountCreditLimit' AND status <> 'faulted'");
+    expect(queries[0]).toContain("stopped_reason IN ('AccountCreditLimit', 'CardMonthlyLimit')");
+    expect(queries[0]).toContain("AND status <> 'faulted'");
   });
 });

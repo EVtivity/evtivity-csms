@@ -65,12 +65,13 @@ export interface DayDeltaContext {
  * snapshots use (never the browser's day), labelled with both dates in the
  * UI language.
  */
-export function useDayDeltaContext(): DayDeltaContext {
+export function useDayDeltaContext(enabled = true): DayDeltaContext {
   const { t } = useTranslation();
   const { data } = useQuery({
     queryKey: ['dashboard', 'snapshots', 'day-over-day'],
     queryFn: () => api.get<DayOverDay>('/v1/dashboard/snapshots/day-over-day'),
     staleTime: 5 * 60_000,
+    enabled,
   });
 
   const yd = data?.current;

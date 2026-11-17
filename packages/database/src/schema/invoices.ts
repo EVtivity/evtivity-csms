@@ -64,6 +64,9 @@ export const invoices = pgTable(
     // When invoice.FleetOverdue went to the fleet billing contacts (an issued
     // fleet invoice past its due date). The claim that sends it once (S9 run).
     overdueNoticeSentAt: timestamp('overdue_notice_sent_at', { withTimezone: true }),
+    // When fleet.ManagerInvoiceIssued went to the fleet's fleet users: the claim
+    // that tells them of a new fleet invoice once.
+    fleetManagersNotifiedAt: timestamp('fleet_managers_notified_at', { withTimezone: true }),
     // A member invoice: a fleet's account invoice addressed to one member
     // (fleet_id, driver_id and member_billed set); its credit note copies it.
     memberBilled: boolean('member_billed').notNull().default(false),

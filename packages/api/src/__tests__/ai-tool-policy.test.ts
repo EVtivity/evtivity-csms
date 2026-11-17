@@ -329,11 +329,38 @@ describe('AI tool policy and catalog', () => {
     expect(call.ok).toBe(false);
   });
 
+  it('the assistant never puts an RFID card on a fleet account (beta.9 review, AF-M1)', () => {
+    expect(toolPolicy('createToken').omit).toEqual(expect.arrayContaining(['fleetId']));
+    expect(toolPolicy('updateToken').omit).toEqual(expect.arrayContaining(['fleetId']));
+    for (const op of ['createToken', 'updateToken']) {
+      const tool = AI_TOOL_CATALOG.find((t) => t.operationId === op);
+      expect(tool, op).toBeDefined();
+      expect(JSON.stringify(tool?.parameters), op).not.toContain('"fleetId"');
+    }
+    const tool = AI_TOOL_CATALOG.find((t) => t.operationId === 'createToken');
+    const toolset = chatbotToolset([tool?.category ?? ''], AI_TOOL_CATALOG);
+    const call = prepareToolCall(toolset, tool?.name ?? '', {
+      idToken: 'CARD-1',
+      tokenType: 'ISO14443',
+      fleetId: 'flt_000000000001',
+    });
+    expect(call.ok).toBe(false);
+  });
+
   it('no assistant write can set a prepaid balance or another money field (review 2, AI M1)', () => {
-    expect(toolPolicy('createToken').omit).toContain('prepaidBalanceCents');
-    expect(toolPolicy('updateToken').omit).toEqual(
-      expect.arrayContaining(['prepaidBalanceCents', 'expectedPrepaidBalanceCents']),
+    expect(toolPolicy('createToken').omit).toEqual(
+      expect.arrayContaining(['prepaidBalanceCents', 'monthlyLimitCents']),
     );
+    expect(toolPolicy('updateToken').omit).toEqual(
+      expect.arrayContaining([
+        'prepaidBalanceCents',
+        'expectedPrepaidBalanceCents',
+        'monthlyLimitCents',
+      ]),
+    );
+    // The fleet card routes, which set a card's monthly limit, stay closed to the assistant.
+    expect(toolPolicy('createFleetCard').exposure).toBe('never');
+    expect(toolPolicy('updateFleetCard').exposure).toBe('never');
     for (const name of [
       'prepaidBalanceCents',
       'balance',

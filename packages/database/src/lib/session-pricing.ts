@@ -408,11 +408,20 @@ async function insertSegment(
  * already). A session without segments gets its first one. Nothing changes
  * when the driver resolves the tariff the session already has. One
  * transaction under the session row lock; safe to run again (the second run
- * finds the driver's tariff). Returns whether the snapshot was replaced.
+ * finds the driver's tariff). Returns whether the snapshot was replaced. A
+ * fleet RFID card no member holds is priced the same way by its fleet
+ * (`fleetUuid`, no driver).
  */
 export async function repriceSessionForDriver(
   sql: postgres.Sql,
-  params: { sessionId: string; stationUuid: string; driverUuid: string; basis: TaxBasis },
+  params: {
+    sessionId: string;
+    stationUuid: string;
+    driverUuid: string | null;
+    /** A fleet RFID card no member holds (no driver): the fleet that prices it. */
+    fleetUuid?: string | null;
+    basis: TaxBasis;
+  },
 ): Promise<boolean> {
   return sql.begin(async (tx) => {
     const txSql = tx as unknown as postgres.Sql;
@@ -463,7 +472,8 @@ export async function repriceSessionForChargingKind(
   const locked = await sql.begin(async (tx) => {
     const txSql = tx as unknown as postgres.Sql;
     const [session] = await txSql`
-      SELECT started_at, tariff_id, tax_basis, charging_kind, driver_id, status, pricing_group_id
+      SELECT started_at, tariff_id, tax_basis, charging_kind, driver_id, status, pricing_group_id,
+             (SELECT dt.fleet_id FROM driver_tokens dt WHERE dt.id = token_id) AS card_fleet_id
       FROM charging_sessions
       WHERE id = ${params.sessionId}
       FOR UPDATE
@@ -481,6 +491,7 @@ export async function repriceSessionForChargingKind(
         sessionId: params.sessionId,
         stationUuid: params.stationUuid,
         driverUuid: (session.driver_id as string | null) ?? null,
+        ...(session.card_fleet_id != null ? { fleetUuid: session.card_fleet_id as string } : {}),
         basis: params.basis,
       },
       {
@@ -608,7 +619,13 @@ async function sessionEnergyWhAt(sql: postgres.Sql, sessionId: string, at: Date)
 /** The re-price of a locked session from its start (driver link or charging kind). */
 async function repriceLocked(
   txSql: postgres.Sql,
-  params: { sessionId: string; stationUuid: string; driverUuid: string | null; basis: TaxBasis },
+  params: {
+    sessionId: string;
+    stationUuid: string;
+    driverUuid: string | null;
+    fleetUuid?: string | null;
+    basis: TaxBasis;
+  },
   session: {
     startedAt: Date;
     tariffId: string | null;
@@ -625,6 +642,7 @@ async function repriceLocked(
     {
       stationUuid: params.stationUuid,
       driverUuid: params.driverUuid,
+      ...(params.fleetUuid != null ? { fleetUuid: params.fleetUuid } : {}),
       at: startedAt,
       chargingKind: session.chargingKind,
       ...(session.pricingGroupId != null ? { pricingGroupId: session.pricingGroupId } : {}),
@@ -658,6 +676,7 @@ async function repriceLocked(
             {
               stationUuid: params.stationUuid,
               driverUuid: params.driverUuid,
+              ...(params.fleetUuid != null ? { fleetUuid: params.fleetUuid } : {}),
               at: new Date(segment.started_at as string | Date),
               sessionEnergyKwh: Number(segment.energy_wh_start ?? 0) / 1000,
               chargingKind: session.chargingKind,

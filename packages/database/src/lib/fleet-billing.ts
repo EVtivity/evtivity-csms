@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
+import { isUnbillableFleetCard } from '@evtivity/lib/fleet-card';
 import { isFleetEnabled } from './fleet-setting.js';
 import type { SessionBillingMode } from '../schema/charging.js';
 import type { AccountInvoiceRecipient } from '../schema/drivers.js';
@@ -111,6 +112,33 @@ export async function resolveAccountBilling(
   return pickAccountBilling(await loadBillingMemberships(sql, driverId));
 }
 
+/**
+ * The account billing of a fleet card no member holds: always the fleet
+ * itself, never a member invoice, whatever the fleet's recipient. Null when
+ * the fleet cannot bill the card (isUnbillableFleetCard) or no longer exists.
+ */
+export async function resolveFleetCardBilling(
+  sql: postgres.Sql,
+  fleetId: string,
+): Promise<AccountBilling | null> {
+  const fleetEnabled = await isFleetEnabled();
+  if (!fleetEnabled) return null;
+  const rows = await sql<Array<{ name: string; account_billing_enabled: boolean }>>`
+    SELECT name, account_billing_enabled FROM fleets WHERE id = ${fleetId}
+  `;
+  const fleet = rows[0];
+  if (
+    fleet == null ||
+    isUnbillableFleetCard(
+      { fleetId },
+      { fleetEnabled, accountBillingEnabled: fleet.account_billing_enabled },
+    )
+  ) {
+    return null;
+  }
+  return { fleetId, fleetName: fleet.name, recipient: 'fleet' };
+}
+
 /** The billing stamp of a driver session (charging_sessions.billing_mode, billing_fleet_id). */
 export type SessionBilling =
   | { mode: 'card'; fleetId: null; fleetName: null }
@@ -177,6 +205,58 @@ export async function stampSessionBilling(
   `;
   const row = rows[0];
   if (row == null) return null;
+  return toSessionBilling(row.billing_mode, row.billing_fleet_id, row.fleet_name);
+}
+
+interface StampRow {
+  billing_mode: string | null;
+  billing_fleet_id: string | null;
+  fleet_name: string | null;
+}
+
+/**
+ * Stamps a session that a fleet card no member holds started, once
+ * (write-once, P5): on account to the card's fleet, never member billed.
+ * Writes only while the session has no stamp and the fleet can bill the card
+ * (resolveFleetCardBilling). Returns the session's stamp (an earlier one is
+ * kept, so a later fleet change never changes a started session), or null
+ * when the session has none: the fleet cannot bill the card, or the session
+ * does not exist. The caller rules out roaming, free vend and prepaid first.
+ */
+export async function stampFleetCardBilling(
+  sql: postgres.Sql,
+  sessionId: string,
+  fleetId: string,
+): Promise<SessionBilling | null> {
+  const billing = await resolveFleetCardBilling(sql, fleetId);
+  const rows =
+    billing != null
+      ? await sql<StampRow[]>`
+          WITH stamped AS (
+            UPDATE charging_sessions
+            SET billing_mode = 'account', billing_fleet_id = ${fleetId},
+                member_billed = false, updated_at = now()
+            WHERE id = ${sessionId} AND billing_mode IS NULL
+            RETURNING billing_mode, billing_fleet_id
+          ),
+          stamp AS (
+            SELECT billing_mode, billing_fleet_id FROM stamped
+            UNION ALL
+            SELECT billing_mode, billing_fleet_id FROM charging_sessions
+            WHERE id = ${sessionId} AND NOT EXISTS (SELECT 1 FROM stamped)
+          )
+          SELECT s.billing_mode, s.billing_fleet_id, f.name AS fleet_name
+          FROM stamp s
+          LEFT JOIN fleets f ON f.id = s.billing_fleet_id
+        `
+      : await sql<StampRow[]>`
+          SELECT cs.billing_mode, cs.billing_fleet_id, f.name AS fleet_name
+          FROM charging_sessions cs
+          LEFT JOIN fleets f ON f.id = cs.billing_fleet_id
+          WHERE cs.id = ${sessionId}
+        `;
+  const row = rows[0];
+  if (row?.billing_mode == null) return null;
   return toSessionBilling(row.billing_mode, row.billing_fleet_id, row.fleet_name);
 }
 

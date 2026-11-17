@@ -6,12 +6,17 @@ import argon2 from 'argon2';
 import { sql as dsql } from 'drizzle-orm';
 import {
   DEFAULT_TAX_BASIS,
+  FLEET_MANAGER_ROLE_NAME,
+  FLEET_USER_PERMISSIONS,
   chargedCostBreakdown,
   computeSessionElectricityCost,
   taxTotals,
 } from '@evtivity/lib';
 import type { TaxLine } from '@evtivity/lib';
 import { db } from './config.js';
+import { writeAudit } from './lib/audit.js';
+import { createId } from './lib/id.js';
+import { tokenAuditLog, userAuditLog } from './schema/audit.js';
 import { loadElectricityRatePeriodsForSite } from './lib/electricity-rate.js';
 import { allocateInvoiceNumber } from './lib/invoice-number.js';
 import { sessionSiteIdSql } from './lib/session-site.js';
@@ -52,7 +57,78 @@ export const FLEET_BILLING_DEMO = {
   creditNoteId: 'inv_demoacct0003',
   /** First unbilled account session of this month (session billing badge). */
   unbilledSessionId: 'ses_demoacct0001',
+  /** CSMS fleet user (Fleet Manager role, Fleets access) assigned to this fleet. */
+  fleetUserEmail: 'fleet@evtivity.local',
+  /** The fleet user's email of earlier demo seeds, renamed once by a rerun. */
+  previousFleetUserEmail: 'fleet.manager@example.com',
+  /** Fleet RFID card no member holds: charges on account to the fleet. */
+  poolCardId: 'dtk_demofleet001',
+  /** Fleet RFID card the fleet gave to its first member. */
+  memberCardId: 'dtk_demofleet002',
 } as const;
+
+/** Sign-in password of the demo fleet user, like the seeded admin and driver. */
+export const DEMO_FLEET_USER_PASSWORD = 'fleet123';
+
+/** The password earlier demo seeds gave the fleet user (the demo operator password). */
+const PREVIOUS_FLEET_USER_PASSWORD = 'admin123';
+
+/**
+ * Moves the fleet user of an earlier demo seed to the current sign-in: the
+ * email only while it is still the earlier demo value and the new one is
+ * free, the password only while it is still the earlier demo password or
+ * empty. Audited as an update. Returns whether a user was renamed.
+ */
+async function renameEarlierDemoFleetUser(sql: postgres.Sql): Promise<boolean> {
+  const demo = FLEET_BILLING_DEMO;
+  const [user] = await sql<{ id: string; password_hash: string | null }[]>`
+    SELECT id, password_hash FROM users
+    WHERE email = ${demo.previousFleetUserEmail} AND access_scope = 'fleets'
+      AND NOT EXISTS (SELECT 1 FROM users WHERE email = ${demo.fleetUserEmail})
+  `;
+  if (user == null) return false;
+  const stored = user.password_hash ?? '';
+  const resetPassword =
+    stored === '' || (await argon2.verify(stored, PREVIOUS_FLEET_USER_PASSWORD).catch(() => false));
+  const passwordHash = resetPassword ? await argon2.hash(DEMO_FLEET_USER_PASSWORD) : null;
+  const renamed = await sql<{ id: string }[]>`
+    UPDATE users
+    SET email = ${demo.fleetUserEmail},
+        password_hash = COALESCE(${passwordHash}::text, password_hash),
+        updated_at = now()
+    WHERE id = ${user.id} AND email = ${demo.previousFleetUserEmail}
+    RETURNING id
+  `;
+  if (renamed.length === 0) return false;
+  await writeAudit(
+    { table: userAuditLog, idColumn: 'user_id' },
+    {
+      entityId: user.id,
+      entityIdSnapshot: user.id,
+      action: 'updated',
+      actor: 'system',
+      before: { email: demo.previousFleetUserEmail },
+      after: { email: demo.fleetUserEmail, passwordReset: resetPassword },
+      notes: 'Demo data: fleet user sign-in moved to the current demo account',
+    },
+  );
+  return true;
+}
+
+const FLEET_CARDS = [
+  {
+    id: FLEET_BILLING_DEMO.poolCardId,
+    idToken: 'NWPOOLCARD01',
+    label: 'Pool Van Card',
+    driverId: null,
+  },
+  {
+    id: FLEET_BILLING_DEMO.memberCardId,
+    idToken: 'NWMEMBERCARD01',
+    label: 'Van 2 Card',
+    driverId: FLEET_BILLING_DEMO.accountDriverId,
+  },
+] as const;
 
 const FLEET_NAME = 'Northwind Logistics';
 const TAX_RATE = 0.08;
@@ -197,6 +273,127 @@ export function fleetBillingDemoSessions(now: Date): DemoSession[] {
   return sessions;
 }
 
+/**
+ * The demo fleet user: Fleet Manager role, Fleets access, assigned to the demo
+ * fleet. Inserted when missing; an existing user keeps every column, its
+ * permissions and its fleets (a rerun adds nothing).
+ */
+async function seedDemoFleetUser(sql: postgres.Sql): Promise<'created' | 'renamed' | 'present'> {
+  const demo = FLEET_BILLING_DEMO;
+  const [role] = await sql<{ id: string }[]>`
+    SELECT id FROM roles WHERE name = ${FLEET_MANAGER_ROLE_NAME}
+  `;
+  if (role == null) throw new Error(`Role ${FLEET_MANAGER_ROLE_NAME} is missing`);
+  if (await renameEarlierDemoFleetUser(sql)) return 'renamed';
+  const passwordHash = await argon2.hash(DEMO_FLEET_USER_PASSWORD);
+  const created = await sql<{ id: string }[]>`
+    INSERT INTO users (id, email, password_hash, first_name, last_name, role_id,
+      has_all_site_access, access_scope)
+    VALUES (${createId('user')}, ${demo.fleetUserEmail}, ${passwordHash}, 'Riley', 'Chen',
+      ${role.id}, false, 'fleets')
+    ON CONFLICT (email) DO NOTHING
+    RETURNING id
+  `;
+  const user = created[0];
+  if (user == null) return 'present';
+  for (const permission of FLEET_USER_PERMISSIONS) {
+    await sql`
+      INSERT INTO user_permissions (user_id, permission)
+      VALUES (${user.id}, ${permission})
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  await sql`
+    INSERT INTO user_fleet_assignments (id, user_id, fleet_id)
+    VALUES (${createId('userFleetAssignment')}, ${user.id}, ${demo.fleetId})
+    ON CONFLICT (user_id, fleet_id) DO NOTHING
+  `;
+  await writeAudit(
+    { table: userAuditLog, idColumn: 'user_id' },
+    {
+      entityId: user.id,
+      entityIdSnapshot: user.id,
+      action: 'created',
+      actor: 'system',
+      before: null,
+      after: {
+        email: demo.fleetUserEmail,
+        role: FLEET_MANAGER_ROLE_NAME,
+        accessScope: 'fleets',
+        fleetIds: [demo.fleetId],
+        permissions: [...FLEET_USER_PERMISSIONS],
+      },
+      notes: 'Demo data: fleet user',
+    },
+  );
+  return 'created';
+}
+
+/**
+ * Two fleet RFID cards: one no member holds and one given to the first
+ * member. Inserted when missing, each with its token audit row; a rerun, or
+ * a card value another token already holds, adds nothing.
+ */
+async function seedDemoFleetCards(sql: postgres.Sql): Promise<number> {
+  let created = 0;
+  for (const card of FLEET_CARDS) {
+    const inserted = await sql<{ id: string }[]>`
+      INSERT INTO driver_tokens (id, driver_id, fleet_id, id_token, token_type, label, is_active)
+      SELECT ${card.id}, ${card.driverId}::text, ${FLEET_BILLING_DEMO.fleetId}, ${card.idToken},
+        'ISO14443', ${card.label}, true
+      WHERE ${card.driverId}::text IS NULL
+         OR EXISTS (SELECT 1 FROM drivers WHERE id = ${card.driverId}::text)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `;
+    if (inserted.length === 0) continue;
+    created += 1;
+    await writeAudit(
+      { table: tokenAuditLog, idColumn: 'token_id' },
+      {
+        entityId: card.id,
+        entityIdSnapshot: card.id,
+        action: 'created',
+        actor: 'system',
+        before: null,
+        after: {
+          idToken: card.idToken,
+          tokenType: 'ISO14443',
+          fleetId: FLEET_BILLING_DEMO.fleetId,
+          driverId: card.driverId,
+          label: card.label,
+          isActive: true,
+        },
+        notes: 'Demo data: fleet RFID card',
+      },
+    );
+  }
+  return created;
+}
+
+/** What one run of the fleet user demo created. */
+export interface FleetUserDemoCounts {
+  /** What this run did with the demo fleet user; `no_fleet` without the demo fleet. */
+  fleetUser: 'created' | 'renamed' | 'present' | 'no_fleet';
+  fleetCards: number;
+}
+
+/**
+ * The demo fleet user and the two demo fleet RFID cards of the Northwind demo
+ * fleet (found by its fixed id). Runs on every demo seed and rerun, so an
+ * install seeded before they existed gets them; nothing while the fleet is
+ * missing (no demo), and nothing again once they exist.
+ */
+export async function seedFleetUsersDemo(sql: postgres.Sql): Promise<FleetUserDemoCounts> {
+  const [fleet] = await sql<{ id: string }[]>`
+    SELECT id FROM fleets WHERE id = ${FLEET_BILLING_DEMO.fleetId}
+  `;
+  if (fleet == null) return { fleetUser: 'no_fleet', fleetCards: 0 };
+  const fleetUser = await seedDemoFleetUser(sql);
+  const fleetCards = await seedDemoFleetCards(sql);
+  return { fleetUser, fleetCards };
+}
+
 /** Seeds the fleet billing demo. Returns the number of sessions it inserted. */
 export async function seedFleetBillingDemo(
   sql: postgres.Sql,
@@ -239,6 +436,8 @@ export async function seedFleetBillingDemo(
       ON CONFLICT (fleet_id, driver_id) DO NOTHING
     `;
   }
+
+  await seedFleetUsersDemo(sql);
 
   const place = await loadDemoStationPlace(sql, input.stationId);
 

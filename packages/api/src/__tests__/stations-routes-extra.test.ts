@@ -150,6 +150,7 @@ vi.mock('@evtivity/database', async () => {
       'select',
       'from',
       'where',
+      'for',
       'orderBy',
       'limit',
       'offset',

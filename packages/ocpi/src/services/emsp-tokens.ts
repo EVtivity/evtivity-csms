@@ -13,6 +13,15 @@ import type { EmspTokenRow } from '../transformers/token.transformer.js';
 // token; neither represents a physical card a partner CPO could authorize.
 export const INTERNAL_TOKEN_TYPES = ['NoAuthorization', 'Central'];
 
+/**
+ * A fleet RFID card no member holds. It is billed to the fleet account and
+ * starts no roaming session, so partners never get it as a usable token: the
+ * Tokens pull leaves it out and a push sends it as valid = false.
+ */
+function unassignedFleetCard(): SQL {
+  return sql`(${driverTokens.fleetId} IS NOT NULL AND ${driverTokens.driverId} IS NULL)`;
+}
+
 /** The OCPI Token type of a driver token type column, in SQL (same map as ocpiTokenTypeOf). */
 function ocpiTypeSql(column: AnyPgColumn): SQL {
   const cases = Object.entries(OCPI_TOKEN_TYPE_BY_DRIVER_TYPE).map(
@@ -68,7 +77,11 @@ export async function listEmspTokens(params: {
     .select({
       idToken: driverTokens.idToken,
       tokenType: driverTokens.tokenType,
-      isActive: driverTokens.isActive,
+      // A fleet card no member holds starts no roaming session: served as not
+      // valid, so a partner that only pulls learns a card taken back from its member.
+      isActive: sql<boolean>`(${driverTokens.isActive} AND NOT ${unassignedFleetCard()})`.as(
+        'is_active',
+      ),
       expiresAt: driverTokens.expiresAt,
       revokedAt: driverTokens.revokedAt,
       updatedAt: driverTokens.updatedAt,
@@ -111,14 +124,18 @@ export async function listEmspTokens(params: {
   };
 }
 
-/** The live tokens with these ids (internal types left out), for a push. */
+/**
+ * The live tokens with these ids (internal types left out), for a push. An
+ * unassigned fleet card goes out as not active (valid = false), so a card
+ * taken back from its member stops working at partners.
+ */
 export async function loadEmspTokens(tokenIds: readonly string[]): Promise<EmspTokenRow[]> {
   if (tokenIds.length === 0) return [];
   const rows = await db
     .select({
       idToken: driverTokens.idToken,
       tokenType: driverTokens.tokenType,
-      isActive: driverTokens.isActive,
+      isActive: sql<boolean>`(${driverTokens.isActive} AND NOT ${unassignedFleetCard()})`,
       expiresAt: driverTokens.expiresAt,
       revokedAt: driverTokens.revokedAt,
       updatedAt: driverTokens.updatedAt,

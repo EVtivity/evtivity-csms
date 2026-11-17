@@ -71,6 +71,11 @@ import {
   tryParseJson,
 } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
+import {
+  ReportedFieldLockedError,
+  reportedFieldChange,
+  type ReportedStationField,
+} from '../lib/station-reported-fields.js';
 import { auditStationChange } from '../lib/station-audit.js';
 import {
   initialStationPassword,
@@ -1739,6 +1744,9 @@ export function cssRoutes(app: FastifyInstance): void {
             ERROR_CODES.STATION_ENDPOINT_URL_UNKNOWN,
           ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          409: errorWith('The paired station reported its model or serial number at its boot', [
+            ERROR_CODES.STATION_REPORTED_FIELD_LOCKED,
+          ]),
           502: errorWith('The station did not accept the change', [
             ERROR_CODES.STATION_SECURITY_CHANGE_REJECTED,
             ERROR_CODES.OCPP_COMMAND_FAILED,
@@ -1778,10 +1786,27 @@ export function cssRoutes(app: FastifyInstance): void {
           ocppProtocol: chargingStations.ocppProtocol,
           model: chargingStations.model,
           serialNumber: chargingStations.serialNumber,
+          modelReportedAt: chargingStations.modelReportedAt,
+          serialNumberReportedAt: chargingStations.serialNumberReportedAt,
           firmwareVersion: chargingStations.firmwareVersion,
         })
         .from(chargingStations)
         .where(eq(chargingStations.stationId, stationId));
+
+      // The model and serial number the paired station reported at its boot
+      // are its own, here as on the station PATCH: a change answers 409 before
+      // anything is written, and the write checks again on the locked row.
+      const sendReportedFieldLocked = (field: ReportedStationField) =>
+        reply.status(409).send({
+          error: `The station reports its ${field === 'model' ? 'model' : 'serial number'} when it boots, so it cannot be changed here`,
+          code: 'STATION_REPORTED_FIELD_LOCKED',
+          field,
+        });
+      const writesReportedField = body.model !== undefined || body.serialNumber !== undefined;
+      if (pairedCs != null && writesReportedField) {
+        const lockedField = reportedFieldChange(pairedCs, body);
+        if (lockedField != null) return sendReportedFieldLocked(lockedField);
+      }
 
       // Password and security profile changes go through the station security
       // service (the only writer of the hash and profile), which also keeps an
@@ -1820,23 +1845,43 @@ export function cssRoutes(app: FastifyInstance): void {
 
       // When both tables get a write, run them atomically so a chargingStations success
       // followed by a cssStations failure cannot leave the two rows inconsistent.
-      const updated = await db.transaction(async (tx) => {
-        if (Object.keys(csUpdates).length > 0) {
-          csUpdates['updatedAt'] = new Date();
-          await tx
-            .update(chargingStations)
-            .set(csUpdates)
-            .where(eq(chargingStations.stationId, stationId));
-        }
+      let updated;
+      try {
+        updated = await db.transaction(async (tx) => {
+          if (writesReportedField) {
+            const [locked] = await tx
+              .select({
+                model: chargingStations.model,
+                serialNumber: chargingStations.serialNumber,
+                modelReportedAt: chargingStations.modelReportedAt,
+                serialNumberReportedAt: chargingStations.serialNumberReportedAt,
+              })
+              .from(chargingStations)
+              .where(eq(chargingStations.stationId, stationId))
+              .for('update');
+            const lockedField = locked == null ? null : reportedFieldChange(locked, body);
+            if (lockedField != null) throw new ReportedFieldLockedError(lockedField);
+          }
+          if (Object.keys(csUpdates).length > 0) {
+            csUpdates['updatedAt'] = new Date();
+            await tx
+              .update(chargingStations)
+              .set(csUpdates)
+              .where(eq(chargingStations.stationId, stationId));
+          }
 
-        const [row] = await tx
-          .update(cssStations)
-          .set(updates)
-          .where(eq(cssStations.id, existing.id))
-          .returning();
+          const [row] = await tx
+            .update(cssStations)
+            .set(updates)
+            .where(eq(cssStations.id, existing.id))
+            .returning();
 
-        return row;
-      });
+          return row;
+        });
+      } catch (err) {
+        if (err instanceof ReportedFieldLockedError) return sendReportedFieldLocked(err.field);
+        throw err;
+      }
 
       if (updated == null) {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

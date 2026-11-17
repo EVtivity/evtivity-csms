@@ -7,6 +7,8 @@
  * Write implies read for the same resource.
  */
 
+import { FLEET_MANAGER_ROLE_NAME } from './user-access-scope.js';
+
 export type PermissionAction = 'read' | 'write';
 
 /** A page permission guards a CSMS page, a settings permission a Settings tab. */
@@ -39,6 +41,8 @@ const BUILT_IN_GROUPS = [
   { resource: 'sessions', kind: 'page' },
   { resource: 'drivers', kind: 'page' },
   { resource: 'fleets', kind: 'page' },
+  // RFID cards a fleet owns: read lists them, write adds, assigns and deactivates them.
+  { resource: 'fleetCards', kind: 'page' },
   { resource: 'reservations', kind: 'page' },
   { resource: 'support', kind: 'page' },
   { resource: 'payments', kind: 'page' },
@@ -101,6 +105,8 @@ const OPERATOR_DEFAULTS: readonly Permission[] = [
   'drivers:write',
   'fleets:read',
   'fleets:write',
+  'fleetCards:read',
+  'fleetCards:write',
   'reservations:read',
   'reservations:write',
   'support:read',
@@ -147,6 +153,7 @@ const VIEWER_DEFAULTS: readonly Permission[] = [
   'sessions:read',
   'drivers:read',
   'fleets:read',
+  'fleetCards:read',
   'reservations:read',
   'support:read',
   'payments:read',
@@ -166,6 +173,38 @@ const VIEWER_DEFAULTS: readonly Permission[] = [
   'aiAssistant:read',
   'aiInsights:read',
 ];
+
+/**
+ * The most a fleet user (access scope `fleets`) and each of its API keys may hold: its
+ * fleets, their sessions and invoices, the fleet RFID cards and its own API keys. Anything
+ * else, the write permissions of fleets, sessions and payments included, is refused.
+ */
+export const FLEET_USER_PERMISSIONS: readonly Permission[] = [
+  'fleets:read',
+  'sessions:read',
+  'payments:read',
+  'fleetCards:read',
+  'fleetCards:write',
+  'settings.apiKeys:read',
+  'settings.apiKeys:write',
+];
+
+/** The permissions a new user of the Fleet Manager role starts with. */
+export const FLEET_MANAGER_DEFAULTS: readonly Permission[] = FLEET_USER_PERMISSIONS;
+
+/**
+ * The permissions of the list a fleet user may not hold. Write implies read, so a write
+ * of the list covers its read; no other permission is allowed.
+ */
+export function fleetUserPermissionsOutside(permissions: readonly string[]): string[] {
+  const allowed = new Set<string>(FLEET_USER_PERMISSIONS);
+  return permissions.filter((p) => !allowed.has(p));
+}
+
+/** True when every permission is one a fleet user may hold. */
+export function withinFleetUserPermissions(permissions: readonly string[]): boolean {
+  return fleetUserPermissionsOutside(permissions).length === 0;
+}
 
 /**
  * The scope an API key needs to call the MCP server (the plan's `aiMcp:use`).
@@ -216,10 +255,12 @@ export class PermissionCatalog {
 
   /**
    * The permissions a new user of the role starts with. Admin gets every permission, viewer
-   * the read-only set, and operator (and any other role) the operational set.
+   * the read-only set, fleet_manager the fleet user set, and operator (and any other role)
+   * the operational set.
    */
   defaultsFor(role: string | undefined): string[] {
     if (role === 'admin') return this.all();
+    if (role === FLEET_MANAGER_ROLE_NAME) return [...FLEET_MANAGER_DEFAULTS];
     return [...(role === 'viewer' ? VIEWER_DEFAULTS : OPERATOR_DEFAULTS)];
   }
 }

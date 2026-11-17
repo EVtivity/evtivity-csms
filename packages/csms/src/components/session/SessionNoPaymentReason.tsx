@@ -13,6 +13,7 @@ export type NoPaymentReason =
   | 'free_vend'
   | 'roaming'
   | 'account_credit_limit'
+  | 'card_monthly_limit'
   | 'account_billed'
   | 'guest'
   | 'anonymous'

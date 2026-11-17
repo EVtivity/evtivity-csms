@@ -352,6 +352,7 @@ const SECURITY_NOTICE_VARIABLES = ['firstName', 'lastName', 'email', 'isDriver']
 // Notifications sent to operators and site hosts. Matches the CSMS System Events tab.
 export const SYSTEM_EVENT_TYPES = [
   'operator.UserCreated',
+  'operator.FleetManagerInvite',
   'operator.ForgotPassword',
   'operator.PasswordChanged',
   'supportCase.NewCaseFromDriver',
@@ -362,6 +363,9 @@ export const SYSTEM_EVENT_TYPES = [
   'site.PayoutOnboarding',
   'fleet.CreditLimitWarning',
   'fleet.CreditLimitReached',
+  'fleet.ManagerCreditLimitWarning',
+  'fleet.ManagerCreditLimitReached',
+  'fleet.ManagerInvoiceIssued',
   'fleet.InvoiceRunFailed',
   'fleet.DepartureAtRisk',
   'fleet.DepartureMissed',
@@ -696,6 +700,14 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'driver.Welcome': ['firstName', 'lastName', 'email'],
   'driver.ForgotPassword': ['firstName', 'lastName', 'email'],
   'driver.PortalInvite': ['firstName', 'lastName', 'email', 'activateUrl', 'expiresInDays'],
+  'operator.FleetManagerInvite': [
+    'firstName',
+    'lastName',
+    'email',
+    'setPasswordUrl',
+    'fleetNames',
+    'fleetCount',
+  ],
   'driver.RegistrationAttempt': ['firstName', 'lastName', 'email', 'signInUrl', 'resetUrl'],
   'invoice.Sent': [
     'firstName',
@@ -850,6 +862,43 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'limitCents',
     'warningPercent',
     'currency',
+  ],
+  // Fleet users (Fleet Manager) with payments:read of the fleet.
+  'fleet.ManagerCreditLimitWarning': [
+    'firstName',
+    'lastName',
+    'fleetName',
+    'exposureFormatted',
+    'limitFormatted',
+    'exposureCents',
+    'limitCents',
+    'warningPercent',
+    'currency',
+  ],
+  'fleet.ManagerCreditLimitReached': [
+    'firstName',
+    'lastName',
+    'fleetName',
+    'exposureFormatted',
+    'limitFormatted',
+    'exposureCents',
+    'limitCents',
+    'warningPercent',
+    'currency',
+  ],
+  'fleet.ManagerInvoiceIssued': [
+    'firstName',
+    'lastName',
+    'fleetName',
+    'invoiceNumber',
+    'periodLabel',
+    'sessionCount',
+    'issuedAt',
+    'dueAt',
+    'total',
+    'totalCents',
+    'currency',
+    'invoiceUrl',
   ],
   'invoice.FleetInvoice': [
     'fleetName',
@@ -2217,6 +2266,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         targetKwh: '80.0',
         targetSocPercent: '',
         readinessUrl: 'https://csms.example.com/sites/sit_example?tab=fleet-readiness',
+        invoiceUrl: 'https://csms.example.com/invoices/inv_example',
       };
 
       // A disallowed or unparsable template is operator input, not a server error.

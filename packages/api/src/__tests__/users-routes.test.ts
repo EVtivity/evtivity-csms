@@ -53,6 +53,10 @@ function makeChain() {
 
 // The fresh proof itself is covered in session-proof.test.ts and 129-auth-attacks.
 // The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
 vi.mock('../lib/device-cookie.js', () => ({
   knownSignInDevice: vi.fn(() => Promise.resolve(null)),
   takeDeviceAttempt: vi.fn(() =>
@@ -121,6 +125,9 @@ vi.mock('@evtivity/database', () => ({
   refreshTokens: {},
   userTokens: {},
   userSiteAssignments: {},
+  userFleetAssignments: {},
+  fleets: {},
+  isFleetEnabled: vi.fn(async () => true),
   userPermissions: {},
   getRecaptchaConfig: vi.fn().mockResolvedValue(null),
   getMfaConfig: vi.fn().mockResolvedValue({

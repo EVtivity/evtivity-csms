@@ -6,12 +6,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const getMock = vi.hoisted(() => vi.fn());
+const fleet = vi.hoisted(() => ({ user: false }));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({ t: (key: string) => `t:${key}` }),
 }));
 vi.mock('@/lib/api', () => ({ api: { get: getMock } }));
+vi.mock('@/lib/auth', () => ({ useIsFleetUser: () => fleet.user }));
 
 import { PermissionEditor, type PermissionGroup } from '../PermissionEditor';
 
@@ -45,6 +47,18 @@ describe('PermissionEditor', () => {
   afterEach(() => {
     cleanup();
     getMock.mockReset();
+    fleet.user = false;
+  });
+
+  it('offers a fleet user the fleet user permissions from the built-in catalog', async () => {
+    fleet.user = true;
+    renderEditor([]);
+    expect(await screen.findByText('t:users.permissionGroups.fleets')).toBeTruthy();
+    expect(screen.getByText('t:users.permissionGroups.fleetCards')).toBeTruthy();
+    expect(screen.getByText('t:users.permissionGroups.settings.apiKeys')).toBeTruthy();
+    expect(screen.queryByText('t:users.permissionGroups.stations')).toBeNull();
+    // The catalog route is closed to fleet users: the editor never asks for it.
+    expect(getMock).not.toHaveBeenCalled();
   });
 
   it('translates group labels and the read and write labels', async () => {

@@ -6,6 +6,8 @@
 // read as a formula (=, +, -, @, TAB or CR first, or after a ; or TAB that a
 // semicolon locale splits on) gets a leading quote, as the server exports do.
 
+import { ApiError } from '@/lib/api';
+
 const FORMULA_START = new Set(['=', '+', '-', '@', '\t', '\r']);
 const SPLIT_FORMULA = /([;\t]\s*)([=+\-@])/g;
 
@@ -29,6 +31,17 @@ export function csvCell(value: unknown): string {
 /** The CSV text of a header row and data rows (CRLF line ends). */
 export function buildCsvText(headers: readonly string[], rows: readonly unknown[][]): string {
   return [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+}
+
+/** Downloads a file the API builds (an export route) and saves it under `fileName`. */
+export async function downloadApiFile(url: string, fileName: string): Promise<void> {
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(await res.blob());
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 /** Saves the CSV text as a file. */

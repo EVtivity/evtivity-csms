@@ -20,23 +20,14 @@ interface SortableWidgetProps {
 /**
  * One dashboard widget in a `SortableZone`. In edit mode it carries a drag
  * handle (the only place a pointer or touch drag starts, so phones still
- * scroll) and a hide button; outside it renders the widget alone. A widget
- * that renders nothing takes no grid cell (`empty:hidden`).
+ * scroll) and a hide button. The element tree is the same in and out of edit
+ * mode, so switching it never remounts the widget. A widget that renders
+ * nothing takes no grid cell (`empty:hidden`).
  */
-export function SortableWidget(props: SortableWidgetProps): React.JSX.Element {
-  if (!props.editing) {
-    return (
-      <div className={cn('min-w-0 empty:hidden', props.className)} data-widget={props.id}>
-        {props.children}
-      </div>
-    );
-  }
-  return <EditableWidget {...props} />;
-}
-
-function EditableWidget({
+export function SortableWidget({
   id,
   name,
+  editing,
   onHide,
   className,
   children,
@@ -50,47 +41,54 @@ function EditableWidget({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    transition,
-  };
+  } = useSortable({ id, disabled: !editing });
+  const style = editing
+    ? {
+        transform: CSS.Translate.toString(transform),
+        transition,
+      }
+    : undefined;
   return (
     <div
       ref={setNodeRef}
       style={style}
       data-widget={id}
       className={cn(
-        'relative min-w-0 rounded-lg outline-dashed outline-2 outline-offset-2 outline-border',
-        isDragging && 'z-10 opacity-70',
+        'min-w-0',
+        editing
+          ? 'relative rounded-lg outline-dashed outline-2 outline-offset-2 outline-border'
+          : 'empty:hidden',
+        editing && isDragging && 'z-10 opacity-70',
         className,
       )}
     >
-      <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-md border border-border bg-background/95 p-0.5 shadow-xs">
-        <Button
-          ref={setActivatorNodeRef}
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="cursor-grab touch-none"
-          aria-label={t('dashboard.moveWidget', { name })}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t('dashboard.hideWidget', { name })}
-          onClick={() => {
-            onHide(id);
-          }}
-        >
-          <EyeOff className="h-4 w-4" />
-        </Button>
-      </div>
+      {editing ? (
+        <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-md border border-border bg-background/95 p-0.5 shadow-xs">
+          <Button
+            ref={setActivatorNodeRef}
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="cursor-grab touch-none"
+            aria-label={t('dashboard.moveWidget', { name })}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={t('dashboard.hideWidget', { name })}
+            onClick={() => {
+              onHide(id);
+            }}
+          >
+            <EyeOff className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
       {children}
     </div>
   );

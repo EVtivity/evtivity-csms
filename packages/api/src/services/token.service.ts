@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, or, ilike, sql, desc, inArray, ne } from 'drizzle-orm';
+import { eq, and, or, ilike, sql, desc, inArray, ne, isNull } from 'drizzle-orm';
 import {
   db,
   client,
@@ -9,12 +9,15 @@ import {
   PG_UNIQUE_VIOLATION,
   PG_FOREIGN_KEY_VIOLATION,
   isDriverRfidSelfServiceEnabled,
+  isFleetEnabled,
 } from '@evtivity/database';
 import {
   chargingStations,
   driverTokens,
   driverTokenTombstones,
   drivers,
+  fleetDrivers,
+  fleets,
   pncContracts,
   tokenAuditLog,
   stationLocalAuthEntries,
@@ -39,6 +42,8 @@ import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
 import type { ListSortParams } from '../lib/list-sort.js';
 import { tokenListSort } from '../lib/sorts/token-list-sort.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
+import { isAllSiteUser } from '../lib/site-access.js';
+import { isFleetUser } from '../lib/fleet-scope.js';
 import { publishOcpiTokenPush, type OcpiTokenTombstoneRef } from '../lib/ocpi-token-push.js';
 import {
   TOKEN_LABEL_MAX_LENGTH,
@@ -51,7 +56,41 @@ const logger = createLogger('token-service');
 interface TokenListParams extends PaginationParams, ListSortParams {
   tokenType?: string | undefined;
   status?: 'active' | 'inactive' | undefined;
+  fleetId?: string | undefined;
 }
+
+/**
+ * The fleet card routes (`/fleets/:id/cards`) act on the cards of one fleet:
+ * the locked row must belong to it, and only the label, the status and the
+ * member it is given to change. `byFleetUser` marks a fleet user's write (it
+ * suspends as `fleet` and cannot lift an operator block); `revoke` is the
+ * DELETE route, which deactivates for good (a revoked card never comes back
+ * through the fleet routes) and is refused to a fleet user.
+ */
+export interface FleetCardScope {
+  fleetId: string;
+  byFleetUser: boolean;
+  revoke?: boolean;
+}
+
+export interface TokenWriteOptions {
+  fleet?: FleetCardScope | undefined;
+  /**
+   * Whether the caller holds `fleetCards:write`. The token routes pass it;
+   * false refuses a fleet card field (fleetId, monthlyLimitCents) and any
+   * write of a card that has a fleet (FleetCardPermissionError), the second
+   * layer behind the route check. Left out, it is not checked (the fleet card
+   * routes, which authorize fleetCards:write themselves, and system writes).
+   */
+  fleetCardsWrite?: boolean | undefined;
+}
+
+import {
+  FLEET_CARD_MONTHLY_LIMIT_MAX_CENTS,
+  FLEET_CARD_RELEASE_REASON,
+} from '@evtivity/lib/fleet-card';
+
+export { FLEET_CARD_RELEASE_REASON };
 
 export type TokenActor =
   | { type: 'operator'; userId: string }
@@ -87,6 +126,9 @@ const tokenSelect = {
   deactivatedBy: driverTokens.deactivatedBy,
   prepaidBalanceCents: driverTokens.prepaidBalanceCents,
   vehicleId: driverTokens.vehicleId,
+  fleetId: driverTokens.fleetId,
+  fleetName: fleets.name,
+  monthlyLimitCents: driverTokens.monthlyLimitCents,
   createdAt: driverTokens.createdAt,
   updatedAt: driverTokens.updatedAt,
   driverFirstName: drivers.firstName,
@@ -98,11 +140,12 @@ interface TokenFilters {
   search?: string | undefined;
   tokenType?: string | undefined;
   status?: 'active' | 'inactive' | undefined;
+  fleetId?: string | undefined;
 }
 
 /** The list and the CSV export filter the same way, so an export holds what the list shows. */
 function tokenWhere(filters: TokenFilters) {
-  const { search, tokenType, status } = filters;
+  const { search, tokenType, status, fleetId } = filters;
   const conditions = [];
   if (search) {
     // `%` and `_` match only as typed (security review PP-I1, case 49 rule).
@@ -123,6 +166,9 @@ function tokenWhere(filters: TokenFilters) {
   if (status != null) {
     conditions.push(eq(driverTokens.isActive, status === 'active'));
   }
+  if (fleetId != null && fleetId !== '') {
+    conditions.push(eq(driverTokens.fleetId, fleetId));
+  }
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
@@ -140,6 +186,7 @@ export async function listTokens(
       .select(tokenSelect)
       .from(driverTokens)
       .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
+      .leftJoin(fleets, eq(driverTokens.fleetId, fleets.id))
       .where(where)
       .orderBy(...tokenListSort.orderBy(params))
       .limit(limit)
@@ -159,6 +206,7 @@ export async function getToken(id: string) {
     .select(tokenSelect)
     .from(driverTokens)
     .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
+    .leftJoin(fleets, eq(driverTokens.fleetId, fleets.id))
     .where(eq(driverTokens.id, id));
   return token ?? null;
 }
@@ -199,6 +247,98 @@ export class TokenReactivationBlockedError extends Error {
     super('Token was deactivated by the operator');
     this.name = 'TokenReactivationBlockedError';
   }
+}
+
+/**
+ * A card deactivated through the fleet routes (revoked) was to be turned on
+ * again there: it stays off. A fleet user turning on a card an operator turned
+ * off gets TokenReactivationBlockedError instead.
+ */
+export class FleetCardDeactivatedError extends Error {
+  constructor(public readonly tokenId: string) {
+    super('This RFID card was deactivated and cannot be turned on again');
+    this.name = 'FleetCardDeactivatedError';
+  }
+}
+
+/** A fleet user tried to deactivate a fleet card for good: only an operator does. */
+export class FleetCardRevokeRefusedError extends Error {
+  constructor(public readonly tokenId: string) {
+    super('Only an operator deactivates an RFID card for good');
+    this.name = 'FleetCardRevokeRefusedError';
+  }
+}
+
+/**
+ * A site-restricted operator (or its API key) tried to write a fleet RFID
+ * card: fleet cards span every site, so only an all-site operator or the
+ * fleet's own fleet users change them.
+ */
+export class FleetCardSiteScopeError extends Error {
+  constructor() {
+    super('Only an operator with access to every site changes fleet RFID cards');
+    this.name = 'FleetCardSiteScopeError';
+  }
+}
+
+/**
+ * A fleet card write through the token routes by a caller without
+ * `fleetCards:write`: the fleet, the monthly limit and every write of a card
+ * with a fleet need that permission on top of `drivers:write`.
+ */
+export class FleetCardPermissionError extends Error {
+  constructor() {
+    super('Changing fleet RFID cards needs the fleetCards:write permission');
+    this.name = 'FleetCardPermissionError';
+  }
+}
+
+/**
+ * Whether the actor may write fleet cards as an operator: system writes pass,
+ * an operator or API key needs access to every site. Fleet users write through
+ * the fleet card routes only (fleet scope with byFleetUser).
+ */
+async function mayWriteFleetCardsAsOperator(actor: TokenActor): Promise<boolean> {
+  if (actor.type === 'system' || actor.type === 'driver') return true;
+  if (actor.userId == null) return true;
+  if (await isAllSiteUser(actor.userId)) return true;
+  return isFleetUser(actor.userId);
+}
+
+/**
+ * Throws FleetCardSiteScopeError when the actor may not write fleet cards and
+ * one of the tokens belongs to a fleet. Returns whether the actor is refused,
+ * so a write can repeat the condition in its own statement.
+ */
+export async function assertMayWriteTokenFleets(
+  ids: readonly string[],
+  actor: TokenActor,
+  options: Pick<TokenWriteOptions, 'fleetCardsWrite'> = {},
+): Promise<boolean> {
+  if (ids.length === 0) return false;
+  const siteRefused = !(await mayWriteFleetCardsAsOperator(actor));
+  const permissionRefused = options.fleetCardsWrite === false;
+  if (!siteRefused && !permissionRefused) return false;
+  const [fleetCard] = await db
+    .select({ id: driverTokens.id })
+    .from(driverTokens)
+    .where(and(inArray(driverTokens.id, [...ids]), sql`${driverTokens.fleetId} IS NOT NULL`))
+    .limit(1);
+  if (fleetCard != null) {
+    throw siteRefused ? new FleetCardSiteScopeError() : new FleetCardPermissionError();
+  }
+  return true;
+}
+
+/** Whether any of the tokens is a fleet card (driver_tokens.fleet_id set). */
+export async function anyFleetCard(ids: readonly string[]): Promise<boolean> {
+  if (ids.length === 0) return false;
+  const [fleetCard] = await db
+    .select({ id: driverTokens.id })
+    .from(driverTokens)
+    .where(and(inArray(driverTokens.id, [...ids]), sql`${driverTokens.fleetId} IS NOT NULL`))
+    .limit(1);
+  return fleetCard != null;
 }
 
 /**
@@ -253,6 +393,35 @@ export class VehicleIdTokenInUseError extends Error {
  * session debit that lands between the read and the write, so every change
  * carries the expected value.
  */
+/**
+ * A fleet RFID card is billed to its fleet (or the member holding it), never
+ * from a prepaid balance: a card with a fleet holds no balance.
+ */
+function assertNoFleetCardBalance(fleetId: string | null, balanceCents: number | null): void {
+  if (fleetId != null && balanceCents != null) {
+    throw new ValidationError('An RFID card of a fleet has no prepaid balance', {
+      field: 'prepaidBalanceCents',
+    });
+  }
+}
+
+/** Only a fleet RFID card has a monthly spending limit, a whole number of cents in range. */
+function assertCardMonthlyLimit(fleetId: string | null, limitCents: number | null): void {
+  if (limitCents == null) return;
+  if (fleetId == null) {
+    throw new ValidationError('Only an RFID card of a fleet has a monthly limit', {
+      field: 'monthlyLimitCents',
+    });
+  }
+  if (
+    !Number.isInteger(limitCents) ||
+    limitCents < 1 ||
+    limitCents > FLEET_CARD_MONTHLY_LIMIT_MAX_CENTS
+  ) {
+    throw new ValidationError('The monthly limit is out of range', { field: 'monthlyLimitCents' });
+  }
+}
+
 export class PrepaidBalanceExpectedError extends Error {
   constructor() {
     super('A prepaid balance change needs expectedPrepaidBalanceCents');
@@ -288,6 +457,48 @@ export class PncContractTokenError extends Error {
   ) {
     super('Token belongs to a Plug and Charge contract');
     this.name = 'PncContractTokenError';
+  }
+}
+
+/** A card names a fleet that does not exist. */
+export class TokenFleetNotFoundError extends Error {
+  constructor(public readonly fleetId: string) {
+    super('Fleet not found');
+    this.name = 'TokenFleetNotFoundError';
+  }
+}
+
+/**
+ * A fleet card created, moved into a fleet or given to a member while its
+ * fleet does not bill on account (or Fleets is off): a fleet card charges only
+ * to its own fleet's account, never to the member, so it could not charge.
+ */
+export class FleetCardNotBillableError extends Error {
+  constructor(public readonly fleetId: string) {
+    super('The fleet does not bill on account, so its RFID cards cannot charge');
+    this.name = 'FleetCardNotBillableError';
+  }
+}
+
+/**
+ * A fleet card given to a driver that is not an active, not erased member of
+ * the card's fleet.
+ */
+export class FleetCardDriverNotMemberError extends Error {
+  constructor(public readonly driverId: string) {
+    super('The driver is not an active member of the fleet');
+    this.name = 'FleetCardDriverNotMemberError';
+  }
+}
+
+/**
+ * A driver tried to add, change, reactivate or remove a fleet card: the fleet
+ * manages it, the member only uses it.
+ */
+export class TokenManagedByFleetError extends Error {
+  constructor() {
+    super('The fleet manages this RFID card');
+    this.name = 'TokenManagedByFleetError';
   }
 }
 
@@ -388,6 +599,8 @@ interface TokenSnapshot {
   label?: string | null;
   prepaidBalanceCents?: number | null;
   vehicleId?: string | null;
+  fleetId?: string | null;
+  monthlyLimitCents?: number | null;
 }
 
 /**
@@ -484,9 +697,17 @@ async function writeTokenAudit(args: {
   );
 }
 
+type TokenNoticeEvent =
+  | 'token.Added'
+  | 'token.Removed'
+  | 'token.Deactivated'
+  | 'token.Reactivated'
+  | 'token.FleetCardAssigned'
+  | 'token.FleetCardTakenBack';
+
 async function notifyDriver(
   driverId: string | null,
-  eventType: 'token.Added' | 'token.Removed' | 'token.Deactivated' | 'token.Reactivated',
+  eventType: TokenNoticeEvent,
   variables: Record<string, unknown>,
 ): Promise<void> {
   if (driverId == null) return;
@@ -508,6 +729,33 @@ async function notifyDriver(
       'Token notification dispatch failed (mutation already committed)',
     );
   }
+}
+
+/** Tells a member that a fleet card was given to them or taken back. */
+async function notifyFleetCardMember(
+  driverId: string | null,
+  eventType: 'token.FleetCardAssigned' | 'token.FleetCardTakenBack',
+  card: { idToken: string; tokenType: string; label: string | null; fleetId: string | null },
+): Promise<void> {
+  if (driverId == null) return;
+  let fleetName = '';
+  if (card.fleetId != null) {
+    try {
+      const [fleet] = await db
+        .select({ name: fleets.name })
+        .from(fleets)
+        .where(eq(fleets.id, card.fleetId));
+      fleetName = fleet?.name ?? '';
+    } catch (err: unknown) {
+      logger.warn({ err, fleetId: card.fleetId }, 'Fleet name read failed, notice sent without it');
+    }
+  }
+  await notifyDriver(driverId, eventType, {
+    idToken: card.idToken,
+    tokenType: card.tokenType,
+    label: card.label ?? '',
+    fleetName,
+  });
 }
 
 // Best-effort SSE so other operators viewing Tokens/TokenDetail/AuthorizeLog
@@ -602,8 +850,58 @@ async function tombstoneTokenValue(ref: OcpiTokenTombstoneRef): Promise<boolean>
   }
 }
 
-function deactivatedByOf(actor: TokenActor): 'operator' | 'driver' | 'system' {
+function deactivatedByOf(
+  actor: TokenActor,
+  byFleetUser = false,
+): 'operator' | 'driver' | 'system' | 'fleet' {
+  if (byFleetUser) return 'fleet';
   return actor.type === 'api_key' ? 'operator' : actor.type;
+}
+
+/**
+ * The fleet must exist and bill on account, read FOR SHARE so its delete or a
+ * switch of its account billing cannot slip in before the card write: a fleet
+ * card charges only to its own fleet's account (never to the member), so a
+ * card of a fleet that cannot bill it would never charge.
+ */
+async function assertFleetCanHoldCards(fleetId: string, conn: TokenDb): Promise<void> {
+  const [fleet] = await conn
+    .select({ id: fleets.id, accountBillingEnabled: fleets.accountBillingEnabled })
+    .from(fleets)
+    .where(eq(fleets.id, fleetId))
+    .for('share');
+  if (fleet == null) throw new TokenFleetNotFoundError(fleetId);
+  if (!fleet.accountBillingEnabled || !(await isFleetEnabled())) {
+    throw new FleetCardNotBillableError(fleetId);
+  }
+}
+
+/**
+ * A fleet card is given only to an active, not erased member of its fleet.
+ * The driver and the membership are read FOR SHARE, so a removal from the
+ * fleet or a deactivation cannot slip in between the check and the write. An
+ * unknown driver answers DRIVER_NOT_FOUND like a driver card.
+ */
+async function assertFleetCardMember(
+  fleetId: string,
+  driverId: string,
+  conn: TokenDb,
+): Promise<void> {
+  const [driver] = await conn
+    .select({ isActive: drivers.isActive, erasedAt: drivers.erasedAt })
+    .from(drivers)
+    .where(eq(drivers.id, driverId))
+    .for('share');
+  if (driver == null) throw new TokenDriverNotFoundError(driverId);
+  if (!driver.isActive || driver.erasedAt != null) {
+    throw new FleetCardDriverNotMemberError(driverId);
+  }
+  const [member] = await conn
+    .select({ id: fleetDrivers.id })
+    .from(fleetDrivers)
+    .where(and(eq(fleetDrivers.fleetId, fleetId), eq(fleetDrivers.driverId, driverId)))
+    .for('share');
+  if (member == null) throw new FleetCardDriverNotMemberError(driverId);
 }
 
 /**
@@ -656,15 +954,37 @@ export async function createToken(
     expiresAt?: Date | null | undefined;
     prepaidBalanceCents?: number | null | undefined;
     vehicleId?: string | null | undefined;
+    /** The fleet that owns the card (a fleet RFID card), null for a driver's own card. */
+    fleetId?: string | null | undefined;
+    /** The card's monthly spending limit in cents (fleet cards only), null for none. */
+    monthlyLimitCents?: number | null | undefined;
   },
   actor: TokenActor = { type: 'system' },
+  options: TokenWriteOptions = {},
 ) {
   // Before any lookup, so a refused driver learns nothing about existing cards.
   await assertDriverCardWriteAllowed(actor);
+  const fleetId = options.fleet?.fleetId ?? data.fleetId ?? null;
+  if (actor.type === 'driver' && fleetId != null) throw new TokenManagedByFleetError();
+  if (
+    fleetId != null &&
+    options.fleet?.byFleetUser !== true &&
+    !(await mayWriteFleetCardsAsOperator(actor))
+  ) {
+    throw new FleetCardSiteScopeError();
+  }
+  if (options.fleetCardsWrite === false && (fleetId != null || data.monthlyLimitCents != null)) {
+    throw new FleetCardPermissionError();
+  }
   assertTokenLabel(data.label);
+  assertCardMonthlyLimit(fleetId, data.monthlyLimitCents ?? null);
   const label = normalizeTokenLabel(data.label);
-  // Before any lookup, so the answer says nothing about existing cards.
-  if (actor.type === 'driver' && isVehicleShapedTokenValue(data.idToken)) {
+  // Before any lookup, so the answer says nothing about existing cards. A
+  // fleet user is held to the driver rule: no card UID has a vehicle id shape.
+  if (
+    (actor.type === 'driver' || options.fleet?.byFleetUser === true) &&
+    isVehicleShapedTokenValue(data.idToken)
+  ) {
     throw new VehicleShapedCardError();
   }
   // Check for an existing row first. If it already belongs to the same driver,
@@ -678,13 +998,19 @@ export async function createToken(
       id: driverTokens.id,
       driverId: driverTokens.driverId,
       isActive: driverTokens.isActive,
+      fleetId: driverTokens.fleetId,
     })
     .from(driverTokens)
     .where(and(eq(driverTokens.idToken, data.idToken), eq(driverTokens.tokenType, data.tokenType)))
     .limit(1);
 
   if (existing != null) {
-    if (data.driverId != null && existing.driverId === data.driverId && !existing.isActive) {
+    if (
+      data.driverId != null &&
+      existing.driverId === data.driverId &&
+      !existing.isActive &&
+      (options.fleet == null || existing.fleetId === options.fleet.fleetId)
+    ) {
       const reactivated = await updateToken(
         existing.id,
         {
@@ -699,21 +1025,27 @@ export async function createToken(
             : {}),
           // updateToken checks the vehicle against the card's driver.
           ...(data.vehicleId !== undefined ? { vehicleId: data.vehicleId } : {}),
+          ...(options.fleet == null && data.fleetId !== undefined ? { fleetId: data.fleetId } : {}),
+          ...(data.monthlyLimitCents !== undefined
+            ? { monthlyLimitCents: data.monthlyLimitCents }
+            : {}),
         },
         actor,
+        options,
       );
       return reactivated;
     }
     throw new DuplicateTokenError(data.idToken, data.tokenType);
   }
 
-  if (data.driverId != null) await assertDriverActive(data.driverId);
+  assertNoFleetCardBalance(fleetId, data.prepaidBalanceCents ?? null);
+  // A fleet card's member is checked with the fleet below, under the lock.
+  if (data.driverId != null && fleetId == null) await assertDriverActive(data.driverId);
   await assertNotOtherDriversVehicleId(data.idToken, data.driverId ?? null);
   if (data.vehicleId != null) await assertTokenVehicle(data.vehicleId, data.driverId ?? null);
 
-  let token: typeof driverTokens.$inferSelect | undefined;
-  try {
-    const inserted = await db
+  const insertToken = async (conn: Pick<typeof db, 'insert'>) => {
+    const inserted = await conn
       .insert(driverTokens)
       .values({
         idToken: data.idToken,
@@ -723,10 +1055,32 @@ export async function createToken(
         expiresAt: data.expiresAt ?? null,
         prepaidBalanceCents: data.prepaidBalanceCents ?? null,
         vehicleId: data.vehicleId ?? null,
+        fleetId,
+        monthlyLimitCents: data.monthlyLimitCents ?? null,
       })
       .returning();
-    token = inserted[0];
+    return inserted[0];
+  };
+  let token: typeof driverTokens.$inferSelect | undefined;
+  try {
+    // A fleet card checks its fleet and member under locks held to the insert.
+    token =
+      fleetId == null
+        ? await insertToken(db)
+        : await db.transaction(async (tx) => {
+            await assertFleetCanHoldCards(fleetId, tx);
+            if (data.driverId != null) await assertFleetCardMember(fleetId, data.driverId, tx);
+            return insertToken(tx);
+          });
   } catch (err) {
+    if (
+      err instanceof TokenFleetNotFoundError ||
+      err instanceof FleetCardNotBillableError ||
+      err instanceof FleetCardDriverNotMemberError ||
+      err instanceof TokenDriverNotFoundError
+    ) {
+      throw err;
+    }
     // A concurrent insert lost the TOCTOU race (unique index) or the driver
     // does not exist (foreign key): 409 or 404, not 500.
     throw mapWriteError(err, data);
@@ -745,15 +1099,24 @@ export async function createToken(
       label: token.label,
       prepaidBalanceCents: token.prepaidBalanceCents,
       vehicleId: token.vehicleId,
+      fleetId: token.fleetId,
+      monthlyLimitCents: token.monthlyLimitCents,
     },
   });
-  await notifyDriver(token.driverId, 'token.Added', {
-    idToken: token.idToken,
-    tokenType: token.tokenType,
-    addedBy: actorLabel(actor),
-  });
+  if (token.fleetId != null) {
+    await notifyFleetCardMember(token.driverId, 'token.FleetCardAssigned', token);
+  } else {
+    await notifyDriver(token.driverId, 'token.Added', {
+      idToken: token.idToken,
+      tokenType: token.tokenType,
+      addedBy: actorLabel(actor),
+    });
+  }
   await publishTokenChanged(token.id);
-  await publishOcpiTokenPush({ tokenIds: [token.id] });
+  // A fleet card no member holds is not a roaming token: partners get it once a member does.
+  if (token.fleetId == null || token.driverId != null) {
+    await publishOcpiTokenPush({ tokenIds: [token.id] });
+  }
   return token;
 }
 
@@ -778,13 +1141,41 @@ export async function updateToken(
      * PrepaidBalanceExpectedError (PP2 Info 3).
      */
     expectedPrepaidBalanceCents?: number | null | undefined;
+    /** Moves the card to a fleet (a fleet card) or out of it (null). Operators only. */
+    fleetId?: string | null | undefined;
+    /** The card's monthly spending limit in cents (fleet cards only), null for none. */
+    monthlyLimitCents?: number | null | undefined;
   },
   actor: TokenActor = { type: 'system' },
+  options: TokenWriteOptions = {},
 ) {
   await assertDriverCardWriteAllowed(actor);
   if (data.prepaidBalanceCents !== undefined && data.expectedPrepaidBalanceCents === undefined) {
     throw new PrepaidBalanceExpectedError();
   }
+  const scope = options.fleet;
+  if (scope != null) {
+    if (scope.revoke === true && scope.byFleetUser) throw new FleetCardRevokeRefusedError(id);
+    // The fleet routes change the label, the status and the member only.
+    const outside = (
+      ['idToken', 'tokenType', 'expiresAt', 'prepaidBalanceCents', 'vehicleId', 'fleetId'] as const
+    ).filter((key) => data[key] !== undefined);
+    if (outside.length > 0) {
+      throw new ValidationError(
+        'A fleet card change takes the label, status, member and monthly limit only',
+        {
+          fields: outside,
+        },
+      );
+    }
+  }
+  if (actor.type === 'driver' && data.fleetId !== undefined) throw new TokenManagedByFleetError();
+  if (scope != null && !scope.byFleetUser && !(await mayWriteFleetCardsAsOperator(actor))) {
+    throw new FleetCardSiteScopeError();
+  }
+  // Decided on the locked row below: any write of a card that has a fleet, or
+  // a move into one, is refused to a site-restricted operator.
+  const fleetWriteRefused = scope == null && !(await mayWriteFleetCardsAsOperator(actor));
   assertTokenLabel(data.label);
   // The row is locked for the read and the write, so two concurrent toggles
   // cannot both see the old state and both audit and notify a transition.
@@ -799,6 +1190,9 @@ export async function updateToken(
       revokedReason: string | null;
       prepaidBalanceCents: number | null;
       vehicleId: string | null;
+      fleetId: string | null;
+      monthlyLimitCents: number | null;
+      revokedAt: Date | null;
     };
     token: typeof driverTokens.$inferSelect;
   } | null;
@@ -816,11 +1210,27 @@ export async function updateToken(
           deactivatedBy: driverTokens.deactivatedBy,
           prepaidBalanceCents: driverTokens.prepaidBalanceCents,
           vehicleId: driverTokens.vehicleId,
+          fleetId: driverTokens.fleetId,
+          monthlyLimitCents: driverTokens.monthlyLimitCents,
+          revokedAt: driverTokens.revokedAt,
         })
         .from(driverTokens)
         .where(eq(driverTokens.id, id))
         .for('update');
       if (current == null) return null;
+      // The fleet routes reach only the cards of their fleet.
+      if (scope != null && current.fleetId !== scope.fleetId) return null;
+      if (fleetWriteRefused && (data.fleetId != null || current.fleetId != null)) {
+        throw new FleetCardSiteScopeError();
+      }
+      // Without fleetCards:write no fleet card changes and no card gets a
+      // fleet or a monthly limit, decided on the locked row.
+      if (
+        options.fleetCardsWrite === false &&
+        (current.fleetId != null || data.fleetId != null || data.monthlyLimitCents != null)
+      ) {
+        throw new FleetCardPermissionError();
+      }
       // A driver's update is decided on the locked row: the token must still
       // be the driver's, and the driver active and not erased, read FOR SHARE
       // so an erasure or a move to another driver cannot commit in between.
@@ -833,6 +1243,8 @@ export async function updateToken(
           .where(eq(drivers.id, actor.driverId))
           .for('share');
         if (owner == null || !owner.isActive || owner.erasedAt != null) return null;
+        // A fleet card is the fleet's: the member using it changes nothing.
+        if (current.fleetId != null) throw new TokenManagedByFleetError();
       }
       if (
         data.prepaidBalanceCents !== undefined &&
@@ -848,6 +1260,15 @@ export async function updateToken(
         current.deactivatedBy !== 'driver'
       ) {
         throw new TokenReactivationBlockedError(id);
+      }
+      // Through the fleet routes a revoked card never comes back, and a fleet
+      // user never lifts an operator's block. A card the fleet suspended or
+      // took back from a leaving member (no revokedAt) may come back.
+      if (scope != null && data.isActive === true && !current.isActive) {
+        if (scope.byFleetUser && current.deactivatedBy === 'operator') {
+          throw new TokenReactivationBlockedError(id);
+        }
+        if (current.revokedAt != null) throw new FleetCardDeactivatedError(id);
       }
 
       // A contract eMAID keeps its value, type and driver, and stays inactive
@@ -871,6 +1292,28 @@ export async function updateToken(
       const nextActive = data.isActive ?? current.isActive;
       const reactivating = data.isActive === true && !current.isActive;
       const reassigned = data.driverId !== undefined && data.driverId !== current.driverId;
+      const nextFleetId = data.fleetId !== undefined ? data.fleetId : current.fleetId;
+      const fleetChanged = nextFleetId !== current.fleetId;
+      assertNoFleetCardBalance(
+        nextFleetId,
+        data.prepaidBalanceCents !== undefined
+          ? data.prepaidBalanceCents
+          : current.prepaidBalanceCents,
+      );
+      // A card that leaves its fleet loses the fleet's monthly limit.
+      const limitLeft = nextFleetId == null && current.monthlyLimitCents != null;
+      if (data.monthlyLimitCents !== undefined || nextFleetId == null) {
+        assertCardMonthlyLimit(nextFleetId, data.monthlyLimitCents ?? null);
+      }
+      // A card moved into a fleet or given to a member needs a fleet that bills
+      // on account; taking a card back or moving it out of its fleet does not.
+      const givenToMember = nextFleetId != null && nextDriverId != null && reassigned;
+      if (nextFleetId != null && (fleetChanged || givenToMember)) {
+        await assertFleetCanHoldCards(nextFleetId, tx);
+      }
+      if (nextFleetId != null && nextDriverId != null && (fleetChanged || reassigned)) {
+        await assertFleetCardMember(nextFleetId, nextDriverId, tx);
+      }
       if (nextActive && nextDriverId != null && (reactivating || reassigned)) {
         await assertDriverActive(nextDriverId, tx);
       }
@@ -913,21 +1356,35 @@ export async function updateToken(
 
       const setValues: Record<string, unknown> = { ...data, updatedAt: new Date() };
       if (vehicleChange !== undefined) setValues['vehicleId'] = vehicleChange;
+      if (limitLeft) setValues['monthlyLimitCents'] = null;
       // The expected balance is a condition, not a column.
       delete setValues['expectedPrepaidBalanceCents'];
       const sentLabel = normalizeTokenLabel(data.label);
       if (sentLabel !== undefined) setValues['label'] = sentLabel;
       // A token moved to another driver loses its label (owner decision): the
       // next driver sees the label, which the previous driver or an operator
-      // typed for the previous driver. A label the request changes stays.
-      if (reassigned && (sentLabel === undefined || sentLabel === current.label)) {
+      // typed for the previous driver. A label the request changes stays. A
+      // fleet card given to another member, or taken back, keeps its label:
+      // the fleet typed it for the card, not for the member.
+      const staysFleetCard = nextFleetId != null && nextFleetId === current.fleetId;
+      if (
+        reassigned &&
+        !staysFleetCard &&
+        (sentLabel === undefined || sentLabel === current.label)
+      ) {
         setValues['label'] = null;
       }
       // Stamp revokedAt and who deactivated when the token turns inactive;
-      // clear all three on reactivate.
+      // clear all three on reactivate. Through the fleet routes a PATCH only
+      // suspends (no revokedAt, so the fleet may bring the card back) and the
+      // DELETE revokes.
+      const byFleetUser = scope?.byFleetUser === true;
       if (data.isActive === false && current.isActive) {
+        setValues['revokedAt'] = scope == null || scope.revoke === true ? new Date() : null;
+        setValues['deactivatedBy'] = deactivatedByOf(actor, byFleetUser);
+      } else if (scope?.revoke === true && !current.isActive && current.revokedAt == null) {
         setValues['revokedAt'] = new Date();
-        setValues['deactivatedBy'] = deactivatedByOf(actor);
+        setValues['deactivatedBy'] = deactivatedByOf(actor, byFleetUser);
       } else if (data.isActive === true && !current.isActive) {
         setValues['revokedAt'] = null;
         setValues['revokedReason'] = null;
@@ -947,8 +1404,14 @@ export async function updateToken(
       err instanceof VehicleIdTokenInUseError ||
       err instanceof PrepaidBalanceConflictError ||
       err instanceof TokenReactivationBlockedError ||
+      err instanceof FleetCardDeactivatedError ||
       err instanceof TokenDriverInactiveError ||
       err instanceof TokenDriverNotFoundError ||
+      err instanceof TokenFleetNotFoundError ||
+      err instanceof FleetCardNotBillableError ||
+      err instanceof FleetCardPermissionError ||
+      err instanceof FleetCardDriverNotMemberError ||
+      err instanceof TokenManagedByFleetError ||
       err instanceof ValidationError
     ) {
       throw err;
@@ -969,6 +1432,8 @@ export async function updateToken(
     label: current.label,
     prepaidBalanceCents: current.prepaidBalanceCents,
     vehicleId: current.vehicleId,
+    fleetId: current.fleetId,
+    monthlyLimitCents: current.monthlyLimitCents,
   };
   const afterSnapshot: TokenSnapshot = {
     idToken: token.idToken,
@@ -977,6 +1442,8 @@ export async function updateToken(
     label: token.label,
     prepaidBalanceCents: token.prepaidBalanceCents,
     vehicleId: token.vehicleId,
+    fleetId: token.fleetId,
+    monthlyLimitCents: token.monthlyLimitCents,
   };
 
   const labelClearedOnMove =
@@ -991,7 +1458,10 @@ export async function updateToken(
     token.idToken !== current.idToken ||
     token.tokenType !== current.tokenType ||
     (token.prepaidBalanceCents == null) !== (current.prepaidBalanceCents == null) ||
-    (token.expiresAt?.getTime() ?? null) !== (current.expiresAt?.getTime() ?? null);
+    (token.expiresAt?.getTime() ?? null) !== (current.expiresAt?.getTime() ?? null) ||
+    // A fleet card no member holds is listed only while its fleet can be billed.
+    token.fleetId !== current.fleetId ||
+    (token.fleetId != null && (token.driverId == null) !== (current.driverId == null));
 
   // Audit + side effects driven by what actually changed.
   if (data.isActive === false && current.isActive) {
@@ -1029,6 +1499,17 @@ export async function updateToken(
       reactivatedBy: actorLabel(actor),
     });
     await bumpStationsHoldingTokens([token.id]);
+  } else if (token.revokedAt != null && current.revokedAt == null && !token.isActive) {
+    // The fleet DELETE of a card the fleet had suspended: revoked for good.
+    await writeTokenAudit({
+      tokenId: token.id,
+      entityIdSnapshot: token.id,
+      action: 'revoked',
+      actor,
+      before: beforeSnapshot,
+      after: afterSnapshot,
+      notes: data.revokedReason ?? null,
+    });
   } else {
     await writeTokenAudit({
       tokenId: token.id,
@@ -1040,6 +1521,14 @@ export async function updateToken(
       notes: labelClearedOnMove ? 'Label cleared: the token moved to another driver' : null,
     });
     if (listFieldsChanged) await bumpStationsHoldingTokens([token.id]);
+  }
+  // The member a fleet card was taken from, and the member it was given to, each hear it.
+  if (token.fleetId != null && current.driverId !== token.driverId) {
+    await notifyFleetCardMember(current.driverId, 'token.FleetCardTakenBack', {
+      ...token,
+      fleetId: current.fleetId ?? token.fleetId,
+    });
+    await notifyFleetCardMember(token.driverId, 'token.FleetCardAssigned', token);
   }
   // A changed value or OCPI type is a new OCPI Token: the old one is
   // invalidated. ISO14443 to ISO15693 (both RFID) is the same OCPI Token,
@@ -1070,6 +1559,9 @@ function labelOnlyChange(
     revokedReason: string | null;
     prepaidBalanceCents: number | null;
     vehicleId: string | null;
+    fleetId: string | null;
+    monthlyLimitCents: number | null;
+    revokedAt: Date | null;
   },
   token: typeof driverTokens.$inferSelect,
 ): boolean {
@@ -1082,14 +1574,22 @@ function labelOnlyChange(
     (current.expiresAt?.getTime() ?? null) === (token.expiresAt?.getTime() ?? null) &&
     current.revokedReason === token.revokedReason &&
     current.prepaidBalanceCents === token.prepaidBalanceCents &&
-    current.vehicleId === token.vehicleId
+    current.vehicleId === token.vehicleId &&
+    current.fleetId === token.fleetId &&
+    current.monthlyLimitCents === token.monthlyLimitCents &&
+    (current.revokedAt?.getTime() ?? null) === (token.revokedAt?.getTime() ?? null)
   );
 }
 
-export async function deleteToken(id: string, actor: TokenActor = { type: 'system' }) {
+export async function deleteToken(
+  id: string,
+  actor: TokenActor = { type: 'system' },
+  options: Pick<TokenWriteOptions, 'fleetCardsWrite'> = {},
+) {
   // Read the stations first: the delete sets their entries' token id to null
   // (foreign key), after which they can no longer be found. The next push
   // drops those entries, so the station stops accepting the card.
+  const restricted = await assertMayWriteTokenFleets([id], actor, options);
   const stationIds = await stationsHoldingTokens([id]);
   // The eMAID of an active Plug and Charge contract stays: deleting it would
   // delete the contract and its certificate records (revoke the contract first).
@@ -1099,10 +1599,13 @@ export async function deleteToken(id: string, actor: TokenActor = { type: 'syste
       and(
         eq(driverTokens.id, id),
         sql`NOT EXISTS (SELECT 1 FROM pnc_contracts c WHERE c.driver_token_id = ${driverTokens.id} AND c.status = 'active')`,
+        // A card moved into a fleet after the check above stays.
+        restricted ? isNull(driverTokens.fleetId) : undefined,
       ),
     )
     .returning();
   if (token == null) {
+    if (restricted) await assertMayWriteTokenFleets([id], actor, options);
     if ((await contractStatuses([id])).get(id) === 'active') {
       throw new PncContractTokenError(id, 'contract_active');
     }
@@ -1136,8 +1639,10 @@ export async function bulkSetActive(
   ids: string[],
   isActive: boolean,
   actor: TokenActor = { type: 'system' },
+  options: Pick<TokenWriteOptions, 'fleetCardsWrite'> = {},
 ): Promise<{ updated: number }> {
   if (ids.length === 0) return { updated: 0 };
+  const restricted = await assertMayWriteTokenFleets(ids, actor, options);
   if (isActive) {
     // No eMAID of a revoked Plug and Charge contract comes back.
     for (const [tokenId, status] of await contractStatuses(ids)) {
@@ -1176,7 +1681,13 @@ export async function bulkSetActive(
   const updated = await db
     .update(driverTokens)
     .set(updates)
-    .where(and(inArray(driverTokens.id, ids), ne(driverTokens.isActive, isActive)))
+    .where(
+      and(
+        inArray(driverTokens.id, ids),
+        ne(driverTokens.isActive, isActive),
+        restricted ? isNull(driverTokens.fleetId) : undefined,
+      ),
+    )
     .returning();
   if (updated.length === 0) return { updated: 0 };
 
@@ -1241,6 +1752,106 @@ export async function bulkSetActive(
   return { updated: updated.length };
 }
 
+type ReleaseExecutor = Pick<typeof db, 'update'>;
+
+/**
+ * Takes back the fleet cards a member holds when the member leaves the fleet
+ * (`fleetId` set), or is deactivated or erased (every fleet): each card is
+ * given to no member and suspended (`deactivated_by` `system`, no
+ * `revoked_at`), so a fleet user may hand it out and turn it on again. A
+ * card already inactive keeps who deactivated it, so an operator block stays.
+ * The card keeps its label (the fleet's) and drops the member's vehicle.
+ *
+ * With `tx` the update runs in the caller's transaction (the erasure) and the
+ * returned `afterCommit` writes the audit rows and sends the list, OCPI and
+ * page updates once the caller committed; without it the function runs both.
+ */
+export async function releaseMemberFleetCards(
+  target: { driverId: string; fleetId?: string | undefined },
+  actor: TokenActor = { type: 'system' },
+  tx?: ReleaseExecutor,
+): Promise<{ released: number; afterCommit: () => Promise<void> }> {
+  const run = async (conn: ReleaseExecutor) =>
+    conn
+      .update(driverTokens)
+      .set({
+        driverId: null,
+        vehicleId: null,
+        isActive: false,
+        deactivatedBy: sql`CASE WHEN ${driverTokens.isActive} THEN 'system' ELSE ${driverTokens.deactivatedBy} END`,
+        revokedReason: sql`CASE WHEN ${driverTokens.isActive} THEN ${FLEET_CARD_RELEASE_REASON} ELSE ${driverTokens.revokedReason} END`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(driverTokens.driverId, target.driverId),
+          target.fleetId != null
+            ? eq(driverTokens.fleetId, target.fleetId)
+            : sql`${driverTokens.fleetId} IS NOT NULL`,
+        ),
+      )
+      .returning({
+        id: driverTokens.id,
+        idToken: driverTokens.idToken,
+        tokenType: driverTokens.tokenType,
+        label: driverTokens.label,
+        fleetId: driverTokens.fleetId,
+      });
+  const released = await run(tx ?? db);
+  const afterCommit = async (): Promise<void> => {
+    if (released.length === 0) return;
+    for (const card of released) {
+      await writeTokenAudit({
+        tokenId: card.id,
+        entityIdSnapshot: card.id,
+        action: 'updated',
+        actor,
+        before: {
+          idToken: card.idToken,
+          tokenType: card.tokenType,
+          driverId: target.driverId,
+          label: card.label,
+          fleetId: card.fleetId,
+        },
+        after: {
+          idToken: card.idToken,
+          tokenType: card.tokenType,
+          driverId: null,
+          label: card.label,
+          fleetId: card.fleetId,
+        },
+        notes: FLEET_CARD_RELEASE_REASON,
+      });
+      // Fail-open: the card is already taken back.
+      await notifyFleetCardMember(target.driverId, 'token.FleetCardTakenBack', card);
+    }
+    const ids = released.map((c) => c.id);
+    await bumpStationsHoldingTokens(ids);
+    await publishTokenChanged(null);
+    await publishOcpiTokenPush({ tokenIds: ids });
+  };
+  if (tx == null) await afterCommit();
+  return { released: released.length, afterCommit };
+}
+
+/**
+ * Marks changed the local auth lists that hold a fleet's cards: a fleet card
+ * is listed Accepted only while the fleet can be billed, whoever holds it, so
+ * turning the fleet's account billing on or off changes its entries.
+ * Fail-open: the setting change already committed.
+ */
+export async function markFleetCardListsChanged(fleetId: string): Promise<void> {
+  try {
+    const cards = await db
+      .select({ id: driverTokens.id })
+      .from(driverTokens)
+      .where(eq(driverTokens.fleetId, fleetId));
+    await bumpStationsHoldingTokens(cards.map((c) => c.id));
+  } catch (err) {
+    logger.warn({ err, fleetId }, 'Fleet card local list bump failed, lists show it at next push');
+  }
+}
+
 // label is the last column, so a file without it still imports.
 export const TOKEN_CSV_HEADER = 'idToken,tokenType,driverEmail,isActive,expiresAt,label';
 
@@ -1249,6 +1860,7 @@ export async function exportTokensCsv(filters: TokenFilters = {}): Promise<strin
     .select(tokenSelect)
     .from(driverTokens)
     .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
+    .leftJoin(fleets, eq(driverTokens.fleetId, fleets.id))
     .where(tokenWhere(filters))
     .orderBy(desc(driverTokens.createdAt), desc(driverTokens.id));
 
@@ -1403,7 +2015,7 @@ export async function importTokensCsv(
       isActive: boolean;
       expiresAt: Date | null;
       revokedAt: Date | null;
-      deactivatedBy: 'operator' | 'driver' | 'system' | null;
+      deactivatedBy: 'operator' | 'driver' | 'system' | 'fleet' | null;
     };
     const prepared: Prepared[] = [];
 

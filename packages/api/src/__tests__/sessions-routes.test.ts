@@ -1787,3 +1787,18 @@ describe('Session routes', () => {
     });
   });
 });
+
+describe('GET /v1/sessions/:id stays closed to fleet users', () => {
+  it('does not open the session detail to fleet users (the route gate answers 404)', () => {
+    const opened: string[] = [];
+    const probe = Fastify();
+    probe.addHook('onRoute', (route) => {
+      const config = route.config as { fleetScope?: boolean } | undefined;
+      if (config?.fleetScope === true) opened.push(`${String(route.method)} ${route.url}`);
+    });
+    sessionRoutes(probe);
+    // The detail carries the RFID value, the PnC contract, the plate and the
+    // payment record: fleet users read GET /v1/fleets/:id/sessions/:sessionId.
+    expect(opened).toEqual([]);
+  });
+});

@@ -4,7 +4,9 @@
 import {
   claimFleetCreditLimitNotice,
   client,
+  isFleetEnabled,
   loadFleetBillingContacts,
+  loadFleetManagerRecipients,
   type FleetCreditCheck,
 } from '@evtivity/database';
 import { dispatchSystemNotification, notificationMoney } from '@evtivity/lib';
@@ -12,6 +14,9 @@ import type { ServiceLogger } from '@evtivity/lib';
 
 export const FLEET_CREDIT_LIMIT_WARNING_EVENT = 'fleet.CreditLimitWarning';
 export const FLEET_CREDIT_LIMIT_REACHED_EVENT = 'fleet.CreditLimitReached';
+/** The same notices for the fleet's fleet users (Fleet Manager) with payments:read. */
+export const FLEET_MANAGER_CREDIT_LIMIT_WARNING_EVENT = 'fleet.ManagerCreditLimitWarning';
+export const FLEET_MANAGER_CREDIT_LIMIT_REACHED_EVENT = 'fleet.ManagerCreditLimitReached';
 
 /** Operators with this permission manage fleets and get the credit limit notices. */
 export const FLEET_CREDIT_NOTICE_PERMISSION = 'fleets:write';
@@ -88,6 +93,39 @@ async function noticeRecipients(
 }
 
 /**
+ * Tells the fleet's fleet users with payments:read of the credit limit notice
+ * the claim just sent, in their own language and time zone. An address that
+ * already got the notice as a billing contact or operator gets no second one.
+ * Skipped while Fleets is off (a fleet user cannot open the fleet then).
+ * Fail-open per notice (logged at warn).
+ */
+async function notifyFleetManagers(
+  fleetId: string,
+  kind: 'warning' | 'reached',
+  alreadyNotified: readonly NoticeRecipient[],
+  variables: Record<string, unknown>,
+  deps: FleetCreditNoticeDeps,
+  log: ServiceLogger,
+): Promise<void> {
+  try {
+    if (!(await isFleetEnabled())) return;
+    const seen = new Set(alreadyNotified.map((r) => r.email.toLowerCase()));
+    const managers = (await loadFleetManagerRecipients(client, fleetId)).filter(
+      (m) => !seen.has(m.email.toLowerCase()),
+    );
+    const eventType =
+      kind === 'reached'
+        ? FLEET_MANAGER_CREDIT_LIMIT_REACHED_EVENT
+        : FLEET_MANAGER_CREDIT_LIMIT_WARNING_EVENT;
+    for (const manager of managers) {
+      await dispatchSystemNotification(client, eventType, manager, variables, deps.templatesDirs);
+    }
+  } catch (err) {
+    log.warn({ err, fleetId, kind }, 'Fleet manager credit limit notice failed; continuing');
+  }
+}
+
+/**
  * Sends the fleet credit limit notice a start check calls for, once per fleet,
  * calendar month and kind (the claim in `fleet_credit_limit_notices`, P7):
  * `fleet.CreditLimitReached` when the exposure is at or above the limit,
@@ -125,6 +163,7 @@ export async function dispatchFleetCreditLimitNotices(
     for (const recipient of recipients) {
       await dispatchSystemNotification(client, eventType, recipient, variables, deps.templatesDirs);
     }
+    await notifyFleetManagers(check.fleetId, kind, recipients, variables, deps, log);
     return kind;
   } catch (err) {
     log.warn({ err, fleetId: check.fleetId, kind }, 'Fleet credit limit notice failed; continuing');

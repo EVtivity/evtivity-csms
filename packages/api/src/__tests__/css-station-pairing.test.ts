@@ -26,6 +26,7 @@ function makeChain() {
     'select',
     'from',
     'where',
+    'for',
     'orderBy',
     'limit',
     'offset',
@@ -344,10 +345,12 @@ describe('PATCH /v1/stations/:id isSimulator toggle pairs css_stations', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    // 1: the reported fields (never booted), 2: before SELECT, 3: UPDATE returning
+    // 1: the reported fields (never booted), 2: before SELECT, 3: the reported
+    // fields on the locked row, 4: UPDATE returning
     setupDbResults(
       [{ model: null, serialNumber: null, modelReportedAt: null, serialNumberReportedAt: null }],
       [updated],
+      [{ model: null, serialNumber: null, modelReportedAt: null, serialNumberReportedAt: null }],
       [updated],
     );
 

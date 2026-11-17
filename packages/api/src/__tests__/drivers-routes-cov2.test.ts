@@ -126,7 +126,11 @@ vi.mock('@evtivity/services/company-currency', () => ({
   sessionCurrencySql: vi.fn(() => 'currency'),
 }));
 
+const fleetCardsPerm = vi.hoisted(() => ({ granted: true }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: (_request: unknown, permission: string) =>
+    Promise.resolve(permission !== 'fleetCards:write' || fleetCardsPerm.granted),
   authorize:
     () =>
     async (
@@ -158,6 +162,8 @@ vi.mock('../services/token.service.js', () => {
   class TokenDriverInactiveError extends Error {}
   class PncContractTokenError extends Error {}
   class VehicleIdTokenInUseError extends Error {}
+  class FleetCardPermissionError extends Error {}
+  class FleetCardSiteScopeError extends Error {}
   return {
     createToken: createTokenMock,
     bulkSetActive: bulkSetActiveMock,
@@ -166,6 +172,8 @@ vi.mock('../services/token.service.js', () => {
     TokenDriverInactiveError,
     PncContractTokenError,
     VehicleIdTokenInUseError,
+    FleetCardPermissionError,
+    FleetCardSiteScopeError,
     tokenActorOf: (actor: { actorUserId: string | null }) => ({
       type: 'operator',
       userId: actor.actorUserId,
@@ -666,6 +674,7 @@ describe('Driver routes (operator), uncovered paths', () => {
       expect(createTokenMock).toHaveBeenCalledWith(
         { driverId: DRIVER_ID, idToken: 'RFID-1', tokenType: 'ISO14443' },
         { type: 'operator', userId: 'usr_000000000001' },
+        { fleetCardsWrite: true },
       );
     });
 
@@ -858,6 +867,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         vehiclesRemoved: 2,
         tokensDeactivated: 3,
         tokenLabelsCleared: 2,
+        fleetCardsReleased: 1,
         avatarRemoved: true,
       });
       const res = await app.inject({
@@ -868,6 +878,7 @@ describe('Driver routes (operator), uncovered paths', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({
+        fleetCardsReleased: 1,
         paymentMethodsRemoved: 1,
         vehiclesRemoved: 2,
         tokensDeactivated: 3,

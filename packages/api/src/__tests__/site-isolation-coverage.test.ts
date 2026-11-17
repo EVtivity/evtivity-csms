@@ -20,6 +20,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  FLEET_SCOPE_ROUTES,
   SITE_ISOLATION_ALLOWLIST,
   SITE_ISOLATION_MATRIX,
 } from './helpers/site-isolation-matrix.js';
@@ -28,7 +29,7 @@ import { ALL_METHODS, scanRoutes, scanSource, type ScanResult } from './helpers/
 const key = (e: { method: string; path: string }): string => `${e.method} ${e.path}`;
 
 describe('site isolation coverage', () => {
-  const { routes, portal, unparsed } = scanRoutes();
+  const { routes, portal, unparsed, fleetScope } = scanRoutes();
   const matrix = new Set(SITE_ISOLATION_MATRIX.map(key));
   const allowlist = new Set(SITE_ISOLATION_ALLOWLIST.map(key));
 
@@ -75,6 +76,23 @@ describe('site isolation coverage', () => {
         (e.kind === 'company' || e.expectText == null || e.noSitesText == null),
     ).map(key);
     expect(missing).toEqual([]);
+  });
+
+  it('lists exactly the routes open to fleet users, each with a fleet check', () => {
+    const declared = new Set(fleetScope ?? []);
+    const listed = FLEET_SCOPE_ROUTES.map(key);
+    // A route opened to fleet users without an entry, or an entry for a route
+    // that does not open itself to them.
+    expect([...declared].filter((r) => !listed.includes(r))).toEqual([]);
+    expect(listed.filter((r) => !declared.has(r))).toEqual([]);
+    expect(new Set(listed).size).toBe(listed.length);
+    // The fleet routes and the own API key routes: a scanner that stops finding the flag fails here.
+    expect(declared.size).toBe(28);
+    // Every route that names a resource checks another fleet's or an unreadable one.
+    const unchecked = FLEET_SCOPE_ROUTES.filter(
+      (e) => e.path.includes(':') && e.other.length === 0,
+    ).map(key);
+    expect(unchecked).toEqual([]);
   });
 
   it('gives every control that cannot succeed its expected code and reason', () => {
@@ -198,6 +216,45 @@ describe('route scanner', () => {
     );
     expect(result.routes).toEqual([]);
     expect(result.unparsed).toHaveLength(2);
+  });
+
+  it('reads the routes whose options open them to fleet users', () => {
+    const out: ScanResult = { routes: [], portal: [], unparsed: [] };
+    const fleetScope = new Set<string>();
+    scanSource(
+      path.join('routes', 'f.ts'),
+      `
+      const TARGETS = [
+        { path: '/open/:id/neighbors', fleetScopeWhere: (ids) => ids },
+        { path: '/closed/:id/neighbors' },
+      ];
+      export function routes(app: FastifyInstance) {
+        app.get('/plain', { onRequest: [x] }, async () => ({}));
+        app.get('/open', { config: { fleetScope: true } }, async () => ({}));
+        app.post('/open-rate', { config: { fleetScope: true, rateLimit: { max: 1 } } }, async () => ({}));
+        app.get('/false', { config: { fleetScope: false } }, async () => ({}));
+        app.route({ method: 'PUT', url: '/routed', config: { fleetScope: true }, handler });
+        for (const target of TARGETS) {
+          app.get(
+            target.path,
+            { ...(target.fleetScopeWhere != null ? { config: { fleetScope: true } } : {}) },
+            async () => target.fleetScopeWhere,
+          );
+        }
+        app.get('/odd', { config: SHARED, fleetScope: true }, async () => ({}));
+        app.get('/indirect', fleetScopeOptions, async () => ({}));
+      }`,
+      out,
+      new Set(),
+      new Set(),
+      undefined,
+      fleetScope,
+    );
+    expect([...fleetScope].sort()).toEqual(
+      ['GET /open', 'POST /open-rate', 'PUT /routed', 'GET /open/:id/neighbors'].sort(),
+    );
+    // A mention the scanner cannot read (false, a variable, a misplaced flag) fails instead of passing as closed.
+    expect(out.unparsed).toHaveLength(3);
   });
 
   it('keeps driver portal routes apart, but not an operator path in the portal folder', () => {

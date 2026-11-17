@@ -13,6 +13,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));
 vi.mock('@/lib/api', () => ({ api: { get: getMock, post: vi.fn() } }));
+vi.mock('@/lib/auth', () => ({ useHasAllSiteAccess: () => true }));
 vi.mock('@/lib/timezone', () => ({
   useUserTimezone: () => 'UTC',
   formatDateTime: (value: string) => value,

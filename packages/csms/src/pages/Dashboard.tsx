@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { LoadingLogo } from '@/components/loading-logo';
 import { api } from '@/lib/api';
-import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission, useIsFleetUser } from '@/lib/auth';
 import { EnergyChart } from '@/components/charts/EnergyChart';
 import { SessionsChart } from '@/components/charts/SessionsChart';
 import { Sparkline } from '@/components/charts/Sparkline';
@@ -37,6 +37,10 @@ import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableZone } from '@/components/dashboard/SortableZone';
 import { SortableWidget } from '@/components/dashboard/SortableWidget';
 import { SiteLayoutWidget } from '@/components/dashboard/SiteLayoutWidget';
+import { FleetInvoicesWidget } from '@/components/dashboard/FleetInvoicesWidget';
+import { FleetCombobox, type FleetSelection } from '@/components/fleet-combobox';
+import { Label } from '@/components/ui/label';
+import { useFleetDashboard } from '@/hooks/use-fleet-dashboard';
 import {
   DashboardCustomizeBar,
   DashboardCustomizeButton,
@@ -656,6 +660,20 @@ function DashboardBody({
   const canReadSites = useHasPermission('sites:read');
   const canReadSecurityEvents = useHasPermission('securityEvents:read');
   const featureFlags = useFeatureFlags();
+  // The site and company cards need dashboard:read: a fleet user (who never
+  // holds it) gets only the fleet cards and charts.
+  const operatorView = useHasPermission('dashboard:read');
+  const isFleetUser = useIsFleetUser();
+  const fleetView = useHasPermission('fleets:read') && featureFlags.flags.fleetEnabled;
+  // The credit limit and the fleet invoices span every site.
+  const fleetBilling = canSeeMoney && (isFleetUser || hasAllSiteAccess);
+  const [fleetPick, setFleetPick] = useState<FleetSelection | null>(null);
+  const fleetRange = useDateRange();
+  const fleetSummary = useFleetDashboard({
+    enabled: fleetView && mode === 'live',
+    fleetId: fleetPick?.id ?? null,
+    dateQuery: fleetRange.dateQuery,
+  });
   const timezone = useUserTimezone();
   const dashboardLayout = useDashboardLayout();
   // A chart the Live layout shows; the four new charts fetch only then.
@@ -675,89 +693,98 @@ function DashboardBody({
     queryKey: ['dashboard', 'stats'],
     queryFn: () => api.get<DashboardStats>('/v1/dashboard/stats'),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const uptimeQuery = useQuery({
     queryKey: ['dashboard', 'uptime', UPTIME_DAYS],
     queryFn: () => api.get<UptimeStats>(`/v1/dashboard/uptime?days=${String(UPTIME_DAYS)}`),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const energyHistory = useQuery({
     queryKey: ['dashboard', 'energy-history', energy.dateQuery],
     queryFn: () => api.get<EnergyPoint[]>(`/v1/dashboard/energy-history?${energy.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const sessionHistory = useQuery({
     queryKey: ['dashboard', 'session-history', sessions.dateQuery],
     queryFn: () => api.get<SessionPoint[]>(`/v1/dashboard/session-history?${sessions.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const stationStatus = useQuery({
     queryKey: ['dashboard', 'station-status'],
     queryFn: () => api.get<StatusPoint[]>('/v1/dashboard/station-status'),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const utilization = useQuery({
     queryKey: ['dashboard', 'utilization', utilRange.dateQuery],
     queryFn: () => api.get<UtilizationPoint[]>(`/v1/dashboard/utilization?${utilRange.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const peakUsage = useQuery({
     queryKey: ['dashboard', 'peak-usage', peak.dateQuery],
     queryFn: () => api.get<PeakPoint[]>(`/v1/dashboard/peak-usage?${peak.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const financialStats = useQuery({
     queryKey: ['dashboard', 'financial-stats'],
     queryFn: () => api.get<FinancialStats>('/v1/dashboard/financial-stats'),
     refetchInterval: REFETCH_INTERVAL,
-    enabled: canSeeMoney,
+    enabled: operatorView && canSeeMoney,
   });
 
   const revenueHistory = useQuery({
     queryKey: ['dashboard', 'revenue-history', revenue.dateQuery],
     queryFn: () => api.get<RevenuePoint[]>(`/v1/dashboard/revenue-history?${revenue.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
-    enabled: canSeeMoney,
+    enabled: operatorView && canSeeMoney,
   });
 
   const paymentBreakdown = useQuery({
     queryKey: ['dashboard', 'payment-breakdown'],
     queryFn: () => api.get<PaymentBreakdownPoint[]>('/v1/dashboard/payment-breakdown'),
     refetchInterval: REFETCH_INTERVAL,
-    enabled: canSeeMoney,
+    enabled: operatorView && canSeeMoney,
   });
 
   const ocppHealth = useQuery({
     queryKey: ['dashboard', 'ocpp-health'],
     queryFn: () => api.get<OcppHealthStats>('/v1/dashboard/ocpp-health'),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const carbonStats = useQuery({
     queryKey: ['dashboard', 'carbon-stats'],
     queryFn: () => api.get<CarbonStats>('/v1/dashboard/carbon-stats'),
     refetchInterval: REFETCH_INTERVAL,
+    enabled: operatorView,
   });
 
   const locationsByCity = useQuery({
     queryKey: ['dashboard', 'locations-by-city'],
     queryFn: () => api.get<LocationsByCityData>('/v1/dashboard/locations-by-city'),
     refetchInterval: REFETCH_INTERVAL,
-    enabled: isChartShown('chart.locationsByCity'),
+    enabled: operatorView && isChartShown('chart.locationsByCity'),
   });
 
   const evsesByConnectorType = useQuery({
     queryKey: ['dashboard', 'evses-by-connector-type'],
     queryFn: () => api.get<EvsesByConnectorTypePoint[]>('/v1/dashboard/evses-by-connector-type'),
     refetchInterval: REFETCH_INTERVAL,
-    enabled: isChartShown('chart.evsesByConnectorType'),
+    enabled: operatorView && isChartShown('chart.evsesByConnectorType'),
   });
 
   const plugAndCharge = useQuery({
@@ -765,14 +792,14 @@ function DashboardBody({
     queryFn: () =>
       api.get<PlugAndChargeData>(`/v1/dashboard/plug-and-charge?${pncRange.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
-    enabled: isChartShown('chart.plugAndCharge'),
+    enabled: operatorView && isChartShown('chart.plugAndCharge'),
   });
 
   const freeVend = useQuery({
     queryKey: ['dashboard', 'free-vend', freeVendRange.dateQuery],
     queryFn: () => api.get<FreeVendData>(`/v1/dashboard/free-vend?${freeVendRange.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
-    enabled: isChartShown('chart.freeVend'),
+    enabled: operatorView && isChartShown('chart.freeVend'),
   });
 
   const [activeSessionsPage, setActiveSessionsPage] = useState(1);
@@ -797,7 +824,7 @@ function DashboardBody({
         }).toString()}`,
       ),
     refetchInterval: 30_000,
-    enabled: canSeeSessions,
+    enabled: operatorView && canSeeSessions,
     // Keeps the current rows on screen while the next page loads.
     placeholderData: (previous) => previous,
   });
@@ -812,7 +839,7 @@ function DashboardBody({
     }
   }, [activeSessionsPage, activeSessionsTotalPages]);
 
-  const { yd, db, dayDelta, deltaLabel } = useDayDeltaContext();
+  const { yd, db, dayDelta, deltaLabel } = useDayDeltaContext(operatorView);
 
   const isRange = fromDate !== toDate;
   const snapshotUrl = isRange
@@ -822,13 +849,13 @@ function DashboardBody({
   const snapshot = useQuery({
     queryKey: ['dashboard', 'snapshots', fromDate, toDate],
     queryFn: () => api.get<SnapshotData>(snapshotUrl),
-    enabled: mode === 'historical' && fromDate !== '',
+    enabled: operatorView && mode === 'historical' && fromDate !== '',
   });
 
   const trendQuery = useQuery({
     queryKey: ['dashboard', 'snapshots', 'trend'],
     queryFn: () => api.get<{ days: TrendDay[] }>('/v1/dashboard/snapshots/trend'),
-    enabled: mode === 'trend',
+    enabled: operatorView && mode === 'trend',
   });
 
   // Snapshot, trend, and revenue-history responses carry no currency, so they use the company one.
@@ -853,8 +880,9 @@ function DashboardBody({
     );
   }
 
+  // MWh from 10,000 kWh: "19,787.4 kWh" does not fit a stat card two across at 375 px.
   const formatEnergy = (wh: number): string =>
-    wh >= 100_000_000
+    wh >= 10_000_000
       ? `${formatNumber(wh / 1_000_000, 1)}\u00a0MWh`
       : `${formatNumber(wh / 1000, 1)}\u00a0kWh`;
 
@@ -885,6 +913,87 @@ function DashboardBody({
         {t('dashboard.stationsNotAccepted', notAccepted)}
       </p>
     ) : undefined;
+
+  /** The fleet picker the fleet cards and charts share. */
+  function fleetControls(): React.JSX.Element {
+    return (
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <h2 className="text-lg font-semibold">{t('dashboard.fleet.title')}</h2>
+        <div className="flex flex-col items-start gap-3 sm:flex-row">
+          <div className="grid w-full gap-2 sm:w-72">
+            <Label htmlFor="dashboard-fleet">{t('dashboard.fleet.picker')}</Label>
+            <FleetCombobox id="dashboard-fleet" value={fleetPick} onSelect={setFleetPick} />
+            <p className="text-xs text-muted-foreground">
+              {fleetPick == null ? t('dashboard.fleet.allFleets') : t('dashboard.fleet.oneFleet')}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <span className="text-sm font-medium leading-none">{t('dashboard.dateRange')}</span>
+            {dateControl(fleetRange)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderFleetStatCards(): React.JSX.Element {
+    const summary = fleetSummary.data;
+    const fleetState = queryState(fleetSummary);
+    const credit = summary?.creditLimit;
+    return (
+      <div className="space-y-4" data-testid="dashboard-fleet-cards">
+        {fleetControls()}
+        <StatGrid>
+          <StatCard
+            title={t('dashboard.fleet.sessions')}
+            value={summary?.sessionCount ?? 0}
+            info={t('dashboard.fleet.sessionsInfo')}
+            state={fleetState}
+          />
+          <StatCard
+            title={t('dashboard.fleet.energy')}
+            value={formatEnergy(summary?.energyWh ?? 0)}
+            info={t('dashboard.fleet.energyInfo')}
+            state={fleetState}
+          />
+          {canSeeMoney && (
+            <StatCard
+              title={t('dashboard.fleet.cost')}
+              value={formatMoney(summary?.costCents ?? 0, summary?.currency)}
+              info={t('dashboard.fleet.costInfo')}
+              state={fleetState}
+            />
+          )}
+          {fleetBilling && (
+            <StatCard
+              title={t('dashboard.fleet.creditUsed')}
+              value={
+                credit == null ? t('common.na') : `${formatNumberUpTo(credit.usedPercent, 1)}%`
+              }
+              info={t('dashboard.fleet.creditUsedInfo')}
+              state={fleetState}
+              extra={
+                <p className="text-xs text-muted-foreground">
+                  {credit == null
+                    ? t('dashboard.fleet.noCreditLimit')
+                    : t(
+                        fleetPick == null
+                          ? 'dashboard.fleet.creditUsedFleet'
+                          : 'dashboard.fleet.creditUsedOf',
+                        {
+                          fleet: credit.fleetName,
+                          used: formatMoney(credit.exposureCents, summary?.currency),
+                          limit: formatMoney(credit.limitCents, summary?.currency),
+                        },
+                      )}
+                </p>
+              }
+            />
+          )}
+        </StatGrid>
+      </div>
+    );
+  }
 
   function renderLiveStatCards(): React.JSX.Element {
     const revenueGrid = (
@@ -1224,9 +1333,11 @@ function DashboardBody({
 
     return (
       <>
-        {healthRows}
+        {operatorView && healthRows}
 
-        {canSeeMoney && (
+        {fleetView && renderFleetStatCards()}
+
+        {operatorView && canSeeMoney && (
           <ScrollSnapRow
             items={[
               { id: 'revenue', content: revenueGrid },
@@ -1529,12 +1640,12 @@ function DashboardBody({
   const chartWidgets: Record<string, DashboardWidgetView> = {
     'chart.aiInsights': {
       name: t('aiInsights.activeInsights'),
-      visible: canReadInsights && featureFlags.flags.aiInsightsEnabled,
+      visible: operatorView && canReadInsights && featureFlags.flags.aiInsightsEnabled,
       render: () => <ActiveInsightsWidget />,
     },
     'chart.stationStatus': {
       name: t('charts.stationStatus'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <StationStatusChart
           data={stationStatus.data ?? []}
@@ -1545,12 +1656,12 @@ function DashboardBody({
     },
     'chart.securityEvents': {
       name: t('dashboard.securityEvents.title'),
-      visible: canReadSecurityEvents,
+      visible: operatorView && canReadSecurityEvents,
       render: () => <SecurityEventsCard />,
     },
     'chart.utilization': {
       name: t('charts.topUtilization'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <UtilizationChart
           data={utilization.data ?? []}
@@ -1562,7 +1673,7 @@ function DashboardBody({
     },
     'chart.energy': {
       name: t('charts.energyDelivered'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <EnergyChart
           data={energyHistory.data ?? []}
@@ -1574,7 +1685,7 @@ function DashboardBody({
     },
     'chart.sessions': {
       name: t('charts.sessionsPerDay'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <SessionsChart
           data={sessionHistory.data ?? []}
@@ -1586,7 +1697,7 @@ function DashboardBody({
     },
     'chart.revenue': {
       name: t('charts.revenuePerDay'),
-      visible: canSeeMoney,
+      visible: operatorView && canSeeMoney,
       render: () => (
         <RevenueChart
           data={revenueHistory.data ?? []}
@@ -1601,7 +1712,7 @@ function DashboardBody({
     },
     'chart.paymentBreakdown': {
       name: t('charts.paymentBreakdown'),
-      visible: canSeeMoney,
+      visible: operatorView && canSeeMoney,
       render: () => (
         <PaymentBreakdownChart
           data={paymentBreakdown.data ?? []}
@@ -1612,7 +1723,7 @@ function DashboardBody({
     },
     'chart.peakUsage': {
       name: t('charts.peakUsage'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <PeakUsageChart
           data={peakUsage.data ?? []}
@@ -1624,7 +1735,7 @@ function DashboardBody({
     },
     'chart.activeSessions': {
       name: t('charts.activeSessions'),
-      visible: canSeeSessions,
+      visible: operatorView && canSeeSessions,
       render: () => (
         <Card>
           <CardHeader>
@@ -1669,7 +1780,7 @@ function DashboardBody({
     },
     'chart.siteLayout3d': {
       name: t('dashboard.siteLayout.title'),
-      visible: canReadSites,
+      visible: operatorView && canReadSites,
       render: () => (
         <SiteLayoutWidget
           siteId={siteLayoutItem?.siteId ?? null}
@@ -1680,12 +1791,12 @@ function DashboardBody({
     },
     'chart.stationMap': {
       name: t('dashboard.siteMap'),
-      visible: true,
+      visible: operatorView,
       render: () => <StationMapChart info={t('dashboard.info.siteMap')} />,
     },
     'chart.locationsByCity': {
       name: t('dashboard.locationsByCity'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <LocationsByCityChart
           data={locationsByCity.data}
@@ -1696,7 +1807,7 @@ function DashboardBody({
     },
     'chart.evsesByConnectorType': {
       name: t('dashboard.evsesByConnectorType'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <EvsesByConnectorTypeChart
           data={evsesByConnectorType.data ?? []}
@@ -1707,7 +1818,7 @@ function DashboardBody({
     },
     'chart.plugAndCharge': {
       name: t('dashboard.plugAndCharge'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <PlugAndChargeChart
           data={plugAndCharge.data}
@@ -1719,13 +1830,69 @@ function DashboardBody({
     },
     'chart.freeVend': {
       name: t('dashboard.freeVend'),
-      visible: true,
+      visible: operatorView,
       render: () => (
         <FreeVendChart
           data={freeVend.data}
           actions={dateControl(freeVendRange)}
           info={t('dashboard.freeVendInfo')}
           state={queryState(freeVend)}
+        />
+      ),
+    },
+    'chart.fleetEnergy': {
+      name: t('dashboard.fleet.energyChart'),
+      visible: fleetView,
+      render: () => (
+        <EnergyChart
+          title={t('dashboard.fleet.energyChart')}
+          data={fleetSummary.data?.history ?? []}
+          info={t('dashboard.fleet.energyChartInfo')}
+          state={queryState(fleetSummary)}
+        />
+      ),
+    },
+    'chart.fleetSessions': {
+      name: t('dashboard.fleet.sessionsChart'),
+      visible: fleetView,
+      render: () => (
+        <SessionsChart
+          title={t('dashboard.fleet.sessionsChart')}
+          data={(fleetSummary.data?.history ?? []).map((d) => ({
+            date: d.date,
+            count: d.sessions,
+          }))}
+          info={t('dashboard.fleet.sessionsChartInfo')}
+          state={queryState(fleetSummary)}
+        />
+      ),
+    },
+    'chart.fleetCost': {
+      name: t('dashboard.fleet.costChart'),
+      visible: fleetView && canSeeMoney,
+      render: () => (
+        <RevenueChart
+          title={t('dashboard.fleet.costChart')}
+          data={(fleetSummary.data?.history ?? []).map((d) => ({
+            date: d.date,
+            revenueCents: d.costCents ?? 0,
+            sessionCount: d.sessions,
+          }))}
+          currency={fleetSummary.data?.currency ?? companyCurrency}
+          currencyError={company.isError}
+          onRetry={company.refetch}
+          info={t('dashboard.fleet.costChartInfo')}
+          state={queryState(fleetSummary)}
+        />
+      ),
+    },
+    'chart.fleetInvoices': {
+      name: t('dashboard.fleet.invoicesChart'),
+      visible: fleetView && fleetBilling,
+      render: () => (
+        <FleetInvoicesWidget
+          invoices={fleetSummary.data?.invoices ?? []}
+          state={queryState(fleetSummary)}
         />
       ),
     },
@@ -1785,6 +1952,8 @@ function DashboardBody({
 export function Dashboard(): React.JSX.Element {
   const { t } = useTranslation();
   useUpdateCheck();
+  // Historical and Trend read the site snapshots: dashboard:read only.
+  const operatorView = useHasPermission('dashboard:read');
   const [mode, setMode] = useState<DashboardMode>('live');
   const [editing, setEditing] = useState(false);
   const historical = useDateRange();
@@ -1797,15 +1966,17 @@ export function Dashboard(): React.JSX.Element {
           {mode === 'live' && (
             <DashboardCustomizeButton editing={editing} onEditingChange={setEditing} />
           )}
-          <ModeToggle
-            mode={mode}
-            onModeChange={(next) => {
-              setMode(next);
-              // Customizing applies to the Live view only.
-              if (next !== 'live') setEditing(false);
-            }}
-            range={historical}
-          />
+          {operatorView && (
+            <ModeToggle
+              mode={mode}
+              onModeChange={(next) => {
+                setMode(next);
+                // Customizing applies to the Live view only.
+                if (next !== 'live') setEditing(false);
+              }}
+              range={historical}
+            />
+          )}
         </div>
       </div>
       <DashboardBody

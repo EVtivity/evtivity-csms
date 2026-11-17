@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import {
+  checkCardMonthlyLimit,
   checkFleetCreditLimit,
   fleetCreditNoticesClaimed,
   readFleetCreditLimit,
   sessionGroupHasPaidTariff,
+  stampFleetCardBilling,
   stampSessionBilling,
 } from '@evtivity/database';
-import type { FleetCreditCheck, SessionBilling, TariffPriceSnapshot } from '@evtivity/database';
+import type {
+  CardMonthlyLimitCheck,
+  FleetCreditCheck,
+  SessionBilling,
+  TariffPriceSnapshot,
+} from '@evtivity/database';
 import {
   authorizeSessionHold,
   classifySessionPayment,
@@ -36,6 +43,18 @@ export interface PaymentGateInput {
   sessionId: string;
   transactionId: string;
   driverId: string | null;
+  /**
+   * The fleet of the session's token when it is a fleet card, held by a member
+   * or not: the session is billed on account to that fleet only, never to the
+   * member. Absent or null for every other session.
+   */
+  fleetCardFleetId?: string | null;
+  /**
+   * The RFID card (driver token) the session was started with, null or
+   * absent for none. A fleet card with a monthly spending limit is checked
+   * against it at the start (checkCardMonthlyLimit).
+   */
+  tokenId?: string | null;
   stationDbId: string;
   ocppStationId: string;
   siteId: string | null;
@@ -161,6 +180,17 @@ export type PaymentGateDecision =
   | {
       kind: 'stop';
       /**
+       * A fleet card no member holds whose fleet cannot bill it (Fleets off or
+       * the fleet's account billing off): nobody pays for the session.
+       */
+      why: 'fleet_card_not_billable';
+      reason: 'MissingPaymentMethod';
+      fleetId: string;
+      notice: null;
+    }
+  | {
+      kind: 'stop';
+      /**
        * A payment provider is selected but this process cannot use it (no
        * credentials, or simulated while PAYMENTS_ALLOW_SIMULATED=false): the
        * session is stopped unbilled, never charged for free as with payments
@@ -182,6 +212,18 @@ export type PaymentGateDecision =
       reason: 'AccountCreditLimit';
       fleetId: string;
       /** The driver's notice goes out from stopSessionForPayment, once. */
+      notice: null;
+    }
+  | {
+      kind: 'stop';
+      /**
+       * The session's fleet RFID card has no monthly spending limit left: its
+       * sessions of the month reached it, or the reservations of its other
+       * running sessions leave a cost ceiling of 0.
+       */
+      why: 'card_monthly_limit';
+      reason: 'CardMonthlyLimit';
+      tokenId: string;
       notice: null;
     };
 
@@ -206,6 +248,7 @@ export function planPaymentGate(
     FleetCreditCheck,
     'fleetId' | 'level' | 'remainingCents' | 'ceilingCents'
   > | null = null,
+  card: Pick<CardMonthlyLimitCheck, 'tokenId' | 'remainingCents' | 'ceilingCents'> | null = null,
 ): PaymentGateDecision {
   const {
     driverId,
@@ -232,6 +275,7 @@ export function planPaymentGate(
     prepaid: prepaidBalanceCents != null,
     account: billing?.mode === 'account',
     driverId,
+    fleetCard: input.fleetCardFleetId != null,
     guestSession: guestStatus != null,
   });
 
@@ -247,6 +291,31 @@ export function planPaymentGate(
       return { kind: 'allow', why: 'prepaid_funded' };
     }
     return { kind: 'stop', why: 'prepaid_no_credit', reason: 'PaymentFailed', notice: null };
+  }
+
+  // A fleet card at its monthly spending limit charges nothing more this
+  // month, whoever holds it and however the session is paid.
+  if (card != null && (card.ceilingCents ?? card.remainingCents) <= 0) {
+    return {
+      kind: 'stop',
+      why: 'card_monthly_limit',
+      reason: 'CardMonthlyLimit',
+      tokenId: card.tokenId,
+      notice: null,
+    };
+  }
+
+  // A fleet card is billed only to its own fleet on account, whoever holds it:
+  // no stamp means its fleet cannot bill it (Fleets off or account billing
+  // off), and the member is never charged instead.
+  if (mode !== 'account' && input.fleetCardFleetId != null) {
+    return {
+      kind: 'stop',
+      why: 'fleet_card_not_billable',
+      reason: 'MissingPaymentMethod',
+      fleetId: input.fleetCardFleetId,
+      notice: null,
+    };
   }
 
   // Charge on account: billed to the fleet on its invoice, so no card and no
@@ -387,10 +456,16 @@ export async function runPaymentGate(
   // (P4, P5): only after roaming and prepaid are ruled out (free vend never
   // reaches the gate). A stamp the portal start or an earlier run wrote is
   // kept, so a fleet change never changes a started session.
-  const billing =
-    !input.isRoaming && input.prepaidBalanceCents == null && input.driverId != null
-      ? await stampSessionBilling(deps.sql, sessionId, input.driverId)
-      : null;
+  // A fleet card is stamped on account to its own fleet, whoever holds it,
+  // only while the fleet can bill it; never by the member's billing rule.
+  const stampable = !input.isRoaming && input.prepaidBalanceCents == null;
+  const billing = !stampable
+    ? null
+    : input.fleetCardFleetId != null
+      ? await stampFleetCardBilling(deps.sql, sessionId, input.fleetCardFleetId)
+      : input.driverId != null
+        ? await stampSessionBilling(deps.sql, sessionId, input.driverId)
+        : null;
 
   // The billing fleet's credit limit, checked under the fleet row lock
   // (checkFleetCreditLimit) with this session left out of the exposure. In
@@ -407,6 +482,16 @@ export async function runPaymentGate(
       ? await checkFleetCreditLimit(deps.sql, billing.fleetId, { reserveForSessionId: sessionId })
       : null;
 
+  // A fleet card's monthly spending limit, under the same fleet row lock:
+  // the session's cost ceiling becomes the smaller of the fleet credit
+  // reservation and what the card may still spend this month. Roaming and
+  // prepaid sessions are left out (a fleet card holds no balance). A failed
+  // check throws (critical), like the credit check.
+  const card =
+    input.tokenId != null && !input.isRoaming && input.prepaidBalanceCents == null
+      ? await checkCardMonthlyLimit(deps.sql, input.tokenId, { reserveForSessionId: sessionId })
+      : null;
+
   // A free start tariff with a paid tariff ahead in the session's group
   // (split billing) is gated as paid, so the hold is placed now (B3).
   const paidAhead =
@@ -414,7 +499,7 @@ export async function runPaymentGate(
     (isTariffFree(input.sessionTariff, { reserved: input.reserved }) &&
       (await sessionGroupHasPaidTariff(deps.sql, sessionId)));
 
-  let decision = planPaymentGate({ ...input, paidAhead }, billing, credit);
+  let decision = planPaymentGate({ ...input, paidAhead }, billing, credit, card);
 
   // Warning and reached notices to the fleet, once per month each.
   // Fire-and-forget and fail-open (P9).
@@ -479,7 +564,9 @@ export async function runPaymentGate(
       decision.reason,
       {
         transactionEnded: input.transactionEnded === true,
-        startRefused: decision.why === 'account_credit_limit' && input.startRefused === true,
+        startRefused:
+          (decision.why === 'account_credit_limit' || decision.why === 'card_monthly_limit') &&
+          input.startRefused === true,
         ...(unheldGuest ? { faultUnbilled: true } : {}),
       },
     );
@@ -582,6 +669,18 @@ function logStop(deps: ProjectionDeps, input: PaymentGateInput, decision: StopDe
       logger.warn(
         { sessionId, fleetId: decision.fleetId },
         'Fleet credit limit reached, stopping account session',
+      );
+      return;
+    case 'fleet_card_not_billable':
+      logger.warn(
+        { sessionId, fleetId: decision.fleetId },
+        'Fleet card session whose fleet does not bill on account, stopping',
+      );
+      return;
+    case 'card_monthly_limit':
+      logger.warn(
+        { sessionId, tokenId: decision.tokenId },
+        'Fleet card monthly limit reached, stopping session',
       );
       return;
   }

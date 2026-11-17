@@ -12,6 +12,7 @@ import type { AuthorizeTokenInput } from '../../authorization/authorize-context.
 import { authorizeOcppVersion } from '../../authorization/authorize-context.js';
 import {
   ACCOUNT_CREDIT_LIMIT_REASON,
+  CARD_MONTHLY_LIMIT_REASON,
   authorizeToken,
   logAuthorizeDecision,
   recordAuthorizeDecision,
@@ -20,6 +21,7 @@ import { groupIdTokenFor, idTokenStatusFor } from './id-token-info.js';
 import { findAdHocTransactionLimit } from '../ad-hoc-payment-limit.js';
 import {
   accountSessionCeilingCents,
+  cardLimitedSessionCeilingCents,
   markAccountCeilingSent,
   prepaidSessionCeilingCents,
   raiseAccountCeilingAtCostLimit,
@@ -252,6 +254,7 @@ export async function handleTransactionEvent(
     // stored ceiling still caps billing and the MeterValues cost loop stops
     // the transaction at it.
     let accountCeilingCents: number | null = null;
+    let cardCeilingCents: number | null = null;
     if (
       request.eventType !== 'Ended' &&
       decision.status === 'accepted' &&
@@ -279,6 +282,42 @@ export async function handleTransactionEvent(
         };
       } else {
         accountCeilingCents = ceiling;
+      }
+    }
+
+    // A fleet card with a monthly spending limit that is not billed on
+    // account (a member paying by card): the limit is the session's cost
+    // ceiling the payment gate reserved, what the card may still spend this
+    // month. 0 answers NoCredit; not known sends no limit (the stored ceiling
+    // still caps billing and the cost loop stops at it).
+    if (
+      request.eventType !== 'Ended' &&
+      decision.status === 'accepted' &&
+      !decision.prepaid &&
+      decision.cardMonthlyLimited === true &&
+      accountCeilingCents == null
+    ) {
+      const ceiling = await reservedCardLimit(ctx, transactionId, () =>
+        request.eventType === 'Started'
+          ? Promise.race([
+              queue.waitForSignal(
+                sessionGatedKey(ctx.stationId, transactionId),
+                PROJECTION_SETTLE_TIMEOUT_MS,
+              ),
+              queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS),
+            ])
+          : updatedProjected(),
+      );
+      if (ceiling === 0) {
+        decision = {
+          ...decision,
+          status: 'no_credit',
+          outcome: 'no_credit',
+          reason: CARD_MONTHLY_LIMIT_REASON,
+          echoGroupId: false,
+        };
+      } else {
+        cardCeilingCents = ceiling;
       }
     }
     logAuthorizeDecision(input, decision, ctx.logger);
@@ -325,6 +364,12 @@ export async function handleTransactionEvent(
     if (transactionLimit == null && decision.status === 'accepted' && accountCeilingCents != null) {
       transactionLimit = { maxCost: prepaidMaxCost(accountCeilingCents) };
       accountLimitCents = accountCeilingCents;
+    } else if (
+      transactionLimit == null &&
+      decision.status === 'accepted' &&
+      cardCeilingCents != null
+    ) {
+      transactionLimit = { maxCost: prepaidMaxCost(cardCeilingCents) };
     }
 
     // transactionLimit is OCPP 2.1 only: a 2.0.1 station gets none, so nothing is recorded as sent.
@@ -459,6 +504,31 @@ async function reservedPrepaidCredit(
  * failed (logged at warn). The response then carries no limit: the stored
  * ceiling still caps billing and the MeterValues cost loop stops at it.
  */
+async function reservedCardLimit(
+  ctx: HandlerContext,
+  transactionId: string,
+  waitForGate: () => Promise<boolean>,
+): Promise<number | null> {
+  try {
+    const ceiling = (await waitForGate())
+      ? await cardLimitedSessionCeilingCents(ctx.stationId, transactionId)
+      : null;
+    if (ceiling == null) {
+      ctx.logger.warn(
+        { stationId: ctx.stationId, transactionId },
+        'Fleet card session ceiling not known; responding without transactionLimit',
+      );
+    }
+    return ceiling;
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId },
+      'Fleet card session ceiling lookup failed; responding without transactionLimit',
+    );
+    return null;
+  }
+}
+
 async function reservedAccountCredit(
   ctx: HandlerContext,
   transactionId: string,

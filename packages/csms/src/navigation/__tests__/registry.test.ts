@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Bell } from 'lucide-react';
+import { permissionCatalog } from '@evtivity/lib/permissions';
 
 vi.hoisted(() => {
   // The auth store reads the color scheme when it loads.
@@ -73,6 +74,37 @@ describe('visibleNavEntries', () => {
       ),
     ).toEqual(['/a']);
     expect(visibleNavEntries([], ALL_ON, true, entries)).toEqual([]);
+  });
+
+  it('shows a fleet user only Dashboard, Fleets and Settings, whatever the permissions', () => {
+    const all = [...permissionCatalog.all()];
+    expect(visibleNavEntries(all, ALL_ON, false, NAV_ENTRIES, true).map((e) => e.to)).toEqual([
+      '/',
+      '/fleets',
+      '/settings',
+    ]);
+    // Settings shows only with the API key read permission of the fleet user list.
+    expect(
+      visibleNavEntries(['fleets:read'], ALL_ON, false, NAV_ENTRIES, true).map((e) => e.to),
+    ).toEqual(['/', '/fleets']);
+    // The Dashboard entry needs fleets:read of a fleet user, dashboard:read of everyone else.
+    expect(
+      visibleNavEntries(['fleets:read'], ALL_ON, true, NAV_ENTRIES, false).map((e) => e.to),
+    ).toEqual(['/fleets']);
+    expect(
+      visibleNavEntries(['settings.apiKeys:read'], ALL_ON, false, NAV_ENTRIES, true).map(
+        (e) => e.to,
+      ),
+    ).toEqual(['/settings']);
+    // The Fleets switch hides every entry of a fleet user.
+    expect(
+      visibleNavEntries(all, { ...ALL_ON, fleetEnabled: false }, false, NAV_ENTRIES, true),
+    ).toEqual([]);
+    expect(NAV_ENTRIES.filter((e) => e.fleetScope === true).map((e) => e.to)).toEqual([
+      '/',
+      '/fleets',
+      '/settings',
+    ]);
   });
 
   it('hides company-wide entries from a site-restricted user', () => {

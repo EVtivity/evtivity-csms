@@ -57,6 +57,8 @@ const {
   clearAvatarMock,
   purgeAvatarMock,
   clearLabelsMock,
+  releaseCardsMock,
+  cardsAfterCommitMock,
 } = vi.hoisted(() => ({
   eraseMethodsMock: vi.fn(),
   deactivateMock: vi.fn(),
@@ -65,8 +67,15 @@ const {
   clearAvatarMock: vi.fn(),
   purgeAvatarMock: vi.fn(),
   clearLabelsMock: vi.fn(),
+  releaseCardsMock: vi.fn(),
+  cardsAfterCommitMock: vi.fn(),
 }));
-vi.mock('../services/token.service.js', () => ({ clearDriverTokenLabels: clearLabelsMock }));
+vi.mock('../services/token.service.js', () => ({
+  clearDriverTokenLabels: clearLabelsMock,
+  releaseMemberFleetCards: releaseCardsMock,
+  tokenActorOf: (a: { actorUserId: string | null }) =>
+    a.actorUserId != null ? { type: 'operator', userId: a.actorUserId } : { type: 'system' },
+}));
 vi.mock('../services/driver-avatar.service.js', () => ({
   clearAvatarInErasure: clearAvatarMock,
   purgeDriverAvatarStorage: purgeAvatarMock,
@@ -111,6 +120,10 @@ describe('eraseDriver', () => {
     clearAvatarMock.mockReset().mockResolvedValue({ removed: false, object: null });
     purgeAvatarMock.mockReset().mockResolvedValue(undefined);
     clearLabelsMock.mockReset().mockResolvedValue(2);
+    cardsAfterCommitMock.mockReset().mockResolvedValue(undefined);
+    releaseCardsMock
+      .mockReset()
+      .mockResolvedValue({ released: 0, afterCommit: cardsAfterCommitMock });
   });
 
   it('anonymizes the row, removes personal data, then methods and tokens, and audits counts only', async () => {
@@ -132,6 +145,7 @@ describe('eraseDriver', () => {
       vehiclesRemoved: 1,
       tokensDeactivated: 3,
       tokenLabelsCleared: 2,
+      fleetCardsReleased: 0,
       avatarRemoved: false,
     });
     expect(setFor('drivers')).toMatchObject({
@@ -174,6 +188,7 @@ describe('eraseDriver', () => {
           vehiclesRemoved: 1,
           tokensDeactivated: 3,
           tokenLabelsCleared: 2,
+          fleetCardsReleased: 0,
           avatarRemoved: false,
         },
       }),
@@ -196,6 +211,47 @@ describe('eraseDriver', () => {
     const result = await eraseDriver(DRIVER_ID, { actor, log });
     expect(result.tokenLabelsCleared).toBe(4);
     expect(order).toEqual([`labels ${DRIVER_ID} in tx`, 'deactivate']);
+  });
+
+  it('gives the fleet cards back to their fleets in the transaction, before the labels are cleared', async () => {
+    dbResults = [[{ id: DRIVER_ID, erasedAt: null }], [], [{ id: DRIVER_ID }]];
+    const order: string[] = [];
+    releaseCardsMock.mockImplementation((target: unknown, _actor: unknown, tx: unknown) => {
+      order.push(`release ${JSON.stringify(target)} ${tx != null ? 'in tx' : 'no tx'}`);
+      return Promise.resolve({
+        released: 1,
+        afterCommit: () => {
+          order.push('release side effects');
+          return Promise.resolve();
+        },
+      });
+    });
+    clearLabelsMock.mockImplementation(() => {
+      order.push('labels');
+      return Promise.resolve(1);
+    });
+    deactivateMock.mockImplementation(() => {
+      order.push('deactivate');
+      return Promise.resolve({ tokensDeactivated: 0 });
+    });
+    const result = await eraseDriver(DRIVER_ID, { actor, log });
+    // The erased row counts the cards given back.
+    expect(result.fleetCardsReleased).toBe(1);
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'erased',
+        after: expect.objectContaining({ fleetCardsReleased: 1 }),
+      }),
+      expect.anything(),
+      log,
+    );
+    expect(order).toEqual([
+      `release {"driverId":"${DRIVER_ID}"} in tx`,
+      'labels',
+      'release side effects',
+      'deactivate',
+    ]);
   });
 
   it('clears no label when a concurrent erasure won', async () => {

@@ -79,7 +79,7 @@ function renderCreate(proofKinds: string[] = []): void {
 }
 
 async function selectRole(roleId: string): Promise<string[]> {
-  await screen.findByRole('option', { name: 'viewer' });
+  await screen.findByRole('option', { name: 'users.roleNames.viewer' });
   fireEvent.change(screen.getByLabelText('users.role'), { target: { value: roleId } });
   let last: string[] = [];
   await waitFor(() => {
@@ -134,7 +134,7 @@ describe('UserCreate role defaults', () => {
 
     siteAccess.all = false;
     renderCreate();
-    await screen.findByRole('option', { name: 'viewer' });
+    await screen.findByRole('option', { name: 'users.roleNames.viewer' });
     expect(screen.queryByText('users.allSites')).toBeNull();
     siteAccess.all = true;
   });
@@ -153,7 +153,7 @@ describe('UserCreate fresh proof', () => {
     fireEvent.change(screen.getByLabelText('common.email'), { target: { value: 'a@b.example' } });
     fireEvent.change(screen.getByLabelText('users.firstName'), { target: { value: 'A' } });
     fireEvent.change(screen.getByLabelText('users.lastName'), { target: { value: 'B' } });
-    fireEvent.click(screen.getByLabelText('users.allSites'));
+    fireEvent.change(screen.getByLabelText('users.access.label'), { target: { value: 'all' } });
   }
 
   it('sends an admin with its permissions and the proof in one request', async () => {

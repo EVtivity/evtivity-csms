@@ -109,7 +109,11 @@ export function UserDetail(): React.JSX.Element {
         </TabsContent>
 
         <TabsContent value="permissions">
-          <UserPermissionsTab userId={user.id} canEdit={canAdminister} />
+          <UserPermissionsTab
+            userId={user.id}
+            canEdit={canAdminister}
+            fleetUser={user.accessScope === 'fleets'}
+          />
         </TabsContent>
 
         {canAdminister && (

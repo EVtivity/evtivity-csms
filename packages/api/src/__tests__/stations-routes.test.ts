@@ -93,6 +93,7 @@ function makeChain() {
     'select',
     'from',
     'where',
+    'for',
     'orderBy',
     'limit',
     'offset',
@@ -943,6 +944,39 @@ describe('Station routes - handler logic', () => {
       });
     });
 
+    it('refuses the change when a boot reported the serial number after the first check (locked row)', async () => {
+      const unreported = {
+        model: null,
+        serialNumber: null,
+        modelReportedAt: null,
+        serialNumberReportedAt: null,
+      };
+      // 1: the first check (nothing reported), 2: before SELECT, 3: the locked
+      // row, which a boot changed in between.
+      setupDbResults(
+        [unreported],
+        [{ id: VALID_STATION_ID }],
+        [
+          {
+            ...unreported,
+            serialNumber: 'SN-1',
+            serialNumberReportedAt: '2026-11-01T00:00:00.000Z',
+          },
+        ],
+      );
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { serialNumber: 'SN-OTHER' },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        code: 'STATION_REPORTED_FIELD_LOCKED',
+        field: 'serialNumber',
+      });
+    });
+
     it('updates and returns the station', async () => {
       const updated = {
         id: VALID_STATION_ID,
@@ -965,10 +999,12 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      // 1: the reported fields (never booted), 2: before SELECT, 3: UPDATE returning
+      // 1: the reported fields (never booted), 2: before SELECT, 3: the reported
+      // fields again on the locked row, 4: UPDATE returning
       setupDbResults(
         [{ model: null, serialNumber: null, modelReportedAt: null, serialNumberReportedAt: null }],
         [updated],
+        [{ model: null, serialNumber: null, modelReportedAt: null, serialNumberReportedAt: null }],
         [updated],
       );
 

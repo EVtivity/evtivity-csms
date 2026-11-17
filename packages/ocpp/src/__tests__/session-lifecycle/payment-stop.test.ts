@@ -14,8 +14,10 @@ const {
   mockDispatchDriver,
   mockSessionAudit,
   mockEnqueueRefusedStartStop,
+  mockCardNotice,
 } = vi.hoisted(() => ({
   calls: [] as string[],
+  mockCardNotice: vi.fn(),
   mockEnqueueRefusedStartStop: vi.fn(),
   mockSessionAudit: vi.fn(),
   mockFaultUnbilledSession: vi.fn(),
@@ -29,7 +31,12 @@ vi.mock('../../server/notification-dispatcher.js', () => ({
   ALL_TEMPLATES_DIRS: ['templates'],
 }));
 
+vi.mock('../../server/card-limit-notice.js', () => ({
+  sendSessionCardMonthlyLimitNotice: mockCardNotice,
+}));
+
 vi.mock('@evtivity/database', () => ({
+  cardLimitBindsSession: vi.fn().mockResolvedValue(false),
   faultUnbilledSession: mockFaultUnbilledSession,
   writeCsmsSessionAudit: mockSessionAudit,
 }));
@@ -365,7 +372,7 @@ describe('stopSessionForPayment', () => {
         const h = accountHarness();
         await stopSessionForPayment(h.deps, target, 'AccountCreditLimit', { startRefused: true });
         expect(calls).toEqual(['fault', 'segments', 'enqueue', 'notice-read', 'notice', 'audit']);
-        expect(mockEnqueueRefusedStartStop).toHaveBeenCalledWith(target);
+        expect(mockEnqueueRefusedStartStop).toHaveBeenCalledWith(target, 'account_credit_limit');
         expect(mockPublishOcppCommand).not.toHaveBeenCalled();
         expect(mockDispatchOneShot).not.toHaveBeenCalled();
         expect(mockSessionAudit).toHaveBeenCalledWith(
@@ -776,6 +783,15 @@ describe('ceilingStopReason', () => {
     expect(ceilingStopReason({ billingMode: null, tokenId: null })).toBe('GuestHoldExhausted');
     expect(ceilingStopReason({ billingMode: 'card', tokenId: null })).toBe('GuestHoldExhausted');
   });
+
+  it('names the card limit when the ceiling is the fleet card monthly limit', () => {
+    expect(
+      ceilingStopReason({ billingMode: 'account', tokenId: 'tok-1', cardLimitBound: true }),
+    ).toBe('CardMonthlyLimit');
+    expect(ceilingStopReason({ billingMode: 'card', tokenId: 'tok-1', cardLimitBound: true })).toBe(
+      'CardMonthlyLimit',
+    );
+  });
 });
 
 describe('costLimitReported', () => {
@@ -790,5 +806,47 @@ describe('costLimitReported', () => {
   it('is false when none exists', async () => {
     const sql = vi.fn().mockResolvedValue([]);
     await expect(costLimitReported(sql as unknown as postgres.Sql, 'sess-1')).resolves.toBe(false);
+  });
+});
+
+describe('RFID card monthly limit member notice', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calls.length = 0;
+    mockPublishOcppCommand.mockResolvedValue(undefined);
+    mockDispatchOneShot.mockResolvedValue(undefined);
+    mockCardNotice.mockResolvedValue(undefined);
+  });
+
+  it('sends the notice once from the call that faulted the session at its start', async () => {
+    mockFaultUnbilledSession.mockResolvedValueOnce(true);
+    const h = makeHarness();
+    await stopSessionForPayment(h.deps, target, 'CardMonthlyLimit');
+    expect(mockCardNotice).toHaveBeenCalledTimes(1);
+    expect(mockCardNotice).toHaveBeenCalledWith(h.deps, 'sess-1', 'CS-1');
+    expect(h.track).toHaveBeenCalled();
+  });
+
+  it('sends nothing when another call already faulted the session', async () => {
+    mockFaultUnbilledSession.mockResolvedValueOnce(false);
+    const h = makeHarness();
+    await stopSessionForPayment(h.deps, target, 'CardMonthlyLimit');
+    expect(mockCardNotice).not.toHaveBeenCalled();
+  });
+
+  it('sends the notice from the call that claimed a stop at the session ceiling', async () => {
+    const h = makeHarness();
+    h.sql.mockImplementationOnce(() =>
+      Promise.resolve([{ driver_id: 'drv-1', id_token: 'CARD-1', cost_ceiling_cents: 900 }]),
+    );
+    await stopSessionForPayment(h.deps, target, 'CardMonthlyLimit', { atCeiling: true });
+    expect(mockCardNotice).toHaveBeenCalledWith(h.deps, 'sess-1', 'CS-1');
+  });
+
+  it('sends nothing for a fleet credit limit stop', async () => {
+    mockFaultUnbilledSession.mockResolvedValueOnce(true);
+    const h = makeHarness();
+    await stopSessionForPayment(h.deps, target, 'AccountCreditLimit');
+    expect(mockCardNotice).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,10 @@
 // downloads, and the send and credit note edges.
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 

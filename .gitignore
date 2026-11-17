@@ -19,6 +19,7 @@ OCPP-2.1_part3_JSON_schemas/
 evtivity-legacy.git/
 __pycache__/
 docs/qa/playwright-report/
+playwright-report-serial/
 test-results/
 packages/csms/e2e/.auth/
 packages/portal/e2e/.auth/

@@ -133,6 +133,8 @@ interface RebillSession {
   siteName: string | null;
   prepaid: boolean;
   guestSession: boolean;
+  /** A fleet RFID card no member held started the session (a token, no driver). */
+  fleetCard: boolean;
   /** The session's billing stamp (charging_sessions.billing_mode). */
   billingMode: 'card' | 'account' | null;
   /** The fleet an account session is billed to. */
@@ -159,6 +161,7 @@ async function loadSession(sessionId: string): Promise<RebillSession | null> {
            s.energy_delivered_wh, st.id AS station_uuid, st.station_id AS station_ocpp_id,
            s.site_id, si.name AS site_name,
            (t.prepaid_balance_cents IS NOT NULL) AS prepaid,
+           (s.token_id IS NOT NULL AND s.driver_id IS NULL) AS fleet_card,
            s.billing_mode, s.member_billed, bf.name AS billing_fleet_name,
            EXISTS (SELECT 1 FROM guest_sessions g WHERE g.charging_session_id = s.id) AS guest_session
     FROM charging_sessions s
@@ -191,6 +194,7 @@ async function loadSession(sessionId: string): Promise<RebillSession | null> {
     siteName: (row.site_name as string | null) ?? null,
     prepaid: row.prepaid === true,
     guestSession: row.guest_session === true,
+    fleetCard: row.fleet_card === true,
     billingMode:
       row.billing_mode === 'card' || row.billing_mode === 'account'
         ? (row.billing_mode as 'card' | 'account')
@@ -332,6 +336,7 @@ async function takePayment(
     prepaid: session.prepaid,
     account: session.billingMode === 'account',
     driverId: session.driverId,
+    fleetCard: session.fleetCard,
     guestSession: session.guestSession,
   });
   // Roaming: the eMSP partner pays us through the CDR, no payment here.

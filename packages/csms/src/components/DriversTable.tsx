@@ -78,6 +78,8 @@ interface DriversTableProps {
   extraColumn?: DriversTableExtraColumn;
   /** The list's sort; without it the headers do not sort. */
   sort?: ListSort<DriverSortKey> | undefined;
+  /** Rows open the driver page; false for readers without driver pages (fleet users). */
+  linkRows?: boolean;
 }
 
 export function DriversTable({
@@ -92,6 +94,7 @@ export function DriversTable({
   visibility,
   extraColumn,
   sort,
+  linkRows = true,
 }: DriversTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -150,13 +153,16 @@ export function DriversTable({
               <TableRow
                 key={driver.id}
                 data-testid={`driver-row-${driver.id}`}
-                className="cursor-pointer"
+                className={linkRows ? 'cursor-pointer' : undefined}
                 onClick={() => {
-                  void navigate(`/drivers/${driver.id}`);
+                  if (linkRows) void navigate(`/drivers/${driver.id}`);
                 }}
               >
                 {isVisible('driverName') && (
-                  <TableCell className="font-medium text-link" data-testid="row-click-target">
+                  <TableCell
+                    className={linkRows ? 'font-medium text-link' : 'font-medium'}
+                    data-testid="row-click-target"
+                  >
                     <span className="inline-flex items-center gap-2">
                       {driver.erasedAt == null && (
                         <AccountAvatar

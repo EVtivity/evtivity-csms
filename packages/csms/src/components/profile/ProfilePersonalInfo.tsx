@@ -3,6 +3,7 @@
 
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { roleLabel } from '@/lib/role-label';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { EditButton } from '@/components/edit-button';
 import { CancelButton } from '@/components/cancel-button';
@@ -268,7 +269,9 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
             <div>
               <dt className="text-muted-foreground">{t('users.role')}</dt>
               <dd>
-                <Badge variant="outline">{user.role?.name ?? '-'}</Badge>
+                <Badge variant="outline">
+                  {user.role?.name != null ? roleLabel(user.role.name, t) : '-'}
+                </Badge>
               </dd>
             </div>
             <div>

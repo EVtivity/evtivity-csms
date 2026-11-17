@@ -65,10 +65,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
     },
   };
 });
-const featureFlagsState = vi.hoisted(() => ({ isLoading: false }));
+const featureFlagsState = vi.hoisted(() => ({ isLoading: false, fleetEnabled: false }));
 vi.mock('@/hooks/use-feature-flags', () => ({
   useFeatureFlags: () => ({
-    flags: { aiInsightsEnabled: true },
+    flags: { aiInsightsEnabled: true, fleetEnabled: featureFlagsState.fleetEnabled },
     isLoading: featureFlagsState.isLoading,
     isLoaded: !featureFlagsState.isLoading,
   }),
@@ -184,8 +184,9 @@ async function renderDashboard(
   role: string,
   permissions: string[] = ['dashboard:read', 'payments:read'],
   hasAllSiteAccess = true,
+  accessScope: 'sites' | 'fleets' = 'sites',
 ): Promise<void> {
-  useAuth.setState({ role, permissions, hasAllSiteAccess });
+  useAuth.setState({ role, permissions, hasAllSiteAccess, accessScope });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -205,6 +206,8 @@ function before(a: Element, b: Element): boolean {
 afterEach(() => {
   cleanup();
   featureFlagsState.isLoading = false;
+  featureFlagsState.fleetEnabled = false;
+  useAuth.setState({ accessScope: 'sites' });
   answers.clear();
   requested.length = 0;
   writes.length = 0;
@@ -826,5 +829,99 @@ describe('stat rows fill every viewport', () => {
     expect(statGridClass(4)).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');
     expect(statGridClass(6)).toBe('grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6');
     expect(statGridClass(8)).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');
+  });
+});
+
+describe('Dashboard fleet items', () => {
+  const SUMMARY_PATH = '/v1/fleets/metrics-summary';
+  const summary = {
+    fleetId: null,
+    sessionCount: 12,
+    energyWh: 45_000,
+    costCents: 2500,
+    currency: 'USD',
+    creditLimit: {
+      fleetId: 'flt_1',
+      fleetName: 'Acme Vans',
+      limitCents: 10_000,
+      exposureCents: 2500,
+      usedPercent: 25,
+      fleetCount: 2,
+    },
+    history: [{ date: '2026-11-17', sessions: 12, energyWh: 45_000, costCents: 2500 }],
+    invoices: [
+      {
+        id: 'inv_1',
+        invoiceNumber: 'INV-202610-0001',
+        fleetId: 'flt_1',
+        fleetName: 'Acme Vans',
+        kind: 'invoice',
+        status: 'issued',
+        totalCents: 2500,
+        currency: 'USD',
+        issuedAt: '2026-11-01T12:00:00.000Z',
+        createdAt: '2026-11-01T12:00:00.000Z',
+      },
+    ],
+  };
+
+  it('shows a fleet user only its fleet cards and charts, and reads no site or company data', async () => {
+    featureFlagsState.fleetEnabled = true;
+    answers.set(SUMMARY_PATH, () => Promise.resolve(summary));
+    answers.set(LAYOUT_PATH, () =>
+      Promise.resolve({ layout: defaultDashboardLayout({ fleetUser: true }), customized: false }),
+    );
+    await renderDashboard(
+      'fleet_manager',
+      ['fleets:read', 'sessions:read', 'payments:read', 'fleetCards:read'],
+      false,
+      'fleets',
+    );
+    const cards = await screen.findByTestId('dashboard-fleet-cards');
+    expect(within(cards).getByText('dashboard.fleet.sessions')).toBeTruthy();
+    expect(within(cards).getByText('dashboard.fleet.creditUsed')).toBeTruthy();
+    // Every fleet: the card names the fleet closest to its limit.
+    expect(within(cards).getByText('dashboard.fleet.creditUsedFleet')).toBeTruthy();
+    expect(await screen.findByText('INV-202610-0001')).toBeTruthy();
+    expect(requested.some((p) => p.startsWith('/v1/dashboard/'))).toBe(false);
+    expect(requested.some((p) => p.startsWith('/v1/sessions'))).toBe(false);
+    expect(requested.some((p) => p.startsWith(SUMMARY_PATH))).toBe(true);
+    // The site snapshot modes are for operators.
+    expect(screen.queryByText('dashboard.historical')).toBeNull();
+    expect(screen.queryByText('dashboard.totalStations')).toBeNull();
+  });
+
+  it('adds the fleet cards to an operator dashboard while Fleets is on, the fleet charts hidden', async () => {
+    featureFlagsState.fleetEnabled = true;
+    answers.set(SUMMARY_PATH, () => Promise.resolve(summary));
+    await renderDashboard('admin', ['dashboard:read', 'payments:read', 'fleets:read']);
+    expect(await screen.findByTestId('dashboard-fleet-cards')).toBeTruthy();
+    expect(screen.getByText('dashboard.totalStations')).toBeTruthy();
+    // Hidden by default for operators: shown from Customize.
+    expect(screen.queryByText('INV-202610-0001')).toBeNull();
+  });
+
+  it('shows 10,000 kWh and more in MWh, so the value fits a card two across at 375 px', async () => {
+    featureFlagsState.fleetEnabled = true;
+    answers.set(SUMMARY_PATH, () => Promise.resolve({ ...summary, energyWh: 19_787_400 }));
+    await renderDashboard('admin', ['dashboard:read', 'payments:read', 'fleets:read']);
+    const cards = await screen.findByTestId('dashboard-fleet-cards');
+    expect(await within(cards).findByText('19.8 MWh', {}, { timeout: 5000 })).toBeTruthy();
+  });
+
+  it('leaves the money fleet cards out without payments:read', async () => {
+    featureFlagsState.fleetEnabled = true;
+    answers.set(SUMMARY_PATH, () => Promise.resolve({ ...summary, costCents: undefined }));
+    await renderDashboard('viewer', ['dashboard:read', 'fleets:read']);
+    const cards = await screen.findByTestId('dashboard-fleet-cards');
+    expect(within(cards).getByText('dashboard.fleet.sessions')).toBeTruthy();
+    expect(within(cards).queryByText('dashboard.fleet.cost')).toBeNull();
+    expect(within(cards).queryByText('dashboard.fleet.creditUsed')).toBeNull();
+  });
+
+  it('shows no fleet card or chart while Fleets is off', async () => {
+    await renderDashboard('admin', ['dashboard:read', 'payments:read', 'fleets:read']);
+    expect(screen.queryByTestId('dashboard-fleet-cards')).toBeNull();
+    expect(requested.some((p) => p.startsWith(SUMMARY_PATH))).toBe(false);
   });
 });

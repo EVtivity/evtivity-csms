@@ -86,6 +86,7 @@ import {
 import { mfaCodeDestination, mfaCodeRecipient } from '../lib/mfa-contact.js';
 import { createAccountMfaChallenge, sendMfaResendLimited } from '../lib/sign-in-backoff.js';
 import { loginResponse } from '../lib/login-response.js';
+import { userAccessFields } from '../lib/fleet-scope.js';
 import {
   credentialItem,
   credentialName,
@@ -151,6 +152,7 @@ async function loginReply(user: SignedInUser, token: string) {
       timezone: user.timezone,
       themePreference: user.themePreference,
       uiTheme: user.uiTheme,
+      ...(await userAccessFields(user.id)),
     },
     role: role != null ? { id: role.id, name: role.name } : null,
   };

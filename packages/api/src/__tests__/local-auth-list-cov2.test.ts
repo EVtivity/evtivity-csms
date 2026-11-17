@@ -72,6 +72,8 @@ vi.mock('@evtivity/database', () => ({
     prepaidBalanceCents: 'dt.prepaidBalanceCents',
   },
   drivers: { firstName: 'd.firstName', lastName: 'd.lastName' },
+  fleets: { id: 'f.id', accountBillingEnabled: 'f.accountBillingEnabled' },
+  isFleetEnabled: vi.fn(async () => true),
   stationLocalAuthVersions: { stationId: 'v.stationId', localVersion: 'v.localVersion' },
   stationLocalAuthEntries: { id: 'e.id', stationId: 'e.stationId' },
   writeAudit: vi.fn().mockResolvedValue(undefined),
@@ -237,6 +239,9 @@ describe('local auth list routes - uncovered paths', () => {
       revokedAt: Date | null;
       expiresAt: Date | null;
       driverIsActive: boolean | null;
+      driverId?: string | null;
+      fleetId?: string | null;
+      fleetAccountBilling?: boolean | null;
     }
 
     function row(over: Partial<ReconcileRow>): ReconcileRow {
@@ -337,6 +342,88 @@ describe('local auth list routes - uncovered paths', () => {
         ),
       ).toBe(true);
       expect(drizzle.inArray).toHaveBeenCalledWith('e.id', [1, 2, 3, 4, 5, 6]);
+    });
+
+    it('lists a fleet card, held by a member or not, only while its fleet can be billed', async () => {
+      const { isFleetEnabled } = await import('@evtivity/database');
+      queuePush(
+        [
+          row({
+            entryId: 1,
+            idToken: 'BILLED',
+            entryIdToken: 'BILLED',
+            driverId: null,
+            fleetId: 'flt_1',
+            fleetAccountBilling: true,
+          }),
+          row({
+            entryId: 2,
+            idToken: 'OFF',
+            entryIdToken: 'OFF',
+            driverId: null,
+            fleetId: 'flt_2',
+            fleetAccountBilling: false,
+          }),
+          row({
+            entryId: 3,
+            idToken: 'HELD',
+            entryIdToken: 'HELD',
+            entryAuthStatus: 'Blocked',
+            driverId: 'drv_1',
+            fleetId: 'flt_2',
+            fleetAccountBilling: false,
+          }),
+        ],
+        1,
+      );
+      results.push([], []);
+      sendOcppCommandAndWait.mockResolvedValue({ response: { status: 'Accepted' } });
+      const res = await app.inject({
+        method: 'POST',
+        url: `/stations/${STATION_ID}/local-auth-list/push`,
+        headers,
+      });
+      expect(res.statusCode).toBe(200);
+      const info = (status: string) => ({ status });
+      expect(sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'SendLocalList', {
+        versionNumber: 5,
+        updateType: 'Full',
+        localAuthorizationList: [
+          { idToken: { idToken: 'BILLED', type: 'ISO14443' }, idTokenInfo: info('Accepted') },
+          { idToken: { idToken: 'OFF', type: 'ISO14443' }, idTokenInfo: info('Blocked') },
+          // A member holds it: still billed only to its fleet, so Blocked too.
+          { idToken: { idToken: 'HELD', type: 'ISO14443' }, idTokenInfo: info('Blocked') },
+        ],
+      });
+
+      // Fleets off: no fleet can be billed on account.
+      vi.mocked(isFleetEnabled).mockResolvedValueOnce(false);
+      queuePush(
+        [
+          row({
+            entryId: 1,
+            idToken: 'BILLED',
+            entryIdToken: 'BILLED',
+            driverId: null,
+            fleetId: 'flt_1',
+            fleetAccountBilling: true,
+          }),
+        ],
+        1,
+      );
+      results.push([], []);
+      await app.inject({
+        method: 'POST',
+        url: `/stations/${STATION_ID}/local-auth-list/push`,
+        headers,
+      });
+      expect(sendOcppCommandAndWait).toHaveBeenLastCalledWith('CS-001', 'SendLocalList', {
+        versionNumber: 5,
+        updateType: 'Full',
+        localAuthorizationList: [
+          { idToken: { idToken: 'BILLED', type: 'ISO14443' }, idTokenInfo: info('Blocked') },
+        ],
+      });
     });
 
     it('returns 504 COMMAND_TIMEOUT when the station does not answer', async () => {

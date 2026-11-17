@@ -20,7 +20,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { useSavedToast } from '@/components/saved-message';
-import { useHasAllSiteAccess } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 
 interface Fleet {
   id: string;
@@ -55,6 +55,8 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
   const savedToast = useSavedToast();
   // Deleting a fleet removes its links at every site: all-site users only.
   const hasAllSiteAccess = useHasAllSiteAccess();
+  // Editing needs fleets:write, as the API (fleet users and viewers read only).
+  const canWrite = useHasPermission('fleets:write');
   const timezone = useUserTimezone();
 
   const [editing, setEditing] = useState(false);
@@ -134,7 +136,7 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
         title={t('common.details')}
         actions={
           <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
-            {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
+            {canWrite && !editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
             {hasAllSiteAccess && (
               <div title={driverCount > 0 ? t('fleets.removeDriversFirst') : undefined}>
                 <RemoveButton

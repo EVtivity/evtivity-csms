@@ -155,12 +155,12 @@ describe('New User avatar', () => {
     putMock.mockResolvedValue({ avatar: null });
     wrap(<UserCreate />);
     fireEvent.click(screen.getByText('choose-avatar'));
-    await screen.findByRole('option', { name: 'viewer' });
+    await screen.findByRole('option', { name: 'users.roleNames.viewer' });
     fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_viewer' } });
     fireEvent.change(screen.getByLabelText('common.email'), { target: { value: 'u@b.example' } });
     fireEvent.change(screen.getByLabelText('users.firstName'), { target: { value: 'U' } });
     fireEvent.change(screen.getByLabelText('users.lastName'), { target: { value: 'V' } });
-    fireEvent.click(screen.getByLabelText('users.allSites'));
+    fireEvent.change(screen.getByLabelText('users.access.label'), { target: { value: 'all' } });
     fireEvent.click(screen.getByRole('button', { name: 'common.create' }));
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith('/users/usr_new');

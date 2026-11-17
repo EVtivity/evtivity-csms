@@ -618,6 +618,33 @@
       "empty": "No security events in this range.",
       "noStations": "No stations with events of this severity.",
       "criticalRow": "critical"
+    },
+    "fleet": {
+      "title": "Fleets",
+      "picker": "Fleet",
+      "allFleets": "Showing every fleet. Pick one to see only that fleet.",
+      "oneFleet": "Showing one fleet. Clear it to see every fleet.",
+      "sessions": "Fleet Sessions",
+      "sessionsInfo": "Sessions of the fleets started in the date range.",
+      "energy": "Fleet Energy",
+      "energyInfo": "Energy delivered by those sessions.",
+      "cost": "Fleet Cost",
+      "costInfo": "Cost of those sessions in the company currency.",
+      "creditUsed": "Credit Limit Used",
+      "creditUsedInfo": "The fleet closest to its credit limit: what it owes now (unbilled, invoiced and running sessions) as a share of its limit. One fleet shows its own share.",
+      "creditUsedOf": "{{used}} of {{limit}}",
+      "creditUsedFleet": "{{fleet}}: {{used}} of {{limit}}",
+      "noCreditLimit": "No credit limit set",
+      "energyChart": "Fleet Energy per Day",
+      "energyChartInfo": "Energy delivered per day by the fleet sessions in the date range.",
+      "sessionsChart": "Fleet Sessions per Day",
+      "sessionsChartInfo": "Fleet sessions started per day in the date range.",
+      "costChart": "Fleet Cost per Day",
+      "costChartInfo": "Cost per day of the fleet sessions in the date range.",
+      "invoicesChart": "Latest Fleet Invoices",
+      "invoicesInfo": "The newest invoices and credit notes of the fleets.",
+      "noInvoices": "No fleet invoices yet.",
+      "creditNote": "Credit Note"
     }
   },
   "sites": {
@@ -1903,7 +1930,8 @@
       "not_held": "No card hold was placed when this session started, so nothing was charged. Payments were off or the payment provider was unavailable then.",
       "viewInvoice": "View Invoice",
       "openGuestTab": "Open Guest Session",
-      "openPaymentSettings": "Open Payment Settings"
+      "openPaymentSettings": "Open Payment Settings",
+      "card_monthly_limit": "The monthly spending limit of this fleet RFID card refused this session at its start, so nothing was charged."
     },
     "noTransactionEvents": "No transaction events",
     "refund": "Refund",
@@ -2282,6 +2310,12 @@
     "createUser": "Create User",
     "searchPlaceholder": "Search users...",
     "role": "Role",
+    "roleNames": {
+      "admin": "Admin",
+      "operator": "Operator",
+      "viewer": "Viewer",
+      "fleet_manager": "Fleet Manager"
+    },
     "lastLogin": "Last Login",
     "allRoles": "All Roles",
     "allStatuses": "All Statuses",
@@ -2327,6 +2361,7 @@
       "sessions": "Sessions",
       "drivers": "Drivers",
       "fleets": "Fleets",
+      "fleetCards": "Fleet RFID Cards",
       "reservations": "Reservations",
       "support": "Support Cases",
       "payments": "Payments",
@@ -2386,7 +2421,19 @@
     "ssoLinkWithdraw": "Withdraw",
     "ssoLinkProofHint": "Confirm it is you to let single sign-on sign in as this account.",
     "ssoUnlink": "Remove Link",
-    "ssoUnlinkProofHint": "Confirm it is you to remove the link between this account and its identity provider user."
+    "ssoUnlinkProofHint": "Confirm it is you to remove the link between this account and its identity provider user.",
+    "access": {
+      "label": "Access",
+      "sites": "Sites",
+      "fleets": "Fleets",
+      "sitesDescription": "The user sees the stations, sessions and data of the sites checked below.",
+      "fleetsDescription": "The user sees only the fleets listed below: their sessions, members, invoices and RFID cards, and no site.",
+      "fleetsCount": "{{count}} fleet(s)",
+      "noFleetsPicked": "No fleet added yet. Search for a fleet below to add it.",
+      "removeFleet": "Remove {{name}}",
+      "unknownFleet": "Fleet",
+      "allScopes": "All Access"
+    }
   },
   "profile": {
     "title": "Profile",
@@ -2674,7 +2721,12 @@
       "recipientMember": "Driver",
       "billedTo": "Billed To",
       "sendMemberTitle": "Send Driver Invoice",
-      "sendMemberConfirm": "Send {{number}} with its PDF to the driver?"
+      "sendMemberConfirm": "Send {{number}} with its PDF to the driver?",
+      "empty": {
+        "title": "No Invoices Yet",
+        "description": "Fleet invoices show here once they are issued: each month by the monthly run when Automatic monthly invoice is on, or with Generate Invoice under Unbilled Sessions.",
+        "fleetUser": "Fleet invoices show here once the operator issues them, usually once a month."
+      }
     },
     "bookingStatus": {
       "scheduled": "Scheduled",
@@ -2816,6 +2868,122 @@
       "arrivalIncomplete": "Enter both the arrival date and time, or neither.",
       "arrivalBeforeDeparture": "The expected arrival must be before the departure.",
       "arrivalSocRange": "Enter a whole number from 0 to 100."
+    },
+    "cards": {
+      "title": "RFID Cards",
+      "description": "RFID cards this fleet owns. A card no member holds charges on the fleet account.",
+      "searchPlaceholder": "Search card or label...",
+      "addCard": "Add RFID Card",
+      "value": "RFID Card",
+      "member": "Member",
+      "noMember": "No member",
+      "noCards": "No RFID cards",
+      "status": {
+        "active": "Active",
+        "suspended": "Turned Off",
+        "deactivated": "Deactivated"
+      },
+      "editCard": "Edit RFID Card",
+      "deactivate": "Deactivate",
+      "deactivateTitle": "Deactivate RFID Card?",
+      "deactivateDescription": "RFID card {{value}} stops working at every station and cannot be turned on again. It stays in the list.",
+      "labelHint": "Optional name to recognize the card by, for example \"Van 12\".",
+      "memberHint": "Give the card to an active member of the fleet, or leave it with no member to charge on the fleet account.",
+      "active": "Active",
+      "activeHint": "Uncheck this to turn the card off. You can turn it on again later.",
+      "lockedDeactivated": "This RFID card was deactivated and cannot be turned on again.",
+      "lockedByOperator": "An operator turned this RFID card off. Contact the operator to turn it on again.",
+      "searchMembers": "Search members...",
+      "import": {
+        "open": "Import CSV",
+        "title": "Import RFID Cards",
+        "description": "Add many RFID cards to this fleet from a CSV file. Each row is added like a single card; a refused row changes nothing.",
+        "columns": "Columns: idToken (the card value, required), tokenType (ISO14443 when empty), label, memberEmail (an active member of the fleet). At most 2000 rows and 512 KB.",
+        "columnsFleetUser": "Columns: idToken (the card value, required), tokenType (ISO14443 when empty) and label. Leave the memberEmail column empty: give the cards to members here after the import. At most 2000 rows and 512 KB.",
+        "template": "Download Template",
+        "chooseFile": "Choose File",
+        "chooseFirst": "Choose a CSV file first.",
+        "tooLarge": "The file is larger than 512 KB.",
+        "failed": "The import failed. Please try again.",
+        "submit": "Import CSV",
+        "created": "Added: {{count}}",
+        "refused": "Refused: {{count}}",
+        "refusedRow": "Row {{row}}: {{field}}, {{reason}}",
+        "reasons": {
+          "missing": "missing",
+          "invalid": "not valid",
+          "duplicate": "already registered",
+          "not_found": "not an active member of the fleet"
+        }
+      },
+      "history": {
+        "open": "History",
+        "title": "RFID Card History",
+        "description": "Changes to RFID card {{value}} while it belonged to this fleet, newest first.",
+        "empty": "No changes recorded yet",
+        "by": "By {{who}}",
+        "viaApiKey": "{{who}} (API key)",
+        "someMember": "a member",
+        "noLabel": "no label",
+        "reasonMemberLeft": "The member left the fleet.",
+        "actor": {
+          "fleet_user": "Fleet manager",
+          "operator": "Operator",
+          "driver": "Driver",
+          "system": "System"
+        },
+        "change": {
+          "added": "Added",
+          "moved_into_fleet": "Moved into the fleet",
+          "moved_out_of_fleet": "Moved out of the fleet",
+          "given": "Given to {{member}}",
+          "taken_back": "Taken back from {{member}}",
+          "renamed": "Label changed from {{from}} to {{to}}",
+          "turned_off": "Turned off",
+          "turned_on": "Turned on",
+          "deactivated": "Deactivated",
+          "changed": "Changed",
+          "deleted": "Deleted",
+          "limit_changed": "Monthly limit changed"
+        }
+      },
+      "monthlyLimit": {
+        "column": "This Month",
+        "label": "Monthly Limit",
+        "hint": "The most this card may cost in one calendar month, whoever charges with it. Starts past the limit are refused, and a session stops when it reaches it. Leave empty for no limit.",
+        "invalid": "Enter an amount from 0.01 to 1,000,000.00, or leave the field empty.",
+        "none": "(no limit)",
+        "spentOfLimit": "{{spent}} of {{limit}}",
+        "thisMonth": "This month"
+      },
+      "empty": {
+        "title": "No RFID Cards Yet",
+        "description": "Add the fleet's RFID cards one at a time, or import many at once from a CSV file. A card given to a member charges like the member's own card. A card no member holds charges to the fleet account.",
+        "readOnly": "The fleet's RFID cards show here once they are added."
+      }
+    },
+    "sessionDialog": {
+      "title": "Session",
+      "card": "RFID Card Label"
+    },
+    "searchFleets": "Search fleets...",
+    "sessionFilters": {
+      "member": "Member",
+      "rfidCard": "RFID Card",
+      "searchCards": "Search RFID cards..."
+    },
+    "managers": {
+      "title": "Fleet Managers",
+      "description": "Fleet users who manage this fleet in the CSMS. They see only the fleets assigned to them.",
+      "add": "Add Fleet Manager",
+      "empty": "No fleet manager is assigned to this fleet.",
+      "permissions": "Permissions",
+      "lastSignIn": "Last Sign-In",
+      "neverSignedIn": "Never"
+    },
+    "sessionsEmpty": {
+      "none": "No sessions yet. Sessions show here when members charge on the fleet account or the fleet's RFID cards are used.",
+      "filtered": "No sessions match these filters."
     }
   },
   "tokens": {
@@ -2891,9 +3059,13 @@
     "deactivatedByValue": {
       "operator": "Operator",
       "driver": "Driver",
-      "system": "System"
+      "system": "System",
+      "fleet": "Fleet"
     },
-    "deactivationReason": "Deactivation Reason"
+    "deactivationReason": "Deactivation Reason",
+    "fleet": "Fleet",
+    "noFleet": "No fleet",
+    "fleetHint": "The fleet that owns this RFID card. A card no member holds charges on the fleet account, and a member of the fleet can be given the card."
   },
   "commands": {
     "advancedCommand": "Advanced Command",
@@ -4427,7 +4599,11 @@
       "security.RetentionLowered": "Data Retention Shortened",
       "security.PaymentTerminalSettingsChanged": "Payment Terminal Settings Changed",
       "fleet.DepotRequestsRefused": "Bus Depot Requests Refused",
-      "security.DepotSystemChanged": "Bus Depot System Changed"
+      "security.DepotSystemChanged": "Bus Depot System Changed",
+      "fleet.ManagerCreditLimitWarning": "Fleet Manager Credit Limit Warning",
+      "fleet.ManagerCreditLimitReached": "Fleet Manager Credit Limit Reached",
+      "fleet.ManagerInvoiceIssued": "Fleet Manager New Invoice",
+      "operator.FleetManagerInvite": "Fleet Manager Invitation"
     },
     "templatePreviewInvalid": "The template has an error:",
     "htmlPreview": "HTML preview",
@@ -4448,7 +4624,8 @@
       "mandatory": "Mandatory",
       "notConfigured": "Not configured: nothing is sent on this channel.",
       "explanation": "Drivers see a mandatory notification locked on, marked as required by you."
-    }
+    },
+    "fleetManagerEvents": "Fleet Manager Notices"
   },
   "reservations": {
     "title": "Reservations",
@@ -4652,6 +4829,7 @@
     "FAVORITE_NOT_FOUND": "Favorite not found",
     "FLEET_CREDIT_LIMIT_REACHED": "The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.",
     "FLEET_DISABLED": "Fleet is disabled",
+    "FLEET_USER_NO_FLEETS": "No fleets are assigned to you. Contact your operator.",
     "FLEET_BILLING_OLD_PODS_CONNECTED": "A process of an older release is still connected. Finish the upgrade, then change the fleet billing.",
     "FLEET_BILLING_VERSION_CHECK_STALE": "The worker's version check has not run recently, so the upgrade cannot be confirmed. Check that the worker is running, then change the fleet billing.",
     "FLEET_BILLING_CONTACT_REQUIRED": "The fleet needs at least one billing contact for automatic invoicing and invoice emails.",
@@ -4986,7 +5164,14 @@
     "NOTIFICATION_EVENT_MANDATORY": "Your operator requires this notification on this channel, so it cannot be turned off",
     "STATION_UNITS_FEATURE_IN_USE": "Stations still use units. Turn off Uses Station Units on every station before turning off Enable Station Units.",
     "STATION_UNITS_FEATURE_OFF": "Station units are turned off. Turn on Enable Station Units in Settings > Integrations & Features first.",
-    "STATION_REPORTED_FIELD_LOCKED": "The station reports this value when it boots, so it cannot be changed here."
+    "STATION_REPORTED_FIELD_LOCKED": "The station reports this value when it boots, so it cannot be changed here.",
+    "FLEET_CARD_DEACTIVATED": "This RFID card was deactivated and cannot be turned on again",
+    "FLEET_CARD_NOT_BILLABLE": "The fleet does not bill on account, so its RFID cards cannot charge. Turn on account billing for the fleet first",
+    "FLEET_CARD_DRIVER_NOT_MEMBER": "The driver is not an active member of the fleet that owns this RFID card",
+    "FLEET_HAS_CARDS": "This fleet still owns RFID cards. Remove them from the fleet first.",
+    "FLEET_USER_PERMISSION_NOT_ALLOWED": "A fleet user cannot hold this permission",
+    "INVALID_FLEET_IDS": "One or more fleetIds do not exist",
+    "TOKEN_MANAGED_BY_FLEET": "This RFID card belongs to your fleet. Contact your fleet to change it."
   },
   "logs": {
     "title": "Logs",
@@ -6197,7 +6382,8 @@
     "varTerminalAmount": "Hold or paid amount, formatted in the company currency",
     "varPaymentApproved": "Set when the card was approved",
     "varPlugInAnyConnector": "Set when the driver may plug in at any connector (station-wide terminal)",
-    "varReceiptUrl": "Link to the payment receipt"
+    "varReceiptUrl": "Link to the payment receipt",
+    "stateCardMonthlyLimit": "Card Monthly Limit Reached"
   },
   "audit": {
     "title": "Audit Log",
@@ -6660,6 +6846,7 @@
     "taxId": "VAT ID: {{id}}",
     "driverSubtotal": "Subtotal {{driver}}",
     "unknownDriver": "Unknown driver",
+    "fleetCards": "Fleet RFID Cards",
     "confirmResendFleet": "Email this invoice with its PDF to the fleet billing contacts?",
     "sentAt": "Emailed",
     "overdueNoticeSentAt": "Overdue Reminder Sent",
@@ -7821,5 +8008,13 @@
   "connectorTypeNames": {
     "other": "Other",
     "pantograph": "Pantograph"
+  },
+  "fleetsOff": {
+    "title": "Fleet Management Is Off",
+    "message": "Fleet management is turned off. Contact your operator."
+  },
+  "noFleets": {
+    "title": "No Fleets Assigned",
+    "message": "No fleets are assigned to you. Contact your operator."
   }
 }

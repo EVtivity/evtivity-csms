@@ -110,6 +110,31 @@ describe('SecuritySsoSettings', () => {
   });
 });
 
+describe('SecuritySsoSettings default role', () => {
+  it('never offers the Fleet Manager role for auto-provisioned users', async () => {
+    stored = { ...STORED, 'sso.autoProvision': true };
+    api.get.mockImplementation((url: string) => {
+      if (url === '/v1/users/me/mfa') {
+        return Promise.resolve({ factorProofKinds: ['password'], mfaMethod: null });
+      }
+      if (url === '/v1/sso/settings') return Promise.resolve(stored);
+      if (url === '/v1/roles') {
+        return Promise.resolve([
+          { id: 'rol_000000000002', name: 'operator' },
+          { id: 'rol_000000000004', name: 'fleet_manager' },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    renderForm();
+    const select = await screen.findByRole('combobox', { name: /role/i });
+    await waitFor(() => {
+      expect(select.querySelector('option[value="rol_000000000002"]')).not.toBeNull();
+    });
+    expect(select.querySelector('option[value="rol_000000000004"]')).toBeNull();
+  });
+});
+
 describe('SecuritySsoSettings settings reload', () => {
   async function reload(client: QueryClient, next: Record<string, unknown>): Promise<void> {
     stored = next;
