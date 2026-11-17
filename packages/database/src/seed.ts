@@ -695,6 +695,9 @@ async function seed(): Promise<void> {
     // off so the portal Register page returns 403 PORTAL_REGISTRATION_DISABLED.
     'portal.registrationEnabled': true,
     'portal.rfidSelfServiceEnabled': true,
+    // Stations may group their EVSEs into physical units (a master box and its
+    // extenders). Off until an operator turns it on.
+    'stationUnits.enabled': false,
     // Mobile device attestation. When enabled, native portal clients prove
     // themselves with Apple App Attest (iOS) or Google Play Integrity (Android)
     // on the pre-auth endpoints instead of reCAPTCHA. Disabled by default so the

@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
   writeAudit: vi.fn(),
   publishStationStatusChanged: vi.fn(),
   refitStationRun: vi.fn(),
+  isStationUnitsFeatureEnabled: vi.fn(),
   selectRows: [] as unknown[][],
 }));
 
@@ -42,6 +43,7 @@ vi.mock('@evtivity/database', () => {
     deleteStationUnit: m.deleteStationUnit,
     setEvseUnit: m.setEvseUnit,
     readStationUnits: m.readStationUnits,
+    isStationUnitsFeatureEnabled: m.isStationUnitsFeatureEnabled,
     writeAudit: m.writeAudit,
   };
 });
@@ -77,6 +79,7 @@ beforeEach(() => {
   m.selectRows = [];
   m.readStationUnits.mockResolvedValue([VIEW]);
   m.refitStationRun.mockResolvedValue(null);
+  m.isStationUnitsFeatureEnabled.mockResolvedValue(true);
 });
 
 describe('station unit service', () => {
@@ -468,5 +471,37 @@ describe('station unit service', () => {
     });
     expect(log.warn).toHaveBeenCalled();
     expect(m.publishStationStatusChanged).toHaveBeenCalled();
+  });
+});
+
+describe('Enable Station Units off', () => {
+  it('refuses to create a unit with STATION_UNITS_FEATURE_OFF and writes nothing', async () => {
+    m.isStationUnitsFeatureEnabled.mockResolvedValue(false);
+    await expect(createUnit('sta_1', { name: 'Box 1' }, ctx)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'STATION_UNITS_FEATURE_OFF',
+    });
+    expect(m.createStationUnit).not.toHaveBeenCalled();
+    expect(m.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('refuses to put an EVSE in a unit, and still takes one out of its unit', async () => {
+    m.isStationUnitsFeatureEnabled.mockResolvedValue(false);
+    m.selectRows = [[{ id: 'evs_1' }]];
+    await expect(assignEvseUnit('sta_1', 1, 'unt_1', ctx)).rejects.toMatchObject({
+      code: 'STATION_UNITS_FEATURE_OFF',
+    });
+    expect(m.setEvseUnit).not.toHaveBeenCalled();
+
+    m.selectRows = [[{ id: 'evs_1' }]];
+    m.setEvseUnit.mockResolvedValue({
+      ok: true,
+      changed: false,
+      value: undefined,
+      before: null,
+      after: null,
+    });
+    await expect(assignEvseUnit('sta_1', 1, null, ctx)).resolves.toEqual({ changed: false });
+    expect(m.setEvseUnit).toHaveBeenCalledWith('sta_1', 'evs_1', null);
   });
 });

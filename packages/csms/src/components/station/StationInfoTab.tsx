@@ -30,6 +30,7 @@ import { OCPP_BASE_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/timezone';
 import { StationAiInsightsRow } from './StationAiInsightsRow';
 import { StationUsesUnitsField } from './StationUsesUnitsField';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import type { StationAiInsightsState } from './StationAiInsightsRow';
 import { useSavedToast } from '@/components/saved-message';
 import { stationSimKey } from '@/components/sim/sim-connectivity';
@@ -47,6 +48,10 @@ interface Station extends StationAiInsightsState {
   vendorName: string | null;
   model: string | null;
   serialNumber: string | null;
+  /** A boot reported the model: read-only. */
+  modelReported?: boolean | undefined;
+  /** A boot reported a serial number: read-only. */
+  serialNumberReported?: boolean | undefined;
   firmwareVersion: string | null;
   unitCount?: number | undefined;
   usesUnits?: boolean | undefined;
@@ -122,6 +127,11 @@ export function StationInfoTab({
   const [siteId, setSiteId] = useState('');
   const [isSimulator, setIsSimulator] = useState(false);
   const [usesUnits, setUsesUnits] = useState(false);
+  // Shown while Enable Station Units is on, and on a station that still uses units.
+  const { stationUnitsEnabled } = useFeatureFlags().flags;
+  const showUsesUnits = stationUnitsEnabled || station.usesUnits === true;
+  // The station reports these at its boot, so the form keeps them read-only.
+  const reportedNote = station.modelReported === true || station.serialNumberReported === true;
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [iccid, setIccid] = useState('');
@@ -242,8 +252,8 @@ export function StationInfoTab({
     if (Object.keys(simErrors).length > 0) return;
     updateMutation.mutate({
       ...simChanges(),
-      ...(model !== '' ? { model } : {}),
-      ...(serialNumber !== '' ? { serialNumber } : {}),
+      ...(model !== '' && station.modelReported !== true ? { model } : {}),
+      ...(serialNumber !== '' && station.serialNumberReported !== true ? { serialNumber } : {}),
       siteId: siteId !== '' ? siteId : null,
       isSimulator,
       ...(usesUnits !== (station.usesUnits ?? false) ? { usesUnits } : {}),
@@ -299,6 +309,8 @@ export function StationInfoTab({
               <Input
                 id="edit-model"
                 value={model}
+                disabled={station.modelReported === true}
+                aria-describedby={reportedNote ? 'edit-reported-note' : undefined}
                 onChange={(e) => {
                   setModel(e.target.value);
                 }}
@@ -311,10 +323,21 @@ export function StationInfoTab({
               <Input
                 id="edit-serial"
                 value={serialNumber}
+                disabled={station.serialNumberReported === true}
+                aria-describedby={reportedNote ? 'edit-reported-note' : undefined}
                 onChange={(e) => {
                   setSerialNumber(e.target.value);
                 }}
               />
+              {reportedNote && (
+                <p id="edit-reported-note" className="text-xs text-muted-foreground">
+                  {t(
+                    station.serialNumberReported === true
+                      ? 'stations.reportedFieldsNote'
+                      : 'stations.reportedModelNote',
+                  )}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-site" className="leading-6">
@@ -345,11 +368,13 @@ export function StationInfoTab({
               />
               <Label htmlFor="edit-simulator">{t('stations.isSimulator')}</Label>
             </div>
-            <StationUsesUnitsField
-              id="edit-uses-units"
-              checked={usesUnits}
-              onCheckedChange={setUsesUnits}
-            />
+            {showUsesUnits && (
+              <StationUsesUnitsField
+                id="edit-uses-units"
+                checked={usesUnits}
+                onCheckedChange={setUsesUnits}
+              />
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="grid gap-2">
                 <Label htmlFor="edit-latitude">{t('stations.latitude')}</Label>

@@ -1692,7 +1692,9 @@
       "unavailable": "No Longer Available",
       "dayLabel": "{{date}}: {{label}}",
       "notFetchedRange": "Not fetched: {{from}} to {{to}}"
-    }
+    },
+    "reportedFieldsNote": "The station reports its model and serial number when it boots, so they cannot be changed here.",
+    "reportedModelNote": "The station reports its model when it boots, so it cannot be changed here. Enter the serial number from the label if the station does not report one."
   },
   "sims": {
     "title": "SIMs",
@@ -4221,6 +4223,13 @@
       "enabled": "Check for New Releases",
       "enabledDesc": "On: the server reads the latest release number from evtivity.com once a day, and admins see a notice on the dashboard when a newer release is out. Only the server's IP address reaches evtivity.com; browsers never contact it. Off: nothing is sent.",
       "offEffect": "The server stops reading the latest release from evtivity.com, and admins no longer see a notice when a newer release is out."
+    },
+    "station": {
+      "title": "Station",
+      "description": "Settings that apply to every station.",
+      "unitsEnabled": "Enable Station Units",
+      "unitsEnabledDesc": "On: a station can group its EVSEs into physical units, for example a master box and its extenders under one OCPP connection. Each station then has a Uses Station Units switch. Off: no station can use units. It can be turned off only while no station uses units.",
+      "unitsOffEffect": "No station can use units, and the Uses Station Units switch and every unit control are hidden."
     }
   },
   "pnc": {
@@ -4974,7 +4983,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "Another bus depot system uses this system ID.",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "A bus depot system serves depot sites only.",
     "RFID_SELF_SERVICE_DISABLED": "Your operator manages your RFID cards. Contact the operator to add, change, deactivate or remove a card.",
-    "NOTIFICATION_EVENT_MANDATORY": "Your operator requires this notification on this channel, so it cannot be turned off"
+    "NOTIFICATION_EVENT_MANDATORY": "Your operator requires this notification on this channel, so it cannot be turned off",
+    "STATION_UNITS_FEATURE_IN_USE": "Stations still use units. Turn off Uses Station Units on every station before turning off Enable Station Units.",
+    "STATION_UNITS_FEATURE_OFF": "Station units are turned off. Turn on Enable Station Units in Settings > Integrations & Features first.",
+    "STATION_REPORTED_FIELD_LOCKED": "The station reports this value when it boots, so it cannot be changed here."
   },
   "logs": {
     "title": "Logs",

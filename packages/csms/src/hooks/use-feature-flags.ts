@@ -33,6 +33,11 @@ export interface FeatureFlags extends NavFeatureFlags {
    */
   fleetChargingEnabled: boolean;
   chatbotAiEnabled: boolean;
+  /**
+   * Enable Station Units is on (`stationUnits.enabled`): stations show the Uses
+   * Station Units switch and their unit controls. Off until the endpoint answers.
+   */
+  stationUnitsEnabled: boolean;
   /** Station signal reads are on: a SIM Refresh also sends one OCPP request to the station. */
   simStationSignalEnabled: boolean;
   /**
@@ -54,7 +59,7 @@ type FeaturesResponse = Partial<Record<keyof FeatureFlags, unknown>>;
 
 /**
  * The flags from `GET /v1/portal/features`. Until it answers (or when it
- * fails), roaming, Plug and Charge, depot charging planning, the AI assistant, AI insights and the SIM features count as off and the
+ * fails), roaming, Plug and Charge, depot charging planning, the AI assistant, AI insights, station units and the SIM features count as off and the
  * others as on.
  */
 export function resolveFeatureFlags(features: FeaturesResponse | undefined): FeatureFlags {
@@ -70,6 +75,7 @@ export function resolveFeatureFlags(features: FeaturesResponse | undefined): Fea
     aiInsightsEnabled: features?.aiInsightsEnabled === true,
     simEnabled: features?.simEnabled === true,
     simStationSignalEnabled: features?.simStationSignalEnabled === true,
+    stationUnitsEnabled: features?.stationUnitsEnabled === true,
     fileStorageEnabled: features?.fileStorageEnabled !== false,
   };
 }

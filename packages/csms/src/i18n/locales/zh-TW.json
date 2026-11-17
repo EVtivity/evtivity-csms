@@ -1692,7 +1692,9 @@
       "unavailable": "已無法取得",
       "dayLabel": "{{date}}：{{label}}",
       "notFetchedRange": "未擷取：{{from}} 至 {{to}}"
-    }
+    },
+    "reportedFieldsNote": "充電樁在啟動時回報其型號和序號，因此無法在此變更。",
+    "reportedModelNote": "充電樁在啟動時回報其型號，因此無法在此變更。如果充電樁未回報序號，請輸入銘牌上的序號。"
   },
   "sims": {
     "title": "SIM 卡",
@@ -4221,6 +4223,13 @@
       "enabled": "檢查新版本",
       "enabledDesc": "開啟：伺服器每天從 evtivity.com 讀取一次最新版本號，有更新版本發布時，管理員會在儀表板上看到通知。只有伺服器的 IP 位址會到達 evtivity.com，瀏覽器從不存取它。關閉：不傳送任何內容。",
       "offEffect": "伺服器不再從 evtivity.com 讀取最新版本，有更新版本發布時管理員也不會再看到通知。"
+    },
+    "station": {
+      "title": "充電樁",
+      "description": "適用於所有充電樁的設定。",
+      "unitsEnabled": "啟用充電樁單元",
+      "unitsEnabledDesc": "開啟：充電樁可以將其 EVSE 分組為實體單元，例如同一個 OCPP 連線下的主機和擴充箱。每個充電樁隨後都有使用充電樁單元開關。關閉：任何充電樁都不能使用單元。只有在沒有充電樁使用單元時才能關閉。",
+      "unitsOffEffect": "任何充電樁都不能使用單元，使用充電樁單元開關和所有單元控制項都會隱藏。"
     }
   },
   "pnc": {
@@ -4974,7 +4983,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "另一個公車車場系統已使用此系統 ID。",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公車車場系統僅服務車場充電站。",
     "RFID_SELF_SERVICE_DISABLED": "您的 RFID 卡由營運商管理。如需新增、變更、停用或移除卡片，請聯絡營運商。",
-    "NOTIFICATION_EVENT_MANDATORY": "營運商要求在此管道接收此通知，因此無法關閉"
+    "NOTIFICATION_EVENT_MANDATORY": "營運商要求在此管道接收此通知，因此無法關閉",
+    "STATION_UNITS_FEATURE_IN_USE": "仍有充電樁在使用單元。請先在每個充電樁上關閉使用充電樁單元，再關閉啟用充電樁單元。",
+    "STATION_UNITS_FEATURE_OFF": "充電樁單元已關閉。請先在設定 > 整合與功能中開啟啟用充電樁單元。",
+    "STATION_REPORTED_FIELD_LOCKED": "充電樁在啟動時回報此值，因此無法在此變更。"
   },
   "logs": {
     "title": "日誌",

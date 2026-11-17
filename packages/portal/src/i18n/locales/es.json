@@ -1070,7 +1070,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "Otro sistema de depósito de autobuses usa este ID de sistema.",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Un sistema de depósito de autobuses solo atiende sitios de tipo depósito.",
     "RFID_SELF_SERVICE_DISABLED": "Su operador gestiona sus tarjetas RFID. Contacte al operador para añadir, cambiar, desactivar o eliminar una tarjeta.",
-    "NOTIFICATION_EVENT_MANDATORY": "Tu operador exige esta notificación en este canal, por lo que no se puede desactivar"
+    "NOTIFICATION_EVENT_MANDATORY": "Tu operador exige esta notificación en este canal, por lo que no se puede desactivar",
+    "STATION_UNITS_FEATURE_IN_USE": "Todavía hay estaciones que usan unidades. Desactiva Usa Unidades de Estación en cada estación antes de desactivar Habilitar Unidades de Estación.",
+    "STATION_UNITS_FEATURE_OFF": "Las unidades de estación están desactivadas. Activa primero Habilitar Unidades de Estación en Configuración > Integraciones y Funciones.",
+    "STATION_REPORTED_FIELD_LOCKED": "La estación informa este valor al arrancar, por lo que no se puede cambiar aquí."
   },
   "validation": {
     "required": "Este campo es obligatorio",

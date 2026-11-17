@@ -41,8 +41,14 @@ vi.mock('@/components/GoogleMapPicker', () => ({ GoogleMapPicker: () => null }))
 
 import { StationCreate } from '../StationCreate';
 
-function renderCreate(): void {
-  getMock.mockResolvedValue({ data: [{ id: 'sit_1', name: 'Depot' }], total: 1 });
+function renderCreate(features: { stationUnitsEnabled?: boolean } = {}): void {
+  getMock.mockImplementation((url: string) =>
+    Promise.resolve(
+      url === '/v1/portal/features'
+        ? features
+        : { data: [{ id: 'sit_1', name: 'Depot' }], total: 1 },
+    ),
+  );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -143,11 +149,25 @@ describe('StationCreate password rules', () => {
 });
 
 describe('StationCreate Uses Station Units switch', () => {
+  it('hides the switch and sends no usesUnits while Enable Station Units is off', async () => {
+    postMock.mockResolvedValue({ id: 'sta_1', stationId: 'CS-1' });
+    renderCreate({ stationUnitsEnabled: false });
+    await fillRequired('ocpp1.6', 'a'.repeat(16));
+    expect(screen.queryByRole('switch', { name: 'stations.usesUnits' })).toBeNull();
+    submit();
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/stations',
+        expect.not.objectContaining({ usesUnits: expect.anything() as unknown }),
+      );
+    });
+  });
+
   it('sends the switch off by default and on once turned on', async () => {
     postMock.mockResolvedValue({ id: 'sta_1', stationId: 'CS-1' });
-    renderCreate();
+    renderCreate({ stationUnitsEnabled: true });
     await fillRequired('ocpp1.6', 'a'.repeat(16));
-    const toggle = screen.getByRole('switch', { name: 'stations.usesUnits' });
+    const toggle = await screen.findByRole('switch', { name: 'stations.usesUnits' });
     expect(toggle.getAttribute('aria-checked')).toBe('false');
     submit();
     await waitFor(() => {

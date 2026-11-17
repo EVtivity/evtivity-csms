@@ -735,8 +735,10 @@ export function registerProjections(
 
     const payload = event.payload;
     const firmwareVersion = getString(payload, 'firmwareVersion');
-    const model = getString(payload, 'model');
-    const serialNumber = getString(payload, 'serialNumber');
+    // A boot without a model or serial number keeps the stored one (an
+    // operator may have typed it from the label); a reported one is stamped.
+    const model = getString(payload, 'model')?.trim() || null;
+    const serialNumber = getString(payload, 'serialNumber')?.trim() || null;
     // An empty ICCID or IMSI is none: it neither replaces the stored one nor closes the SIM attachment.
     const iccid = getString(payload, 'iccid')?.trim() || null;
     const imsi = getString(payload, 'imsi')?.trim() || null;
@@ -758,8 +760,12 @@ export function registerProjections(
         UPDATE charging_stations
         SET
           firmware_version = ${firmwareVersion},
-          model = ${model},
-          serial_number = ${serialNumber},
+          model = COALESCE(${model}, model),
+          serial_number = COALESCE(${serialNumber}, serial_number),
+          model_reported_at = CASE WHEN ${model}::text IS NULL THEN model_reported_at ELSE now() END,
+          serial_number_reported_at = CASE
+            WHEN ${serialNumber}::text IS NULL THEN serial_number_reported_at ELSE now()
+          END,
           iccid = COALESCE(${iccid}, iccid),
           iccid_source = CASE WHEN ${iccid}::text IS NULL THEN iccid_source ELSE 'reported' END,
           iccid_entered_by = CASE WHEN ${iccid}::text IS NULL THEN iccid_entered_by END,
@@ -788,8 +794,12 @@ export function registerProjections(
         UPDATE charging_stations
         SET
           firmware_version = ${firmwareVersion},
-          model = ${model},
-          serial_number = ${serialNumber},
+          model = COALESCE(${model}, model),
+          serial_number = COALESCE(${serialNumber}, serial_number),
+          model_reported_at = CASE WHEN ${model}::text IS NULL THEN model_reported_at ELSE now() END,
+          serial_number_reported_at = CASE
+            WHEN ${serialNumber}::text IS NULL THEN serial_number_reported_at ELSE now()
+          END,
           iccid = COALESCE(${iccid}, iccid),
           iccid_source = CASE WHEN ${iccid}::text IS NULL THEN iccid_source ELSE 'reported' END,
           iccid_entered_by = CASE WHEN ${iccid}::text IS NULL THEN iccid_entered_by END,

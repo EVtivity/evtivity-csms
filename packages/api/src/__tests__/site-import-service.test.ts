@@ -92,6 +92,11 @@ vi.mock('../lib/ocpi-location-push.js', () => ({
   publishOcpiStationSiteMove: mockSiteMove,
 }));
 
+const mockUnits = vi.hoisted(() => ({
+  setStationUsesUnits: vi.fn(),
+  featureOn: vi.fn(),
+}));
+
 const mockPlaceStationOnLayout = vi.hoisted(() => vi.fn(() => Promise.resolve({ x: 20, y: 20 })));
 const mockMoveStationLayout = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
@@ -99,6 +104,9 @@ vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   placeStationOnLayout: mockPlaceStationOnLayout,
   moveStationLayout: mockMoveStationLayout,
+  setStationUsesUnits: mockUnits.setStationUsesUnits,
+  stationUnitsFeatureOnInTx: mockUnits.featureOn,
+  stationUnits: { stationId: 'station_id' },
   client: {},
   recomputeStationAvailability: mockRecompute,
   setStationDisabled: mockSetDisabled,
@@ -173,6 +181,10 @@ beforeEach(() => {
   dbResults = [];
   dbCallIndex = 0;
   vi.clearAllMocks();
+  mockUnits.featureOn.mockResolvedValue(true);
+  mockUnits.setStationUsesUnits.mockImplementation((_id: string, on: boolean) =>
+    Promise.resolve({ ok: true, changed: true, before: !on, after: on }),
+  );
 });
 
 describe('exportSitesTemplateCsv', () => {
@@ -181,7 +193,7 @@ describe('exportSitesTemplateCsv', () => {
     const lines = csv.split('\n');
 
     expect(lines[0]).toBe(
-      'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor',
+      'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor,stationUsesUnits',
     );
     expect(lines.length).toBe(5); // header + 4 template rows
     expect(lines[1]).toContain('Downtown Garage');
@@ -213,9 +225,11 @@ describe('exportSitesCsv', () => {
     const lines = csv.split('\n');
 
     expect(lines[0]).toBe(
-      'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor',
+      'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor,stationUsesUnits',
     );
-    expect(lines[1]).toBe('Site A,CS-001,Model X,SN-111,available,accepted,1,1,CCS2,150,200,ACME');
+    expect(lines[1]).toBe(
+      'Site A,CS-001,Model X,SN-111,available,accepted,1,1,CCS2,150,200,ACME,false',
+    );
   });
 
   it('exports the operator choice as stationStatus, not the computed availability', async () => {
@@ -279,7 +293,7 @@ describe('exportSitesCsv', () => {
     const csv = await exportSitesCsv('term', ['sit_1']);
     const lines = csv.split('\n');
 
-    expect(lines[1]).toBe('Scoped Site,,,,,,,,,,,');
+    expect(lines[1]).toBe('Scoped Site,,,,,,,,,,,,');
   });
 });
 
@@ -850,5 +864,272 @@ describe('importSitesCsv', () => {
     expect(result.evsesUpdated).toBe(1);
     expect(result.connectorsUpdated).toBe(1);
     expect(result.errors).toEqual([]);
+  });
+});
+
+describe('Uses Station Units column', () => {
+  const now = new Date('2026-01-01T00:00:00Z');
+  const later = new Date('2026-02-01T00:00:00Z');
+  const exportRow = (stationId: string | null, usesUnits: boolean | null) => ({
+    siteName: 'Site A',
+    stationId,
+    stationModel: null,
+    stationSerialNumber: null,
+    stationStatus: stationId == null ? null : 'available',
+    onboardingStatus: null,
+    evseId: null,
+    connectorId: null,
+    connectorType: null,
+    maxPowerKw: null,
+    maxCurrentAmps: null,
+    vendorName: null,
+    usesUnits,
+  });
+
+  it('exports true for a station with units, false for one without, nothing for a site row', async () => {
+    setupDbResults([
+      exportRow('CS-UNITS', true),
+      exportRow('CS-PLAIN', false),
+      exportRow(null, null),
+    ]);
+    const lines = (await exportSitesCsv()).split('\n');
+    expect(lines[0]?.endsWith(',stationUsesUnits')).toBe(true);
+    expect(lines[1]?.endsWith(',true')).toBe(true);
+    expect(lines[2]?.endsWith(',false')).toBe(true);
+    expect(lines[3]).toBe('Site A,,,,,,,,,,,,');
+  });
+
+  it('writes false in the template rows', () => {
+    const lines = exportSitesTemplateCsv().split('\n');
+    expect(lines[1]?.endsWith(',false')).toBe(true);
+  });
+
+  it('refuses a value other than true, false or empty and still imports the other rows', async () => {
+    setupDbResults(
+      [], // site lookup
+      [{ id: 'site-1', createdAt: now, updatedAt: now }], // site insert
+      [], // CS-OK does not exist
+      [{ id: 'station-ok', usesUnits: false, createdAt: now, updatedAt: now }],
+    );
+    const result = await importSitesCsv(
+      [
+        { siteName: 'Site A', stationId: 'CS-BAD', stationUsesUnits: 'maybe' },
+        { siteName: 'Site A', stationId: 'CS-OK', stationUsesUnits: 'FALSE' },
+      ],
+      true,
+    );
+    expect(result.errors).toEqual(['Row 1: stationUsesUnits must be true, false or empty']);
+    expect(result.stationsCreated).toBe(1);
+    expect(mockUnits.setStationUsesUnits).not.toHaveBeenCalled();
+  });
+
+  it('turns the switch on for a new station while the setting is on', async () => {
+    setupDbResults(
+      [],
+      [{ id: 'site-1', createdAt: now, updatedAt: now }],
+      [], // new station
+      [{ id: 'station-1', usesUnits: false, createdAt: now, updatedAt: now }],
+    );
+    const result = await importSitesCsv(
+      [{ siteName: 'Site A', stationId: 'CS-1', stationUsesUnits: 'true' }],
+      true,
+    );
+    expect(result.errors).toEqual([]);
+    expect(mockUnits.setStationUsesUnits).toHaveBeenCalledWith(
+      'station-1',
+      true,
+      expect.anything(),
+    );
+  });
+
+  it('turns the switch on for an existing station while the setting is on', async () => {
+    const previous = { id: 'station-1', stationId: 'CS-1', siteId: 'site-1', usesUnits: false };
+    setupDbResults(
+      [{ id: 'site-1', name: 'Site A' }], // existing site
+      [{ id: 'site-1' }], // site update
+      [previous],
+      [{ ...previous, createdAt: now, updatedAt: later }],
+    );
+    const result = await importSitesCsv(
+      [{ siteName: 'Site A', stationId: 'CS-1', stationUsesUnits: 'True' }],
+      true,
+    );
+    expect(result.errors).toEqual([]);
+    expect(mockUnits.setStationUsesUnits).toHaveBeenCalledWith(
+      'station-1',
+      true,
+      expect.anything(),
+    );
+  });
+
+  it('turns the switch off for a station that has no units', async () => {
+    const previous = { id: 'station-1', stationId: 'CS-1', siteId: 'site-1', usesUnits: true };
+    setupDbResults(
+      [{ id: 'site-1', name: 'Site A' }],
+      [{ id: 'site-1' }],
+      [previous],
+      [{ n: 0 }], // no units
+      [{ ...previous, createdAt: now, updatedAt: later }],
+    );
+    const result = await importSitesCsv(
+      [{ siteName: 'Site A', stationId: 'CS-1', stationUsesUnits: 'false' }],
+      true,
+    );
+    expect(result.errors).toEqual([]);
+    expect(mockUnits.setStationUsesUnits).toHaveBeenCalledWith(
+      'station-1',
+      false,
+      expect.anything(),
+    );
+  });
+
+  it('refuses false for a station that has units, and the station keeps its switch', async () => {
+    const previous = { id: 'station-1', stationId: 'CS-1', siteId: 'site-1', usesUnits: true };
+    setupDbResults(
+      [{ id: 'site-1', name: 'Site A' }],
+      [{ id: 'site-1' }],
+      [previous],
+      [{ n: 2 }], // two units
+    );
+    const result = await importSitesCsv(
+      [{ siteName: 'Site A', stationId: 'CS-1', stationModel: 'New', stationUsesUnits: 'false' }],
+      true,
+    );
+    expect(result.errors).toEqual([
+      'Row 1: stationUsesUnits: the station has units: delete them before turning it off',
+    ]);
+    expect(result.stationsUpdated).toBe(0);
+    expect(mockUnits.setStationUsesUnits).not.toHaveBeenCalled();
+  });
+
+  it('leaves a new station off and an existing one unchanged for an empty cell', async () => {
+    const previous = { id: 'station-2', stationId: 'CS-2', siteId: 'site-1', usesUnits: true };
+    setupDbResults(
+      [{ id: 'site-1', name: 'Site A' }],
+      [{ id: 'site-1' }],
+      [], // CS-1 is new
+      [{ id: 'station-1', usesUnits: false, createdAt: now, updatedAt: now }],
+      [previous], // CS-2 exists and uses units
+      [{ ...previous, createdAt: now, updatedAt: later }],
+    );
+    const result = await importSitesCsv(
+      [
+        { siteName: 'Site A', stationId: 'CS-1', stationUsesUnits: '' },
+        { siteName: 'Site A', stationId: 'CS-2' },
+      ],
+      true,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.stationsCreated).toBe(1);
+    expect(result.stationsUpdated).toBe(1);
+    expect(mockUnits.setStationUsesUnits).not.toHaveBeenCalled();
+  });
+
+  it('refuses true while the setting is off and imports the false and empty rows', async () => {
+    mockUnits.featureOn.mockResolvedValue(false);
+    setupDbResults(
+      [],
+      [{ id: 'site-1', createdAt: now, updatedAt: now }],
+      [], // CS-ON is new: refused before any write
+      [], // CS-OFF is new
+      [{ id: 'station-off', usesUnits: false, createdAt: now, updatedAt: now }],
+      [], // CS-EMPTY is new
+      [{ id: 'station-empty', usesUnits: false, createdAt: now, updatedAt: now }],
+    );
+    const result = await importSitesCsv(
+      [
+        { siteName: 'Site A', stationId: 'CS-ON', stationUsesUnits: 'true' },
+        { siteName: 'Site A', stationId: 'CS-OFF', stationUsesUnits: 'false' },
+        { siteName: 'Site A', stationId: 'CS-EMPTY' },
+      ],
+      true,
+    );
+    expect(result.errors).toEqual([
+      'Row 1: stationUsesUnits: station units are turned off (Enable Station Units in Settings > Integrations & Features)',
+    ]);
+    expect(result.stationsCreated).toBe(2);
+    expect(mockUnits.setStationUsesUnits).not.toHaveBeenCalled();
+  });
+
+  it('changes nothing when an export is imported again', async () => {
+    setupDbResults([exportRow('CS-UNITS', true)]);
+    const lines = (await exportSitesCsv()).split('\n');
+    const cell = lines[1]?.split(',').at(-1);
+    expect(cell).toBe('true');
+
+    const previous = { id: 'station-1', stationId: 'CS-UNITS', siteId: 'site-1', usesUnits: true };
+    setupDbResults(
+      [{ id: 'site-1', name: 'Site A' }],
+      [{ id: 'site-1' }],
+      [previous],
+      [{ ...previous, createdAt: now, updatedAt: later }],
+    );
+    // A station that already uses units keeps true, also while the setting reads off.
+    mockUnits.featureOn.mockResolvedValue(false);
+    const result = await importSitesCsv(
+      [{ siteName: 'Site A', stationId: 'CS-UNITS', stationUsesUnits: cell }],
+      true,
+    );
+    expect(result.errors).toEqual([]);
+    expect(mockUnits.setStationUsesUnits).not.toHaveBeenCalled();
+  });
+});
+
+describe('model and serial number a station reported', () => {
+  const now = new Date('2026-01-01T00:00:00Z');
+  const previous = {
+    id: 'station-1',
+    stationId: 'CS-1',
+    siteId: 'site-1',
+    usesUnits: false,
+    model: 'Booted',
+    serialNumber: 'SN-B',
+    modelReportedAt: now,
+    serialNumberReportedAt: now,
+  };
+
+  it('refuses a row that changes the reported model and writes nothing of the station', async () => {
+    setupDbResults([{ id: 'site-1', name: 'Site A' }], [{ id: 'site-1' }], [previous]);
+    const result = await importSitesCsv(
+      [{ siteName: 'Site A', stationId: 'CS-1', stationModel: 'Other' }],
+      true,
+    );
+    expect(result.errors).toEqual([
+      'Row 1: stationModel: the station reports it when it boots, so it cannot be changed',
+    ]);
+    expect(result.stationsUpdated).toBe(0);
+  });
+
+  it('refuses a row that changes the reported serial number', async () => {
+    setupDbResults([{ id: 'site-1', name: 'Site A' }], [{ id: 'site-1' }], [previous]);
+    const result = await importSitesCsv(
+      [{ siteName: 'Site A', stationId: 'CS-1', stationSerialNumber: 'SN-X' }],
+      true,
+    );
+    expect(result.errors).toEqual([
+      'Row 1: stationSerialNumber: the station reports it when it boots, so it cannot be changed',
+    ]);
+  });
+
+  it('imports a row that repeats the stored values', async () => {
+    setupDbResults(
+      [{ id: 'site-1', name: 'Site A' }],
+      [{ id: 'site-1' }],
+      [previous],
+      [{ ...previous, createdAt: now, updatedAt: new Date('2026-02-01T00:00:00Z') }],
+    );
+    const result = await importSitesCsv(
+      [
+        {
+          siteName: 'Site A',
+          stationId: 'CS-1',
+          stationModel: 'Booted',
+          stationSerialNumber: 'SN-B',
+        },
+      ],
+      true,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.stationsUpdated).toBe(1);
   });
 });

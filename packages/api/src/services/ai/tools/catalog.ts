@@ -31836,8 +31836,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
-        model: { type: ['string', 'null'] },
-        serialNumber: { type: ['string', 'null'] },
+        model: {
+          description:
+            'Read-only once a BootNotification reported it: another value answers 409 STATION_REPORTED_FIELD_LOCKED',
+          type: ['string', 'null'],
+        },
+        serialNumber: {
+          description:
+            'Read-only once a BootNotification reported one: another value answers 409 STATION_REPORTED_FIELD_LOCKED. A station that booted without a serial number keeps it editable',
+          type: ['string', 'null'],
+        },
         availability: {
           description:
             'Enable (available) or disable (unavailable) the station. Sends ChangeAvailability to the station. Faulted is computed, not set.',
@@ -31908,8 +31916,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
-        model: { type: 'string', maxLength: 255 },
-        serialNumber: { type: 'string', maxLength: 255 },
+        model: {
+          description:
+            'Read-only once a BootNotification reported it: another value answers 409 STATION_REPORTED_FIELD_LOCKED',
+          type: 'string',
+          maxLength: 255,
+        },
+        serialNumber: {
+          description:
+            'Read-only once a BootNotification reported one: another value answers 409 STATION_REPORTED_FIELD_LOCKED. A station that booted without a serial number keeps it editable',
+          type: 'string',
+          maxLength: 255,
+        },
         availability: {
           description:
             'Enable (available) or disable (unavailable) the station. Sends ChangeAvailability to the station. Faulted is computed, not set.',

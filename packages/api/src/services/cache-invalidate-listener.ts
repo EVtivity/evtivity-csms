@@ -6,6 +6,7 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { clearNotificationSettingsCache, clearStationMessageCache } from '@evtivity/lib';
 import {
   clearDriverRfidSelfServiceCache,
+  clearStationUnitsFeatureCache,
   clearSecuritySettingsCache,
   clearStationMessageSettingsCache,
   clearSystemSettingsCache,
@@ -29,6 +30,7 @@ interface CacheInvalidateMessage {
     | 'station_message'
     | 'sim_settings'
     | 'rfid_self_service'
+    | 'station_units'
     | 'driver_active';
   userId?: string;
   driverId?: string;
@@ -62,6 +64,9 @@ interface CacheInvalidateMessage {
  * `rfid_self_service` comes from a save or delete of
  * `portal.rfidSelfServiceEnabled`: every pod drops its cached value, so a
  * switch to off refuses driver card writes everywhere at once.
+ *
+ * `station_units` comes from a save of `stationUnits.enabled`: every pod
+ * drops its cached value, so the unit controls follow the switch at once.
  *
  * `station_message` comes from requestStationMessageRepush after a station
  * message setting, company setting, or state template changes: the listeners
@@ -101,6 +106,9 @@ export async function startCacheInvalidateListener(
         return;
       case 'rfid_self_service':
         clearDriverRfidSelfServiceCache();
+        return;
+      case 'station_units':
+        clearStationUnitsFeatureCache();
         return;
       case 'driver_active':
         // A deactivated driver's or ended session's portal streams end on

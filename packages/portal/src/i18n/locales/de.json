@@ -1070,7 +1070,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "Ein anderes Busdepot-System verwendet diese System-ID.",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Ein Busdepot-System bedient nur Depot-Standorte.",
     "RFID_SELF_SERVICE_DISABLED": "Ihr Betreiber verwaltet Ihre RFID-Karten. Wenden Sie sich an den Betreiber, um eine Karte hinzuzufügen, zu ändern, zu deaktivieren oder zu entfernen.",
-    "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden"
+    "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden",
+    "STATION_UNITS_FEATURE_IN_USE": "Es gibt noch Ladestationen mit Einheiten. Deaktivieren Sie Verwendet Stationseinheiten an jeder Ladestation, bevor Sie Stationseinheiten aktivieren ausschalten.",
+    "STATION_UNITS_FEATURE_OFF": "Stationseinheiten sind ausgeschaltet. Aktivieren Sie zuerst Stationseinheiten aktivieren unter Einstellungen > Integrationen und Funktionen.",
+    "STATION_REPORTED_FIELD_LOCKED": "Die Ladestation meldet diesen Wert beim Start, daher kann er hier nicht geändert werden."
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

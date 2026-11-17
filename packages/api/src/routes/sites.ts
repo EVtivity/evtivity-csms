@@ -246,6 +246,13 @@ const importSiteRow = z.object({
   // Decimal amps with at most 1 decimal (31.5), as on the station EVSE routes.
   maxCurrentAmps: connectorCurrentAmpsSchema(0).max(1000).optional(),
   stationVendor: z.string().max(100).optional(),
+  stationUsesUnits: z
+    .string()
+    .max(20)
+    .optional()
+    .describe(
+      'Uses Station Units as the cell holds it: true or false (any case). Empty is off for a new station and unchanged for an existing one. True is refused for the row while the Enable Station Units setting is off, false while the station has units, any other value always',
+    ),
 });
 
 const importSiteBody = z.object({

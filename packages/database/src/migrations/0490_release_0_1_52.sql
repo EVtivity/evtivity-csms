@@ -180,3 +180,51 @@ ALTER TABLE "station_units" DROP CONSTRAINT IF EXISTS "station_units_position_ch
 --> statement-breakpoint
 ALTER TABLE "station_units" ADD CONSTRAINT "station_units_position_check"
   CHECK (("latitude" IS NULL) = ("longitude" IS NULL));
+--> statement-breakpoint
+-- Enable Station Units (owner decision 2026-11-17): the system-wide switch.
+-- Off for a new install; on where a station already uses units or a unit
+-- exists, so an install that set up units keeps them. A rerun keeps any
+-- stored value (turning it off is refused while stations use units).
+INSERT INTO "settings" ("key", "value")
+SELECT 'stationUnits.enabled',
+  to_jsonb(
+    EXISTS (SELECT 1 FROM "charging_stations" WHERE "uses_units")
+    OR EXISTS (SELECT 1 FROM "station_units")
+  )
+ON CONFLICT ("key") DO NOTHING;
+--> statement-breakpoint
+UPDATE "settings" SET "value" = 'true'::jsonb, "updated_at" = now()
+WHERE "key" = 'stationUnits.enabled'
+  AND "value" IS DISTINCT FROM 'true'::jsonb
+  AND (
+    EXISTS (SELECT 1 FROM "charging_stations" WHERE "uses_units")
+    OR EXISTS (SELECT 1 FROM "station_units")
+  );
+--> statement-breakpoint
+-- Model and serial number the station reports (owner decision 2026-11-17,
+-- discussion 59): once a BootNotification reported the model, and the serial
+-- number, the CSMS keeps them read-only. Null on every row, then set once
+-- from the newest stored boot messages (rows still null only, so a rerun
+-- changes nothing); a station whose boot messages were pruned stays editable.
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "model_reported_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "serial_number_reported_at" timestamp with time zone;
+--> statement-breakpoint
+UPDATE "charging_stations" cs
+SET "model_reported_at" = COALESCE(cs."model_reported_at", b."booted_at"),
+    "serial_number_reported_at" = COALESCE(cs."serial_number_reported_at", b."serial_at")
+FROM (
+  SELECT "station_id",
+    max("created_at") AS "booted_at",
+    max("created_at") FILTER (
+      WHERE NULLIF(btrim(COALESCE(
+        "payload"->>'chargePointSerialNumber',
+        "payload"#>>'{chargingStation,serialNumber}'
+      )), '') IS NOT NULL
+    ) AS "serial_at"
+  FROM "ocpp_message_logs"
+  WHERE "action" = 'BootNotification' AND "direction" = 'inbound' AND "message_type" = 2
+  GROUP BY "station_id"
+) b
+WHERE b."station_id" = cs."id"
+  AND (cs."model_reported_at" IS NULL OR (cs."serial_number_reported_at" IS NULL AND b."serial_at" IS NOT NULL));

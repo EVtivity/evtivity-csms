@@ -191,6 +191,8 @@ export function Sites(): React.JSX.Element {
         const maxCurrentStr = parts[columns.indexOf('maxCurrentAmps')];
         row['maxCurrentAmps'] = maxCurrentStr ? Number(maxCurrentStr) : undefined;
         row['stationVendor'] = parts[columns.indexOf('stationVendor')] || undefined;
+        // true or false; the server refuses any other value for the row.
+        row['stationUsesUnits'] = parts[columns.indexOf('stationUsesUnits')]?.trim() || undefined;
         return row;
       });
 

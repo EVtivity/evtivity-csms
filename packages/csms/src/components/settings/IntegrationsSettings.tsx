@@ -26,6 +26,7 @@ import { ReservationSettings } from '@/components/settings/ReservationSettings';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
 import { PncLocalCaSection } from '@/components/settings/PncLocalCaSection';
+import { StationUnitsSettings } from '@/components/settings/StationUnitsSettings';
 import { FleetCreditReservationSettings } from '@/components/settings/FleetCreditReservationSettings';
 import { BusDepotSystemsSettings } from './BusDepotSystemsSettings';
 import { SimProvidersSettings } from '@/components/settings/SimProvidersSettings';
@@ -456,6 +457,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     <Tabs value={integrationsSubTab} onValueChange={setIntegrationsSubTab}>
       <TabsList>
         <TabsTrigger value="ocppDefaults">{t('settings.ocppDefaults')}</TabsTrigger>
+        <TabsTrigger value="station">{t('settings.station.title')}</TabsTrigger>
         <TabsTrigger value="roaming">{t('settings.roaming')}</TabsTrigger>
         <TabsTrigger value="pnc">{t('settings.pnc')}</TabsTrigger>
         <TabsTrigger value="autocharge">{t('settings.autocharge')}</TabsTrigger>
@@ -884,6 +886,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
             </div>
           </CardContent>
         </Card>
+      </TabsContent>
+      <TabsContent value="station" className="mt-4">
+        <StationUnitsSettings settings={settings} />
       </TabsContent>
       <TabsContent value="rfidCards" className="mt-4">
         <RfidSelfServiceSettings settings={settings} />

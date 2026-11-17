@@ -157,6 +157,10 @@ export const chargingStations = pgTable(
     vendorId: text('vendor_id').references(() => vendors.id),
     model: varchar('model', { length: 255 }),
     serialNumber: varchar('serial_number', { length: 255 }),
+    // When a BootNotification last reported the model, and the serial number.
+    // Set, the field is the station's own and the CSMS refuses to change it.
+    modelReportedAt: timestamp('model_reported_at', { withTimezone: true }),
+    serialNumberReportedAt: timestamp('serial_number_reported_at', { withTimezone: true }),
     firmwareVersion: varchar('firmware_version', { length: 255 }),
     iccid: varchar('iccid', { length: 20 }),
     imsi: varchar('imsi', { length: 20 }),

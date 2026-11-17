@@ -173,6 +173,7 @@
     "sim.signal.fairDbm": -85,
     "portal.registrationEnabled": true,
     "portal.rfidSelfServiceEnabled": true,
+    "stationUnits.enabled": false,
     "mobile.attestation.enabled": false,
     "mobile.attestation.ios.teamId": "",
     "mobile.attestation.ios.bundleId": "",

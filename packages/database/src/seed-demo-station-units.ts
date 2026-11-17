@@ -48,6 +48,12 @@ export async function seedDemoStationUnitsOf(
   const rows = await sql<{ id: string; evse_id: number }[]>`
     SELECT id, evse_id FROM evses WHERE station_id = ${stationId}`;
   const byNumber = new Map(rows.map((r) => [r.evse_id, r.id]));
+  // A station uses units only while the system-wide switch is on.
+  await sql`
+    INSERT INTO settings (key, value) VALUES ('stationUnits.enabled', 'true'::jsonb)
+    ON CONFLICT (key) DO UPDATE SET value = 'true'::jsonb, updated_at = now()
+    WHERE settings.value IS DISTINCT FROM 'true'::jsonb
+  `;
   const switched = await setStationUsesUnits(stationId, true);
   if (switched.ok && switched.changed) {
     await writeAudit(

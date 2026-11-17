@@ -53,6 +53,15 @@ export {
   RFID_SELF_SERVICE_SETTING_KEY,
 } from './lib/rfid-self-service-setting.js';
 export {
+  isStationUnitsFeatureEnabled,
+  clearStationUnitsFeatureCache,
+  stationUnitsFeatureOnInTx,
+  countStationsUsingUnits,
+  writeStationUnitsSetting,
+  STATION_UNITS_SETTING_KEY,
+} from './lib/station-units-setting.js';
+export type { StationUnitsSettingWrite } from './lib/station-units-setting.js';
+export {
   isCsmsUpdateCheckEnabled,
   clearCsmsUpdateCheckSettingCache,
   readCsmsUpdateCheck,

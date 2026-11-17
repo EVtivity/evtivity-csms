@@ -1303,11 +1303,17 @@ export async function seedPaymentTerminalDemo(
  * so no contract certificate is issued without a CA the operator creates)
  * and Hologram (`sim.hologram.enabled` without an organization or API key, so
  * the SIM pages show the stored data and no Refresh reaches a provider),
- * and route-aware charging (`fleetCharging.enabled`, so the Northgate depot
- * plans its departures).
+ * route-aware charging (`fleetCharging.enabled`, so the Northgate depot
+ * plans its departures) and station units (`stationUnits.enabled`, so the
+ * Parkhaus Lindenhof station can show its boxes).
  */
 export async function enableDemoFeatureSettings(sql: postgres.Sql): Promise<void> {
-  for (const key of ['pnc.enabled', 'sim.hologram.enabled', 'fleetCharging.enabled']) {
+  for (const key of [
+    'pnc.enabled',
+    'sim.hologram.enabled',
+    'fleetCharging.enabled',
+    'stationUnits.enabled',
+  ]) {
     await sql`
       INSERT INTO settings (key, value) VALUES (${key}, 'true'::jsonb)
       ON CONFLICT (key) DO UPDATE SET value = 'true'::jsonb, updated_at = now()

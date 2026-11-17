@@ -1692,7 +1692,9 @@
       "unavailable": "Nicht mehr verfügbar",
       "dayLabel": "{{date}}: {{label}}",
       "notFetchedRange": "Nicht abgerufen: {{from}} bis {{to}}"
-    }
+    },
+    "reportedFieldsNote": "Die Ladestation meldet Modell und Seriennummer beim Start, daher können sie hier nicht geändert werden.",
+    "reportedModelNote": "Die Ladestation meldet ihr Modell beim Start, daher kann es hier nicht geändert werden. Geben Sie die Seriennummer vom Typenschild ein, wenn die Ladestation keine meldet."
   },
   "sims": {
     "title": "SIMs",
@@ -4221,6 +4223,13 @@
       "enabled": "Nach neuen Versionen suchen",
       "enabledDesc": "Ein: Der Server liest einmal am Tag die neueste Versionsnummer von evtivity.com, und Admins sehen auf dem Dashboard einen Hinweis, wenn eine neuere Version erschienen ist. Nur die IP-Adresse des Servers erreicht evtivity.com; Browser kontaktieren die Seite nie. Aus: Es wird nichts gesendet.",
       "offEffect": "Der Server liest die neueste Version nicht mehr von evtivity.com, und Admins sehen keinen Hinweis mehr, wenn eine neuere Version erschienen ist."
+    },
+    "station": {
+      "title": "Ladestation",
+      "description": "Einstellungen, die für jede Ladestation gelten.",
+      "unitsEnabled": "Stationseinheiten aktivieren",
+      "unitsEnabledDesc": "An: Eine Ladestation kann ihre EVSEs in physische Einheiten gruppieren, zum Beispiel eine Master-Box und ihre Erweiterungen an einer OCPP-Verbindung. Jede Ladestation hat dann den Schalter Verwendet Stationseinheiten. Aus: Keine Ladestation kann Einheiten verwenden. Ausschalten ist nur möglich, solange keine Ladestation Einheiten verwendet.",
+      "unitsOffEffect": "Keine Ladestation kann Einheiten verwenden, und der Schalter Verwendet Stationseinheiten sowie alle Einheiten-Steuerelemente werden ausgeblendet."
     }
   },
   "pnc": {
@@ -4974,7 +4983,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "Ein anderes Busdepot-System verwendet diese System-ID.",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Ein Busdepot-System bedient nur Depot-Standorte.",
     "RFID_SELF_SERVICE_DISABLED": "Ihr Betreiber verwaltet Ihre RFID-Karten. Wenden Sie sich an den Betreiber, um eine Karte hinzuzufügen, zu ändern, zu deaktivieren oder zu entfernen.",
-    "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden"
+    "NOTIFICATION_EVENT_MANDATORY": "Dein Betreiber schreibt diese Benachrichtigung auf diesem Kanal vor, daher kann sie nicht deaktiviert werden",
+    "STATION_UNITS_FEATURE_IN_USE": "Es gibt noch Ladestationen mit Einheiten. Deaktivieren Sie Verwendet Stationseinheiten an jeder Ladestation, bevor Sie Stationseinheiten aktivieren ausschalten.",
+    "STATION_UNITS_FEATURE_OFF": "Stationseinheiten sind ausgeschaltet. Aktivieren Sie zuerst Stationseinheiten aktivieren unter Einstellungen > Integrationen und Funktionen.",
+    "STATION_REPORTED_FIELD_LOCKED": "Die Ladestation meldet diesen Wert beim Start, daher kann er hier nicht geändert werden."
   },
   "logs": {
     "title": "Protokolle",

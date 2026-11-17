@@ -1070,7 +1070,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "另一个公交车场系统已使用此系统 ID。",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "公交车场系统仅服务车场充电站。",
     "RFID_SELF_SERVICE_DISABLED": "您的 RFID 卡由运营商管理。如需添加、更改、停用或移除卡片，请联系运营商。",
-    "NOTIFICATION_EVENT_MANDATORY": "运营商要求在此渠道接收此通知，因此无法关闭"
+    "NOTIFICATION_EVENT_MANDATORY": "运营商要求在此渠道接收此通知，因此无法关闭",
+    "STATION_UNITS_FEATURE_IN_USE": "仍有充电桩在使用单元。请先在每个充电桩上关闭使用充电桩单元，再关闭启用充电桩单元。",
+    "STATION_UNITS_FEATURE_OFF": "充电桩单元已关闭。请先在设置 > 集成与功能中开启启用充电桩单元。",
+    "STATION_REPORTED_FIELD_LOCKED": "充电桩在启动时上报此值，因此无法在此更改。"
   },
   "validation": {
     "required": "此字段为必填项",

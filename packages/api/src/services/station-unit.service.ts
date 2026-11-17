@@ -17,6 +17,7 @@ import {
   db,
   deleteStationUnit,
   evses,
+  isStationUnitsFeatureEnabled,
   readStationUnits,
   refitStationRun,
   setEvseUnit,
@@ -32,6 +33,7 @@ import {
 } from '@evtivity/database';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
+import { stationUnitsFeatureOffError } from '../lib/station-units-feature.js';
 
 // The rules, history and announcements of station units. The writer in
 // @evtivity/database (station-units.ts) is the only one that touches the
@@ -334,6 +336,7 @@ export async function createUnit(
   },
   ctx: UnitContext,
 ): Promise<StationUnitView> {
+  if (!(await isStationUnitsFeatureEnabled())) throw stationUnitsFeatureOffError();
   checkName(input.name);
   const details = checkUnitDetails(input);
   const rowIds = await evseRowIds(stationUuid, input.evseIds ?? []);
@@ -418,6 +421,9 @@ export async function assignEvseUnit(
     .from(evses)
     .where(and(eq(evses.stationId, stationUuid), eq(evses.evseId, evseNumber)));
   if (evse == null) throw new AppError('EVSE not found', 404, 'EVSE_NOT_FOUND');
+  if (unitId != null && !(await isStationUnitsFeatureEnabled())) {
+    throw stationUnitsFeatureOffError();
+  }
   const result = unwrap(await setEvseUnit(stationUuid, evse.id, unitId));
   if (result.changed) {
     await afterChange(

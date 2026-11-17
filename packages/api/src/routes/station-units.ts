@@ -223,7 +223,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Create a station unit',
-        description: `Adds a named unit at the end of the station order, optionally with EVSEs of the station (they leave their previous unit). At most ${String(STATION_UNITS_MAX)} units per station. A station with Uses Station Units off answers 409 STATION_UNITS_DISABLED.`,
+        description: `Adds a named unit at the end of the station order, optionally with EVSEs of the station (they leave their previous unit). At most ${String(STATION_UNITS_MAX)} units per station. A station with Uses Station Units off answers 409 STATION_UNITS_DISABLED, and every station while the Enable Station Units setting is off 409 STATION_UNITS_FEATURE_OFF.`,
         operationId: 'createStationUnit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -242,6 +242,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
           409: errorWith('Name in use, or the station does not use units', [
             ERROR_CODES.STATION_UNIT_NAME_IN_USE,
             ERROR_CODES.STATION_UNITS_DISABLED,
+            ERROR_CODES.STATION_UNITS_FEATURE_OFF,
           ]),
         },
       },
@@ -356,7 +357,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Move an EVSE into a unit',
         description:
-          'Puts the EVSE in a unit of the same station, or takes it out of every unit with null. An EVSE already in that unit changes nothing (changed false). Moving an EVSE into a unit of a station with Uses Station Units off answers 409 STATION_UNITS_DISABLED.',
+          'Puts the EVSE in a unit of the same station, or takes it out of every unit with null. An EVSE already in that unit changes nothing (changed false). Moving an EVSE into a unit of a station with Uses Station Units off answers 409 STATION_UNITS_DISABLED, and while the Enable Station Units setting is off 409 STATION_UNITS_FEATURE_OFF.',
         operationId: 'setStationEvseUnit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -369,7 +370,10 @@ export function stationUnitRoutes(app: FastifyInstance): void {
           ),
           400: errorWith('A unit of another station', [ERROR_CODES.VALIDATION_ERROR]),
           404: notFoundErrors,
-          409: errorWith('The station does not use units', [ERROR_CODES.STATION_UNITS_DISABLED]),
+          409: errorWith('The station does not use units', [
+            ERROR_CODES.STATION_UNITS_DISABLED,
+            ERROR_CODES.STATION_UNITS_FEATURE_OFF,
+          ]),
         },
       },
     },

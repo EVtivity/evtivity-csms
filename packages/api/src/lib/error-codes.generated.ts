@@ -363,6 +363,7 @@ export const ERROR_CODES = {
   STATION_OFFLINE: 'STATION_OFFLINE',
   STATION_ONLINE: 'STATION_ONLINE',
   STATION_REJECTED: 'STATION_REJECTED',
+  STATION_REPORTED_FIELD_LOCKED: 'STATION_REPORTED_FIELD_LOCKED',
   STATION_SECURITY_CHANGE_REJECTED: 'STATION_SECURITY_CHANGE_REJECTED',
   STATION_SECURITY_ROUTE_REQUIRED: 'STATION_SECURITY_ROUTE_REQUIRED',
   STATION_SITE_SUPPRESSED: 'STATION_SITE_SUPPRESSED',
@@ -373,6 +374,8 @@ export const ERROR_CODES = {
   STATION_UNIT_NAME_IN_USE: 'STATION_UNIT_NAME_IN_USE',
   STATION_UNIT_NOT_FOUND: 'STATION_UNIT_NOT_FOUND',
   STATION_UNITS_DISABLED: 'STATION_UNITS_DISABLED',
+  STATION_UNITS_FEATURE_IN_USE: 'STATION_UNITS_FEATURE_IN_USE',
+  STATION_UNITS_FEATURE_OFF: 'STATION_UNITS_FEATURE_OFF',
   STATION_UNITS_IN_USE: 'STATION_UNITS_IN_USE',
   STATION_WATCH_NOT_FOUND: 'STATION_WATCH_NOT_FOUND',
   STATUS_CHECK_REJECTED: 'STATUS_CHECK_REJECTED',
@@ -777,6 +780,7 @@ export type ErrorCode =
   | 'STATION_OFFLINE'
   | 'STATION_ONLINE'
   | 'STATION_REJECTED'
+  | 'STATION_REPORTED_FIELD_LOCKED'
   | 'STATION_SECURITY_CHANGE_REJECTED'
   | 'STATION_SECURITY_ROUTE_REQUIRED'
   | 'STATION_SITE_SUPPRESSED'
@@ -787,6 +791,8 @@ export type ErrorCode =
   | 'STATION_UNIT_NAME_IN_USE'
   | 'STATION_UNIT_NOT_FOUND'
   | 'STATION_UNITS_DISABLED'
+  | 'STATION_UNITS_FEATURE_IN_USE'
+  | 'STATION_UNITS_FEATURE_OFF'
   | 'STATION_UNITS_IN_USE'
   | 'STATION_WATCH_NOT_FOUND'
   | 'STATUS_CHECK_REJECTED'
@@ -1249,6 +1255,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATION_OFFLINE: 'Station is offline',
   STATION_ONLINE: 'The station is online. Stop the session at the station instead.',
   STATION_REJECTED: 'Station rejected start: ...',
+  STATION_REPORTED_FIELD_LOCKED:
+    'The station reports this value when it boots, so it cannot be changed here.',
   STATION_SECURITY_CHANGE_REJECTED:
     'The station did not accept the security change; its current settings are unchanged',
   STATION_SECURITY_ROUTE_REQUIRED:
@@ -1263,6 +1271,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATION_UNIT_NAME_IN_USE: 'Another unit of this station has this name',
   STATION_UNIT_NOT_FOUND: 'Unit not found',
   STATION_UNITS_DISABLED: 'This station does not use units. Turn on Uses Station Units first.',
+  STATION_UNITS_FEATURE_IN_USE:
+    'Stations still use units. Turn off Uses Station Units on every station before turning off Enable Station Units.',
+  STATION_UNITS_FEATURE_OFF:
+    'Station units are turned off. Turn on Enable Station Units in Settings > Integrations & Features first.',
   STATION_UNITS_IN_USE: 'Delete the units of this station before turning off Uses Station Units.',
   STATION_WATCH_NOT_FOUND: 'Watch not found',
   STATUS_CHECK_REJECTED: 'Station rejected the status check',

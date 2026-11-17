@@ -62,9 +62,19 @@ const STATION = {
 
 let client: QueryClient;
 
-function renderTab(simEnabled: boolean, station: Record<string, unknown> = STATION): void {
+function renderTab(
+  simEnabled: boolean,
+  station: Record<string, unknown> = STATION,
+  features: Record<string, unknown> = {},
+): void {
   apiMock.get.mockImplementation((url: string) =>
-    Promise.resolve(url.endsWith('/images') ? [] : { data: [], total: 0 }),
+    Promise.resolve(
+      url === '/v1/portal/features'
+        ? features
+        : url.endsWith('/images')
+          ? []
+          : { data: [], total: 0 },
+    ),
   );
   apiMock.patch.mockResolvedValue(STATION);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -112,6 +122,24 @@ describe('StationInfoTab station hardware fields', () => {
 });
 
 describe('StationInfoTab Uses Station Units switch', () => {
+  it('hides the switch while Enable Station Units is off for a station without units', async () => {
+    perms.add('stations:write');
+    renderTab(false, { ...STATION, usesUnits: false }, { stationUnitsEnabled: false });
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith('/v1/portal/features');
+    });
+    expect(screen.queryByRole('switch', { name: 'stations.usesUnits' })).toBeNull();
+  });
+
+  it('shows the switch, off, while Enable Station Units is on', async () => {
+    perms.add('stations:write');
+    renderTab(false, { ...STATION, usesUnits: false }, { stationUnitsEnabled: true });
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    const toggle = await screen.findByRole('switch', { name: 'stations.usesUnits' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+  });
+
   it('sends the switch only when it changed, and shows the refusal of a station with units', async () => {
     perms.add('stations:write');
     renderTab(false, { ...STATION, usesUnits: true, unitCount: 8 });
@@ -139,5 +167,44 @@ describe('StationInfoTab Uses Station Units switch', () => {
       );
     });
     expect(await screen.findByText('Delete the units first')).toBeTruthy();
+  });
+});
+
+describe('StationInfoTab model and serial number the station reported', () => {
+  it('keeps both editable before the first boot', () => {
+    perms.add('stations:write');
+    renderTab(false, { ...STATION, modelReported: false, serialNumberReported: false });
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    expect(screen.getByLabelText<HTMLInputElement>('stations.model').disabled).toBe(false);
+    expect(screen.getByLabelText<HTMLInputElement>('stations.serialNumber').disabled).toBe(false);
+    expect(screen.queryByText('stations.reportedFieldsNote')).toBeNull();
+    expect(screen.queryByText('stations.reportedModelNote')).toBeNull();
+  });
+
+  it('locks a reported model and keeps an unreported serial number editable, and sends neither locked field', async () => {
+    perms.add('stations:write');
+    renderTab(false, { ...STATION, modelReported: true, serialNumberReported: false });
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    const model = screen.getByLabelText<HTMLInputElement>('stations.model');
+    const serial = screen.getByLabelText<HTMLInputElement>('stations.serialNumber');
+    expect(model.disabled).toBe(true);
+    expect(serial.disabled).toBe(false);
+    expect(screen.getByText('stations.reportedModelNote')).toBeTruthy();
+    fireEvent.change(serial, { target: { value: 'SN-LABEL' } });
+    fireEvent.submit(serial.closest('form') as HTMLFormElement);
+    await waitFor(() => {
+      expect(apiMock.patch).toHaveBeenCalled();
+    });
+    const body = apiMock.patch.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('model');
+    expect(body['serialNumber']).toBe('SN-LABEL');
+  });
+
+  it('locks both when the boot reported a serial number', () => {
+    perms.add('stations:write');
+    renderTab(false, { ...STATION, modelReported: true, serialNumberReported: true });
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    expect(screen.getByLabelText<HTMLInputElement>('stations.serialNumber').disabled).toBe(true);
+    expect(screen.getByText('stations.reportedFieldsNote')).toBeTruthy();
   });
 });

@@ -95,6 +95,9 @@ const BY_ID_ONLY = new Set([
   'database/src/lib/station-status.ts',
   // Units of one station, locked and read by its id.
   'database/src/lib/station-units.ts',
+  // Counts every station that uses units, conformance ones included: the
+  // setting is refused off while any station uses units.
+  'database/src/lib/station-units-setting.ts',
   'database/src/lib/station-watch.ts',
   'database/src/lib/tariff-resolution.ts',
   'database/src/lib/vehicle-departures.ts',

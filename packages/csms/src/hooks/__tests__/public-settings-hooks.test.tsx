@@ -75,6 +75,7 @@ describe('useFeatureFlags', () => {
       aiInsightsEnabled: true,
       simEnabled: true,
       simStationSignalEnabled: true,
+      stationUnitsEnabled: true,
       fileStorageEnabled: false,
     };
     getMock.mockResolvedValue(flags);
@@ -107,6 +108,7 @@ describe('useFeatureFlags', () => {
       aiInsightsEnabled: false,
       simEnabled: false,
       simStationSignalEnabled: false,
+      stationUnitsEnabled: false,
       fileStorageEnabled: true,
     });
   });

@@ -17,6 +17,9 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     isReservationEnabled: vi.fn(),
     isSupportEnabled: vi.fn(),
     isDriverRfidSelfServiceEnabled: vi.fn(),
+    isStationUnitsFeatureEnabled: vi.fn(),
+    clearStationUnitsFeatureCache: vi.fn(),
+    writeStationUnitsSetting: vi.fn(),
     isRoamingEnabled: vi.fn(),
     isPncEnabled: vi.fn(),
     isFleetEnabled: vi.fn(),
@@ -97,6 +100,10 @@ vi.mock('@evtivity/database', () => ({
   clearDriverRfidSelfServiceCache: mocks.clearDriverRfidSelfServiceCache,
   clearCsmsUpdateCheckSettingCache: mocks.clearCsmsUpdateCheckSettingCache,
   RFID_SELF_SERVICE_SETTING_KEY: 'portal.rfidSelfServiceEnabled',
+  STATION_UNITS_SETTING_KEY: 'stationUnits.enabled',
+  isStationUnitsFeatureEnabled: mocks.isStationUnitsFeatureEnabled,
+  clearStationUnitsFeatureCache: mocks.clearStationUnitsFeatureCache,
+  writeStationUnitsSetting: mocks.writeStationUnitsSetting,
   isRoamingEnabled: mocks.isRoamingEnabled,
   isPncEnabled: mocks.isPncEnabled,
   isFleetEnabled: mocks.isFleetEnabled,
@@ -293,6 +300,7 @@ describe('settings routes (cov2)', () => {
     mocks.writeAudit.mockResolvedValue(undefined);
     mocks.assertWritable.mockResolvedValue(undefined);
     mocks.readSimSettings.mockResolvedValue(simSettings(false, false));
+    mocks.isStationUnitsFeatureEnabled.mockResolvedValue(false);
   });
 
   it('GET /portal/features answers the public feature flags and reservation limits', async () => {
@@ -307,6 +315,7 @@ describe('settings routes (cov2)', () => {
     mocks.isPortalRegistrationEnabled.mockResolvedValue(true);
     mocks.isChatbotAiEnabled.mockResolvedValue(true);
     mocks.isAiInsightsEnabled.mockResolvedValue(false);
+    mocks.isStationUnitsFeatureEnabled.mockResolvedValue(true);
     mocks.getReservationSettings.mockResolvedValue({
       cancellationFeeCents: 250,
       cancellationWindowMinutes: 15,
@@ -321,6 +330,7 @@ describe('settings routes (cov2)', () => {
       roamingEnabled: true,
       pncEnabled: false,
       fleetEnabled: true,
+      stationUnitsEnabled: true,
       fleetChargingEnabled: true,
       guestChargingEnabled: false,
       registrationEnabled: true,
@@ -666,6 +676,105 @@ describe('settings routes (cov2)', () => {
     expect(rec.deletes).toBe(0);
     expect(mocks.clearDriverRfidSelfServiceCache).not.toHaveBeenCalled();
     expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  describe('Enable Station Units (stationUnits.enabled)', () => {
+    const row = (value: boolean) => ({
+      id: 1,
+      key: 'stationUnits.enabled',
+      value,
+      updatedAt: new Date(),
+    });
+
+    it.each(['PUT', 'PATCH'] as const)(
+      '%s stores it through the locked writer and tells every API process to drop its cached switch',
+      async (method) => {
+        mocks.writeStationUnitsSetting.mockResolvedValue({
+          ok: true,
+          before: row(false),
+          row: row(true),
+        });
+        const res = await app.inject({
+          method,
+          url: '/settings/stationUnits.enabled',
+          headers: auth,
+          payload: { value: true },
+        });
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json()).toEqual({ key: 'stationUnits.enabled', value: true });
+        expect(mocks.writeStationUnitsSetting).toHaveBeenCalledWith(
+          true,
+          method === 'PUT' ? 'upsert' : 'update',
+        );
+        expect(mocks.writeAudit).toHaveBeenCalledTimes(1);
+        expect(mocks.clearStationUnitsFeatureCache).toHaveBeenCalledTimes(1);
+        expect(mocks.publish).toHaveBeenCalledWith(
+          'cache_invalidate',
+          JSON.stringify({ kind: 'station_units' }),
+        );
+      },
+    );
+
+    it.each(['PUT', 'PATCH'] as const)(
+      '%s off answers 409 STATION_UNITS_FEATURE_IN_USE while stations use units and stores nothing',
+      async (method) => {
+        mocks.writeStationUnitsSetting.mockResolvedValue({
+          ok: false,
+          reason: 'in_use',
+          stationCount: 3,
+        });
+        const res = await app.inject({
+          method,
+          url: '/settings/stationUnits.enabled',
+          headers: auth,
+          payload: { value: false },
+        });
+        expect(res.statusCode).toBe(409);
+        expect(res.json()).toMatchObject({ code: 'STATION_UNITS_FEATURE_IN_USE', stationCount: 3 });
+        expect(mocks.writeAudit).not.toHaveBeenCalled();
+        expect(mocks.clearStationUnitsFeatureCache).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([['false'], [0], [null], ['on']])('refuses the non-boolean value %j', async (value) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/settings/stationUnits.enabled',
+        headers: auth,
+        payload: { value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'stationUnits.enabled must be true or false',
+        code: 'VALIDATION_ERROR',
+      });
+      expect(mocks.writeStationUnitsSetting).not.toHaveBeenCalled();
+    });
+
+    it('DELETE answers 400: a delete would turn the setting off past the in-use check', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/settings/stationUnits.enabled',
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'stationUnits.enabled must be true or false',
+        code: 'VALIDATION_ERROR',
+      });
+      expect(rec.deletes).toBe(0);
+    });
+
+    it('PATCH of a missing row answers 404', async () => {
+      mocks.writeStationUnitsSetting.mockResolvedValue({ ok: false, reason: 'not_found' });
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/settings/stationUnits.enabled',
+        headers: auth,
+        payload: { value: true },
+      });
+      expect(res.statusCode).toBe(404);
+    });
   });
 
   it('keeps the RFID self-service save when the announcement publish fails', async () => {

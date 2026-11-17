@@ -30,6 +30,7 @@ import {
   client,
   writeAudit,
   setStationUsesUnits,
+  stationUnitsFeatureOnInTx,
   recordRemovedOcpiEvses,
   stationAuditLog,
   sessionAuditLog,
@@ -71,6 +72,8 @@ import {
   stationAiInsightsScopeStatus,
 } from '../services/ai-insight-scope.service.js';
 import { auditStationChange } from '../lib/station-audit.js';
+import { stationUnitsFeatureOffError } from '../lib/station-units-feature.js';
+import { reportedFieldChange } from '../lib/station-reported-fields.js';
 import {
   assertNotLoadManaged,
   assertNotPlanProfileId,
@@ -429,13 +432,25 @@ const createStationBody = z.object({
     .boolean()
     .optional()
     .describe(
-      'Uses Station Units: the station has several physical units (a master box and its extenders) whose EVSEs the operator groups. Default false',
+      'Uses Station Units: the station has several physical units (a master box and its extenders) whose EVSEs the operator groups. Default false. True answers 409 STATION_UNITS_FEATURE_OFF while the Enable Station Units setting (stationUnits.enabled) is off',
     ),
 });
 
 const updateStationBody = z.object({
-  model: z.string().max(255).optional(),
-  serialNumber: z.string().max(255).optional(),
+  model: z
+    .string()
+    .max(255)
+    .optional()
+    .describe(
+      'Read-only once a BootNotification reported it: another value answers 409 STATION_REPORTED_FIELD_LOCKED',
+    ),
+  serialNumber: z
+    .string()
+    .max(255)
+    .optional()
+    .describe(
+      'Read-only once a BootNotification reported one: another value answers 409 STATION_REPORTED_FIELD_LOCKED. A station that booted without a serial number keeps it editable',
+    ),
   availability: z
     .enum(['available', 'unavailable'])
     .optional()
@@ -474,7 +489,7 @@ const updateStationBody = z.object({
     .boolean()
     .optional()
     .describe(
-      'Uses Station Units. Off is refused with 409 STATION_UNITS_IN_USE while the station has a unit; units can be created only while it is on',
+      'Uses Station Units. Off is refused with 409 STATION_UNITS_IN_USE while the station has a unit; units can be created only while it is on. On is refused with 409 STATION_UNITS_FEATURE_OFF while the Enable Station Units setting (stationUnits.enabled) is off',
     ),
   iccid: z
     .string()
@@ -703,6 +718,16 @@ const stationDetail = z
       .describe('Vendor display name (joined from the vendors table)'),
     model: z.string().max(100).nullable().describe('Manufacturer model name'),
     serialNumber: z.string().max(100).nullable().describe('Manufacturer serial number'),
+    modelReported: z
+      .boolean()
+      .describe(
+        'A BootNotification reported the model: it is read-only (PATCH answers 409 STATION_REPORTED_FIELD_LOCKED for another value)',
+      ),
+    serialNumberReported: z
+      .boolean()
+      .describe(
+        'A BootNotification reported a serial number: it is read-only. A station that booted without one keeps it editable',
+      ),
     firmwareVersion: z.string().max(50).nullable().describe('Currently installed firmware version'),
     iccid: z.string().max(20).nullable().describe('SIM card ICCID for cellular-connected stations'),
     imsi: z.string().max(20).nullable().describe('SIM card IMSI for cellular-connected stations'),
@@ -1488,6 +1513,8 @@ export function stationRoutes(app: FastifyInstance): void {
           vendorName: vendors.name,
           model: chargingStations.model,
           serialNumber: chargingStations.serialNumber,
+          modelReported: sql<boolean>`${chargingStations.modelReportedAt} IS NOT NULL`,
+          serialNumberReported: sql<boolean>`${chargingStations.serialNumberReportedAt} IS NOT NULL`,
           firmwareVersion: chargingStations.firmwareVersion,
           iccid: chargingStations.iccid,
           imsi: chargingStations.imsi,
@@ -1810,7 +1837,10 @@ export function stationRoutes(app: FastifyInstance): void {
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.VENDOR_NOT_FOUND,
           ]),
-          409: errorWith('Station id exists', [ERROR_CODES.STATION_ID_EXISTS]),
+          409: errorWith('Station id exists or station units are off', [
+            ERROR_CODES.STATION_ID_EXISTS,
+            ERROR_CODES.STATION_UNITS_FEATURE_OFF,
+          ]),
         },
       },
     },
@@ -1873,6 +1903,11 @@ export function stationRoutes(app: FastifyInstance): void {
       let station;
       try {
         station = await db.transaction(async (tx) => {
+          // Read fresh under the setting lock, so a setting turned off at the
+          // same moment never leaves a station using units.
+          if (insertFields.usesUnits === true && !(await stationUnitsFeatureOnInTx(tx))) {
+            throw stationUnitsFeatureOffError();
+          }
           const [created] = await tx
             .insert(chargingStations)
             .values({
@@ -1923,6 +1958,10 @@ export function stationRoutes(app: FastifyInstance): void {
           return created;
         });
       } catch (err) {
+        if (err instanceof AppError && err.code === 'STATION_UNITS_FEATURE_OFF') {
+          await reply.status(409).send({ error: err.message, code: err.code });
+          return;
+        }
         if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({
             error: 'A station with this ID already exists',
@@ -1980,7 +2019,11 @@ export function stationRoutes(app: FastifyInstance): void {
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
-          409: errorWith('The station has units', [ERROR_CODES.STATION_UNITS_IN_USE]),
+          409: errorWith('The station has units, station units are off, or the field is reported', [
+            ERROR_CODES.STATION_UNITS_IN_USE,
+            ERROR_CODES.STATION_UNITS_FEATURE_OFF,
+            ERROR_CODES.STATION_REPORTED_FIELD_LOCKED,
+          ]),
           502: errorWith('The station did not accept the change', [
             ERROR_CODES.STATION_SECURITY_CHANGE_REJECTED,
             ERROR_CODES.OCPP_COMMAND_FAILED,
@@ -2027,6 +2070,29 @@ export function stationRoutes(app: FastifyInstance): void {
       ) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
+      }
+
+      // The model and serial number a station reported at its boot are its own:
+      // a change answers 409 before anything else is written.
+      if (body.model !== undefined || body.serialNumber !== undefined) {
+        const [identity] = await db
+          .select({
+            model: chargingStations.model,
+            serialNumber: chargingStations.serialNumber,
+            modelReportedAt: chargingStations.modelReportedAt,
+            serialNumberReportedAt: chargingStations.serialNumberReportedAt,
+          })
+          .from(chargingStations)
+          .where(eq(chargingStations.id, id));
+        const lockedField = identity == null ? null : reportedFieldChange(identity, body);
+        if (lockedField != null) {
+          await reply.status(409).send({
+            error: `The station reports its ${lockedField === 'model' ? 'model' : 'serial number'} when it boots, so it cannot be changed here`,
+            code: 'STATION_REPORTED_FIELD_LOCKED',
+            field: lockedField,
+          });
+          return;
+        }
       }
 
       // Password and security profile changes go through the station security
@@ -2137,6 +2203,8 @@ export function stationRoutes(app: FastifyInstance): void {
         // whole update back.
         if (usesUnits !== undefined) {
           const switched = await setStationUsesUnits(id, usesUnits, tx);
+          if (!switched.ok && switched.reason === 'feature_off')
+            throw stationUnitsFeatureOffError();
           if (!switched.ok && switched.reason === 'units_in_use') {
             throw new AppError(
               'Delete the units of this station before turning off Uses Station Units',

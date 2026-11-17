@@ -1692,7 +1692,9 @@
       "unavailable": "Ya no disponible",
       "dayLabel": "{{date}}: {{label}}",
       "notFetchedRange": "No obtenido: {{from}} a {{to}}"
-    }
+    },
+    "reportedFieldsNote": "La estación informa su modelo y número de serie al arrancar, por lo que no se pueden cambiar aquí.",
+    "reportedModelNote": "La estación informa su modelo al arrancar, por lo que no se puede cambiar aquí. Introduce el número de serie de la etiqueta si la estación no lo informa."
   },
   "sims": {
     "title": "SIM",
@@ -4221,6 +4223,13 @@
       "enabled": "Buscar Nuevas Versiones",
       "enabledDesc": "Activado: el servidor lee una vez al día el número de la última versión en evtivity.com, y los administradores ven un aviso en el panel cuando hay una versión más reciente. Solo la dirección IP del servidor llega a evtivity.com; los navegadores nunca lo contactan. Desactivado: no se envía nada.",
       "offEffect": "El servidor deja de leer la última versión en evtivity.com y los administradores ya no ven un aviso cuando hay una versión más reciente."
+    },
+    "station": {
+      "title": "Estación",
+      "description": "Configuración que se aplica a todas las estaciones.",
+      "unitsEnabled": "Habilitar Unidades de Estación",
+      "unitsEnabledDesc": "Activado: una estación puede agrupar sus EVSE en unidades físicas, por ejemplo una caja principal y sus extensiones con una sola conexión OCPP. Cada estación tiene entonces el interruptor Usa Unidades de Estación. Desactivado: ninguna estación puede usar unidades. Solo se puede desactivar mientras ninguna estación use unidades.",
+      "unitsOffEffect": "Ninguna estación puede usar unidades, y se ocultan el interruptor Usa Unidades de Estación y todos los controles de unidades."
     }
   },
   "pnc": {
@@ -4974,7 +4983,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "Otro sistema de depósito de autobuses usa este ID de sistema.",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "Un sistema de depósito de autobuses solo atiende sitios de tipo depósito.",
     "RFID_SELF_SERVICE_DISABLED": "Su operador gestiona sus tarjetas RFID. Contacte al operador para añadir, cambiar, desactivar o eliminar una tarjeta.",
-    "NOTIFICATION_EVENT_MANDATORY": "Tu operador exige esta notificación en este canal, por lo que no se puede desactivar"
+    "NOTIFICATION_EVENT_MANDATORY": "Tu operador exige esta notificación en este canal, por lo que no se puede desactivar",
+    "STATION_UNITS_FEATURE_IN_USE": "Todavía hay estaciones que usan unidades. Desactiva Usa Unidades de Estación en cada estación antes de desactivar Habilitar Unidades de Estación.",
+    "STATION_UNITS_FEATURE_OFF": "Las unidades de estación están desactivadas. Activa primero Habilitar Unidades de Estación en Configuración > Integraciones y Funciones.",
+    "STATION_REPORTED_FIELD_LOCKED": "La estación informa este valor al arrancar, por lo que no se puede cambiar aquí."
   },
   "logs": {
     "title": "Registros",

@@ -57,6 +57,10 @@ vi.mock('@evtivity/database', () => ({
   isDriverRfidSelfServiceEnabled: vi.fn(() => Promise.resolve(true)),
   clearDriverRfidSelfServiceCache: vi.fn(),
   RFID_SELF_SERVICE_SETTING_KEY: 'portal.rfidSelfServiceEnabled',
+  STATION_UNITS_SETTING_KEY: 'stationUnits.enabled',
+  isStationUnitsFeatureEnabled: vi.fn(() => Promise.resolve(true)),
+  clearStationUnitsFeatureCache: vi.fn(),
+  writeStationUnitsSetting: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

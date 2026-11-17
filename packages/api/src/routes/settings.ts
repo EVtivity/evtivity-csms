@@ -22,6 +22,10 @@ import {
   clearDriverRfidSelfServiceCache,
   clearCsmsUpdateCheckSettingCache,
   RFID_SELF_SERVICE_SETTING_KEY,
+  STATION_UNITS_SETTING_KEY,
+  clearStationUnitsFeatureCache,
+  isStationUnitsFeatureEnabled,
+  writeStationUnitsSetting,
   isRoamingEnabled,
   isPncEnabled,
   isFleetEnabled,
@@ -202,6 +206,30 @@ function announceRfidSelfServiceSwitch(): void {
     });
 }
 
+// The Enable Station Units switch: every API process drops its cached value
+// at once (cache_invalidate kind station_units), the TTL is the fallback.
+function announceStationUnitsSwitch(): void {
+  clearStationUnitsFeatureCache();
+  void getPubSub()
+    .publish('cache_invalidate', JSON.stringify({ kind: 'station_units' }))
+    .catch((err: unknown) => {
+      logger.warn({ err }, 'Station units switch not published, peers refresh within 60s');
+    });
+}
+
+function stationUnitsInUseError(stationCount: number): {
+  error: string;
+  code: string;
+  stationCount: number;
+} {
+  return {
+    error:
+      'Stations still use units: turn off Uses Station Units on every station before turning off Enable Station Units',
+    code: 'STATION_UNITS_FEATURE_IN_USE',
+    stationCount,
+  };
+}
+
 async function invalidateNotificationSettings(): Promise<void> {
   clearNotificationSettingsCache();
   try {
@@ -372,6 +400,8 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
   if (key === INVOICE_EPC_QR_ENABLED_KEY) return typeof value === 'boolean' ? { value } : null;
   // A security control: a stored string would read as off, so only a boolean saves.
   if (key === RFID_SELF_SERVICE_SETTING_KEY) return typeof value === 'boolean' ? { value } : null;
+  // Off is refused while stations use units, so only a boolean saves.
+  if (key === STATION_UNITS_SETTING_KEY) return typeof value === 'boolean' ? { value } : null;
   // The update check off switch: only false turns it off, so only a boolean saves.
   if (key === UPDATE_CHECK_SETTING_KEY) return typeof value === 'boolean' ? { value } : null;
   if (key !== COMPANY_CURRENCY_KEY) return { value };
@@ -672,6 +702,7 @@ function invalidSettingError(key: string, value?: unknown): { error: string; cod
   if (
     key === INVOICE_EPC_QR_ENABLED_KEY ||
     key === RFID_SELF_SERVICE_SETTING_KEY ||
+    key === STATION_UNITS_SETTING_KEY ||
     key === UPDATE_CHECK_SETTING_KEY
   ) {
     return { error: `${key} must be true or false`, code: 'VALIDATION_ERROR' };
@@ -739,6 +770,7 @@ function clearCachesForKey(key: string): void {
   if (key === 'support.enabled') clearSupportCache();
   if (key === UPDATE_CHECK_SETTING_KEY) clearCsmsUpdateCheckSettingCache();
   if (key === RFID_SELF_SERVICE_SETTING_KEY) announceRfidSelfServiceSwitch();
+  if (key === STATION_UNITS_SETTING_KEY) announceStationUnitsSwitch();
   if (key === 'fleet.enabled') clearFleetCache();
   if (key === 'fleetCharging.enabled') clearFleetChargingSettingCache();
   if (key === 'vdv463.enabled') announceVdv463Switch();
@@ -997,6 +1029,11 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .boolean()
                   .describe('Whether Plug and Charge (ISO 15118 contract certificates) is enabled'),
                 fleetEnabled: z.boolean().describe('Whether the fleet feature is enabled'),
+                stationUnitsEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether stations may group their EVSEs into physical units (stationUnits.enabled), so the CSMS shows the Uses Station Units switch. False when it cannot be read',
+                  ),
                 fleetChargingEnabled: z
                   .boolean()
                   .describe(
@@ -1095,6 +1132,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const roamingEnabled = await isRoamingEnabled();
       const pncEnabled = await isPncEnabled();
       const fleetEnabled = await isFleetEnabled();
+      const stationUnitsEnabled = await isStationUnitsFeatureEnabled();
       const fleetChargingEnabled = await isFleetChargingEnabled();
       const guestChargingEnabled = await isGuestChargingEnabled();
       const registrationEnabled = await isPortalRegistrationEnabled();
@@ -1118,6 +1156,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         roamingEnabled,
         pncEnabled,
         fleetEnabled,
+        stationUnitsEnabled,
         fleetChargingEnabled,
         guestChargingEnabled,
         registrationEnabled,
@@ -1252,9 +1291,13 @@ export function settingsRoutes(app: FastifyInstance): void {
             ERROR_CODES.AI_BASE_URL_INVALID,
           ]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
-          409: errorWith('Processes older than v0.1.38 are still connected', [
-            ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
-          ]),
+          409: errorWith(
+            'Processes older than v0.1.38 are still connected, or stations use units',
+            [
+              ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
+              ERROR_CODES.STATION_UNITS_FEATURE_IN_USE,
+            ],
+          ),
         },
       },
     },
@@ -1280,12 +1323,23 @@ export function settingsRoutes(app: FastifyInstance): void {
         throw err;
       }
       const storedValue = encryptForWrite(key, normalized.value);
-      const [before] = await db.select().from(settings).where(eq(settings.key, key));
-      const [row] = await db
-        .update(settings)
-        .set({ value: storedValue, updatedAt: new Date() })
-        .where(eq(settings.key, key))
-        .returning();
+      let before: typeof settings.$inferSelect | undefined;
+      let row: typeof settings.$inferSelect | undefined;
+      if (key === STATION_UNITS_SETTING_KEY) {
+        const written = await writeStationUnitsSetting(normalized.value === true, 'update');
+        if (!written.ok && written.reason === 'in_use') {
+          await reply.status(409).send(stationUnitsInUseError(written.stationCount));
+          return;
+        }
+        if (written.ok) ({ before, row } = written);
+      } else {
+        [before] = await db.select().from(settings).where(eq(settings.key, key));
+        [row] = await db
+          .update(settings)
+          .set({ value: storedValue, updatedAt: new Date() })
+          .where(eq(settings.key, key))
+          .returning();
+      }
       if (row == null) {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
@@ -1331,9 +1385,13 @@ export function settingsRoutes(app: FastifyInstance): void {
             ERROR_CODES.AI_BASE_URL_INVALID,
           ]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
-          409: errorWith('Processes older than v0.1.38 are still connected', [
-            ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
-          ]),
+          409: errorWith(
+            'Processes older than v0.1.38 are still connected, or stations use units',
+            [
+              ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
+              ERROR_CODES.STATION_UNITS_FEATURE_IN_USE,
+            ],
+          ),
         },
       },
     },
@@ -1359,16 +1417,29 @@ export function settingsRoutes(app: FastifyInstance): void {
         throw err;
       }
       const storedValue = encryptForWrite(key, normalized.value);
-      const [before] = await db.select().from(settings).where(eq(settings.key, key));
-      const rows = await db
-        .insert(settings)
-        .values({ key, value: storedValue })
-        .onConflictDoUpdate({
-          target: settings.key,
-          set: { value: storedValue, updatedAt: new Date() },
-        })
-        .returning();
-      const row = rows[0];
+      let before: typeof settings.$inferSelect | undefined;
+      let row: typeof settings.$inferSelect | undefined;
+      if (key === STATION_UNITS_SETTING_KEY) {
+        const written = await writeStationUnitsSetting(normalized.value === true, 'upsert');
+        if (!written.ok) {
+          await reply
+            .status(409)
+            .send(stationUnitsInUseError(written.reason === 'in_use' ? written.stationCount : 0));
+          return;
+        }
+        ({ before, row } = written);
+      } else {
+        [before] = await db.select().from(settings).where(eq(settings.key, key));
+        const rows = await db
+          .insert(settings)
+          .values({ key, value: storedValue })
+          .onConflictDoUpdate({
+            target: settings.key,
+            set: { value: storedValue, updatedAt: new Date() },
+          })
+          .returning();
+        row = rows[0];
+      }
       if (row == null) {
         throw new Error('Insert with onConflictDoUpdate returned no rows');
       }
@@ -1421,7 +1492,8 @@ export function settingsRoutes(app: FastifyInstance): void {
         isServerManagedSetting(key) ||
         isDedicatedRouteSetting(key) ||
         isStorageSettingKey(key) ||
-        key === RFID_SELF_SERVICE_SETTING_KEY
+        key === RFID_SELF_SERVICE_SETTING_KEY ||
+        key === STATION_UNITS_SETTING_KEY
       ) {
         const { error } = invalidSettingError(key);
         await reply.status(400).send({ error, code: 'VALIDATION_ERROR' });

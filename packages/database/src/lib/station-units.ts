@@ -14,6 +14,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../config.js';
 import { chargingStations, evses, stationUnits } from '../schema/assets.js';
 import { pgErrorCode, PG_UNIQUE_VIOLATION } from './pg-errors.js';
+import { stationUnitsFeatureOnInTx } from './station-units-setting.js';
 
 /** The most units one station holds. */
 export const STATION_UNITS_MAX = 64;
@@ -102,13 +103,15 @@ async function lockStation(tx: Tx, stationUuid: string): Promise<{ usesUnits: bo
 
 export type UsesUnitsResult =
   | { ok: true; changed: boolean; before: boolean; after: boolean }
-  | { ok: false; reason: 'station_not_found' | 'units_in_use' };
+  | { ok: false; reason: 'station_not_found' | 'units_in_use' | 'feature_off' };
 
 /**
  * Turns the station's Uses Station Units switch on or off, under the station
  * lock the unit writes take, so a unit created at the same time either sees
  * the switch on or the switch stays on. Off is refused while the station has
- * a unit. Runs in `tx` (the station update) or its own transaction.
+ * a unit, and on is refused while the system-wide Enable Station Units
+ * setting is off (read fresh in the transaction). Runs in `tx` (the station
+ * update) or its own transaction.
  */
 export async function setStationUsesUnits(
   stationUuid: string,
@@ -121,6 +124,7 @@ export async function setStationUsesUnits(
     if (station.usesUnits === on) {
       return { ok: true, changed: false, before: on, after: on };
     }
+    if (on && !(await stationUnitsFeatureOnInTx(t))) return { ok: false, reason: 'feature_off' };
     if (!on) {
       const [row] = await t
         .select({ n: sql<number>`count(*)::int` })

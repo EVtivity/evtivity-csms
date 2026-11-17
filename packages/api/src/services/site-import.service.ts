@@ -12,6 +12,9 @@ import {
   siteInsightsSuppressedSql,
   moveStationLayout,
   placeStationOnLayout,
+  setStationUsesUnits,
+  stationUnitsFeatureOnInTx,
+  stationUnits,
 } from '@evtivity/database';
 import { siteNameEq } from '../lib/site-lookup.js';
 import {
@@ -44,6 +47,8 @@ import { circuitIdAfterSiteChange } from '../lib/station-circuit.js';
 import { createStationConfigTemplate } from '../lib/station-config-template.js';
 import { applyStationSiteMove } from '@evtivity/services/maintenance.service';
 import { initialSiteAiInsightsSelected } from './ai-insight-scope.service.js';
+import { stationUnitsFeatureOffError } from '../lib/station-units-feature.js';
+import { reportedFieldChange } from '../lib/station-reported-fields.js';
 
 interface ImportActor {
   actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -56,17 +61,17 @@ interface ImportActor {
 const VALID_CONNECTOR_TYPES: readonly string[] = CONNECTOR_TYPES;
 
 const CSV_HEADER =
-  'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor';
+  'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor,stationUsesUnits';
 
 // onboardingStatus column (index 5) is intentionally blank in the template
 // rows: it appears in export so operators can audit the current state, but
 // the import path silently drops it because onboarding transitions belong to
 // the dedicated approve/reject endpoints, not free-form CSV edits.
 const TEMPLATE_ROWS = [
-  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,1,1,CCS2,150,400,ACME Chargers',
-  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,1,2,CHAdeMO,50,125,ACME Chargers',
-  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,2,1,Type2,22,32,ACME Chargers',
-  'Airport Lot,,,,,,,,,,,',
+  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,1,1,CCS2,150,400,ACME Chargers,false',
+  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,1,2,CHAdeMO,50,125,ACME Chargers,false',
+  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,2,1,Type2,22,32,ACME Chargers,false',
+  'Airport Lot,,,,,,,,,,,,',
 ];
 
 export interface ImportRow {
@@ -81,6 +86,24 @@ export interface ImportRow {
   maxPowerKw?: number | undefined;
   maxCurrentAmps?: number | undefined;
   stationVendor?: string | undefined;
+  /**
+   * The cell text of Uses Station Units: `true` or `false` (any case), empty
+   * means off for a new station and unchanged for an existing one.
+   */
+  stationUsesUnits?: string | boolean | undefined;
+}
+
+/** The Uses Station Units cell: a boolean, undefined when empty, 'invalid' otherwise. */
+export function parseUsesUnitsCell(
+  value: string | boolean | undefined,
+): boolean | undefined | 'invalid' {
+  if (value == null) return undefined;
+  if (typeof value === 'boolean') return value;
+  const text = value.trim().toLowerCase();
+  if (text === '') return undefined;
+  if (text === 'true') return true;
+  if (text === 'false') return false;
+  return 'invalid';
 }
 
 export interface ImportResult {
@@ -159,6 +182,7 @@ export async function exportSitesCsv(
       maxPowerKw: connectors.maxPowerKw,
       maxCurrentAmps: connectors.maxCurrentAmps,
       vendorName: vendors.name,
+      usesUnits: chargingStations.usesUnits,
     })
     .from(sites)
     // Conformance test stations are never exported.
@@ -188,10 +212,47 @@ export async function exportSitesCsv(
       csvEscape(row.maxPowerKw ?? ''),
       row.maxCurrentAmps != null ? String(row.maxCurrentAmps) : '',
       csvEscape(row.vendorName ?? ''),
+      row.stationId == null ? '' : String(row.usesUnits === true),
     ].join(',');
   });
 
   return [CSV_HEADER, ...rows].join('\n');
+}
+
+/** Why a row's Uses Station Units value cannot be applied, null when it can. */
+async function usesUnitsRefusal(
+  tx: ImportTx,
+  previous: { id: string; usesUnits: boolean } | null,
+  usesUnits: boolean | undefined,
+  featureOn: boolean,
+): Promise<string | null> {
+  if (usesUnits === true && !featureOn && previous?.usesUnits !== true) {
+    return 'station units are turned off (Enable Station Units in Settings > Integrations & Features)';
+  }
+  if (usesUnits === false && previous?.usesUnits === true) {
+    const [row] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(stationUnits)
+      .where(eq(stationUnits.stationId, previous.id));
+    if ((row?.n ?? 0) > 0) return 'the station has units: delete them before turning it off';
+  }
+  return null;
+}
+
+/** Turns the switch through the unit writer and keeps the row the audit records current. */
+async function applyImportedUsesUnits(
+  tx: ImportTx,
+  station: { id: string; usesUnits: boolean },
+  usesUnits: boolean | undefined,
+): Promise<void> {
+  if (usesUnits === undefined || station.usesUnits === usesUnits) return;
+  const switched = await setStationUsesUnits(station.id, usesUnits, tx);
+  if (!switched.ok) {
+    // A unit or the setting changed after the check: the import rolls back.
+    if (switched.reason === 'feature_off') throw stationUnitsFeatureOffError();
+    throw new Error(`Uses Station Units not applied to ${station.id}: ${switched.reason}`);
+  }
+  station.usesUnits = switched.after;
 }
 
 export function exportSitesTemplateCsv(): string {
@@ -254,6 +315,11 @@ export async function importSitesCsv(
       continue;
     }
 
+    if (parseUsesUnitsCell(row.stationUsesUnits) === 'invalid') {
+      result.errors.push(`Row ${String(i + 1)}: stationUsesUnits must be true, false or empty`);
+      continue;
+    }
+
     validRows.push({ index: i, row });
   }
 
@@ -284,6 +350,9 @@ export async function importSitesCsv(
   // A site created while only selected sites are analyzed starts unselected.
   const newSiteAiInsightsSelected = await initialSiteAiInsightsSelected();
   await db.transaction(async (tx) => {
+    // Read under the setting lock (held to the commit), so the setting cannot
+    // turn off while this import turns a station's switch on.
+    const unitsFeatureOn = await stationUnitsFeatureOnInTx(tx);
     const siteIdByName = new Map<string, string>();
     const evseUuidByKey = new Map<string, string>();
     const vendorIdByName = new Map<string, string>();
@@ -439,6 +508,39 @@ export async function importSitesCsv(
           continue;
         }
 
+        // The model and serial number a station reported at its boot are its
+        // own: a row that changes one writes nothing of its station.
+        const lockedField =
+          previous != null && updateExisting
+            ? reportedFieldChange(previous, {
+                model: stationValues.model,
+                serialNumber: stationValues.serialNumber,
+              })
+            : null;
+        if (lockedField != null) {
+          for (const entry of stationRows) {
+            result.errors.push(
+              `Row ${String(entry.index + 1)}: ${lockedField === 'model' ? 'stationModel' : 'stationSerialNumber'}: the station reports it when it boots, so it cannot be changed`,
+            );
+          }
+          continue;
+        }
+
+        // Uses Station Units: true needs the Enable Station Units setting; false
+        // is refused while the station has units. A refused row writes nothing
+        // of its station, so the station keeps its switch.
+        const parsedUsesUnits = parseUsesUnitsCell(firstStationRow.row.stationUsesUnits);
+        const usesUnits = parsedUsesUnits === 'invalid' ? undefined : parsedUsesUnits;
+        if (updateExisting || previous == null) {
+          const refusal = await usesUnitsRefusal(tx, previous ?? null, usesUnits, unitsFeatureOn);
+          if (refusal != null) {
+            for (const entry of stationRows) {
+              result.errors.push(`Row ${String(entry.index + 1)}: stationUsesUnits: ${refusal}`);
+            }
+            continue;
+          }
+        }
+
         if (updateExisting) {
           const [station] = await tx
             .insert(chargingStations)
@@ -455,6 +557,7 @@ export async function importSitesCsv(
             .returning();
           if (station != null) {
             stationUuidByStationId.set(stationId, station.id);
+            await applyImportedUsesUnits(tx, station, usesUnits);
             await auditImportedStation(tx, actor, previous ?? null, station);
             // A new station gets its bound config template, like POST /v1/stations
             // (idempotent for one that already has it).
@@ -487,6 +590,7 @@ export async function importSitesCsv(
             const [station] = await tx.insert(chargingStations).values(stationValues).returning();
             if (station != null) {
               stationUuidByStationId.set(stationId, station.id);
+              await applyImportedUsesUnits(tx, station, usesUnits);
               await auditImportedStation(tx, actor, null, station);
               await createStationConfigTemplate(tx, station);
               await placeStationOnLayout(tx, siteId, station.id);

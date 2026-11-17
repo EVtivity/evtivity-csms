@@ -344,8 +344,12 @@ describe('PATCH /v1/stations/:id isSimulator toggle pairs css_stations', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    // 1: before SELECT, 2: UPDATE returning
-    setupDbResults([updated], [updated]);
+    // 1: the reported fields (never booted), 2: before SELECT, 3: UPDATE returning
+    setupDbResults(
+      [{ model: null, serialNumber: null, modelReportedAt: null, serialNumberReportedAt: null }],
+      [updated],
+      [updated],
+    );
 
     const res = await app.inject({
       method: 'PATCH',

@@ -133,6 +133,8 @@ const mockPlaceStationOnLayout = vi.hoisted(() => vi.fn(() => Promise.resolve({ 
 const mockMoveStationLayout = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 const mockMarkSitePlanStale = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
 
+const mockStationUnitsFeatureOn = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
+
 vi.mock('@evtivity/database', async () => {
   const rawTimestamp = await import('@evtivity/database/src/lib/raw-timestamp.js');
   const dbMock: Record<string, unknown> = {
@@ -170,6 +172,7 @@ vi.mock('@evtivity/database', async () => {
     readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
     placeStationOnLayout: mockPlaceStationOnLayout,
     moveStationLayout: mockMoveStationLayout,
+    stationUnitsFeatureOnInTx: mockStationUnitsFeatureOn,
     markSitePlanStale: mockMarkSitePlanStale,
     client: {},
     setStationDisabled: mockSetStationDisabled,
@@ -563,6 +566,8 @@ describe('Station routes - handler logic', () => {
         vendorName: null,
         model: 'Model X',
         serialNumber: null,
+        modelReported: false,
+        serialNumberReported: false,
         firmwareVersion: null,
         iccid: null,
         imsi: null,
@@ -669,6 +674,66 @@ describe('Station routes - handler logic', () => {
       expect(response.statusCode).toBe(201);
       expect(response.json().stationId).toBe('NEW-STATION');
       expect(response.json().hasPassword).toBe(false);
+    });
+
+    const UNITS_BASE = {
+      id: VALID_STATION_ID,
+      siteId: null,
+      vendorId: null,
+      model: null,
+      serialNumber: null,
+      firmwareVersion: null,
+      availability: 'available',
+      reportedStatus: null,
+      statusReason: null,
+      onboardingStatus: 'pending',
+      isOnline: false,
+      isSimulator: false,
+      loadPriority: 0,
+      securityProfile: 0,
+      pendingSecurityProfile: null,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    };
+
+    it('refuses usesUnits true with 409 STATION_UNITS_FEATURE_OFF while Enable Station Units is off', async () => {
+      mockStationUnitsFeatureOn.mockResolvedValueOnce(false);
+      setupDbResults([], [{ ...UNITS_BASE, stationId: 'NEW-UNITS', usesUnits: true }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/stations',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationId: 'NEW-UNITS', usesUnits: true },
+      });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(response.json().code).toBe('STATION_UNITS_FEATURE_OFF');
+      expect(mockPlaceStationOnLayout).not.toHaveBeenCalled();
+    });
+
+    it('creates a station that uses units while Enable Station Units is on', async () => {
+      mockStationUnitsFeatureOn.mockResolvedValueOnce(true);
+      setupDbResults([], [{ ...UNITS_BASE, stationId: 'NEW-UNITS', usesUnits: true }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/stations',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationId: 'NEW-UNITS', usesUnits: true },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.json().usesUnits).toBe(true);
+    });
+
+    it('creates a station without units without reading the setting', async () => {
+      mockStationUnitsFeatureOn.mockClear();
+      setupDbResults([], [{ ...UNITS_BASE, stationId: 'NEW-PLAIN', usesUnits: false }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/stations',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationId: 'NEW-PLAIN' },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(mockStationUnitsFeatureOn).not.toHaveBeenCalled();
     });
 
     it('creates an OCPP 2.0.1 station', async () => {
@@ -856,6 +921,28 @@ describe('Station routes - handler logic', () => {
       expect(mockAddJob.mock.calls.some((c) => c[0] === 'station-message-repush')).toBe(false);
     });
 
+    it('refuses another model once a boot reported one, with 409 STATION_REPORTED_FIELD_LOCKED', async () => {
+      setupDbResults([
+        {
+          model: 'Booted',
+          serialNumber: null,
+          modelReportedAt: '2026-11-01T00:00:00.000Z',
+          serialNumberReportedAt: null,
+        },
+      ]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { model: 'Other' },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        code: 'STATION_REPORTED_FIELD_LOCKED',
+        field: 'model',
+      });
+    });
+
     it('updates and returns the station', async () => {
       const updated = {
         id: VALID_STATION_ID,
@@ -878,8 +965,12 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      // 1: before SELECT, 2: UPDATE returning
-      setupDbResults([updated], [updated]);
+      // 1: the reported fields (never booted), 2: before SELECT, 3: UPDATE returning
+      setupDbResults(
+        [{ model: null, serialNumber: null, modelReportedAt: null, serialNumberReportedAt: null }],
+        [updated],
+        [updated],
+      );
 
       const response = await app.inject({
         method: 'PATCH',

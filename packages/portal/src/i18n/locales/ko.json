@@ -1070,7 +1070,10 @@
     "DEPOT_SYSTEM_ID_IN_USE": "다른 버스 차고지 시스템이 이 시스템 ID를 사용합니다.",
     "DEPOT_SYSTEM_SITE_NOT_DEPOT": "버스 차고지 시스템은 차고지 사이트만 지원합니다.",
     "RFID_SELF_SERVICE_DISABLED": "운영자가 RFID 카드를 관리합니다. 카드를 추가, 변경, 비활성화 또는 삭제하려면 운영자에게 문의하세요.",
-    "NOTIFICATION_EVENT_MANDATORY": "운영자가 이 채널에서 이 알림을 필수로 지정했으므로 끌 수 없습니다"
+    "NOTIFICATION_EVENT_MANDATORY": "운영자가 이 채널에서 이 알림을 필수로 지정했으므로 끌 수 없습니다",
+    "STATION_UNITS_FEATURE_IN_USE": "아직 유닛을 사용하는 충전소가 있습니다. 충전소 유닛 활성화를 끄기 전에 모든 충전소에서 충전소 유닛 사용을 끄세요.",
+    "STATION_UNITS_FEATURE_OFF": "충전소 유닛이 꺼져 있습니다. 먼저 설정 > 통합 및 기능에서 충전소 유닛 활성화를 켜세요.",
+    "STATION_REPORTED_FIELD_LOCKED": "충전소가 부팅할 때 이 값을 보고하므로 여기에서 변경할 수 없습니다."
   },
   "validation": {
     "required": "필수 항목입니다",
