@@ -106,6 +106,30 @@ export function isRequiredDriverEventType(eventType: string): boolean {
 }
 
 /**
+ * Driver notices about fleet features: fleet RFID cards, the fleet card monthly
+ * spending limit, member invoices, fleet account billing and the fleet credit
+ * limit. While Fleets (`fleet.enabled`) is off none of them is sent, they leave
+ * the driver notification preference list, and a failed switch read counts as off.
+ */
+export const FLEET_DRIVER_EVENT_TYPES = [
+  'token.FleetCardAssigned',
+  'token.FleetCardTakenBack',
+  'token.MonthlyLimitReached',
+  'invoice.MemberInvoice',
+  'invoice.MemberCreditNote',
+  'invoice.MemberOverdue',
+  'fleet.AccountBillingChanged',
+  'payment.AccountCreditLimit',
+] as const satisfies readonly DriverEventType[];
+
+const FLEET_DRIVER_EVENTS = new Set<string>(FLEET_DRIVER_EVENT_TYPES);
+
+/** True for a driver notice that exists only while Fleets is on (`FLEET_DRIVER_EVENT_TYPES`). */
+export function isFleetDriverEventType(eventType: string): boolean {
+  return FLEET_DRIVER_EVENTS.has(eventType);
+}
+
+/**
  * Notification events whose templates carry a link or a code but are no security
  * template: their stored copies are redacted (`SENSITIVE_EVENT_TYPES` in the
  * dispatcher), and the driver ones are never a driver's choice.

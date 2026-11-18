@@ -56,7 +56,10 @@ vi.mock('../services/vehicle.service.js', async (importOriginal) => ({
   setDriverSessionVehicle: setDriverSessionVehicleMock,
 }));
 
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   evses: {},
   connectors: {},
   stationUnits: {},

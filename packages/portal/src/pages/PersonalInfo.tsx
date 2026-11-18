@@ -13,7 +13,6 @@ export function PersonalInfo(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('account.personalInfo')} />
       <AccountPersonalInfo />
-      <hr className="border-border" />
       <AccountBillingAddress />
     </div>
   );

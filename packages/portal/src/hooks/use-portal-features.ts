@@ -30,6 +30,8 @@ export interface PortalFeatures {
   avatarUploadEnabled?: boolean;
   /** OCPI roaming is on (roaming.enabled): the charger search offers the Partner Network tab. */
   roamingEnabled?: boolean;
+  /** Fleets is on (fleet.enabled). False: the portal shows no fleet name, billing address or fleet notice. */
+  fleetEnabled?: boolean;
 }
 
 /** The portal feature flags, one cached request shared by every reader. */

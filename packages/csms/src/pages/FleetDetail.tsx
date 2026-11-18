@@ -9,6 +9,7 @@ import { BackButton } from '@/components/back-button';
 import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { FleetDetailsTab } from '@/components/fleet/FleetDetailsTab';
 import { FleetSessionsTab } from '@/components/fleet/FleetSessionsTab';
@@ -55,6 +56,8 @@ export function FleetDetail(): React.JSX.Element {
   const canReadUsers = useHasPermission('users:read');
   // A fleet user reads its fleet only: no stations, departures, pricing, reservations or history.
   const isFleetUser = useIsFleetUser();
+  const featureFlags = useFeatureFlags();
+  const fleetsOn = featureFlags.isLoaded && featureFlags.flags.fleetEnabled;
   const [activeTab, setActiveTab] = useTab('details');
 
   const { data: fleet, isLoading } = useQuery({
@@ -79,7 +82,8 @@ export function FleetDetail(): React.JSX.Element {
     (hasAllSiteAccess || (fleet.accountBillingEnabled !== true && fleet.hasPricingGroup !== true));
   const showOperatorTabs = !isFleetUser;
   const showBilling = isFleetUser ? canReadPayments : hasAllSiteAccess;
-  const showManagers = !isFleetUser && hasAllSiteAccess && canReadUsers;
+  // Fleet managers exist only while Fleets is on (known to be on, not assumed while loading).
+  const showManagers = !isFleetUser && hasAllSiteAccess && canReadUsers && fleetsOn;
 
   return (
     <div className="space-y-6">
@@ -102,10 +106,10 @@ export function FleetDetail(): React.JSX.Element {
             <TabsTrigger value="departures">{t('fleets.departures.title')}</TabsTrigger>
           )}
           <TabsTrigger value="drivers">{t('fleets.drivers')}</TabsTrigger>
+          {showManagers && <TabsTrigger value="managers">{t('fleets.managers.title')}</TabsTrigger>}
           {showOperatorTabs && <TabsTrigger value="pricing">{t('fleets.pricing')}</TabsTrigger>}
           {showBilling && <TabsTrigger value="billing">{t('fleets.billingTab')}</TabsTrigger>}
           {canReadCards && <TabsTrigger value="cards">{t('fleets.cards.title')}</TabsTrigger>}
-          {showManagers && <TabsTrigger value="managers">{t('fleets.managers.title')}</TabsTrigger>}
           {showOperatorTabs && canReadReservations && (
             <TabsTrigger value="reservations">{t('fleets.bulkReservations')}</TabsTrigger>
           )}

@@ -12,6 +12,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { ButtonPendingLabel } from '@/components/ButtonPendingLabel';
 import { SavedMessage } from '@/components/saved-message';
+import { usePortalFeatures } from '@/hooks/use-portal-features';
 
 /** The driver billing address (GET /v1/portal/auth/me `billingAddress`). */
 export interface DriverBillingAddress {
@@ -27,7 +28,8 @@ type FieldKey = keyof DriverBillingAddress;
 
 interface PortalMe {
   billing?: { invoicedTo?: 'fleet' | 'member' | null };
-  billingAddress?: DriverBillingAddress;
+  /** Null while fleet management is off. */
+  billingAddress?: DriverBillingAddress | null;
 }
 
 /** The fields in form order, with the column widths of the API. */
@@ -57,8 +59,9 @@ function isAddressEmpty(address: DriverBillingAddress | undefined): boolean {
  * The bill-to block of the invoices a fleet addresses to the driver. Shared
  * query key with the driver billing (same endpoint), so one request serves both.
  */
-export function AccountBillingAddress(): React.JSX.Element {
+export function AccountBillingAddress(): React.JSX.Element | null {
   const { t } = useTranslation();
+  const { data: features } = usePortalFeatures();
   const queryClient = useQueryClient();
   const driver = useAuth((s) => s.driver);
   const { data } = useQuery({
@@ -66,7 +69,7 @@ export function AccountBillingAddress(): React.JSX.Element {
     queryFn: () => api.get<PortalMe>('/v1/portal/auth/me'),
     staleTime: 60_000,
   });
-  const address = data?.billingAddress;
+  const address = data?.billingAddress ?? undefined;
   const [form, setForm] = useState<FormState>(() => toForm(address));
   const [message, setMessage] = useState('');
   const [saved, setSaved] = useState(false);
@@ -101,44 +104,50 @@ export function AccountBillingAddress(): React.JSX.Element {
   const fullName = `${driver?.firstName ?? ''} ${driver?.lastName ?? ''}`.trim();
   const showNudge = data?.billing?.invoicedTo === 'member' && isAddressEmpty(address);
 
+  // A billing address is a fleet feature: hidden while fleet management is off.
+  if (features?.fleetEnabled === false || data?.billingAddress === null) return null;
+
   return (
-    <form
-      onSubmit={(e) => void handleSubmit(e)}
-      noValidate
-      className="space-y-4"
-      data-testid="account-billing-address"
-    >
-      <div className="space-y-1">
-        <h3 className="text-sm font-semibold">{t('billingAddress.title')}</h3>
-        <p className="text-xs text-muted-foreground">{t('billingAddress.description')}</p>
-      </div>
-      {showNudge && <InfoNote>{t('billingAddress.nudge')}</InfoNote>}
-      {FIELDS.map(({ key, label, maxLength, autoComplete }) => (
-        <div key={key} className="space-y-2">
-          <label htmlFor={`bill-${key}`} className="block text-sm font-medium leading-6">
-            {t(`billingAddress.${label}`)}
-          </label>
-          <Input
-            id={`bill-${key}`}
-            value={form[key]}
-            maxLength={maxLength}
-            autoComplete={autoComplete}
-            disabled={address == null}
-            {...(key === 'billingName' && fullName !== '' ? { placeholder: fullName } : {})}
-            onChange={(e) => {
-              setForm((prev) => ({ ...prev, [key]: e.target.value }));
-            }}
-          />
-          {key === 'billingName' && (
-            <p className="text-xs text-muted-foreground">{t('billingAddress.nameHelp')}</p>
-          )}
+    <>
+      <hr className="border-border" />
+      <form
+        onSubmit={(e) => void handleSubmit(e)}
+        noValidate
+        className="space-y-4"
+        data-testid="account-billing-address"
+      >
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">{t('billingAddress.title')}</h3>
+          <p className="text-xs text-muted-foreground">{t('billingAddress.description')}</p>
         </div>
-      ))}
-      <Button type="submit" className="relative w-full" disabled={saving || address == null}>
-        <ButtonPendingLabel pending={saving}>{t('common.save')}</ButtonPendingLabel>
-      </Button>
-      {saved && <SavedMessage>{t('billingAddress.updated')}</SavedMessage>}
-      {message !== '' && <p className="text-sm text-destructive">{message}</p>}
-    </form>
+        {showNudge && <InfoNote>{t('billingAddress.nudge')}</InfoNote>}
+        {FIELDS.map(({ key, label, maxLength, autoComplete }) => (
+          <div key={key} className="space-y-2">
+            <label htmlFor={`bill-${key}`} className="block text-sm font-medium leading-6">
+              {t(`billingAddress.${label}`)}
+            </label>
+            <Input
+              id={`bill-${key}`}
+              value={form[key]}
+              maxLength={maxLength}
+              autoComplete={autoComplete}
+              disabled={address == null}
+              {...(key === 'billingName' && fullName !== '' ? { placeholder: fullName } : {})}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, [key]: e.target.value }));
+              }}
+            />
+            {key === 'billingName' && (
+              <p className="text-xs text-muted-foreground">{t('billingAddress.nameHelp')}</p>
+            )}
+          </div>
+        ))}
+        <Button type="submit" className="relative w-full" disabled={saving || address == null}>
+          <ButtonPendingLabel pending={saving}>{t('common.save')}</ButtonPendingLabel>
+        </Button>
+        {saved && <SavedMessage>{t('billingAddress.updated')}</SavedMessage>}
+        {message !== '' && <p className="text-sm text-destructive">{message}</p>}
+      </form>
+    </>
   );
 }

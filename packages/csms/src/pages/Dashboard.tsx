@@ -669,8 +669,10 @@ function DashboardBody({
   const fleetBilling = canSeeMoney && (isFleetUser || hasAllSiteAccess);
   const [fleetPick, setFleetPick] = useState<FleetSelection | null>(null);
   const fleetRange = useDateRange();
+  // A fleet user's fleet cards and charts share one picker and range; an
+  // operator gets no fleet cards, only the fleet charts it shows, over all fleets.
   const fleetSummary = useFleetDashboard({
-    enabled: fleetView && mode === 'live',
+    enabled: fleetView && isFleetUser && mode === 'live',
     fleetId: fleetPick?.id ?? null,
     dateQuery: fleetRange.dateQuery,
   });
@@ -680,6 +682,39 @@ function DashboardBody({
   const isChartShown = (id: string): boolean =>
     mode === 'live' &&
     dashboardLayout.layout?.charts.some((c) => c.id === id && !c.hidden) === true;
+  const operatorFleetCharts = fleetView && !isFleetUser;
+  const fleetEnergyRange = useDateRange();
+  const fleetSessionsRange = useDateRange();
+  const fleetCostRange = useDateRange();
+  const fleetInvoicesRange = useDateRange();
+  const operatorFleetEnergy = useFleetDashboard({
+    enabled: operatorFleetCharts && isChartShown('chart.fleetEnergy'),
+    fleetId: null,
+    dateQuery: fleetEnergyRange.dateQuery,
+  });
+  const operatorFleetSessions = useFleetDashboard({
+    enabled: operatorFleetCharts && isChartShown('chart.fleetSessions'),
+    fleetId: null,
+    dateQuery: fleetSessionsRange.dateQuery,
+  });
+  const operatorFleetCost = useFleetDashboard({
+    enabled: operatorFleetCharts && isChartShown('chart.fleetCost'),
+    fleetId: null,
+    dateQuery: fleetCostRange.dateQuery,
+  });
+  const operatorFleetInvoices = useFleetDashboard({
+    enabled: operatorFleetCharts && isChartShown('chart.fleetInvoices'),
+    fleetId: null,
+    dateQuery: fleetInvoicesRange.dateQuery,
+  });
+  /** The summary and range control of one fleet chart: a fleet user's shared one, or the chart's own. */
+  const fleetChart = (
+    summary: typeof fleetSummary,
+    range: ReturnType<typeof useDateRange>,
+  ): { summary: typeof fleetSummary; actions: React.JSX.Element | undefined } =>
+    isFleetUser
+      ? { summary: fleetSummary, actions: undefined }
+      : { summary, actions: dateControl(range) };
 
   const energy = useDateRange();
   const sessions = useDateRange();
@@ -923,9 +958,6 @@ function DashboardBody({
           <div className="grid w-full gap-2 sm:w-72">
             <Label htmlFor="dashboard-fleet">{t('dashboard.fleet.picker')}</Label>
             <FleetCombobox id="dashboard-fleet" value={fleetPick} onSelect={setFleetPick} />
-            <p className="text-xs text-muted-foreground">
-              {fleetPick == null ? t('dashboard.fleet.allFleets') : t('dashboard.fleet.oneFleet')}
-            </p>
           </div>
           <div className="grid gap-2">
             <span className="text-sm font-medium leading-none">{t('dashboard.dateRange')}</span>
@@ -1335,7 +1367,7 @@ function DashboardBody({
       <>
         {operatorView && healthRows}
 
-        {fleetView && renderFleetStatCards()}
+        {fleetView && isFleetUser && renderFleetStatCards()}
 
         {operatorView && canSeeMoney && (
           <ScrollSnapRow
@@ -1843,58 +1875,73 @@ function DashboardBody({
     'chart.fleetEnergy': {
       name: t('dashboard.fleet.energyChart'),
       visible: fleetView,
-      render: () => (
-        <EnergyChart
-          title={t('dashboard.fleet.energyChart')}
-          data={fleetSummary.data?.history ?? []}
-          info={t('dashboard.fleet.energyChartInfo')}
-          state={queryState(fleetSummary)}
-        />
-      ),
+      render: () => {
+        const chart = fleetChart(operatorFleetEnergy, fleetEnergyRange);
+        return (
+          <EnergyChart
+            title={t('dashboard.fleet.energyChart')}
+            data={chart.summary.data?.history ?? []}
+            actions={chart.actions}
+            info={t('dashboard.fleet.energyChartInfo')}
+            state={queryState(chart.summary)}
+          />
+        );
+      },
     },
     'chart.fleetSessions': {
       name: t('dashboard.fleet.sessionsChart'),
       visible: fleetView,
-      render: () => (
-        <SessionsChart
-          title={t('dashboard.fleet.sessionsChart')}
-          data={(fleetSummary.data?.history ?? []).map((d) => ({
-            date: d.date,
-            count: d.sessions,
-          }))}
-          info={t('dashboard.fleet.sessionsChartInfo')}
-          state={queryState(fleetSummary)}
-        />
-      ),
+      render: () => {
+        const chart = fleetChart(operatorFleetSessions, fleetSessionsRange);
+        return (
+          <SessionsChart
+            title={t('dashboard.fleet.sessionsChart')}
+            data={(chart.summary.data?.history ?? []).map((d) => ({
+              date: d.date,
+              count: d.sessions,
+            }))}
+            actions={chart.actions}
+            info={t('dashboard.fleet.sessionsChartInfo')}
+            state={queryState(chart.summary)}
+          />
+        );
+      },
     },
     'chart.fleetCost': {
       name: t('dashboard.fleet.costChart'),
       visible: fleetView && canSeeMoney,
-      render: () => (
-        <RevenueChart
-          title={t('dashboard.fleet.costChart')}
-          data={(fleetSummary.data?.history ?? []).map((d) => ({
-            date: d.date,
-            revenueCents: d.costCents ?? 0,
-            sessionCount: d.sessions,
-          }))}
-          currency={fleetSummary.data?.currency ?? companyCurrency}
-          currencyError={company.isError}
-          onRetry={company.refetch}
-          info={t('dashboard.fleet.costChartInfo')}
-          state={queryState(fleetSummary)}
-        />
-      ),
+      render: () => {
+        const chart = fleetChart(operatorFleetCost, fleetCostRange);
+        return (
+          <RevenueChart
+            title={t('dashboard.fleet.costChart')}
+            data={(chart.summary.data?.history ?? []).map((d) => ({
+              date: d.date,
+              revenueCents: d.costCents ?? 0,
+              sessionCount: d.sessions,
+            }))}
+            currency={chart.summary.data?.currency ?? companyCurrency}
+            currencyError={company.isError}
+            onRetry={company.refetch}
+            actions={chart.actions}
+            info={t('dashboard.fleet.costChartInfo')}
+            state={queryState(chart.summary)}
+          />
+        );
+      },
     },
     'chart.fleetInvoices': {
       name: t('dashboard.fleet.invoicesChart'),
       visible: fleetView && fleetBilling,
-      render: () => (
-        <FleetInvoicesWidget
-          invoices={fleetSummary.data?.invoices ?? []}
-          state={queryState(fleetSummary)}
-        />
-      ),
+      render: () => {
+        const chart = fleetChart(operatorFleetInvoices, fleetInvoicesRange);
+        return (
+          <FleetInvoicesWidget
+            invoices={chart.summary.data?.invoices ?? []}
+            state={queryState(chart.summary)}
+          />
+        );
+      },
     },
   };
 

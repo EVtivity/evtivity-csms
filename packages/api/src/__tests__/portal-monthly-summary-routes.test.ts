@@ -50,7 +50,10 @@ function makeChain() {
   return chain;
 }
 
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', async () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   evses: {},
   connectors: {},
   stationUnits: {},

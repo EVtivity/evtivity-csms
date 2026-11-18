@@ -62,7 +62,7 @@ vi.mock('../invoice-pdf.service.js', async (importOriginal) => ({
 }));
 
 import { dispatchDriverNotification, dispatchSystemNotification } from '@evtivity/lib';
-import { loadFleetBillingContacts } from '@evtivity/database';
+import { isFleetEnabled, loadFleetBillingContacts } from '@evtivity/database';
 import { generateInvoicePdf } from '../invoice-pdf.service.js';
 import { writeInvoiceSentAudit } from '../invoice-audit.js';
 import {
@@ -116,6 +116,7 @@ beforeEach(() => {
   h.markRows = [{ id: 'inv_f1' }];
   h.statements = [];
   h.detail = detail();
+  h.fleetEnabled = true;
 });
 
 describe('fleetInvoiceVariables', () => {
@@ -275,6 +276,15 @@ describe('sendAccountInvoiceEmail for a member invoice', () => {
 
   beforeEach(() => {
     h.detail = { ...detail({ memberBilled: true, driverId: 'drv_1' }), driver: memberDriver };
+  });
+
+  it('sends nothing and leaves the invoice unsent while Fleets is off', async () => {
+    h.fleetEnabled = false;
+    const result = await sendAccountInvoiceEmail('inv_f1', 'once', deps, audit);
+    expect(result).toEqual({ status: 'fleets_off' });
+    expect(isFleetEnabled).toHaveBeenCalledWith({ failClosed: true });
+    expect(h.statements.some((s) => s.includes('sent_at'))).toBe(false);
+    expect(dispatchDriverNotification).not.toHaveBeenCalled();
   });
 
   it('emails the driver only, with the PDF and no SMS, never the fleet contacts', async () => {

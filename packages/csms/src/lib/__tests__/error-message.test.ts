@@ -18,6 +18,7 @@ beforeAll(async () => {
           errors: {
             RATE_LIMITED: 'Too many requests. Wait a moment and try again.',
             unknown: 'An unexpected error occurred',
+            networkError: 'The server could not be reached.',
             STATION_NOT_FOUND: 'Station not found',
           },
           stations: { uploadFailed: 'Image upload failed' },
@@ -50,8 +51,24 @@ describe('getErrorMessage', () => {
   });
 
   it('returns errors.unknown instead of "API error N" when the body is not an object', () => {
-    expect(getErrorMessage(new ApiError(502, 'Bad Gateway'), t)).toBe(
-      'An unexpected error occurred',
+    expect(getErrorMessage(new ApiError(500, 'Internal'), t)).toBe('An unexpected error occurred');
+  });
+
+  it('says the server could not be reached for a gateway answer without a body', () => {
+    for (const status of [502, 503, 504]) {
+      expect(getErrorMessage(new ApiError(status, 'Bad Gateway'), t)).toBe(
+        'The server could not be reached.',
+      );
+    }
+    // A gateway answer the API itself wrote keeps its own text.
+    expect(getErrorMessage(new ApiError(502, { error: 'Station rejected' }), t)).toBe(
+      'Station rejected',
+    );
+  });
+
+  it('says the server could not be reached when the request never left the page', () => {
+    expect(getErrorMessage(new TypeError('Failed to fetch'), t)).toBe(
+      'The server could not be reached.',
     );
   });
 

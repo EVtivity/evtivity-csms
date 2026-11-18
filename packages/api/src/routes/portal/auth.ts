@@ -24,6 +24,7 @@ import {
   writeAudit,
   driverAuditLog,
   getDriverDefaults,
+  isFleetEnabled,
 } from '@evtivity/database';
 import { drivers, userTokens } from '@evtivity/database';
 import {
@@ -132,9 +133,11 @@ const portalDriverMe = portalDriverItem
     billing: driverBillingSchema.describe(
       'How the driver pays a session they start: account (billed to a fleet, no payment method needed) or card. A free vend site bills nothing either way',
     ),
-    billingAddress: driverBillingAddressItem.describe(
-      'The bill-to block of the invoices a fleet addresses to the driver (PATCH /v1/portal/driver/billing-address)',
-    ),
+    billingAddress: driverBillingAddressItem
+      .nullable()
+      .describe(
+        'The bill-to block of the invoices a fleet addresses to the driver (PATCH /v1/portal/driver/billing-address); null while Fleets is off',
+      ),
     avatar: avatarItem,
   })
   .loose();
@@ -962,18 +965,23 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         billingCountry,
         ...withAvatar
       } = row;
-      const [driver] = await withAvatars([withAvatar]);
+      const [driver, fleetOn] = await Promise.all([
+        withAvatars([withAvatar]).then((rows) => rows[0]),
+        isFleetEnabled({ failClosed: true }),
+      ]);
       return {
         ...driver,
         billing: toDriverBilling(await resolveAccountBilling(client, driverId)),
-        billingAddress: {
-          billingName,
-          billingStreet,
-          billingCity,
-          billingState,
-          billingZip,
-          billingCountry,
-        },
+        billingAddress: fleetOn
+          ? {
+              billingName,
+              billingStreet,
+              billingCity,
+              billingState,
+              billingZip,
+              billingCountry,
+            }
+          : null,
       };
     },
   );

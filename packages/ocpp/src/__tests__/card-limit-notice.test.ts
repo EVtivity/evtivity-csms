@@ -4,9 +4,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type postgres from 'postgres';
 
-const { mockClaim, mockDispatch } = vi.hoisted(() => ({
+const { mockClaim, mockDispatch, fleetSwitch } = vi.hoisted(() => ({
   mockClaim: vi.fn(),
   mockDispatch: vi.fn(),
+  fleetSwitch: { on: true },
 }));
 
 vi.mock('../server/notification-dispatcher.js', () => ({
@@ -17,6 +18,7 @@ vi.mock('../server/notification-dispatcher.js', () => ({
 vi.mock('@evtivity/database', () => ({
   claimCardMonthlyLimitNotice: mockClaim,
   getCompanyCurrency: vi.fn().mockResolvedValue('EUR'),
+  isFleetEnabled: async () => fleetSwitch.on,
 }));
 
 import {
@@ -62,6 +64,17 @@ describe('RFID card monthly limit notice', () => {
       currency: 'EUR',
     });
     expect((variables as { limitFormatted: { cents: number } }).limitFormatted.cents).toBe(5000);
+  });
+
+  it('sends nothing and takes no claim while Fleets is off', async () => {
+    fleetSwitch.on = false;
+    try {
+      await sendCardMonthlyLimitNotice({ sql: sqlReturning([]), logger }, 'dtk_1', 'CS-1');
+      expect(mockClaim).not.toHaveBeenCalled();
+      expect(mockDispatch).not.toHaveBeenCalled();
+    } finally {
+      fleetSwitch.on = true;
+    }
   });
 
   it('sends nothing for a card no member holds or a notice already sent', async () => {

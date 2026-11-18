@@ -597,7 +597,7 @@ export function SessionDetail(): React.JSX.Element {
       )}
 
       {/* Charge on account: billed to the fleet */}
-      {session.accountBilling != null && (
+      {session.accountBilling != null && session.accountBilling.fleetName != null && (
         <Card data-testid="fleet-billing">
           <CardHeader>
             <CardTitle className="text-sm">{t('fleetBilling.title')}</CardTitle>

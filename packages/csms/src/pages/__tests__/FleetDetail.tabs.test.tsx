@@ -11,6 +11,15 @@ const h = vi.hoisted(() => ({
   allSites: true,
   permissions: new Set<string>(),
   billingProps: [] as { readOnly?: boolean }[],
+  fleetEnabled: true,
+}));
+
+vi.mock('@/hooks/use-feature-flags', () => ({
+  useFeatureFlags: () => ({
+    flags: { fleetEnabled: h.fleetEnabled },
+    isLoading: false,
+    isLoaded: true,
+  }),
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -87,6 +96,7 @@ afterEach(() => {
   h.allSites = true;
   h.permissions = new Set();
   h.billingProps.length = 0;
+  h.fleetEnabled = true;
 });
 
 describe('FleetDetail tabs', () => {
@@ -153,7 +163,15 @@ describe('FleetDetail tabs', () => {
   it('adds Fleet Managers for an all-site operator who reads users, never for others', async () => {
     h.permissions = new Set(['fleets:read', 'users:read']);
     renderPage();
-    expect(await tabNames()).toContain('fleets.managers.title');
+    const names = await tabNames();
+    // Right after the Drivers tab.
+    expect(names[names.indexOf('fleets.drivers') + 1]).toBe('fleets.managers.title');
+    cleanup();
+
+    h.fleetEnabled = false;
+    renderPage();
+    expect(await tabNames()).not.toContain('fleets.managers.title');
+    h.fleetEnabled = true;
     cleanup();
 
     h.allSites = false;

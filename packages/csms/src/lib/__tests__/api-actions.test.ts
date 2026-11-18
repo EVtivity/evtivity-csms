@@ -125,6 +125,19 @@ describe('api refresh and action logging', () => {
     expect(window.location.href).toBe('/login');
   });
 
+  it('reports the answer of the retry after a refresh, not a lost session', async () => {
+    const refused = { error: 'Invalid password', code: 'INVALID_PASSWORD' };
+    fetchMock
+      .mockResolvedValueOnce(res(401))
+      .mockResolvedValueOnce(res(200))
+      .mockResolvedValueOnce(res(400, refused));
+
+    const err = await api.post('/v1/users', { email: 'x@y.test' }).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ name: 'ApiError', status: 400, body: refused });
+    expect(window.location.href).toBe('/');
+  });
+
   it('treats a refresh network error as a failed refresh', async () => {
     fetchMock.mockResolvedValueOnce(res(401)).mockRejectedValueOnce(new TypeError('offline'));
 

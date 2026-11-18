@@ -18,7 +18,12 @@ export function clearFleetCache(): void {
   cachedAt = 0;
 }
 
-export async function isFleetEnabled(): Promise<boolean> {
+export interface FleetEnabledOptions {
+  /** A failed read with no cached value counts as off (fleet notices, driver views). */
+  failClosed?: boolean;
+}
+
+export async function isFleetEnabled(options: FleetEnabledOptions = {}): Promise<boolean> {
   const now = Date.now();
   if (cachedValue !== undefined && now - cachedAt < TTL_MS) {
     return cachedValue;
@@ -38,6 +43,6 @@ export async function isFleetEnabled(): Promise<boolean> {
       { err, key: 'fleet.enabled' },
       'isFleetEnabled failed, using the cached value or default',
     );
-    return cachedValue ?? true;
+    return cachedValue ?? options.failClosed !== true;
   }
 }

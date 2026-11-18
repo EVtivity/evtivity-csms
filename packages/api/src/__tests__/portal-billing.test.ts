@@ -91,6 +91,17 @@ describe('toSessionAccountBilling', () => {
     ).toMatchObject({ state: 'unbilled', invoicedTo: 'member', invoiceId: null });
   });
 
+  it('names no fleet while Fleets is off and keeps the billing state', () => {
+    expect(toSessionAccountBilling(account, false)).toMatchObject({
+      fleetName: null,
+      invoicedTo: 'fleet',
+    });
+    expect(toSessionAccountBilling(member, false)).toMatchObject({
+      fleetName: null,
+      invoicedTo: 'member',
+    });
+  });
+
   it('is null for a card session or an account session with a payment record', () => {
     expect(toSessionAccountBilling({ ...account, billingMode: 'card' })).toBeNull();
     expect(toSessionAccountBilling({ ...account, billingMode: null })).toBeNull();

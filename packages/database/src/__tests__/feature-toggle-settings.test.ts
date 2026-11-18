@@ -51,6 +51,17 @@ describe('feature toggle readers', () => {
     expect(await mod.isFleetEnabled()).toBe(true);
   });
 
+  it('isFleetEnabled reads a failed read as on by default and off with failClosed', async () => {
+    const mod = await import('../lib/fleet-setting.js');
+    h.select.mockReturnValue({
+      from: () => ({ where: () => Promise.reject(new Error('connection lost')) }),
+    });
+    expect(await mod.isFleetEnabled()).toBe(true);
+    expect(await mod.isFleetEnabled({ failClosed: true })).toBe(false);
+    settingRows([{ value: true }]);
+    expect(await mod.isFleetEnabled({ failClosed: true })).toBe(true);
+  });
+
   it('isGuestChargingEnabled caches until clearGuestChargingCache', async () => {
     const mod = await import('../lib/guest-setting.js');
     settingRows([{ value: false }]);

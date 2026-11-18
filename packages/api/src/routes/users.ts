@@ -197,7 +197,11 @@ import {
   isAiEffort,
 } from '@evtivity/lib';
 import type { UserAccessScope } from '@evtivity/lib/user-access-scope';
-import { FLEET_MANAGER_ROLE_NAME, USER_ACCESS_SCOPES } from '@evtivity/lib/user-access-scope';
+import {
+  FLEET_MANAGER_ROLE_NAME,
+  USER_ACCESS_SCOPES,
+  accessScopeForRole,
+} from '@evtivity/lib/user-access-scope';
 import { isFleetUser, userAccessFields } from '../lib/fleet-scope.js';
 import { isValidTimezone } from '@evtivity/lib/timezone';
 import {
@@ -284,7 +288,7 @@ const createUserBody = z.object({
       'Permissions of the new user, each one you hold (default: the role defaults). Sent here, one request and one proof create a user with its final permissions.',
     ),
   accessScope: accessScopeField.describe(
-    'What the user reaches: sites (all sites or its siteIds) or fleets (only its fleetIds; no site access, and only fleets:read, sessions:read, payments:read, fleetCards:read and fleetCards:write). Default: fleets for the fleet_manager role, else sites. Only a user with access to every site sends fleets (403 FORBIDDEN otherwise), and only while the Fleets feature is on (403 FLEET_DISABLED)',
+    'What the user reaches: sites (all sites or its siteIds) or fleets (only its fleetIds; no site access, and only fleets:read, sessions:read, payments:read, fleetCards:read, fleetCards:write, settings.apiKeys:read and settings.apiKeys:write). The role decides it: fleets for the fleet_manager role only, sites for every other role (the default); another combination answers 400 VALIDATION_ERROR with details.field (accessScope or roleId). Only a user with access to every site sends fleets (403 FORBIDDEN otherwise), and only while the Fleets feature is on (403 FLEET_DISABLED)',
   ),
   fleetIds: fleetIdsField.describe(
     'Fleet IDs a fleets-scope user reaches (none allowed for the sites scope). An unknown fleet answers 400 INVALID_FLEET_IDS',
@@ -340,7 +344,7 @@ const updateUserBody = z.object({
       'Allow SSO to link this password account at its next SSO sign-in (cleared once linked). Turning it on from a session needs proof',
     ),
   accessScope: accessScopeField.describe(
-    'Move the user to sites (its fleet assignments are cleared) or fleets (its site access is cleared; its permissions, or the new role defaults, must be within the fleet user list, else 400 FLEET_USER_PERMISSION_NOT_ALLOWED). A role change to fleet_manager without accessScope moves it to fleets. Only a user with access to every site sends fleets or fleetIds (403 FORBIDDEN), and only while the Fleets feature is on (403 FLEET_DISABLED)',
+    'Move the user to sites (its fleet assignments are cleared) or fleets (its site access is cleared; its permissions, or the new role defaults, must be within the fleet user list, else 400 FLEET_USER_PERMISSION_NOT_ALLOWED). The role decides the scope: fleets for the fleet_manager role only, sites for every other role. A role change without accessScope moves the user to the scope of the new role; an accessScope that does not match the role after the change answers 400 VALIDATION_ERROR with details.field (accessScope or roleId). Only a user with access to every site sends fleets or fleetIds (403 FORBIDDEN), and only while the Fleets feature is on (403 FLEET_DISABLED)',
   ),
   fleetIds: fleetIdsField.describe(
     'Fleet IDs of a fleets-scope user (replaces existing assignments). An unknown fleet answers 400 INVALID_FLEET_IDS',
@@ -583,19 +587,28 @@ const userCreated = z
   })
   .loose();
 
-/** The 400 body field of a fleet user permission refusal. */
+/** The 400 body field of a fleet user permission or Fleet Manager access refusal. */
 const fleetPermissionErrorFields = {
   details: z
     .object({
       permissions: z
         .array(z.string())
+        .optional()
         .describe(
           'The permissions outside the fleet user list (FLEET_USER_PERMISSION_NOT_ALLOWED)',
+        ),
+      field: z
+        .string()
+        .optional()
+        .describe(
+          'With VALIDATION_ERROR: the field to change, accessScope or roleId, when the Fleet Manager role would get an access other than fleets',
         ),
     })
     .loose()
     .optional()
-    .describe('With FLEET_USER_PERMISSION_NOT_ALLOWED: the refused permissions'),
+    .describe(
+      'With FLEET_USER_PERMISSION_NOT_ALLOWED: the refused permissions; with VALIDATION_ERROR: the field to change',
+    ),
 };
 
 /** Answers 400 FLEET_USER_PERMISSION_NOT_ALLOWED naming the permissions refused. */
@@ -608,6 +621,81 @@ async function sendFleetPermissionRefusal(
     code: 'FLEET_USER_PERMISSION_NOT_ALLOWED',
     details: { permissions: [...outside] },
   });
+}
+
+/**
+ * Fleets access belongs to the Fleet Manager role and that role to fleets
+ * access. `field` names what the request should change.
+ */
+async function sendRoleScopeRefusal(
+  reply: FastifyReply,
+  scope: UserAccessScope,
+  field: 'accessScope' | 'roleId',
+): Promise<void> {
+  await reply.status(400).send({
+    error:
+      scope === 'fleets'
+        ? 'Fleets access is only for the Fleet Manager role'
+        : 'The Fleet Manager role takes only fleets access',
+    code: 'VALIDATION_ERROR',
+    details: { field },
+  });
+}
+
+/** A user access rule broken on the locked row; rolls the transaction back. */
+class LockedUserScopeError extends Error {
+  constructor(
+    readonly problem:
+      | { kind: 'role_scope'; scope: UserAccessScope }
+      | { kind: 'permissions'; outside: string[] },
+  ) {
+    super('User access rule broken on the locked row');
+  }
+}
+
+/**
+ * Checks the user row as the transaction locked it: the role and the access
+ * scope match (`accessScopeForRole`), and a fleet user holds only the fleet user
+ * permissions. A concurrent role, scope or permission change is decided on what
+ * commits.
+ */
+async function assertLockedUserScope(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  userId: string,
+): Promise<void> {
+  const [row] = await tx
+    .select({ accessScope: users.accessScope, roleName: roles.name })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.roleId))
+    .where(eq(users.id, userId))
+    .for('update', { of: users });
+  if (row == null) return;
+  if (accessScopeForRole(row.roleName) !== row.accessScope) {
+    throw new LockedUserScopeError({ kind: 'role_scope', scope: row.accessScope });
+  }
+  if (row.accessScope === 'fleets') {
+    const held = await tx
+      .select({ permission: userPermissions.permission })
+      .from(userPermissions)
+      .where(eq(userPermissions.userId, userId));
+    const outside = fleetUserPermissionsOutside(held.map((r) => r.permission));
+    if (outside.length > 0) throw new LockedUserScopeError({ kind: 'permissions', outside });
+  }
+}
+
+/** Answers a LockedUserScopeError; false for any other error. */
+async function sendLockedUserScopeRefusal(
+  reply: FastifyReply,
+  err: unknown,
+  field: 'accessScope' | 'roleId',
+): Promise<boolean> {
+  if (!(err instanceof LockedUserScopeError)) return false;
+  if (err.problem.kind === 'role_scope') {
+    await sendRoleScopeRefusal(reply, err.problem.scope, field);
+  } else {
+    await sendFleetPermissionRefusal(reply, err.problem.outside);
+  }
+  return true;
 }
 
 /** The fleets assigned to a fleets-scope user, sorted; none for the sites scope (no read). */
@@ -641,6 +729,11 @@ const roleItem = z
   .object({
     id: z.string().describe('Identifier'),
     name: z.string().describe('Role name (e.g., admin, operator)'),
+    assignable: z
+      .boolean()
+      .describe(
+        'Whether a user write may give this role now: false for the fleet_manager role while the Fleets feature is off (403 FLEET_DISABLED); a user who holds it keeps it',
+      ),
   })
   .loose();
 
@@ -2154,8 +2247,13 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
       const fleetManagerRole = role.name === FLEET_MANAGER_ROLE_NAME;
-      const createScope: UserAccessScope =
-        body.accessScope ?? (fleetManagerRole ? 'fleets' : 'sites');
+      // The role decides the access scope: fleets for the Fleet Manager role
+      // only, sites for every other role.
+      const createScope: UserAccessScope = body.accessScope ?? accessScopeForRole(role.name);
+      if (createScope !== accessScopeForRole(role.name)) {
+        await sendRoleScopeRefusal(reply, createScope, fleetManagerRole ? 'accessScope' : 'roleId');
+        return;
+      }
       if (createScope === 'fleets' || fleetManagerRole) {
         if (actor.siteIds != null) {
           await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
@@ -2566,6 +2664,7 @@ export function userRoutes(app: FastifyInstance): void {
       // operator may only pick a role whose defaults it holds itself.
       let newRoleDefaults: string[] = [];
       let toFleetManagerRole = false;
+      let newRoleName: string | undefined;
       if (body.roleId !== undefined) {
         const [role] = await db
           .select({ id: roles.id, name: roles.name })
@@ -2578,15 +2677,40 @@ export function userRoutes(app: FastifyInstance): void {
         }
         newRoleDefaults = roleDefaultPermissions(role.name);
         toFleetManagerRole = role.name === FLEET_MANAGER_ROLE_NAME;
+        newRoleName = role.name;
       }
 
-      // The access scope after the change: the one sent, else fleets for a
-      // move to the fleet_manager role, else the stored one.
+      // The role decides the access scope: a role change without accessScope
+      // moves the user to the scope of the new role (fleets for the Fleet
+      // Manager role, sites for every other), else the scope sent or stored.
       const scopeAfter: UserAccessScope =
-        body.accessScope ?? (toFleetManagerRole ? 'fleets' : before.accessScope);
+        body.accessScope ??
+        (newRoleName != null ? accessScopeForRole(newRoleName) : before.accessScope);
+      // An access scope sent must be the one of the role the user has after
+      // the change.
+      if (body.accessScope != null) {
+        let roleNameAfter = newRoleName;
+        if (roleNameAfter == null) {
+          const [stored] = await db
+            .select({ name: roles.name })
+            .from(roles)
+            .where(eq(roles.id, before.roleId));
+          roleNameAfter = stored?.name ?? '';
+        }
+        if (accessScopeForRole(roleNameAfter) !== scopeAfter) {
+          await sendRoleScopeRefusal(
+            reply,
+            scopeAfter,
+            body.roleId !== undefined && !toFleetManagerRole ? 'roleId' : 'accessScope',
+          );
+          return;
+        }
+      }
       const scopeChanged = scopeAfter !== before.accessScope;
+      // Giving the Fleet Manager role, fleets access or fleets needs the feature on;
+      // a user who already holds the role keeps it.
       if (
-        toFleetManagerRole ||
+        (toFleetManagerRole && body.roleId !== before.roleId) ||
         (scopeChanged && scopeAfter === 'fleets') ||
         body.fleetIds !== undefined
       ) {
@@ -2750,49 +2874,68 @@ export function userRoutes(app: FastifyInstance): void {
 
       // One transaction: the user row, its site assignments and its
       // permissions change together or not at all.
-      const updated = await db.transaction(async (tx) => {
-        const [row] = await tx
-          .update(users)
-          .set(fields)
-          .where(eq(users.id, id))
-          .returning(userSelect);
-        if (row == null) return null;
+      const roleOrScopeChange = body.roleId !== undefined || body.accessScope !== undefined;
+      let updated: Awaited<ReturnType<typeof updateUserRow>>;
+      try {
+        updated = await updateUserRow();
+      } catch (err: unknown) {
+        if (
+          await sendLockedUserScopeRefusal(
+            reply,
+            err,
+            body.roleId !== undefined ? 'roleId' : 'accessScope',
+          )
+        )
+          return;
+        throw err;
+      }
+      async function updateUserRow() {
+        return db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(users)
+            .set(fields)
+            .where(eq(users.id, id))
+            .returning(userSelect);
+          if (row == null) return null;
 
-        // Reset and invite links already sent went to the old address.
-        if (emailChanged) await revokeUserEmailLinks(id, tx);
+          // Reset and invite links already sent went to the old address.
+          if (emailChanged) await revokeUserEmailLinks(id, tx);
 
-        // A role, scope or fleet change ends the access tokens issued before.
-        if (body.roleId !== undefined || fleetAccessChange) await bumpSessionVersion(id, tx);
+          // A role, scope or fleet change ends the access tokens issued before.
+          if (body.roleId !== undefined || fleetAccessChange) await bumpSessionVersion(id, tx);
 
-        if (siteIdsAfter !== undefined) {
-          await tx.delete(userSiteAssignments).where(eq(userSiteAssignments.userId, id));
-          if (siteIdsAfter.length > 0) {
-            await tx
-              .insert(userSiteAssignments)
-              .values(siteIdsAfter.map((siteId) => ({ userId: id, siteId })));
+          if (siteIdsAfter !== undefined) {
+            await tx.delete(userSiteAssignments).where(eq(userSiteAssignments.userId, id));
+            if (siteIdsAfter.length > 0) {
+              await tx
+                .insert(userSiteAssignments)
+                .values(siteIdsAfter.map((siteId) => ({ userId: id, siteId })));
+            }
           }
-        }
-        if (fleetIdsAfter !== undefined) {
-          await tx.delete(userFleetAssignments).where(eq(userFleetAssignments.userId, id));
-          if (fleetIdsAfter.length > 0) {
-            await tx
-              .insert(userFleetAssignments)
-              .values(fleetIdsAfter.map((fleetId) => ({ userId: id, fleetId })));
+          if (fleetIdsAfter !== undefined) {
+            await tx.delete(userFleetAssignments).where(eq(userFleetAssignments.userId, id));
+            if (fleetIdsAfter.length > 0) {
+              await tx
+                .insert(userFleetAssignments)
+                .values(fleetIdsAfter.map((fleetId) => ({ userId: id, fleetId })));
+            }
           }
-        }
 
-        // Reset permissions to the new role defaults when roleId changes
-        if (body.roleId !== undefined) {
-          await tx.delete(userPermissions).where(eq(userPermissions.userId, id));
-          if (newRoleDefaults.length > 0) {
-            await tx
-              .insert(userPermissions)
-              .values(newRoleDefaults.map((p) => ({ userId: id, permission: p })))
-              .onConflictDoNothing();
+          // Reset permissions to the new role defaults when roleId changes
+          if (body.roleId !== undefined) {
+            await tx.delete(userPermissions).where(eq(userPermissions.userId, id));
+            if (newRoleDefaults.length > 0) {
+              await tx
+                .insert(userPermissions)
+                .values(newRoleDefaults.map((p) => ({ userId: id, permission: p })))
+                .onConflictDoNothing();
+            }
           }
-        }
-        return row;
-      });
+          // The UPDATE above holds the row lock: decide on what commits.
+          if (roleOrScopeChange) await assertLockedUserScope(tx, id);
+          return row;
+        });
+      }
 
       if (updated == null) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
@@ -3297,13 +3440,19 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'List all available roles',
+        description:
+          'Every role, each with `assignable`: the fleet_manager role is not assignable while the Fleets feature is off.',
         operationId: 'listRoles',
         security: [{ bearerAuth: [] }],
         response: { 200: arrayResponse(roleItem) },
       },
     },
     async () => {
-      return db.select().from(roles);
+      const [rows, fleetsOn] = await Promise.all([db.select().from(roles), isFleetEnabled()]);
+      return rows.map((r) => ({
+        ...r,
+        assignable: fleetsOn || r.name !== FLEET_MANAGER_ROLE_NAME,
+      }));
     },
   );
 
@@ -5389,7 +5538,7 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Replace a user permissions',
         description:
-          'Replaces the permissions of another user, each one you hold. A fleets-scope user takes only fleets:read, sessions:read, payments:read, fleetCards:read and fleetCards:write (400 FLEET_USER_PERMISSION_NOT_ALLOWED). From a signed-in session, a list that adds a permission needs `proof` (400 VALIDATION_ERROR with proofKinds without it); removing needs none. The user and the caller get a security.PermissionsGranted notice.',
+          'Replaces the permissions of another user, each one you hold. A fleets-scope user takes only fleets:read, sessions:read, payments:read, fleetCards:read, fleetCards:write, settings.apiKeys:read and settings.apiKeys:write (400 FLEET_USER_PERMISSION_NOT_ALLOWED); a user whose role and access scope do not match answers 400 VALIDATION_ERROR with details.field roleId. From a signed-in session, a list that adds a permission needs `proof` (400 VALIDATION_ERROR with proofKinds without it); removing needs none. The user and the caller get a security.PermissionsGranted notice.',
         operationId: 'updateUserPermissions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
@@ -5479,21 +5628,30 @@ export function userRoutes(app: FastifyInstance): void {
       // One transaction: the before snapshot, the replacement and the
       // session version (access tokens of the old permissions end) commit
       // together or not at all.
-      const beforePermRows = await db.transaction(async (tx) => {
-        const before = await tx
-          .select({ permission: userPermissions.permission })
-          .from(userPermissions)
-          .where(eq(userPermissions.userId, id));
-        await tx.delete(userPermissions).where(eq(userPermissions.userId, id));
-        if (permissions.length > 0) {
-          await tx
-            .insert(userPermissions)
-            .values(permissions.map((p) => ({ userId: id, permission: p })))
-            .onConflictDoNothing();
-        }
-        await bumpSessionVersion(id, tx);
-        return before;
-      });
+      let beforePermRows: { permission: string }[];
+      try {
+        beforePermRows = await db.transaction(async (tx) => {
+          const before = await tx
+            .select({ permission: userPermissions.permission })
+            .from(userPermissions)
+            .where(eq(userPermissions.userId, id));
+          await tx.delete(userPermissions).where(eq(userPermissions.userId, id));
+          if (permissions.length > 0) {
+            await tx
+              .insert(userPermissions)
+              .values(permissions.map((p) => ({ userId: id, permission: p })))
+              .onConflictDoNothing();
+          }
+          // Decided on the locked user row, so a concurrent move to fleets or
+          // to the Fleet Manager role cannot leave a mix.
+          await assertLockedUserScope(tx, id);
+          await bumpSessionVersion(id, tx);
+          return before;
+        });
+      } catch (err: unknown) {
+        if (await sendLockedUserScopeRefusal(reply, err, 'roleId')) return;
+        throw err;
+      }
       invalidatePermissionCache(id);
       announceSessionChange(id);
 

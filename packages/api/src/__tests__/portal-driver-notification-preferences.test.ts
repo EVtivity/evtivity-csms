@@ -26,7 +26,10 @@ const store = vi.hoisted(() => ({
   audits: [] as unknown[],
 }));
 
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   db: {},
   client: {},
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -191,6 +194,31 @@ describe('portal driver notification preferences', () => {
       'session.AutochargeStarted',
     ]) {
       expect(types).not.toContain(t);
+    }
+  });
+
+  it('lists the fleet notices only while Fleets is on, and refuses a choice of one while off', async () => {
+    const fleetEvents = [
+      'token.FleetCardAssigned',
+      'token.FleetCardTakenBack',
+      'token.MonthlyLimitReached',
+      'fleet.AccountBillingChanged',
+      'payment.AccountCreditLimit',
+    ];
+    const on = (await get()).events.map((e) => e.eventType);
+    for (const t of fleetEvents) expect(on).toContain(t);
+    fleetSwitch.on = false;
+    try {
+      const off = (await get()).events.map((e) => e.eventType);
+      for (const t of fleetEvents) expect(off).not.toContain(t);
+      expect(off).toContain('token.Added');
+      const res = await put({
+        events: [{ eventType: 'token.FleetCardAssigned', channel: 'email', enabled: false }],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body['code']).toBe('VALIDATION_ERROR');
+    } finally {
+      fleetSwitch.on = true;
     }
   });
 

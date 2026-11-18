@@ -18,7 +18,8 @@ export interface DriverBilling {
 /** The billing state of a session billed to a fleet (portal session list and detail). */
 export interface SessionAccountBilling {
   state: 'unbilled' | 'invoiced' | 'paid';
-  fleetName: string;
+  /** Null while fleet management is off: the portal then shows no fleet billing. */
+  fleetName: string | null;
   invoicedTo?: InvoicedTo;
   /** On a member-billed session: the driver's invoice it is on, null until invoiced. */
   invoiceId?: string | null;

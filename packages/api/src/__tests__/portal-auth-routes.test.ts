@@ -92,7 +92,10 @@ vi.mock('../services/mfa-factor.service.js', () => {
     deleteWebauthnCredentials: vi.fn(async () => undefined),
   };
 });
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   readMfaConfig: async () => ({
     config: await (await import('@evtivity/database')).getMfaConfig(),
     fallback: false,
@@ -966,6 +969,46 @@ describe('Portal auth routes - handler logic', () => {
         billingCountry: 'Germany',
       });
       expect(body).not.toHaveProperty('billingCity');
+    });
+
+    it('returns no billing address while Fleets is off', async () => {
+      fleetSwitch.on = false;
+      try {
+        setupDbResults([
+          {
+            id: DRIVER_ID,
+            firstName: 'Erika',
+            lastName: 'Muster',
+            email: 'erika@example.com',
+            phone: null,
+            language: 'de',
+            timezone: null,
+            themePreference: 'light',
+            uiTheme: 'default',
+            distanceUnit: 'km',
+            priceDisplay: null,
+            isActive: true,
+            emailVerified: true,
+            createdAt: '2024-01-01',
+            billingName: null,
+            billingStreet: 'Hauptstrasse 1',
+            billingCity: 'Berlin',
+            billingState: null,
+            billingZip: '10115',
+            billingCountry: 'Germany',
+          },
+        ]);
+        const response = await app.inject({
+          method: 'GET',
+          url: '/portal/auth/me',
+          headers: { authorization: `Bearer ${driverToken}` },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json().billingAddress).toBeNull();
+        expect(response.body).not.toContain('Hauptstrasse');
+      } finally {
+        fleetSwitch.on = true;
+      }
     });
 
     it('returns account billing for a driver whose fleet bills on account', async () => {

@@ -74,6 +74,34 @@ describe('AccountBillingAddress', () => {
     expect(screen.queryByText('billingAddress.nudge')).toBeNull();
   });
 
+  it('hides the section while fleet management is off', async () => {
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/v1/portal/features'
+          ? { fleetEnabled: false }
+          : { billingAddress: { ...EMPTY, billingCity: 'Berlin' } },
+      ),
+    );
+    renderSection();
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith('/v1/portal/features');
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('account-billing-address')).toBeNull();
+    });
+  });
+
+  it('hides the section when the profile carries no billing address', async () => {
+    getMock.mockResolvedValue({ billingAddress: null });
+    renderSection();
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith('/v1/portal/auth/me');
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('account-billing-address')).toBeNull();
+    });
+  });
+
   it('asks a member-billed driver without an address to add one', async () => {
     getMock.mockResolvedValue({ billing: { invoicedTo: 'member' }, billingAddress: EMPTY });
     renderSection();

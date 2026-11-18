@@ -738,6 +738,8 @@ async function notifyFleetCardMember(
   card: { idToken: string; tokenType: string; label: string | null; fleetId: string | null },
 ): Promise<void> {
   if (driverId == null) return;
+  // Fleets off: no fleet card notice (the dispatcher refuses it too).
+  if (!(await isFleetEnabled({ failClosed: true }))) return;
   let fleetName = '';
   if (card.fleetId != null) {
     try {

@@ -1214,7 +1214,8 @@
     "noCardsAssigned": "할당된 RFID 카드가 없습니다.",
     "contactSupport": "고객 지원 문의",
     "managedByFleet": "{{fleet}}에서 관리합니다. 이 카드를 변경하려면 차량대에 문의하세요.",
-    "yourFleet": "차량대"
+    "yourFleet": "차량대",
+    "fleetCardRefused": "차량대 관리가 꺼져 있어 지금은 충전소에서 이 RFID 카드를 거부합니다. 이 카드로 충전해야 하면 운영자에게 문의하세요."
   },
   "vehicles": {
     "addVehicle": "차량 추가",
@@ -1473,7 +1474,8 @@
     },
     "memberSessionLine": "{{fleet}}을(를) 통해 본인에게 청구: {{state}}",
     "invoice": "청구서",
-    "memberPaymentMethodsNote": "충전 요금은 {{fleet}}을(를) 통해 매월 본인에게 청구됩니다. 충전에 결제 수단이 필요하지 않습니다."
+    "memberPaymentMethodsNote": "충전 요금은 {{fleet}}을(를) 통해 매월 본인에게 청구됩니다. 충전에 결제 수단이 필요하지 않습니다.",
+    "billedOnAccount": "계정으로 청구됨"
   },
   "billingAddress": {
     "title": "청구지 주소",
@@ -1673,7 +1675,10 @@
         "Added": "RFID 카드 추가",
         "Removed": "RFID 카드 삭제",
         "Deactivated": "RFID 카드 비활성화",
-        "Reactivated": "RFID 카드 재활성화"
+        "Reactivated": "RFID 카드 재활성화",
+        "FleetCardAssigned": "차량 그룹 RFID 카드 지급",
+        "FleetCardTakenBack": "차량 그룹 RFID 카드 회수",
+        "MonthlyLimitReached": "RFID 카드 월 한도 도달"
       },
       "maintenance": {
         "SessionStopped": "유지보수로 충전 중지"

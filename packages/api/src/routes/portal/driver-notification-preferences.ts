@@ -8,6 +8,7 @@ import {
   client,
   db,
   driverAuditLog,
+  isFleetEnabled,
   listDriverEventSettings,
   readDriverNotificationState,
   writeAudit,
@@ -17,6 +18,7 @@ import {
   DRIVER_NOTIFICATION_CHANNELS,
   DRIVER_PREFERENCE_EVENT_GROUPS,
   isDriverPreferenceEventType,
+  isFleetDriverEventType,
 } from '@evtivity/lib/notification-events';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { itemResponse, errorWith } from '../../lib/response-schemas.js';
@@ -115,20 +117,22 @@ const preferencesBody = z.object({
     .max(MAX_EVENT_CHOICES)
     .optional()
     .describe(
-      'Per-event choices, applied after the channel switches. Turning off a mandatory event returns 400 NOTIFICATION_EVENT_MANDATORY; an event that is no choice returns 400 VALIDATION_ERROR.',
+      'Per-event choices, applied after the channel switches. Turning off a mandatory event returns 400 NOTIFICATION_EVENT_MANDATORY; an event that is no choice (a fleet event while Fleets is off included) returns 400 VALIDATION_ERROR.',
     ),
 });
 
 async function loadView(driverId: string): Promise<NotificationPreferencesView> {
-  const [state, settings, notificationSettings] = await Promise.all([
+  const [state, settings, notificationSettings, fleetOn] = await Promise.all([
     readDriverNotificationState(driverId),
     listDriverEventSettings(),
     getNotificationSettings(client),
+    isFleetEnabled({ failClosed: true }),
   ]);
   return buildNotificationPreferencesView(
     state,
     settings,
     driverNotificationChannels(notificationSettings),
+    fleetOn,
   );
 }
 
@@ -182,8 +186,12 @@ export function portalDriverNotificationPreferencesRoutes(app: FastifyInstance):
       // Layer 2 wins over layer 3: read the operator's settings fresh, not cached.
       const settings = await listDriverEventSettings();
       const byEvent = new Map(settings.map((row) => [row.eventType, row]));
+      const fleetOn = await isFleetEnabled({ failClosed: true });
       for (const event of events) {
-        if (!isDriverPreferenceEventType(event.eventType)) {
+        if (
+          !isDriverPreferenceEventType(event.eventType) ||
+          (!fleetOn && isFleetDriverEventType(event.eventType))
+        ) {
           await reply.status(400).send({
             error: `${event.eventType} is not a notification drivers can turn on or off`,
             code: 'VALIDATION_ERROR',

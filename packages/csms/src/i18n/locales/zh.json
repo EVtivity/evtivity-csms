@@ -622,8 +622,6 @@
     "fleet": {
       "title": "车队",
       "picker": "车队",
-      "allFleets": "正在显示所有车队。选择一个车队即可只看该车队。",
-      "oneFleet": "正在显示一个车队。清除选择即可查看所有车队。",
       "sessions": "车队会话",
       "sessionsInfo": "车队在日期范围内开始的会话。",
       "energy": "车队电量",
@@ -2432,7 +2430,10 @@
       "noFleetsPicked": "尚未添加车队。请在下方搜索车队并添加。",
       "removeFleet": "移除 {{name}}",
       "unknownFleet": "车队",
-      "allScopes": "所有访问"
+      "allScopes": "所有访问",
+      "pickRoleFirst": "请先选择角色。角色决定用户可以拥有的访问权限。",
+      "noRoleYet": "请先选择角色",
+      "fleetManagerFleetsOnly": "车队经理角色始终拥有车队访问权限。要让此用户访问充电站，请选择其他角色。"
     }
   },
   "profile": {
@@ -5052,6 +5053,7 @@
     "retry": "重试",
     "serverDown": "无法连接",
     "serverDownDescription": "服务器无响应。请检查 API 服务是否正在运行，然后重试。",
+    "networkError": "无法连接服务器。请检查网络连接后重试。",
     "unknown": "发生了意外错误",
     "MAINTENANCE_NOT_FOUND": "未找到维护事件",
     "MAINTENANCE_OVERLAPS_EXISTING": "维护时段与现有事件重叠",

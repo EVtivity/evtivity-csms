@@ -557,7 +557,7 @@ async function notifyAccountCreditNote(
     if (result.status !== 'sent' && result.status !== 'already_sent') {
       log.warn(
         { invoiceId: invoice.id, reason: result.status },
-        `${kind} credit note not sent: no recipient address`,
+        `${kind} credit note not sent: no recipient address or Fleets is off`,
       );
     }
   } catch (err) {
@@ -1050,7 +1050,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Email an invoice to its driver or fleet',
         description:
-          'Renders the invoice.Sent driver notification (invoice.CreditNote for a credit note) and dispatches it via the configured channels. A fleet invoice (invoice.FleetInvoice) or its credit note (invoice.FleetCreditNote) goes to the fleet billing contacts with the PDF attached and sets sentAt; 400 FLEET_BILLING_CONTACT_REQUIRED when the fleet has none. A member invoice (invoice.MemberInvoice) or its credit note (invoice.MemberCreditNote) goes to its driver only, by email with the PDF attached and by push, and sets sentAt; 400 INVOICE_NO_DRIVER when the driver no longer exists, 400 INVOICE_NO_DRIVER_EMAIL when the driver has no email address. Safe to call repeatedly; each call sends again (deliberate resend semantics). A send a provider accepted is recorded in the invoice audit log (invoice_sent).',
+          'Renders the invoice.Sent driver notification (invoice.CreditNote for a credit note) and dispatches it via the configured channels. A fleet invoice (invoice.FleetInvoice) or its credit note (invoice.FleetCreditNote) goes to the fleet billing contacts with the PDF attached and sets sentAt; 400 FLEET_BILLING_CONTACT_REQUIRED when the fleet has none. A member invoice (invoice.MemberInvoice) or its credit note (invoice.MemberCreditNote) goes to its driver only, by email with the PDF attached and by push, and sets sentAt; 400 INVOICE_NO_DRIVER when the driver no longer exists, 400 INVOICE_NO_DRIVER_EMAIL when the driver has no email address, 403 FLEET_DISABLED while Fleets is off (nothing is sent). Safe to call repeatedly; each call sends again (deliberate resend semantics). A send a provider accepted is recorded in the invoice audit log (invoice_sent).',
         operationId: 'sendInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),
@@ -1064,6 +1064,9 @@ export function invoiceRoutes(app: FastifyInstance): void {
               ERROR_CODES.FLEET_BILLING_CONTACT_REQUIRED,
             ],
           ),
+          403: errorWith('Fleets is off: a member invoice is not sent', [
+            ERROR_CODES.FLEET_DISABLED,
+          ]),
           404: invoiceNotFound,
         },
       },
@@ -1094,6 +1097,12 @@ export function invoiceRoutes(app: FastifyInstance): void {
           sent.status === 'no_email'
         ) {
           await reply.status(400).send(ACCOUNT_SEND_REFUSALS[sent.status]);
+          return;
+        }
+        if (sent.status === 'fleets_off') {
+          await reply
+            .status(403)
+            .send({ error: 'Fleet management is turned off', code: 'FLEET_DISABLED' });
           return;
         }
         return { success: true };

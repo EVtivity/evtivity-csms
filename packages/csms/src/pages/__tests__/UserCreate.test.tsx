@@ -129,12 +129,18 @@ describe('UserCreate role defaults', () => {
   it('shows the all-site toggle to an all-site user only', async () => {
     siteAccess.all = true;
     renderCreate();
+    await screen.findByRole('option', { name: 'users.roleNames.viewer' });
+    // Access waits for the role.
+    expect(screen.queryByText('users.allSites')).toBeNull();
+    fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_viewer' } });
     expect(await screen.findByText('users.allSites')).toBeTruthy();
     cleanup();
 
     siteAccess.all = false;
     renderCreate();
     await screen.findByRole('option', { name: 'users.roleNames.viewer' });
+    fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_viewer' } });
+    await screen.findByText('users.access.sites');
     expect(screen.queryByText('users.allSites')).toBeNull();
     siteAccess.all = true;
   });

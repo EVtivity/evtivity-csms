@@ -51,7 +51,10 @@ function makeChain() {
 
 vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
 
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', async () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   evses: {},
   connectors: {},
   stationUnits: {},
@@ -271,6 +274,59 @@ describe('Portal sessions routes - handler logic', () => {
       // The fleet invoice is the fleet's document: no invoice field reaches the driver.
       expect(a).not.toHaveProperty('billingInvoiceStatus');
       expect(a).not.toHaveProperty('invoiceId');
+    });
+
+    it('names no fleet on a session billed to a fleet while Fleets is off', async () => {
+      fleetSwitch.on = false;
+      try {
+        setupDbResults(
+          [
+            {
+              transactionId: 'tx-1',
+              status: 'completed',
+              startedAt: '2024-01-01T00:00:00Z',
+              endedAt: '2024-01-01T01:00:00Z',
+              energyDeliveredWh: 10000,
+              finalCostCents: 500,
+              taxCents: null,
+              currency: 'EUR',
+              stationName: 'CS-001',
+              siteName: null,
+              evseId: null,
+              unitName: null,
+              connectorId: null,
+              connectorType: null,
+              siteAddress: null,
+              siteCity: null,
+              siteState: null,
+              co2AvoidedKg: null,
+              reservationId: null,
+              autocharge: false,
+              id: 'ses_a',
+              billingMode: 'account',
+              billingFleetName: 'Acme',
+              billingInvoiceStatus: 'issued',
+              billingHasPaymentRecord: false,
+            },
+          ],
+          [{ count: 1 }],
+        );
+        const response = await app.inject({
+          method: 'GET',
+          url: '/portal/sessions',
+          headers: { authorization: `Bearer ${driverToken}` },
+        });
+        expect(response.statusCode).toBe(200);
+        const [a] = response.json().data;
+        expect(a.accountBilling).toMatchObject({
+          state: 'invoiced',
+          fleetName: null,
+          invoicedTo: 'fleet',
+        });
+        expect(response.body).not.toContain('Acme');
+      } finally {
+        fleetSwitch.on = true;
+      }
     });
 
     it('returns empty data with zero total when no sessions', async () => {

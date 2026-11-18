@@ -2162,6 +2162,29 @@ describe('fleet RFID cards', () => {
       expect(events).not.toContain('token.Removed');
     });
 
+    it('sends no fleet card notice when the notice read of Fleets is off', async () => {
+      captureTx();
+      setupDbResults(
+        [{ ...card, driverId: 'drv_1' }],
+        [FLEET_ROW],
+        [OWNER_ROW],
+        [{ id: 1 }],
+        [{ isActive: true }],
+        [],
+        [{ ...card, id: 'dtk_1', driverId: 'drv_2' }],
+      );
+      // Only the fail-closed read of the notice path answers off.
+      vi.mocked(isFleetEnabled).mockImplementation(async (options) => options?.failClosed !== true);
+      try {
+        await updateToken('dtk_1', { driverId: 'drv_2' }, operator, fleetUserScope);
+        const events = vi.mocked(dispatchDriverNotification).mock.calls.map((c) => c[1]);
+        expect(events).not.toContain('token.FleetCardAssigned');
+        expect(events).not.toContain('token.FleetCardTakenBack');
+      } finally {
+        vi.mocked(isFleetEnabled).mockImplementation(async () => true);
+      }
+    });
+
     it('refuses giving a fleet card to a member while the fleet does not bill on account', async () => {
       captureTx();
       setupDbResults(

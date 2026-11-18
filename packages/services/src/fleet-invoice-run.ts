@@ -7,6 +7,7 @@ import {
   invoiceAuditLog,
   loadFleetBillingContacts,
   getSystemTimezone,
+  isFleetEnabled,
   writeAudit,
 } from '@evtivity/database';
 import { AppError, dispatchSystemNotification, isValidTimezone } from '@evtivity/lib';
@@ -810,7 +811,8 @@ export type MemberOverdueNoticeResult =
   | 'no_driver'
   | 'no_email'
   | 'not_overdue'
-  | 'not_found';
+  | 'not_found'
+  | 'fleets_off';
 
 /**
  * Sends invoice.MemberOverdue for one issued member invoice past its due date
@@ -843,6 +845,8 @@ export async function sendMemberInvoiceOverdueNotice(
 
   const recipient = memberInvoiceRecipient(detail);
   if ('status' in recipient) return recipient.status;
+  // Fleets off: no member invoice notice, and the reminder stays unclaimed.
+  if (!(await isFleetEnabled({ failClosed: true }))) return 'fleets_off';
 
   const pdf = await generateInvoicePdf(detail);
   if (!(await claimOverdueNotice(invoice.id))) return 'already_sent';
@@ -928,6 +932,7 @@ export async function sendMemberInvoiceOverdueNotices(
   log: ServiceLogger,
   now: Date = new Date(),
 ): Promise<MemberOverdueRunSummary> {
+  if (!(await isFleetEnabled({ failClosed: true }))) return { sent: 0, failed: 0 };
   const rows = await client<Array<{ id: string }>>`
     SELECT i.id FROM invoices i
     JOIN drivers d ON d.id = i.driver_id

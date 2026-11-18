@@ -131,7 +131,7 @@ export function Sessions(): React.JSX.Element {
                           })
                         : formatCents(sessionDisplayCostCents(session), session.currency)}
                   </p>
-                  {session.accountBilling != null && (
+                  {session.accountBilling != null && session.accountBilling.fleetName != null && (
                     <p className="text-xs text-muted-foreground">
                       {session.accountBilling.invoicedTo === 'member'
                         ? t('fleetBilling.memberSessionLine', {

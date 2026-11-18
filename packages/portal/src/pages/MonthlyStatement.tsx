@@ -163,7 +163,9 @@ export function MonthlyStatement(): React.JSX.Element {
                             pay: it is listed as billed to the fleet and stays out
                             of the total. */}
                         {s.accountBilling?.invoicedTo === 'fleet'
-                          ? t('fleetBilling.billedTo', { fleet: s.accountBilling.fleetName })
+                          ? s.accountBilling.fleetName != null
+                            ? t('fleetBilling.billedTo', { fleet: s.accountBilling.fleetName })
+                            : t('fleetBilling.billedOnAccount')
                           : formatCents(s.finalCostCents, s.currency)}
                       </td>
                       {hasCo2Data && (

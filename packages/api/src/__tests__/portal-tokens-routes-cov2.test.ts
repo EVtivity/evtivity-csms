@@ -24,7 +24,10 @@ function makeChain() {
   return chain;
 }
 
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   db: { select: vi.fn(() => makeChain()) },
   driverTokens: {},
   fleets: {},
@@ -327,6 +330,43 @@ describe('Portal token routes, uncovered paths', () => {
       const [fleet, own] = res.json();
       expect(fleet).toMatchObject({ managedByFleet: true, fleetName: 'Acme Vans' });
       expect(own).toMatchObject({ managedByFleet: false, fleetName: null });
+      expect(fleet).toMatchObject({ refusedAtStations: false });
+    });
+
+    it('GET names no fleet while Fleets is off and shows the fleet card as refused at stations', async () => {
+      fleetSwitch.on = false;
+      try {
+        setupDbResults([fleetCard(), ownToken({ id: 'dtk_000000000002' })]);
+        const res = await app.inject({ method: 'GET', url: '/portal/tokens', headers: auth });
+        expect(res.statusCode).toBe(200);
+        const [fleet, own] = res.json();
+        expect(fleet).toMatchObject({
+          managedByFleet: true,
+          fleetName: null,
+          refusedAtStations: true,
+        });
+        expect(own).toMatchObject({ managedByFleet: false, refusedAtStations: false });
+        expect(res.body).not.toContain('Acme Vans');
+      } finally {
+        fleetSwitch.on = true;
+      }
+    });
+
+    it('PATCH of a fleet card still answers 403 TOKEN_MANAGED_BY_FLEET while Fleets is off', async () => {
+      fleetSwitch.on = false;
+      try {
+        setupDbResults([fleetCard()]);
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/portal/tokens/${TOKEN_ID}`,
+          headers: auth,
+          payload: { isActive: false },
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.json().code).toBe('TOKEN_MANAGED_BY_FLEET');
+      } finally {
+        fleetSwitch.on = true;
+      }
     });
 
     it('PATCH and DELETE of a fleet card answer 403 TOKEN_MANAGED_BY_FLEET and change nothing', async () => {

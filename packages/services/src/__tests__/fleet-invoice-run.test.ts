@@ -17,6 +17,7 @@ interface RunState {
   contacts: { emails: string[]; language: string | null };
   details: Map<string, unknown>;
   failOperators: boolean;
+  fleetEnabled: boolean;
 }
 
 const h = vi.hoisted(
@@ -33,6 +34,7 @@ const h = vi.hoisted(
     contacts: { emails: [], language: null },
     details: new Map(),
     failOperators: false,
+    fleetEnabled: true,
   }),
 );
 
@@ -67,6 +69,7 @@ vi.mock('@evtivity/database', () => ({
   invoiceAuditLog: { name: 'invoice_audit_log' },
   getSystemTimezone: vi.fn(() => Promise.resolve('Europe/Berlin')),
   loadFleetBillingContacts: vi.fn(() => Promise.resolve(h.contacts)),
+  isFleetEnabled: vi.fn(() => Promise.resolve(h.fleetEnabled)),
   writeAudit: vi.fn(() => Promise.resolve()),
 }));
 
@@ -111,7 +114,7 @@ vi.mock('../invoice-pdf.service.js', async (importOriginal) => ({
   generateInvoicePdf: vi.fn(() => Promise.resolve(Buffer.from('%PDF-1.3'))),
 }));
 
-import { writeAudit } from '@evtivity/database';
+import { isFleetEnabled, writeAudit } from '@evtivity/database';
 import { AppError, dispatchDriverNotification, dispatchSystemNotification } from '@evtivity/lib';
 import {
   createFleetInvoice,
@@ -203,6 +206,7 @@ beforeEach(() => {
   h.contacts = { emails: ['ap@acme.test', 'cfo@acme.test'], language: 'en' };
   h.details = new Map();
   h.failOperators = false;
+  h.fleetEnabled = true;
 });
 
 describe('scheduledRunPeriod', () => {
@@ -771,6 +775,15 @@ describe('sendMemberInvoiceOverdueNotice', () => {
     expect(dispatchDriverNotification).not.toHaveBeenCalled();
   });
 
+  it('sends nothing and claims nothing while Fleets is off (or its read fails)', async () => {
+    h.details.set('inv_1', memberDetail());
+    h.fleetEnabled = false;
+    await expect(sendMemberInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('fleets_off');
+    expect(isFleetEnabled).toHaveBeenCalledWith({ failClosed: true });
+    expect(h.statements.some((s) => s.text.includes('UPDATE invoices'))).toBe(false);
+    expect(dispatchDriverNotification).not.toHaveBeenCalled();
+  });
+
   it('sends once and leaves a fleet invoice or one not due', async () => {
     h.details.set('inv_1', memberDetail());
     h.claimRows = [];
@@ -988,6 +1001,16 @@ describe('sendMemberInvoiceOverdueNotices', () => {
     expect(select?.text).toContain('i.overdue_notice_sent_at IS NULL');
     expect(select?.text).toContain("coalesce(d.email, '') <> ''");
     expect(select?.values).toEqual([now, 500]);
+  });
+
+  it('selects nothing while Fleets is off', async () => {
+    h.fleetEnabled = false;
+    h.overdueRows = [{ id: 'inv_1' }];
+    await expect(sendMemberInvoiceOverdueNotices(deps, log, now)).resolves.toEqual({
+      sent: 0,
+      failed: 0,
+    });
+    expect(h.statements).toEqual([]);
   });
 
   it('goes on after a failure (fail-open per invoice)', async () => {

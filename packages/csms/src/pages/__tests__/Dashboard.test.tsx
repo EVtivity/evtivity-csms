@@ -891,20 +891,50 @@ describe('Dashboard fleet items', () => {
     expect(screen.queryByText('dashboard.totalStations')).toBeNull();
   });
 
-  it('adds the fleet cards to an operator dashboard while Fleets is on, the fleet charts hidden', async () => {
+  it('gives an operator no fleet cards and no fleet picker, the fleet charts hidden', async () => {
     featureFlagsState.fleetEnabled = true;
     answers.set(SUMMARY_PATH, () => Promise.resolve(summary));
     await renderDashboard('admin', ['dashboard:read', 'payments:read', 'fleets:read']);
-    expect(await screen.findByTestId('dashboard-fleet-cards')).toBeTruthy();
-    expect(screen.getByText('dashboard.totalStations')).toBeTruthy();
-    // Hidden by default for operators: shown from Customize.
+    expect(await screen.findByText('dashboard.totalStations')).toBeTruthy();
+    expect(screen.queryByTestId('dashboard-fleet-cards')).toBeNull();
+    expect(screen.queryByText('dashboard.fleet.picker')).toBeNull();
+    expect(screen.queryByText('dashboard.fleet.sessions')).toBeNull();
+    expect(screen.queryByText('dashboard.fleet.creditUsed')).toBeNull();
+    // Hidden by default for operators: shown from Customize, and nothing fetched.
     expect(screen.queryByText('INV-202610-0001')).toBeNull();
+    expect(requested.some((p) => p.startsWith(SUMMARY_PATH))).toBe(false);
+  });
+
+  it('shows an operator the fleet charts it picked over all fleets, each with its own date range', async () => {
+    featureFlagsState.fleetEnabled = true;
+    answers.set(SUMMARY_PATH, () => Promise.resolve(summary));
+    const layout = defaultDashboardLayout({});
+    answers.set(LAYOUT_PATH, () =>
+      Promise.resolve({
+        layout: {
+          ...layout,
+          charts: layout.charts.map((c) =>
+            c.id === 'chart.fleetEnergy' || c.id === 'chart.fleetInvoices'
+              ? { ...c, hidden: false }
+              : c,
+          ),
+        },
+        customized: true,
+      }),
+    );
+    await renderDashboard('admin', ['dashboard:read', 'payments:read', 'fleets:read'], true);
+    expect(await screen.findByText('INV-202610-0001')).toBeTruthy();
+    expect(screen.queryByTestId('dashboard-fleet-cards')).toBeNull();
+    expect(screen.queryByText('dashboard.fleet.picker')).toBeNull();
+    const summaryCalls = requested.filter((p) => p.startsWith(SUMMARY_PATH));
+    expect(summaryCalls.length).toBeGreaterThan(0);
+    expect(summaryCalls.every((p) => !p.includes('fleetId='))).toBe(true);
   });
 
   it('shows 10,000 kWh and more in MWh, so the value fits a card two across at 375 px', async () => {
     featureFlagsState.fleetEnabled = true;
     answers.set(SUMMARY_PATH, () => Promise.resolve({ ...summary, energyWh: 19_787_400 }));
-    await renderDashboard('admin', ['dashboard:read', 'payments:read', 'fleets:read']);
+    await renderDashboard('fleet_manager', ['fleets:read', 'payments:read'], false, 'fleets');
     const cards = await screen.findByTestId('dashboard-fleet-cards');
     expect(await within(cards).findByText('19.8 MWh', {}, { timeout: 5000 })).toBeTruthy();
   });
@@ -912,7 +942,7 @@ describe('Dashboard fleet items', () => {
   it('leaves the money fleet cards out without payments:read', async () => {
     featureFlagsState.fleetEnabled = true;
     answers.set(SUMMARY_PATH, () => Promise.resolve({ ...summary, costCents: undefined }));
-    await renderDashboard('viewer', ['dashboard:read', 'fleets:read']);
+    await renderDashboard('fleet_manager', ['fleets:read'], false, 'fleets');
     const cards = await screen.findByTestId('dashboard-fleet-cards');
     expect(within(cards).getByText('dashboard.fleet.sessions')).toBeTruthy();
     expect(within(cards).queryByText('dashboard.fleet.cost')).toBeNull();

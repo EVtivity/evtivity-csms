@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
-import { claimCardMonthlyLimitNotice, getCompanyCurrency } from '@evtivity/database';
+import {
+  claimCardMonthlyLimitNotice,
+  getCompanyCurrency,
+  isFleetEnabled,
+} from '@evtivity/database';
 import { notificationMoney } from '@evtivity/lib';
 import type { PubSubClient, ServiceLogger } from '@evtivity/lib';
 import { dispatchDriverNotification, ALL_TEMPLATES_DIRS } from './notification-dispatcher.js';
@@ -18,7 +22,7 @@ export interface CardLimitNoticeDeps {
 /**
  * Tells the member holding a fleet RFID card that the card reached its
  * monthly spending limit, once per card, month and limit (the claim decides).
- * An unassigned card notifies nobody. Fail-open: a failure is logged and the
+ * An unassigned card notifies nobody, and nothing goes while Fleets is off. Fail-open: a failure is logged and the
  * refusal or stop it follows stands.
  */
 export async function sendCardMonthlyLimitNotice(
@@ -28,6 +32,8 @@ export async function sendCardMonthlyLimitNotice(
 ): Promise<void> {
   const { sql, logger, pubsub } = deps;
   try {
+    // Fleets off: no notice, and the month's claim stays for when it is on again.
+    if (!(await isFleetEnabled({ failClosed: true }))) return;
     const target = await claimCardMonthlyLimitNotice(sql, tokenId);
     if (target == null) return;
     const currency = await getCompanyCurrency();

@@ -1215,7 +1215,8 @@
     "noCardsAssigned": "Ihnen sind keine RFID-Karten zugewiesen.",
     "contactSupport": "Support Kontaktieren",
     "managedByFleet": "Verwaltet von {{fleet}}. Wenden Sie sich an Ihre Flotte, um diese Karte zu ändern.",
-    "yourFleet": "Ihrer Flotte"
+    "yourFleet": "Ihrer Flotte",
+    "fleetCardRefused": "Ladestationen lehnen diese RFID-Karte gerade ab, weil die Flottenverwaltung ausgeschaltet ist. Wende dich an deinen Betreiber, wenn du damit laden musst."
   },
   "vehicles": {
     "addVehicle": "Fahrzeug hinzufügen",
@@ -1474,7 +1475,8 @@
     },
     "memberSessionLine": "Dir in Rechnung gestellt über {{fleet}}: {{state}}",
     "invoice": "Rechnung",
-    "memberPaymentMethodsNote": "Dein Laden wird dir monatlich über {{fleet}} in Rechnung gestellt. Zum Laden brauchst du keine Zahlungsmethode."
+    "memberPaymentMethodsNote": "Dein Laden wird dir monatlich über {{fleet}} in Rechnung gestellt. Zum Laden brauchst du keine Zahlungsmethode.",
+    "billedOnAccount": "Auf Rechnung abgerechnet"
   },
   "billingAddress": {
     "title": "Rechnungsadresse",
@@ -1674,7 +1676,10 @@
         "Added": "RFID-Karte hinzugefügt",
         "Removed": "RFID-Karte entfernt",
         "Deactivated": "RFID-Karte deaktiviert",
-        "Reactivated": "RFID-Karte reaktiviert"
+        "Reactivated": "RFID-Karte reaktiviert",
+        "FleetCardAssigned": "Flotten-RFID-Karte erhalten",
+        "FleetCardTakenBack": "Flotten-RFID-Karte zurückgenommen",
+        "MonthlyLimitReached": "Monatslimit der RFID-Karte erreicht"
       },
       "maintenance": {
         "SessionStopped": "Laden wegen Wartung beendet"

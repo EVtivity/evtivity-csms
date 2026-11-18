@@ -18,6 +18,7 @@ import {
   OTHER_SENSITIVE_EVENT_TYPES,
   SECURITY_TEMPLATE_EVENTS,
   type DriverNotificationChannel,
+  isFleetDriverEventType,
 } from './notification-events.js';
 import { securityTemplateRenderProblem } from './security-template.js';
 import { formatDateTime, isValidTimezone } from './timezone.js';
@@ -289,8 +290,31 @@ let settingsCache: { settings: NotificationSettings; expiresAt: number } | null 
 export function clearNotificationSettingsCache(): void {
   settingsCache = null;
   driverEventSettingsCache = null;
+  fleetSwitchCache = null;
   companyCache = null;
   systemTimezoneCache = null;
+}
+
+let fleetSwitchCache: { value: boolean; expiresAt: number } | null = null;
+
+/**
+ * Whether Fleets (`fleet.enabled`) is on, for the fleet driver notices: a missing
+ * row is on (the seeded default). A failed read keeps the cached value, else
+ * counts as off, so a fleet notice is never sent on a switch we could not read.
+ */
+export async function isFleetOnForDriverNotices(sql: postgres.Sql): Promise<boolean> {
+  if (fleetSwitchCache != null && fleetSwitchCache.expiresAt > Date.now()) {
+    return fleetSwitchCache.value;
+  }
+  try {
+    const rows = await sql`SELECT value FROM settings WHERE key = 'fleet.enabled' LIMIT 1`;
+    const value = rows[0] == null || rows[0].value === true;
+    fleetSwitchCache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
+    return value;
+  } catch (err) {
+    logger.warn({ err }, 'Fleet switch read failed; fleet driver notices are not sent');
+    return fleetSwitchCache?.value ?? false;
+  }
 }
 
 interface CompanySettings {
@@ -1122,6 +1146,10 @@ export async function dispatchDriverNotification(
   try {
     if (await isDriverEventDisabled(sql, eventType)) {
       logger.debug({ eventType }, 'Driver event type disabled, skipping');
+      return { delivered };
+    }
+    if (isFleetDriverEventType(eventType) && !(await isFleetOnForDriverNotices(sql))) {
+      logger.debug({ eventType, driverId }, 'Fleets is off, fleet driver notice not sent');
       return { delivered };
     }
 

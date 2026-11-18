@@ -85,7 +85,10 @@ vi.mock('../services/mfa-factor.service.js', () => {
     deleteWebauthnCredentials: vi.fn(async () => undefined),
   };
 });
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   readMfaConfig: async () => ({
     config: await (await import('@evtivity/database')).getMfaConfig(),
     fallback: false,
@@ -452,6 +455,23 @@ describe('Portal driver routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(401);
       expect(updateDriverBillingAddressMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses a billing address change with 403 FLEET_DISABLED while Fleets is off', async () => {
+      fleetSwitch.on = false;
+      try {
+        const response = await app.inject({
+          method: 'PATCH',
+          url: '/portal/driver/billing-address',
+          headers: { authorization: `Bearer ${driverToken}` },
+          payload: { billingCity: 'Berlin' },
+        });
+        expect(response.statusCode).toBe(403);
+        expect(response.json().code).toBe('FLEET_DISABLED');
+        expect(updateDriverBillingAddressMock).not.toHaveBeenCalled();
+      } finally {
+        fleetSwitch.on = true;
+      }
     });
 
     it('updates the address of the signed-in driver as the driver', async () => {

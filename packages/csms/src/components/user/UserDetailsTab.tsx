@@ -30,9 +30,9 @@ import {
   type ProofRejection,
 } from '@/components/FactorProofField';
 import { useMfaStatus } from '@/components/profile/mfa-status';
-import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
 import {
   UserAccessField,
+  accessKindForRole,
   offeredRoles,
   userAccessBody,
   userAccessKindOf,
@@ -74,6 +74,8 @@ export interface UserDetailUser {
 export interface UserRole {
   id: string;
   name: string;
+  /** False for the Fleet Manager role while Fleets is off. */
+  assignable?: boolean;
 }
 
 export interface UserDetailsTabProps {
@@ -115,7 +117,9 @@ export function UserDetailsTab({
   const [accessKind, setAccessKind] = useState<UserAccessKind>('sites');
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [selectedFleetIds, setSelectedFleetIds] = useState<string[]>([]);
-  const { fleetEnabled } = useFeatureFlags().flags;
+  const featureFlags = useFeatureFlags();
+  // The Fleet Manager role is offered only once Fleets is known to be on.
+  const fleetEnabled = featureFlags.isLoaded && featureFlags.flags.fleetEnabled;
   const [hasSubmittedEdit, setHasSubmittedEdit] = useState(false);
   // Moving an admin-equivalent user's email or phone, or reactivating one, takes a
   // fresh proof of the signed-in account.
@@ -235,7 +239,8 @@ export function UserDetailsTab({
       firstName,
       lastName,
       phone: phone.trim() || null,
-      roleId,
+      // Only a changed role: the API replaces the permissions with the role defaults.
+      ...(roleId !== user.roleId ? { roleId } : {}),
       isActive,
       ...userAccessBody(accessKind, selectedSiteIds, selectedFleetIds),
     });
@@ -336,13 +341,11 @@ export function UserDetailsTab({
                   id="edit-role"
                   value={roleId}
                   onChange={(e) => {
+                    const name = roles?.find((r) => r.id === e.target.value)?.name;
                     setRoleId(e.target.value);
-                    // The Fleet Manager role makes a fleet user.
-                    if (
-                      roles?.find((r) => r.id === e.target.value)?.name === FLEET_MANAGER_ROLE_NAME
-                    ) {
-                      setAccessKind('fleets');
-                    }
+                    // The role decides the access: Fleets for the Fleet Manager role,
+                    // the site access for every other role (Sites when it leaves Fleets).
+                    if (name != null) setAccessKind(accessKindForRole(name, accessKind));
                   }}
                   className={hasSubmittedEdit && editErrors.roleId ? 'border-destructive' : ''}
                 >
@@ -378,7 +381,7 @@ export function UserDetailsTab({
                 fleetIds={selectedFleetIds}
                 onFleetIdsChange={setSelectedFleetIds}
                 canGrantAllSites={canGrantAllSites}
-                fleetEnabled={fleetEnabled}
+                roleName={newRoleName}
                 error={hasSubmittedEdit ? editErrors.siteIds : undefined}
               />
             </>

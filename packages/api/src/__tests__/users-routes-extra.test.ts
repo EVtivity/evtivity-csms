@@ -64,6 +64,7 @@ function makeChain(kind: DbOp['kind'], firstArg: unknown): Record<string, unknow
     'set',
     'onConflictDoUpdate',
     'onConflictDoNothing',
+    'for',
   ];
   for (const m of methods) {
     chain[m] = (...args: unknown[]) => {
@@ -530,6 +531,7 @@ function userRow(over: Record<string, unknown> = {}): Record<string, unknown> {
     isActive: true,
     mustResetPassword: false,
     hasAllSiteAccess: false,
+    accessScope: 'sites',
     language: 'de',
     timezone: 'UTC',
     themePreference: 'light',
@@ -2146,6 +2148,7 @@ describe('User routes (extended coverage)', () => {
         [userRow({ roleId: ROLE2 })],
         [],
         [],
+        [], // the locked row check
         [],
         [{ permission: 'stations:read' }],
       );
@@ -5685,12 +5688,16 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('refuses permissions outside the fleet user list and names them', async () => {
-      setupDbResults([], [{ id: ROLE, name: 'operator' }]);
+      setupDbResults([], [{ id: FM_ROLE, name: 'fleet_manager' }]);
       const res = await app.inject({
         method: 'POST',
         url: '/users',
         headers: auth,
-        payload: { email: 'fm@example.com', roleId: ROLE, accessScope: 'fleets' },
+        payload: {
+          email: 'fm@example.com',
+          roleId: FM_ROLE,
+          permissions: ['fleets:read', 'stations:read', 'stations:write'],
+        },
       });
       expect(res.statusCode).toBe(400);
       expect(res.json()).toMatchObject({
@@ -5698,6 +5705,44 @@ describe('User routes (extended coverage)', () => {
         details: { permissions: ['stations:read', 'stations:write'] },
       });
       expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it.each(['operator', 'viewer', 'admin', 'my_custom_role'])(
+      'refuses fleets access for the %s role on create',
+      async (name) => {
+        setupDbResults([], [{ id: ROLE, name }]);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/users',
+          headers: auth,
+          payload: { email: 'op@example.com', roleId: ROLE, accessScope: 'fleets' },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({
+          code: 'VALIDATION_ERROR',
+          error: 'Fleets access is only for the Fleet Manager role',
+          details: { field: 'roleId' },
+        });
+        expect(opsFor('insert', 'users')).toHaveLength(0);
+      },
+    );
+
+    it('creates a site role with sites access when accessScope is left out', async () => {
+      setupDbResults(
+        [], // no user with the email
+        [{ id: ROLE, name: 'operator' }],
+        [{ id: OTHER, email: 'op@example.com', firstName: null, lastName: null, roleId: ROLE }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'op@example.com', roleId: ROLE, hasAllSiteAccess: true },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(argOf(opsFor('insert', 'users')[0], 'values')).toMatchObject({
+        accessScope: 'sites',
+      });
     });
 
     it('refuses site access for a fleet user and fleets for a site user', async () => {
@@ -5784,8 +5829,9 @@ describe('User routes (extended coverage)', () => {
 
     it('refuses a move to fleets while the stored permissions exceed the fleet user list', async () => {
       setupDbResults(
-        [userRow({ accessScope: 'sites' })],
+        [userRow({ accessScope: 'sites', roleId: FM_ROLE })],
         [], // the target's permissions (subset of the actor's)
+        [{ name: 'fleet_manager' }], // the stored role
         [{ permission: 'stations:write' }],
       );
       const res = await app.inject({
@@ -5806,6 +5852,7 @@ describe('User routes (extended coverage)', () => {
       setupDbResults(
         [userRow({ accessScope: 'fleets' })],
         [], // the target's permissions (subset of the actor's)
+        [{ name: 'operator' }], // the stored role
         [], // sites before
         [], // permissions before
         [{ fleetId: FLEET_A }], // fleets before
@@ -5858,6 +5905,235 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('SELF_EDIT_FORBIDDEN');
+    });
+
+    it('refuses the Fleet Manager role with sites access on create', async () => {
+      setupDbResults([], [{ id: FM_ROLE, name: 'fleet_manager' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'fm@example.com', roleId: FM_ROLE, accessScope: 'sites' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'accessScope' },
+      });
+      expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it('refuses a role change to Fleet Manager with sites access', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'sites' })],
+        [], // the target's permissions (subset of the actor's)
+        [{ id: FM_ROLE, name: 'fleet_manager' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: FM_ROLE, accessScope: 'sites' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'accessScope' },
+      });
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('refuses sites access for a user that keeps the Fleet Manager role', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'fleets', roleId: FM_ROLE })],
+        [], // the target's permissions (subset of the actor's)
+        [{ name: 'fleet_manager' }], // the stored role
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { accessScope: 'sites' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        error: 'The Fleet Manager role takes only fleets access',
+        details: { field: 'accessScope' },
+      });
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('marks the Fleet Manager role unassignable while the Fleets feature is off', async () => {
+      const roleRows = [
+        { id: ROLE, name: 'operator' },
+        { id: FM_ROLE, name: 'fleet_manager' },
+      ];
+      setupDbResults(roleRows);
+      const on = await app.inject({ method: 'GET', url: '/roles', headers: auth });
+      expect(on.json()).toEqual([
+        { id: ROLE, name: 'operator', assignable: true },
+        { id: FM_ROLE, name: 'fleet_manager', assignable: true },
+      ]);
+      vi.mocked(isFleetEnabled).mockResolvedValue(false);
+      setupDbResults(roleRows);
+      const off = await app.inject({ method: 'GET', url: '/roles', headers: auth });
+      expect(off.json()).toEqual([
+        { id: ROLE, name: 'operator', assignable: true },
+        { id: FM_ROLE, name: 'fleet_manager', assignable: false },
+      ]);
+    });
+
+    it('refuses a role change to Fleet Manager while the Fleets feature is off', async () => {
+      vi.mocked(isFleetEnabled).mockResolvedValue(false);
+      setupDbResults(
+        [userRow({ accessScope: 'sites' })],
+        [], // the target's permissions (subset of the actor's)
+        [{ id: FM_ROLE, name: 'fleet_manager' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: FM_ROLE },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('FLEET_DISABLED');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('lets a Fleet Manager keep its role in an edit while the Fleets feature is off', async () => {
+      vi.mocked(isFleetEnabled).mockResolvedValue(false);
+      setupDbResults(
+        [userRow({ accessScope: 'fleets', roleId: FM_ROLE })],
+        [], // the target's permissions (subset of the actor's)
+        [{ id: FM_ROLE, name: 'fleet_manager' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: FM_ROLE, firstName: 'Kept' },
+      });
+      expect(res.json().code).not.toBe('FLEET_DISABLED');
+    });
+
+    it('refuses fleets access for a user that keeps a site role', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'sites' })],
+        [], // the target's permissions (subset of the actor's)
+        [{ name: 'operator' }], // the stored role
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { accessScope: 'fleets' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'accessScope' },
+      });
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('refuses a role change to a site role with fleets access', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'fleets', roleId: FM_ROLE })],
+        [], // the target's permissions (subset of the actor's)
+        [{ id: ROLE, name: 'operator' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: ROLE, accessScope: 'fleets' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'roleId' },
+      });
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('moves a Fleet Manager to sites when its role changes to a site role', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'fleets', roleId: FM_ROLE })],
+        [], // the target's permissions (subset of the actor's)
+        [{ id: ROLE, name: 'operator' }],
+        [{ permission: 'fleets:read' }], // stored permissions: what the role grants
+        [], // sites before
+        [{ permission: 'fleets:read' }], // permissions before
+        [{ fleetId: FLEET_A }], // fleets before
+        [userRow({ accessScope: 'sites', roleId: ROLE })], // update returning
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: ROLE },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(argOf(opsFor('update', 'users')[0], 'set')).toMatchObject({
+        accessScope: 'sites',
+        roleId: ROLE,
+      });
+      expect(opsFor('delete', 'userFleetAssignments')).toHaveLength(1);
+    });
+
+    it('rolls back a move to sites when the locked row has the Fleet Manager role', async () => {
+      setupDbResults(
+        [userRow({ accessScope: 'fleets' })],
+        [], // the target's permissions (subset of the actor's)
+        [{ name: 'operator' }], // the stored role, read before the lock
+        [], // sites before
+        [], // permissions before
+        [{ fleetId: FLEET_A }], // fleets before
+        [userRow({ accessScope: 'sites' })], // update returning
+        [], // fleet assignments cleared
+        [{ accessScope: 'sites', roleName: 'fleet_manager' }], // a role change committed first
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { accessScope: 'sites' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'accessScope' },
+      });
+      const locked = state.ops.find((o) => o.calls.some((c) => c.method === 'for'));
+      expect(locked?.table).toBe('users');
+      expect(writeAudit).not.toHaveBeenCalled();
+      expect(invalidateSiteAccessCache).not.toHaveBeenCalled();
+    });
+
+    it('refuses PUT permissions for a Fleet Manager whose locked row has sites access', async () => {
+      setupDbResults(
+        [{ id: OTHER, accessScope: 'sites' }],
+        [], // the target's permissions (subset of the actor's)
+        [], // stored permissions
+        [], // the before snapshot in the transaction
+        [], // delete
+        [], // insert
+        [{ accessScope: 'sites', roleName: 'fleet_manager' }],
+      );
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/users/${OTHER}/permissions`,
+        headers: auth,
+        payload: { permissions: ['fleets:read'] },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'roleId' },
+      });
+      expect(bumpSessionVersion).not.toHaveBeenCalled();
     });
 
     it('refuses a permission outside the fleet user list on PUT permissions', async () => {

@@ -54,7 +54,14 @@ export type AccountInvoiceSendMode = 'once' | 'resend';
 export type AccountInvoiceSendResult =
   | { status: 'sent'; recipients: number }
   | {
-      status: 'already_sent' | 'no_contacts' | 'no_driver' | 'no_email' | 'not_fleet' | 'not_found';
+      status:
+        | 'already_sent'
+        | 'no_contacts'
+        | 'no_driver'
+        | 'no_email'
+        | 'not_fleet'
+        | 'not_found'
+        | 'fleets_off';
     };
 
 export interface AccountInvoiceSendDeps {
@@ -172,6 +179,8 @@ async function sendMemberInvoiceEmail(
   const { invoice } = detail;
   const recipient = memberInvoiceRecipient(detail);
   if ('status' in recipient) return recipient;
+  // Fleets off: no member invoice notice, and the invoice stays unsent.
+  if (!(await isFleetEnabled({ failClosed: true }))) return { status: 'fleets_off' };
 
   const pdf = await generateInvoicePdf(detail);
   if (!(await markSent(invoice.id, mode))) return { status: 'already_sent' };

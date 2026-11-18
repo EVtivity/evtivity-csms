@@ -865,6 +865,25 @@ describe('POST /invoices/:id/send', () => {
       expect(dispatchDriverNotification).not.toHaveBeenCalled();
     },
   );
+
+  it('answers 403 FLEET_DISABLED for a member invoice resend while Fleets is off', async () => {
+    const detail = fleetInvoiceDetail();
+    vi.mocked(getInvoice).mockResolvedValue({
+      ...detail,
+      invoice: { ...(detail['invoice'] as object), memberBilled: true },
+    } as never);
+    vi.mocked(sendAccountInvoiceEmail).mockResolvedValueOnce({ status: 'fleets_off' });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/invoices/${INVOICE_ID}/send`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: 'FLEET_DISABLED' });
+    expect(dispatchDriverNotification).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET /invoices/print-logo', () => {

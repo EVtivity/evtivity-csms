@@ -22,11 +22,21 @@ export function getErrorMessage(
       }
       if (typeof message === 'string' && message !== '') return message;
     }
+    // A gateway answer without a body: the API itself never answered.
+    if (fallbackKey === 'errors.unknown' && GATEWAY_STATUSES.has(error.status)) {
+      return t('errors.networkError');
+    }
     return t(fallbackKey);
   }
   if (error instanceof Error && !(error instanceof TypeError)) return error.message;
+  // A fetch TypeError: the request never reached the server.
+  if (error instanceof TypeError && fallbackKey === 'errors.unknown') {
+    return t('errors.networkError');
+  }
   return t(fallbackKey);
 }
+
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
 // A throttled request (429 RATE_LIMITED) gets the translated "too many requests" text, so a
 // page that maps its own failures (wrong password, invalid code) never shows those instead.

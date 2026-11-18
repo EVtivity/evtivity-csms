@@ -382,3 +382,56 @@ END $$;
 INSERT INTO driver_event_settings (event_type, is_enabled) VALUES
   ('token.MonthlyLimitReached', true)
 ON CONFLICT (event_type) DO NOTHING;
+--> statement-breakpoint
+-- Fleets access belongs to the Fleet Manager role and that role to Fleets
+-- access. Earlier builds of this release saved mixes: a fleet user with
+-- another role gets the Fleet Manager role, a site user with the Fleet
+-- Manager role gets the Operator role. Stored permissions do not change
+-- (they decide access, the role only names the defaults). A rerun finds no
+-- mix and writes nothing.
+DO $$
+DECLARE
+  fm_role text;
+  site_role text;
+  to_fm integer := 0;
+  to_site integer := 0;
+BEGIN
+  SELECT id INTO fm_role FROM roles WHERE name = 'fleet_manager' LIMIT 1;
+  SELECT id INTO site_role FROM roles WHERE name = 'operator' LIMIT 1;
+  IF fm_role IS NOT NULL THEN
+    WITH moved AS (
+      UPDATE users u SET role_id = fm_role, updated_at = now()
+      FROM roles r
+      WHERE r.id = u.role_id AND u.access_scope = 'fleets' AND r.name <> 'fleet_manager'
+      RETURNING u.id, r.id AS old_role
+    ), audited AS (
+      INSERT INTO user_audit_log (user_id, user_id_snapshot, action, actor, before, after, notes)
+      SELECT id, id, 'role_changed', 'system',
+        jsonb_build_object('roleId', old_role, 'accessScope', 'fleets'),
+        jsonb_build_object('roleId', fm_role, 'accessScope', 'fleets'),
+        'Fleets access needs the Fleet Manager role'
+      FROM moved
+      RETURNING 1
+    )
+    SELECT count(*) INTO to_fm FROM audited;
+    IF site_role IS NOT NULL THEN
+      WITH moved AS (
+        UPDATE users u SET role_id = site_role, updated_at = now()
+        WHERE u.role_id = fm_role AND u.access_scope = 'sites'
+        RETURNING u.id
+      ), audited AS (
+        INSERT INTO user_audit_log (user_id, user_id_snapshot, action, actor, before, after, notes)
+        SELECT id, id, 'role_changed', 'system',
+          jsonb_build_object('roleId', fm_role, 'accessScope', 'sites'),
+          jsonb_build_object('roleId', site_role, 'accessScope', 'sites'),
+          'The Fleet Manager role needs Fleets access'
+        FROM moved
+        RETURNING 1
+      )
+      SELECT count(*) INTO to_site FROM audited;
+    END IF;
+  END IF;
+  IF to_fm > 0 OR to_site > 0 THEN
+    RAISE NOTICE 'Fleet Manager role and Fleets access: % fleet users moved to the Fleet Manager role, % site users moved to the Operator role', to_fm, to_site;
+  END IF;
+END $$;

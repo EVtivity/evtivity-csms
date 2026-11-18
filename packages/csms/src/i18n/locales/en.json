@@ -622,8 +622,6 @@
     "fleet": {
       "title": "Fleets",
       "picker": "Fleet",
-      "allFleets": "Showing every fleet. Pick one to see only that fleet.",
-      "oneFleet": "Showing one fleet. Clear it to see every fleet.",
       "sessions": "Fleet Sessions",
       "sessionsInfo": "Sessions of the fleets started in the date range.",
       "energy": "Fleet Energy",
@@ -2432,7 +2430,10 @@
       "noFleetsPicked": "No fleet added yet. Search for a fleet below to add it.",
       "removeFleet": "Remove {{name}}",
       "unknownFleet": "Fleet",
-      "allScopes": "All Access"
+      "allScopes": "All Access",
+      "pickRoleFirst": "Pick a role first. The role decides which access the user can have.",
+      "noRoleYet": "Pick a role first",
+      "fleetManagerFleetsOnly": "The Fleet Manager role always has Fleets access. Pick another role to give this user access to sites."
     }
   },
   "profile": {
@@ -5052,6 +5053,7 @@
     "retry": "Try Again",
     "serverDown": "Unable to Connect",
     "serverDownDescription": "The server is not responding. Please check that the API service is running and try again.",
+    "networkError": "The server could not be reached. Check your connection and try again.",
     "unknown": "An unexpected error occurred",
     "MAINTENANCE_NOT_FOUND": "Maintenance event not found",
     "MAINTENANCE_OVERLAPS_EXISTING": "Maintenance window overlaps an existing event",

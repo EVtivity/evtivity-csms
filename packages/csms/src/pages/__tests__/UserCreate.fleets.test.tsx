@@ -7,11 +7,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { FLEET_USER_PERMISSIONS } from '@evtivity/lib/permissions';
 
-const { getMock, postMock, editorProps, state } = vi.hoisted(() => ({
+const { getMock, postMock, editorProps, state, roleOverride } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn(),
   editorProps: [] as { value: string[]; allowed?: readonly string[] | undefined }[],
   state: { allSites: true, fleetEnabled: true },
+  roleOverride: { value: null as null | { id: string; name: string; assignable: boolean }[] },
 }));
 
 vi.mock('@/lib/auth', () => ({ useHasAllSiteAccess: () => state.allSites }));
@@ -40,7 +41,7 @@ const ROLES = [
 
 function renderCreate(entry = '/users/new'): void {
   getMock.mockImplementation((path: string) => {
-    if (path === '/v1/roles') return Promise.resolve(ROLES);
+    if (path === '/v1/roles') return Promise.resolve(roleOverride.value ?? ROLES);
     if (path === '/v1/users/me/mfa') return Promise.resolve({ factorProofKinds: [] });
     if (path === '/v1/portal/features') {
       return Promise.resolve({ fleetEnabled: state.fleetEnabled });
@@ -68,6 +69,7 @@ afterEach(() => {
   editorProps.length = 0;
   state.allSites = true;
   state.fleetEnabled = true;
+  roleOverride.value = null;
 });
 
 describe('UserCreate fleet users', () => {
@@ -129,21 +131,105 @@ describe('UserCreate fleet users', () => {
     expect(body).toMatchObject({ roleId: 'rol_fleet', accessScope: 'fleets', fleetIds: ['flt_7'] });
   });
 
-  it('drops the permissions outside the fleet list when Fleets is picked for another role', async () => {
+  it('keeps Access disabled with a helper and hides the permissions until a role is picked', async () => {
+    renderCreate();
+    await screen.findByRole('option', { name: 'users.roleNames.operator' });
+    const access = screen.getByLabelText<HTMLSelectElement>('users.access.label');
+    expect(access.disabled).toBe(true);
+    expect(screen.getByText('users.access.pickRoleFirst')).toBeTruthy();
+    expect(screen.queryByText('users.permissions')).toBeNull();
+    expect(editorProps).toHaveLength(0);
+    const role = screen.getByLabelText('users.role');
+    // The Role field comes before Access.
+    expect(role.compareDocumentPosition(access) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each(['rol_operator', 'rol_viewer'])(
+    'gives the %s role All Sites and Sites only, with every permission of the list',
+    async (roleId) => {
+      renderCreate();
+      await screen.findByRole('option', { name: 'users.roleNames.operator' });
+      fireEvent.change(screen.getByLabelText('users.role'), { target: { value: roleId } });
+      const access = screen.getByLabelText<HTMLSelectElement>('users.access.label');
+      await waitFor(() => {
+        expect(access.disabled).toBe(false);
+      });
+      const options = [...access.options].map((o) => o.value);
+      expect(options).toEqual(['all', 'sites']);
+      expect(access.value).toBe('sites');
+      await waitFor(() => {
+        expect(editorProps.at(-1)?.allowed).toBeUndefined();
+      });
+    },
+  );
+
+  it('locks Access to Fleets for the Fleet Manager role, with a helper', async () => {
+    renderCreate();
+    await screen.findByRole('option', { name: 'users.roleNames.fleet_manager' });
+    fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_fleet' } });
+    const access = screen.getByLabelText<HTMLSelectElement>('users.access.label');
+    await waitFor(() => {
+      expect(access.value).toBe('fleets');
+    });
+    expect(access.disabled).toBe(true);
+    expect([...access.options].map((o) => o.value)).toEqual(['fleets']);
+    expect(screen.getByText(/users\.access\.fleetManagerFleetsOnly/)).toBeTruthy();
+  });
+
+  it('goes back to Sites with the role defaults and no fleet when another role replaces Fleet Manager', async () => {
+    renderCreate();
+    await screen.findByRole('option', { name: 'users.roleNames.fleet_manager' });
+    fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_fleet' } });
+    fireEvent.change(screen.getByLabelText('fleets.searchFleets'), { target: { value: 'Acme' } });
+    fireEvent.click(await screen.findByRole('option', { name: 'Acme Vans' }, { timeout: 2000 }));
+    expect(await screen.findByText('Acme Vans')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_operator' } });
+    const access = screen.getByLabelText<HTMLSelectElement>('users.access.label');
+    await waitFor(() => {
+      expect(access.value).toBe('sites');
+    });
+    await waitFor(() => {
+      expect(editorProps.at(-1)?.allowed).toBeUndefined();
+    });
+    expect(editorProps.at(-1)?.value).toContain('stations:read');
+    expect(screen.queryByText('Acme Vans')).toBeNull();
+
+    // Back to Fleet Manager: Fleets and the seven permissions again, the fleet list empty.
+    fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_fleet' } });
+    await waitFor(() => {
+      expect(access.value).toBe('fleets');
+    });
+    expect([...(editorProps.at(-1)?.value ?? [])].sort()).toEqual(
+      [...FLEET_USER_PERMISSIONS].sort(),
+    );
+    expect(screen.getByText('users.access.noFleetsPicked')).toBeTruthy();
+  });
+
+  it('keeps the site access chosen when one site role replaces another', async () => {
     renderCreate();
     await screen.findByRole('option', { name: 'users.roleNames.operator' });
     fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_operator' } });
+    const access = screen.getByLabelText<HTMLSelectElement>('users.access.label');
     await waitFor(() => {
-      expect(editorProps.at(-1)?.value).toContain('stations:read');
+      expect(access.disabled).toBe(false);
     });
-    fireEvent.change(screen.getByLabelText('users.access.label'), { target: { value: 'fleets' } });
+    fireEvent.change(access, { target: { value: 'all' } });
+    fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_viewer' } });
     await waitFor(() => {
-      expect(editorProps.at(-1)?.allowed).toEqual(FLEET_USER_PERMISSIONS);
+      expect(editorProps.at(-1)?.value).not.toContain('stations:write');
     });
-    const value = editorProps.at(-1)?.value ?? [];
-    expect(value.every((p) => (FLEET_USER_PERMISSIONS as readonly string[]).includes(p))).toBe(
-      true,
-    );
+    expect(access.value).toBe('all');
+  });
+
+  it('leaves out a Fleet Manager role the API marks unassignable', async () => {
+    roleOverride.value = [
+      { id: 'rol_operator', name: 'operator', assignable: true },
+      { id: 'rol_fleet', name: 'fleet_manager', assignable: false },
+    ];
+    renderCreate();
+    await screen.findByRole('option', { name: 'users.roleNames.operator' });
+    expect(screen.queryByRole('option', { name: 'users.roleNames.fleet_manager' })).toBeNull();
   });
 
   it('offers neither Fleets nor the Fleet Manager role to a site-restricted user', async () => {

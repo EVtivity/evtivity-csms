@@ -622,8 +622,6 @@
     "fleet": {
       "title": "Flotten",
       "picker": "Flotte",
-      "allFleets": "Alle Flotten werden angezeigt. Wählen Sie eine, um nur diese zu sehen.",
-      "oneFleet": "Eine Flotte wird angezeigt. Leeren Sie die Auswahl, um alle Flotten zu sehen.",
       "sessions": "Flotten-Ladevorgänge",
       "sessionsInfo": "Ladevorgänge der Flotten, die im Zeitraum begonnen haben.",
       "energy": "Flottenenergie",
@@ -2432,7 +2430,10 @@
       "noFleetsPicked": "Noch keine Flotte hinzugefügt. Suchen Sie unten nach einer Flotte, um sie hinzuzufügen.",
       "removeFleet": "{{name}} entfernen",
       "unknownFleet": "Flotte",
-      "allScopes": "Alle Zugriffe"
+      "allScopes": "Alle Zugriffe",
+      "pickRoleFirst": "Wählen Sie zuerst eine Rolle. Die Rolle bestimmt, welchen Zugriff der Benutzer haben kann.",
+      "noRoleYet": "Zuerst eine Rolle wählen",
+      "fleetManagerFleetsOnly": "Die Rolle Flottenmanager hat immer Zugriff auf Flotten. Wählen Sie eine andere Rolle, um diesem Benutzer Zugriff auf Standorte zu geben."
     }
   },
   "profile": {
@@ -5052,6 +5053,7 @@
     "retry": "Erneut versuchen",
     "serverDown": "Verbindung nicht möglich",
     "serverDownDescription": "Der Server antwortet nicht. Bitte stellen Sie sicher, dass der API-Dienst läuft, und versuchen Sie es erneut.",
+    "networkError": "Der Server ist nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "unknown": "Ein unerwarteter Fehler ist aufgetreten",
     "MAINTENANCE_NOT_FOUND": "Wartungsereignis nicht gefunden",
     "MAINTENANCE_OVERLAPS_EXISTING": "Wartungsfenster überschneidet sich mit bestehendem Ereignis",

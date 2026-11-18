@@ -1215,7 +1215,8 @@
     "noCardsAssigned": "No tiene tarjetas RFID asignadas.",
     "contactSupport": "Contactar con Soporte",
     "managedByFleet": "Gestionada por {{fleet}}. Contacte a su flota para cambiar esta tarjeta.",
-    "yourFleet": "su flota"
+    "yourFleet": "su flota",
+    "fleetCardRefused": "Las estaciones rechazan esta tarjeta RFID en este momento porque la gestión de flotas está desactivada. Contacta con tu operador si necesitas cargar con ella."
   },
   "vehicles": {
     "addVehicle": "Agregar vehículo",
@@ -1474,7 +1475,8 @@
     },
     "memberSessionLine": "Facturado a usted a través de {{fleet}}: {{state}}",
     "invoice": "Factura",
-    "memberPaymentMethodsNote": "Su carga se le factura mensualmente a través de {{fleet}}. No necesita un método de pago para cargar."
+    "memberPaymentMethodsNote": "Su carga se le factura mensualmente a través de {{fleet}}. No necesita un método de pago para cargar.",
+    "billedOnAccount": "Facturado a cuenta"
   },
   "billingAddress": {
     "title": "Dirección de Facturación",
@@ -1674,7 +1676,10 @@
         "Added": "Tarjeta RFID agregada",
         "Removed": "Tarjeta RFID eliminada",
         "Deactivated": "Tarjeta RFID desactivada",
-        "Reactivated": "Tarjeta RFID reactivada"
+        "Reactivated": "Tarjeta RFID reactivada",
+        "FleetCardAssigned": "Tarjeta RFID de flota asignada",
+        "FleetCardTakenBack": "Tarjeta RFID de flota retirada",
+        "MonthlyLimitReached": "Límite mensual de la tarjeta RFID alcanzado"
       },
       "maintenance": {
         "SessionStopped": "Carga detenida por mantenimiento"

@@ -13,9 +13,10 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FLEET_USER_PERMISSIONS, permissionCatalog } from '@evtivity/lib/permissions';
-import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
+import { accessScopeForRole } from '@evtivity/lib/user-access-scope';
 import {
   UserAccessField,
+  accessKindForRole,
   offeredRoles,
   userAccessBody,
   type UserAccessKind,
@@ -50,11 +51,8 @@ interface User {
 interface Role {
   id: string;
   name: string;
-}
-
-/** The permissions a fleet user may hold, from a list (write implies read for fleet cards). */
-function withinFleetUser(perms: readonly string[]): string[] {
-  return perms.filter((p) => (FLEET_USER_PERMISSIONS as readonly string[]).includes(p));
+  /** False for the Fleet Manager role while Fleets is off. */
+  assignable?: boolean;
 }
 
 export function UserCreate(): React.JSX.Element {
@@ -80,7 +78,9 @@ export function UserCreate(): React.JSX.Element {
   const [selectedFleetIds, setSelectedFleetIds] = useState<string[]>(
     presetFleetId != null && presetFleetId !== '' ? [presetFleetId] : [],
   );
-  const { fleetEnabled } = useFeatureFlags().flags;
+  const featureFlags = useFeatureFlags();
+  // The Fleet Manager role is offered only once Fleets is known to be on.
+  const fleetEnabled = featureFlags.isLoaded && featureFlags.flags.fleetEnabled;
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [avatar, setAvatar] = useState<AvatarChoice | null>(null);
@@ -104,24 +104,22 @@ export function UserCreate(): React.JSX.Element {
     if (preset != null) setRoleId(preset.id);
   }, [presetRole, roles]);
 
-  // When the role changes, the permissions start at the role defaults; the Fleet Manager
-  // role makes a fleet user, who holds only the fleet user permissions.
+  const selectedRoleName = roles?.find((r) => r.id === roleId)?.name;
+  // The role decides the access: Fleets for the Fleet Manager role only.
+  const fleetManagerRole =
+    selectedRoleName != null && accessScopeForRole(selectedRoleName) === 'fleets';
+
+  // A role change sets its access (Fleets for the Fleet Manager role, else the
+  // site access chosen, Sites by default) and restores the role defaults, the
+  // seven fleet user permissions for the Fleet Manager role. Leaving the Fleet
+  // Manager role clears the fleets picked for it.
   useEffect(() => {
-    if (roleId === '' || roles == null) return;
-    const selectedRole = roles.find((r) => r.id === roleId);
-    if (selectedRole == null) return;
-    const defaults = permissionCatalog.defaultsFor(selectedRole.name);
-    const fleets = selectedRole.name === FLEET_MANAGER_ROLE_NAME || accessKind === 'fleets';
-    if (selectedRole.name === FLEET_MANAGER_ROLE_NAME) setAccessKind('fleets');
-    setSelectedPermissions(fleets ? withinFleetUser(defaults) : defaults);
-    // Only a role change resets the permissions, not an access change.
-  }, [roleId, roles]);
-
-  function changeAccessKind(kind: UserAccessKind): void {
+    if (selectedRoleName == null) return;
+    const kind = accessKindForRole(selectedRoleName, accessKind);
+    if (accessKind === 'fleets' && kind !== 'fleets') setSelectedFleetIds([]);
     setAccessKind(kind);
-    if (kind === 'fleets') setSelectedPermissions((prev) => withinFleetUser(prev));
-  }
-
+    setSelectedPermissions(permissionCatalog.defaultsFor(selectedRoleName));
+  }, [roleId, roles]);
   const createMutation = useMutation({
     mutationFn: async (body: {
       email: string;
@@ -171,7 +169,7 @@ export function UserCreate(): React.JSX.Element {
     if (!firstName.trim()) errors.firstName = t('validation.required');
     if (!lastName.trim()) errors.lastName = t('validation.required');
     if (!roleId) errors.roleId = t('validation.selectRequired');
-    if (accessKind === 'sites' && selectedSiteIds.length === 0) {
+    if (roleId && accessKind === 'sites' && selectedSiteIds.length === 0) {
       errors.siteIds = t('users.siteAccessRequired');
     }
     return errors;
@@ -315,7 +313,7 @@ export function UserCreate(): React.JSX.Element {
                   <PermissionEditor
                     value={selectedPermissions}
                     onChange={setSelectedPermissions}
-                    allowed={accessKind === 'fleets' ? FLEET_USER_PERMISSIONS : undefined}
+                    allowed={fleetManagerRole ? FLEET_USER_PERMISSIONS : undefined}
                   />
                 </CardContent>
               </Card>
@@ -323,13 +321,13 @@ export function UserCreate(): React.JSX.Element {
             <UserAccessField
               idPrefix="create"
               kind={accessKind}
-              onKindChange={changeAccessKind}
+              onKindChange={setAccessKind}
               siteIds={selectedSiteIds}
               onSiteIdsChange={setSelectedSiteIds}
               fleetIds={selectedFleetIds}
               onFleetIdsChange={setSelectedFleetIds}
               canGrantAllSites={canGrantAllSites}
-              fleetEnabled={fleetEnabled}
+              roleName={selectedRoleName}
               error={hasSubmitted ? errors.siteIds : undefined}
             />
             {needsProof && (

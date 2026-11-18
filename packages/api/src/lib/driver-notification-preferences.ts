@@ -5,13 +5,15 @@ import {
   DRIVER_NOTIFICATION_CHANNELS,
   DRIVER_PREFERENCE_EVENT_TYPES,
   driverPreferenceEventGroup,
+  isFleetDriverEventType,
   type DriverNotificationChannel,
   type DriverPreferenceEventGroup,
 } from '@evtivity/lib/notification-events';
 import type { DriverEventSettingRow, DriverNotificationState } from '@evtivity/database';
 
 // What a driver sees of their notification preferences (discussion 56), built
-// from the three layers: (1) an event the operator turned off is not shown;
+// from the three layers: (1) an event the operator turned off, or a fleet event
+// while Fleets is off, is not shown;
 // (2) a channel the operator made mandatory shows on and locked; (3) the
 // driver's event choice, else the channel switch.
 
@@ -50,6 +52,7 @@ export function buildNotificationPreferencesView(
   state: DriverNotificationState,
   settings: readonly DriverEventSettingRow[],
   channels: ChannelFlags,
+  fleetOn = true,
 ): NotificationPreferencesView {
   const byEvent = new Map(settings.map((row) => [row.eventType, row]));
   const events: PreferenceEventView[] = [];
@@ -57,6 +60,8 @@ export function buildNotificationPreferencesView(
     const row = byEvent.get(eventType);
     // Layer 1: an event the operator turned off is never sent, so it is no choice.
     if (row?.isEnabled === false) continue;
+    // A fleet notice is never sent while Fleets is off, so it is no choice either.
+    if (!fleetOn && isFleetDriverEventType(eventType)) continue;
     const group = driverPreferenceEventGroup(eventType);
     if (group == null) continue;
     const mandatory = mandatoryOf(row);

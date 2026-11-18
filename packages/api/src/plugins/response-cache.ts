@@ -74,7 +74,8 @@ export const CROSS_INVALIDATION: Record<string, string[]> = {
   'pricing-groups': ['pricing'],
   'pricing-holidays': ['pricing'],
   holidays: ['pricing'],
-  settings: ['security'],
+  // GET /v1/roles marks the Fleet Manager role unassignable while fleet.enabled is off.
+  settings: ['security', 'roles'],
   security: ['security'],
   drivers: ['tokens'],
   tokens: ['drivers'],

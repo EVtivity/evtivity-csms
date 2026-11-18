@@ -1215,7 +1215,8 @@
     "noCardsAssigned": "No RFID cards are assigned to you.",
     "contactSupport": "Contact Support",
     "managedByFleet": "Managed by {{fleet}}. Contact your fleet to change this card.",
-    "yourFleet": "your fleet"
+    "yourFleet": "your fleet",
+    "fleetCardRefused": "Stations refuse this RFID card right now because fleet management is turned off. Contact your operator if you need to charge with it."
   },
   "vehicles": {
     "addVehicle": "Add Vehicle",
@@ -1474,7 +1475,8 @@
     },
     "memberSessionLine": "Billed to you via {{fleet}}: {{state}}",
     "invoice": "Invoice",
-    "memberPaymentMethodsNote": "Your charging is invoiced to you monthly via {{fleet}}. You need no payment method to charge."
+    "memberPaymentMethodsNote": "Your charging is invoiced to you monthly via {{fleet}}. You need no payment method to charge.",
+    "billedOnAccount": "Billed on account"
   },
   "billingAddress": {
     "title": "Billing Address",
@@ -1674,7 +1676,10 @@
         "Added": "RFID card added",
         "Removed": "RFID card removed",
         "Deactivated": "RFID card deactivated",
-        "Reactivated": "RFID card reactivated"
+        "Reactivated": "RFID card reactivated",
+        "FleetCardAssigned": "Fleet RFID card given to you",
+        "FleetCardTakenBack": "Fleet RFID card taken back",
+        "MonthlyLimitReached": "RFID card monthly limit reached"
       },
       "maintenance": {
         "SessionStopped": "Charging stopped for maintenance"

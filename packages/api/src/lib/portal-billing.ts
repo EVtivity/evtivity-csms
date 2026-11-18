@@ -52,7 +52,10 @@ export const sessionAccountBillingSchema = z
       .describe(
         'unbilled (not on an invoice yet), invoiced (on an issued invoice), or paid (the invoice is paid)',
       ),
-    fleetName: z.string().describe('Name of the fleet the session is billed to'),
+    fleetName: z
+      .string()
+      .nullable()
+      .describe('Name of the fleet the session is billed to; null while Fleets is off'),
     invoicedTo: z
       .enum(ACCOUNT_INVOICE_RECIPIENTS)
       .describe(
@@ -118,9 +121,13 @@ export interface SessionAccountBillingRow {
   billingInvoiceNumber: string | null;
 }
 
-/** The driver-facing account billing of a session, or null when it is not billed on account. */
+/**
+ * The driver-facing account billing of a session, or null when it is not billed
+ * on account. While Fleets is off (`fleetOn` false) it names no fleet.
+ */
 export function toSessionAccountBilling(
   row: SessionAccountBillingRow,
+  fleetOn = true,
 ): SessionAccountBilling | null {
   if (
     row.billingMode !== 'account' ||
@@ -139,7 +146,7 @@ export function toSessionAccountBilling(
     // The fleet invoice stays the fleet's document: no id or number.
     return {
       state,
-      fleetName: row.billingFleetName,
+      fleetName: fleetOn ? row.billingFleetName : null,
       invoicedTo: 'fleet',
       invoiceId: null,
       invoiceNumber: null,
@@ -149,7 +156,7 @@ export function toSessionAccountBilling(
   // is always the live member invoice, which the driver may read.
   return {
     state,
-    fleetName: row.billingFleetName,
+    fleetName: fleetOn ? row.billingFleetName : null,
     invoicedTo: 'member',
     invoiceId: row.billingInvoiceId,
     invoiceNumber: row.billingInvoiceId != null ? row.billingInvoiceNumber : null,
@@ -159,6 +166,7 @@ export function toSessionAccountBilling(
 /** Replaces the billing columns of a session row with its `accountBilling`. */
 export function withAccountBilling<T extends SessionAccountBillingRow>(
   row: T,
+  fleetOn = true,
 ): Omit<T, keyof SessionAccountBillingRow> & { accountBilling: SessionAccountBilling | null } {
   const {
     billingMode,
@@ -172,14 +180,17 @@ export function withAccountBilling<T extends SessionAccountBillingRow>(
   } = row;
   return {
     ...rest,
-    accountBilling: toSessionAccountBilling({
-      billingMode,
-      billingFleetName,
-      billingInvoiceStatus,
-      billingHasPaymentRecord,
-      billingMemberBilled,
-      billingInvoiceId,
-      billingInvoiceNumber,
-    }),
+    accountBilling: toSessionAccountBilling(
+      {
+        billingMode,
+        billingFleetName,
+        billingInvoiceStatus,
+        billingHasPaymentRecord,
+        billingMemberBilled,
+        billingInvoiceId,
+        billingInvoiceNumber,
+      },
+      fleetOn,
+    ),
   };
 }

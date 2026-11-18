@@ -93,7 +93,10 @@ vi.mock('../services/mfa-factor.service.js', () => {
     deleteWebauthnCredentials: vi.fn(async () => undefined),
   };
 });
+const fleetSwitch = vi.hoisted(() => ({ on: true }));
+
 vi.mock('@evtivity/database', () => ({
+  isFleetEnabled: async () => fleetSwitch.on,
   readMfaConfig: async () => ({
     config: await (await import('@evtivity/database')).getMfaConfig(),
     fallback: false,

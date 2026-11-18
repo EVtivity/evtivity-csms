@@ -97,6 +97,41 @@ describe('MonthlyStatement', () => {
     expect(screen.getByText('statement.otherCurrencyNote:2')).toBeDefined();
   });
 
+  it('names no fleet for a fleet-invoiced session while fleet management is off', async () => {
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path.startsWith('/v1/portal/sessions/monthly-statement')
+          ? {
+              month: '2026-03',
+              driverName: 'Jane Doe',
+              sessions: [
+                row('fleet', {
+                  state: 'unbilled',
+                  fleetName: null,
+                  invoicedTo: 'fleet',
+                  invoiceId: null,
+                  invoiceNumber: null,
+                }),
+              ],
+              totals: {
+                totalCostCents: 0,
+                currency: 'EUR',
+                totalEnergyWh: 10000,
+                sessionCount: 1,
+                totalCo2AvoidedKg: null,
+                otherCurrencySessionCount: 0,
+                fleetBilledSessionCount: 1,
+              },
+            }
+          : { efficiencyMiPerKwh: 3.5 },
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText('fleetBilling.billedOnAccount')).toBeDefined();
+    expect(screen.queryByText(/fleetBilling\.billedTo/)).toBeNull();
+  });
+
   it('shows no currency note when every session is in the company currency', async () => {
     getMock.mockImplementation((path: string) =>
       Promise.resolve(

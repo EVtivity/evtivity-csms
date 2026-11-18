@@ -32,6 +32,8 @@ interface DriverToken {
   /** A fleet owns the card: only the fleet changes it. */
   managedByFleet?: boolean;
   fleetName?: string | null;
+  /** A fleet card while fleet management is off: stations refuse it. */
+  refusedAtStations?: boolean;
 }
 
 /** The API refused a change because the operator manages the cards. */
@@ -213,11 +215,19 @@ export function AccountRfidCards(): React.JSX.Element {
                     <p className="text-xs text-muted-foreground">{token.tokenType}</p>
                   </>
                 )}
-                {token.managedByFleet === true && (
-                  <p className="text-xs text-muted-foreground" data-testid="rfid-managed-by-fleet">
-                    {t('rfid.managedByFleet', { fleet: token.fleetName ?? t('rfid.yourFleet') })}
-                  </p>
-                )}
+                {token.managedByFleet === true &&
+                  (token.refusedAtStations === true || features?.fleetEnabled === false ? (
+                    <p className="text-xs text-destructive" data-testid="rfid-fleet-card-refused">
+                      {t('rfid.fleetCardRefused')}
+                    </p>
+                  ) : (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid="rfid-managed-by-fleet"
+                    >
+                      {t('rfid.managedByFleet', { fleet: token.fleetName ?? t('rfid.yourFleet') })}
+                    </p>
+                  ))}
                 {token.blockedByOperator === true ? (
                   <p className="text-xs text-destructive">{t('rfid.blockedByOperator')}</p>
                 ) : token.isActive && isExpired(token) ? (

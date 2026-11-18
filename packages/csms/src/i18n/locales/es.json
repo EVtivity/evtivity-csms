@@ -622,8 +622,6 @@
     "fleet": {
       "title": "Flotas",
       "picker": "Flota",
-      "allFleets": "Se muestran todas las flotas. Elija una para ver solo esa flota.",
-      "oneFleet": "Se muestra una flota. Quítela para ver todas las flotas.",
       "sessions": "Sesiones de Flota",
       "sessionsInfo": "Sesiones de las flotas iniciadas en el rango de fechas.",
       "energy": "Energía de Flota",
@@ -2432,7 +2430,10 @@
       "noFleetsPicked": "Aún no se ha añadido ninguna flota. Busque una flota abajo para añadirla.",
       "removeFleet": "Quitar {{name}}",
       "unknownFleet": "Flota",
-      "allScopes": "Todos los accesos"
+      "allScopes": "Todos los accesos",
+      "pickRoleFirst": "Elija primero un rol. El rol decide qué acceso puede tener el usuario.",
+      "noRoleYet": "Elija primero un rol",
+      "fleetManagerFleetsOnly": "El rol Gestor de flota siempre tiene acceso a flotas. Elija otro rol para dar a este usuario acceso a sitios."
     }
   },
   "profile": {
@@ -5052,6 +5053,7 @@
     "retry": "Reintentar",
     "serverDown": "No se puede conectar",
     "serverDownDescription": "El servidor no responde. Verifique que el servicio API este en funcionamiento e intente de nuevo.",
+    "networkError": "No se pudo contactar con el servidor. Compruebe su conexión e inténtelo de nuevo.",
     "unknown": "Ocurrió un error inesperado",
     "MAINTENANCE_NOT_FOUND": "Evento de mantenimiento no encontrado",
     "MAINTENANCE_OVERLAPS_EXISTING": "La ventana de mantenimiento se superpone a un evento existente",

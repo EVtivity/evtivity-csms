@@ -105,6 +105,21 @@ describe('Sessions', () => {
     expect(screen.getAllByText(/fleetBilling\.sessionLine/)).toHaveLength(1);
   });
 
+  it('shows no fleet line for a session whose fleet name is hidden (fleet management off)', async () => {
+    getMock.mockResolvedValue({
+      data: [
+        {
+          ...session('5', 1000, null),
+          accountBilling: { state: 'invoiced', fleetName: null, invoicedTo: 'fleet' },
+        },
+      ],
+      total: 1,
+    });
+    renderPage();
+    await screen.findAllByText(/./);
+    expect(screen.queryByText(/fleetBilling\./)).toBeNull();
+  });
+
   it('says a member-billed session is billed to the driver via the fleet', async () => {
     getMock.mockResolvedValue({
       data: [

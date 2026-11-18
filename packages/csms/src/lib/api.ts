@@ -131,6 +131,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         if (retryRes.status === 204) return undefined as T;
         return retryRes.json() as Promise<T>;
       }
+      // The session was renewed and the retry got its own answer (a refused proof, a
+      // validation error): report that answer, not a lost session.
+      if (retryRes.status !== 401) {
+        const retryBody: unknown = await (retryRes.json() as Promise<unknown>).catch(() => null);
+        throw new ApiError(retryRes.status, retryBody);
+      }
     }
 
     // Do not redirect to /login for the hydration call (/users/me).

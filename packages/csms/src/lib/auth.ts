@@ -4,6 +4,7 @@
 import { create } from 'zustand';
 import { api, ApiError } from './api';
 import { queryClient } from './query';
+import { broadcastAuth, listenAuthBroadcast } from './auth-broadcast';
 import { useAiPanelStore } from '../components/ai/use-ai-panel-store';
 import { loadLanguage } from '../i18n';
 import {
@@ -231,6 +232,7 @@ let cachedUserId: string | null = null;
 function adoptCacheFor(userId: string): void {
   if (cachedUserId !== null && cachedUserId !== userId) clearClientData();
   cachedUserId = userId;
+  broadcastAuth({ type: 'signed-in', userId });
 }
 
 /** Drops every cached query and closes the AI panel, as the portal does at sign-out. */
@@ -239,6 +241,17 @@ function clearClientData(): void {
   useAiPanelStore.getState().reset();
   cachedUserId = null;
 }
+
+const SIGNED_OUT_STATE = {
+  user: null,
+  role: null,
+  permissions: [],
+  hasAllSiteAccess: false,
+  accessScope: 'sites',
+  fleetIds: [],
+  isAuthenticated: false,
+  signedOut: true,
+} satisfies Partial<AuthState>;
 
 export const useAuth = create<AuthState>((set, get) => ({
   user: null,
@@ -367,16 +380,8 @@ export const useAuth = create<AuthState>((set, get) => ({
     sessionStorage.setItem('noAutoLogin', 'true');
     // The next user to sign in on this tab must not see this user's data.
     clearClientData();
-    set({
-      user: null,
-      role: null,
-      permissions: [],
-      hasAllSiteAccess: false,
-      accessScope: 'sites',
-      fleetIds: [],
-      isAuthenticated: false,
-      signedOut: true,
-    });
+    set(SIGNED_OUT_STATE);
+    broadcastAuth({ type: 'signed-out' });
   },
 
   hydrate: () => {
@@ -527,3 +532,26 @@ export const useAuth = create<AuthState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Another tab signed out or signed in as someone else. The cookie session is
+ * shared, so this tab drops the earlier user's cached data and permissions at
+ * once instead of showing them until a reload.
+ */
+listenAuthBroadcast((message) => {
+  const state = useAuth.getState();
+  if (message.type === 'signed-out') {
+    if (!state.isAuthenticated) return;
+    localStorage.removeItem('role');
+    sessionStorage.setItem('noAutoLogin', 'true');
+    clearClientData();
+    useAuth.setState(SIGNED_OUT_STATE);
+    return;
+  }
+  if (state.user?.id === message.userId) return;
+  if (state.isAuthenticated) {
+    clearClientData();
+    useAuth.setState({ ...SIGNED_OUT_STATE, signedOut: false });
+  }
+  state.hydrate();
+});

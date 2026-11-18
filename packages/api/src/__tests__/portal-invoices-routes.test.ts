@@ -24,7 +24,7 @@ function makeChain() {
   return chain;
 }
 
-const { invoicesTable, getInvoice, generateInvoicePdf } = vi.hoisted(() => ({
+const { invoicesTable, getInvoice, generateInvoicePdf, isFleetEnabled } = vi.hoisted(() => ({
   invoicesTable: {
     id: 'invoices.id',
     driverId: 'invoices.driver_id',
@@ -35,6 +35,7 @@ const { invoicesTable, getInvoice, generateInvoicePdf } = vi.hoisted(() => ({
   },
   getInvoice: vi.fn(),
   generateInvoicePdf: vi.fn(),
+  isFleetEnabled: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', () => ({
@@ -43,6 +44,7 @@ vi.mock('@evtivity/database', () => ({
   fleets: { id: 'fleets.id', name: 'fleets.name' },
   invoiceStatusEnum: { enumValues: ['draft', 'issued', 'paid', 'void', 'credited'] },
   INVOICE_KINDS: ['invoice', 'credit_note'],
+  isFleetEnabled: (...args: unknown[]) => isFleetEnabled(...args) as unknown,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -150,6 +152,7 @@ describe('portal invoice routes', () => {
   beforeEach(() => {
     setupDbResults();
     vi.clearAllMocks();
+    isFleetEnabled.mockResolvedValue(true);
   });
 
   const auth = () => ({ authorization: `Bearer ${driverToken}` });
@@ -197,6 +200,52 @@ describe('portal invoice routes', () => {
     expect(body.data[0]?.['viaFleetName']).toBe('Acme');
     expect(body.data[1]?.['viaFleetName']).toBeNull();
     expect(body.data[0]).not.toHaveProperty('memberBilled');
+    expect(isFleetEnabled).toHaveBeenCalledWith({ failClosed: true });
+  });
+
+  it('names no fleet on a member invoice while Fleets is off, and still lists it', async () => {
+    isFleetEnabled.mockResolvedValue(false);
+    setupDbResults(
+      [
+        {
+          id: 'inv_1',
+          invoiceNumber: 'A',
+          kind: 'invoice',
+          status: 'issued',
+          memberBilled: true,
+          fleetName: 'Acme',
+          periodStart: null,
+          periodEnd: null,
+          creditedInvoiceId: null,
+          issuedAt: new Date(),
+          dueAt: null,
+          paidAt: null,
+          currency: 'EUR',
+          subtotalCents: 100,
+          taxCents: 19,
+          totalCents: 119,
+          createdAt: new Date(),
+        },
+      ],
+      [{ count: 1 }],
+    );
+    const res = await app.inject({ method: 'GET', url: '/portal/invoices', headers: auth() });
+    const body = res.json<{ data: Array<Record<string, unknown>>; total: number }>();
+    expect(body.total).toBe(1);
+    expect(body.data[0]?.['viaFleetName']).toBeNull();
+    expect(JSON.stringify(body)).not.toContain('Acme');
+
+    setupDbResults([{ id: INVOICE_ID }]);
+    getInvoice.mockResolvedValue(memberDetail());
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/portal/invoices/${INVOICE_ID}`,
+      headers: auth(),
+    });
+    expect(detail.statusCode).toBe(200);
+    const view = detail.json<Record<string, unknown>>();
+    expect(view['viaFleetName']).toBeNull();
+    expect(view['billTo']).toMatchObject({ name: 'Erika Muster' });
   });
 
   it('answers 404 without reading an invoice outside the scope', async () => {
@@ -254,7 +303,7 @@ describe('portal invoice routes', () => {
 
 describe('toPortalInvoiceDetail', () => {
   it('keeps only what the PDF prints from line metadata', () => {
-    const view = toPortalInvoiceDetail(memberDetail());
+    const view = toPortalInvoiceDetail(memberDetail(), true);
     expect(view.lineItems[0]).toEqual({
       id: 1,
       sessionId: 'ses_000000000001',
@@ -275,7 +324,7 @@ describe('toPortalInvoiceDetail', () => {
     const detail = memberDetail();
     detail.invoice = { ...detail.invoice, fleetId: null, memberBilled: false, billTo: null };
     detail.fleet = null;
-    const view = toPortalInvoiceDetail(detail);
+    const view = toPortalInvoiceDetail(detail, true);
     expect(view.viaFleetName).toBeNull();
     expect(view.billTo).toBeNull();
   });

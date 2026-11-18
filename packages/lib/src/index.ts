@@ -277,6 +277,8 @@ export type { DistanceUnit, DriverDefaults } from './driver-defaults.js';
 export {
   REQUIRED_DRIVER_EVENT_TYPES,
   isRequiredDriverEventType,
+  FLEET_DRIVER_EVENT_TYPES,
+  isFleetDriverEventType,
   OCPP_NOTIFICATION_EVENTS,
   OCPP_NOTIFICATION_EVENT_TYPES,
   ocppNotificationEventsFor,
@@ -469,6 +471,7 @@ export {
   dispatchDriverNotification,
   dispatchSystemNotification,
   clearNotificationSettingsCache,
+  isFleetOnForDriverNotices,
   clearDriverEventSettingsCache,
   getDriverEventSettings,
   mandatoryChannelsOf,
@@ -652,6 +655,7 @@ export {
 export {
   USER_ACCESS_SCOPES,
   FLEET_MANAGER_ROLE_NAME,
+  accessScopeForRole,
   isUserAccessScope,
 } from './user-access-scope.js';
 export type { UserAccessScope } from './user-access-scope.js';

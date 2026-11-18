@@ -6,7 +6,14 @@ import { UI_THEMES } from '@evtivity/lib/ui-theme';
 import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import argon2 from 'argon2';
-import { db, client, getMfaConfig, writeAudit, driverAuditLog } from '@evtivity/database';
+import {
+  db,
+  client,
+  getMfaConfig,
+  isFleetEnabled,
+  writeAudit,
+  driverAuditLog,
+} from '@evtivity/database';
 import { drivers } from '@evtivity/database';
 import {
   dispatchDriverNotification,
@@ -500,18 +507,25 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         tags: ['Portal Driver'],
         summary: 'Update the authenticated driver billing address',
         description:
-          'Sets the bill-to block of the invoices a fleet addresses to the driver. Fields left out keep their value; null or a blank string clears a field. A change is audited; a request that changes nothing is not.',
+          'Sets the bill-to block of the invoices a fleet addresses to the driver. Fields left out keep their value; null or a blank string clears a field. A change is audited; a request that changes nothing is not. 403 FLEET_DISABLED while Fleets is off.',
         operationId: 'portalUpdateBillingAddress',
         security: [{ bearerAuth: [] }],
         body: zodSchema(driverBillingAddressBody),
         response: {
           200: itemResponse(driverBillingAddressItem),
+          403: errorWith('Fleets is off', [ERROR_CODES.FLEET_DISABLED]),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
+      if (!(await isFleetEnabled({ failClosed: true }))) {
+        await reply
+          .status(403)
+          .send({ error: 'Fleet management is turned off', code: 'FLEET_DISABLED' });
+        return;
+      }
       const body = request.body as z.infer<typeof driverBillingAddressBody>;
       return updateDriverBillingAddress(driverId, body, {
         actor: getAuditActor(request),

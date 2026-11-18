@@ -1214,7 +1214,8 @@
     "noCardsAssigned": "您沒有分配的 RFID 卡。",
     "contactSupport": "聯絡支援",
     "managedByFleet": "由{{fleet}}管理。如需變更此卡，請聯絡您的車隊。",
-    "yourFleet": "您的車隊"
+    "yourFleet": "您的車隊",
+    "fleetCardRefused": "車隊管理已關閉，充電樁目前拒絕此 RFID 卡。如需使用此卡充電，請聯絡您的營運商。"
   },
   "vehicles": {
     "addVehicle": "新增車輛",
@@ -1473,7 +1474,8 @@
     },
     "memberSessionLine": "透過 {{fleet}} 向您開立發票：{{state}}",
     "invoice": "發票",
-    "memberPaymentMethodsNote": "您的充電費用每月透過 {{fleet}} 向您開立發票，充電無需支付方式。"
+    "memberPaymentMethodsNote": "您的充電費用每月透過 {{fleet}} 向您開立發票，充電無需支付方式。",
+    "billedOnAccount": "記帳結算"
   },
   "billingAddress": {
     "title": "帳單地址",
@@ -1673,7 +1675,10 @@
         "Added": "RFID 卡已新增",
         "Removed": "RFID 卡已刪除",
         "Deactivated": "RFID 卡已停用",
-        "Reactivated": "RFID 卡已重新啟用"
+        "Reactivated": "RFID 卡已重新啟用",
+        "FleetCardAssigned": "已獲得車隊 RFID 卡",
+        "FleetCardTakenBack": "車隊 RFID 卡已收回",
+        "MonthlyLimitReached": "RFID 卡已達到每月限額"
       },
       "maintenance": {
         "SessionStopped": "因維護停止充電"

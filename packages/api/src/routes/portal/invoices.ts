@@ -5,7 +5,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { and, count, desc, eq, isNull, notInArray, or } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { db, invoices, fleets, invoiceStatusEnum, INVOICE_KINDS } from '@evtivity/database';
+import {
+  db,
+  invoices,
+  fleets,
+  invoiceStatusEnum,
+  INVOICE_KINDS,
+  isFleetEnabled,
+} from '@evtivity/database';
 import { getInvoice } from '@evtivity/services/invoice.service';
 import type { InvoiceDetail } from '@evtivity/services/invoice.service';
 import { generateInvoicePdf } from '@evtivity/services/invoice-pdf.service';
@@ -58,7 +65,7 @@ const portalInvoiceItem = z
       .string()
       .nullable()
       .describe(
-        'On a member invoice and its credit note: the fleet whose account the sessions were charged on. Null on ordinary driver invoices',
+        'On a member invoice and its credit note: the fleet whose account the sessions were charged on. Null on ordinary driver invoices and while Fleets is off',
       ),
     periodStart: z
       .string()
@@ -173,7 +180,10 @@ function metaNumber(meta: Record<string, unknown>, key: string): number | null {
  * fields (payment reference, free-form metadata, line metadata beyond what the
  * PDF prints).
  */
-export function toPortalInvoiceDetail(detail: InvoiceDetail): z.infer<typeof portalInvoiceDetail> {
+export function toPortalInvoiceDetail(
+  detail: InvoiceDetail,
+  fleetOn: boolean,
+): z.infer<typeof portalInvoiceDetail> {
   const { invoice } = detail;
   const memberInvoice = invoice.memberBilled;
   return {
@@ -181,7 +191,7 @@ export function toPortalInvoiceDetail(detail: InvoiceDetail): z.infer<typeof por
     invoiceNumber: invoice.invoiceNumber,
     kind: invoice.kind,
     status: invoice.status,
-    viaFleetName: memberInvoice ? (detail.fleet?.name ?? null) : null,
+    viaFleetName: memberInvoice && fleetOn ? (detail.fleet?.name ?? null) : null,
     periodStart: invoice.periodStart,
     periodEnd: invoice.periodEnd,
     creditedInvoiceId: invoice.creditedInvoiceId,
@@ -291,9 +301,10 @@ export function portalInvoiceRoutes(app: FastifyInstance): void {
           .offset((page - 1) * limit),
         db.select({ count: count() }).from(invoices).where(where),
       ]);
+      const fleetOn = await isFleetEnabled({ failClosed: true });
       const data = rows.map(({ memberBilled, fleetName, ...row }) => ({
         ...row,
-        viaFleetName: memberBilled ? fleetName : null,
+        viaFleetName: memberBilled && fleetOn ? fleetName : null,
       }));
       return { data, total: totals[0]?.count ?? 0 } satisfies PaginatedResponse<
         (typeof data)[number]
@@ -324,7 +335,7 @@ export function portalInvoiceRoutes(app: FastifyInstance): void {
         await reply.status(404).send(invoiceNotFound);
         return;
       }
-      return toPortalInvoiceDetail(detail);
+      return toPortalInvoiceDetail(detail, await isFleetEnabled({ failClosed: true }));
     },
   );
 

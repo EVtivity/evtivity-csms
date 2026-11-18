@@ -98,6 +98,29 @@ describe('AccountRfidCards', () => {
     expect(screen.getAllByRole('button', { name: 'rfid.renameCard' })).toHaveLength(1);
   });
 
+  it('shows a fleet card as refused at stations while fleet management is off', async () => {
+    mockGets(
+      [
+        card({
+          id: 'dtk_fleet',
+          managedByFleet: true,
+          fleetName: null,
+          refusedAtStations: true,
+          label: 'Van 12',
+        }),
+        card({ id: 'dtk_own', idToken: 'CARD0002' }),
+      ],
+      { fleetEnabled: false },
+    );
+    renderCards();
+
+    expect(await screen.findByTestId('rfid-fleet-card-refused')).toBeTruthy();
+    expect(screen.getByText('rfid.fleetCardRefused')).toBeTruthy();
+    expect(screen.queryByTestId('rfid-managed-by-fleet')).toBeNull();
+    // The driver still cannot change the fleet card.
+    expect(screen.getAllByRole('switch')).toHaveLength(1);
+  });
+
   it('lets the driver turn on a card the driver removed', async () => {
     mockGets([card({ isActive: false, blockedByOperator: false })]);
     renderCards();

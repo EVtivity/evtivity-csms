@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and } from 'drizzle-orm';
-import { db, isDriverRfidSelfServiceEnabled } from '@evtivity/database';
+import { db, isDriverRfidSelfServiceEnabled, isFleetEnabled } from '@evtivity/database';
 import { driverTokens, fleets } from '@evtivity/database';
 import { PORTAL_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 import { isVehicleShapedTokenValue } from '@evtivity/lib/vehicle-id';
@@ -51,7 +51,14 @@ const tokenItem = z
     fleetName: z
       .string()
       .nullable()
-      .describe('Name of the fleet that manages the card, null for the driver own card'),
+      .describe(
+        'Name of the fleet that manages the card, null for the driver own card and while Fleets is off',
+      ),
+    refusedAtStations: z
+      .boolean()
+      .describe(
+        'True for a fleet RFID card while Fleets is off: stations refuse it until fleet management is turned on again',
+      ),
     createdAt: z.coerce.date().describe('Timestamp the token was registered'),
   })
   .loose();
@@ -117,8 +124,11 @@ interface PortalTokenRow {
   createdAt: Date;
 }
 
-/** The driver-facing shape: who deactivated a card becomes whether the driver can undo it. */
-function toPortalToken(row: PortalTokenRow) {
+/**
+ * The driver-facing shape: who deactivated a card becomes whether the driver can
+ * undo it. While Fleets is off a fleet card names no fleet and shows as refused.
+ */
+function toPortalToken(row: PortalTokenRow, fleetOn: boolean) {
   return {
     id: row.id,
     driverId: row.driverId,
@@ -129,7 +139,8 @@ function toPortalToken(row: PortalTokenRow) {
     expiresAt: row.expiresAt,
     blockedByOperator: !row.isActive && row.deactivatedBy !== 'driver',
     managedByFleet: row.fleetId != null,
-    fleetName: row.fleetName ?? null,
+    fleetName: fleetOn ? (row.fleetName ?? null) : null,
+    refusedAtStations: row.fleetId != null && !fleetOn,
     createdAt: row.createdAt,
   };
 }
@@ -190,7 +201,8 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         .leftJoin(fleets, eq(driverTokens.fleetId, fleets.id))
         .where(eq(driverTokens.driverId, driverId))
         .orderBy(desc(driverTokens.createdAt), desc(driverTokens.id));
-      return rows.map(toPortalToken);
+      const fleetOn = await isFleetEnabled({ failClosed: true });
+      return rows.map((row) => toPortalToken(row, fleetOn));
     },
   );
 
@@ -240,7 +252,9 @@ export function portalTokenRoutes(app: FastifyInstance): void {
           { type: 'driver', driverId },
         );
         if (token == null) throw new Error('Token insert returned no row');
-        await reply.status(201).send(toPortalToken(token));
+        await reply
+          .status(201)
+          .send(toPortalToken(token, await isFleetEnabled({ failClosed: true })));
       } catch (err) {
         if (err instanceof tokenService.RfidSelfServiceDisabledError) {
           await reply.status(403).send(SELF_SERVICE_DISABLED);
@@ -351,7 +365,9 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       }
       const label = tokenService.normalizeTokenLabel(body.label);
       if (label !== undefined && label !== own.label) changes.label = label;
-      if (Object.keys(changes).length === 0) return toPortalToken(own);
+      if (Object.keys(changes).length === 0) {
+        return toPortalToken(own, await isFleetEnabled({ failClosed: true }));
+      }
 
       try {
         // Null: the card moved to another driver or the driver was erased or
@@ -391,7 +407,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
         return;
       }
-      return toPortalToken(row);
+      return toPortalToken(row, await isFleetEnabled({ failClosed: true }));
     },
   );
 
