@@ -2,7 +2,7 @@
 # (scripts/docker-dependency-manifests.mjs). A release changes only the version
 # fields, so the npm ci layers below stay cached; the real manifests are copied
 # back after each install.
-FROM --platform=$BUILDPLATFORM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS manifests
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS manifests
 WORKDIR /real
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
@@ -24,7 +24,7 @@ COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
 COPY scripts/docker-dependency-manifests.mjs /tmp/docker-dependency-manifests.mjs
 RUN node /tmp/docker-dependency-manifests.mjs /real /app
 
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS deps
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS deps
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
@@ -56,7 +56,7 @@ COPY packages/v2g-exi/ packages/v2g-exi/
 
 RUN node scripts/build.mjs api
 
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
