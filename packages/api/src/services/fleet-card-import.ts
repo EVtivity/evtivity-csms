@@ -4,11 +4,12 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, drivers, fleetDrivers } from '@evtivity/database';
 import { ValidationError } from '@evtivity/lib';
-import { PORTAL_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
+import { isFleetUserCardType, PORTAL_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 import {
   FLEET_CARD_IMPORT_MAX_BYTES,
   FLEET_CARD_IMPORT_MAX_ROWS,
 } from '@evtivity/lib/fleet-card-import';
+import { cardIdMatchKey } from '@evtivity/lib/vehicle-id';
 import { parseCsv } from '@evtivity/services/departure-import';
 import { tokenLabelProblem } from '../lib/token-label.js';
 import * as tokenService from './token.service.js';
@@ -95,12 +96,14 @@ export const defaultFleetCardImportDeps: FleetCardImportDeps = {
 };
 
 /** The refusal a token service error stands for, or null for an error the import does not expect. */
-function refusalOf(err: unknown): RowRefusal | null {
+function refusalOf(err: unknown, byFleetUser: boolean): RowRefusal | null {
   if (err instanceof RowRefusal) return err;
+  // A fleet user never learns that a value is registered outside its fleet (security case 466).
   if (err instanceof tokenService.DuplicateTokenError)
-    return new RowRefusal('idToken', 'duplicate');
+    return new RowRefusal('idToken', byFleetUser ? 'invalid' : 'duplicate');
   if (
     err instanceof tokenService.VehicleShapedCardError ||
+    err instanceof tokenService.FleetCardTypeNotAllowedError ||
     err instanceof tokenService.VehicleIdTokenInUseError ||
     err instanceof tokenService.FleetCardDeactivatedError ||
     err instanceof tokenService.TokenReactivationBlockedError ||
@@ -183,7 +186,10 @@ export async function importFleetCards(
       if (!(PORTAL_ID_TOKEN_TYPES as readonly string[]).includes(tokenType)) {
         throw new RowRefusal('tokenType', 'invalid');
       }
-      const key = `${tokenType}\u0000${idToken}`;
+      if (scope.byFleetUser && !isFleetUserCardType(tokenType)) {
+        throw new RowRefusal('tokenType', 'invalid');
+      }
+      const key = `${tokenType}\u0000${cardIdMatchKey(idToken, tokenType)}`;
       if (seen.has(key)) throw new RowRefusal('idToken', 'duplicate');
       const label = cellOf(cells, 'label');
       if (label !== '' && tokenLabelProblem(label) != null) {
@@ -204,7 +210,7 @@ export async function importFleetCards(
       if (token == null) throw new RowRefusal('idToken', 'invalid');
       result.created += 1;
     } catch (err) {
-      const refusal = refusalOf(err);
+      const refusal = refusalOf(err, scope.byFleetUser);
       if (refusal == null) throw err;
       result.refused.push({ row: line, field: refusal.field, reason: refusal.reason });
     }

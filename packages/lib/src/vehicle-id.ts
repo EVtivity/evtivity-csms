@@ -236,3 +236,13 @@ export function vehicleIdColumn(type: VehicleIdType): 'vin' | 'evccid' {
 export function formatVehicleId(value: string): string {
   return /^[0-9A-F]{12}$/.test(value) ? (value.match(/.{2}/g) ?? [value]).join(':') : value;
 }
+
+/**
+ * The key two cards of one type are compared by when a new value is checked
+ * against the stored ones. OCPP idTokens are case-insensitive (2.x IdToken, 1.6
+ * IdToken), so a card of any type but a vehicle id matches in every letter
+ * case; a vehicle id card keeps its exact (normalized) value.
+ */
+export function cardIdMatchKey(value: string, tokenType: string): string {
+  return isVehicleIdType(tokenType) ? value : value.toLowerCase();
+}

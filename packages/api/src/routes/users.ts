@@ -5016,7 +5016,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [selfService()],
+      onRequest: [selfService({ fleetUsers: false })],
       schema: {
         tags: ['Users'],
         summary: 'Get personal AI configuration',
@@ -5084,7 +5084,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [selfService()],
+      onRequest: [selfService({ fleetUsers: false })],
       schema: {
         tags: ['Users'],
         summary: 'Create or update personal AI configuration',
@@ -5146,7 +5146,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [selfService()],
+      onRequest: [selfService({ fleetUsers: false })],
       schema: {
         tags: ['Users'],
         summary: 'Delete personal AI configuration',
@@ -5226,7 +5226,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/support-ai-config',
     {
-      onRequest: [selfService()],
+      onRequest: [selfService({ fleetUsers: false })],
       schema: {
         tags: ['Users'],
         summary: 'Get personal support AI configuration',
@@ -5302,7 +5302,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/support-ai-config',
     {
-      onRequest: [selfService()],
+      onRequest: [selfService({ fleetUsers: false })],
       schema: {
         tags: ['Users'],
         summary: 'Create or update personal support AI configuration',
@@ -5374,7 +5374,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/support-ai-config',
     {
-      onRequest: [selfService()],
+      onRequest: [selfService({ fleetUsers: false })],
       schema: {
         tags: ['Users'],
         summary: 'Delete personal support AI configuration',

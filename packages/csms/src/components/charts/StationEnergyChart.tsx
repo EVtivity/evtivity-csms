@@ -7,7 +7,12 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
+import {
+  CHART_COLORS,
+  getGridColor,
+  formatChartDateLabel,
+  categoryChartResponsive,
+} from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 
 interface StationEnergyChartProps {
@@ -54,14 +59,7 @@ export function StationEnergyChart({ data, actions }: StationEnergyChartProps): 
         },
       },
       colors: [CHART_COLORS.primary],
-      responsive: [
-        {
-          breakpoint: 768,
-          options: {
-            chart: { height: 250 },
-          },
-        },
-      ],
+      responsive: categoryChartResponsive(data.length),
     }),
     [isDark, data, t],
   );

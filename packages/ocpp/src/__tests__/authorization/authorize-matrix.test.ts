@@ -29,7 +29,8 @@ import {
 
 type Row = Record<string, unknown>;
 type Cond =
-  | { op: 'eq' | 'ne'; col: string; val: unknown }
+  | { op: 'eq' | 'ne' | 'lowerEq'; col: string; val: unknown }
+  | { op: 'in' | 'nin'; col: string; vals: unknown[] }
   | { op: 'and'; conds: Cond[] }
   | { op: 'or'; conds: Cond[] }
   | undefined;
@@ -71,7 +72,12 @@ function matches(row: Row, cond: Cond): boolean {
   if (cond.op === 'and') return cond.conds.every((c) => matches(row, c));
   if (cond.op === 'or') return cond.conds.some((c) => matches(row, c));
   if (cond.op === 'eq') return row[cond.col] === cond.val;
-  return row[cond.col] !== cond.val;
+  if (cond.op === 'in') return cond.vals.includes(row[cond.col]);
+  if (cond.op === 'nin') return !cond.vals.includes(row[cond.col]);
+  if (cond.op === 'lowerEq') {
+    return String(row[cond.col]).toLowerCase() === String(cond.val).toLowerCase();
+  }
+  return 'val' in cond && row[cond.col] !== cond.val;
 }
 
 function runSelect(tableName: string, cond: Cond): Promise<Row[]> {
@@ -233,10 +239,12 @@ vi.mock('drizzle-orm', () => ({
   ne: (a: { col: string }, val: unknown) => ({ op: 'ne', col: a.col, val }),
   and: (...conds: unknown[]) => ({ op: 'and', conds: conds.filter((c) => c != null) }),
   or: (...conds: unknown[]) => ({ op: 'or', conds: conds.filter((c) => c != null) }),
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
-    raw: strings.join('?'),
-    values,
-  }),
+  inArray: (a: { col: string }, vals: unknown[]) => ({ op: 'in', col: a.col, vals }),
+  notInArray: (a: { col: string }, vals: unknown[]) => ({ op: 'nin', col: a.col, vals }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) =>
+    strings[0] === 'lower(' && strings[1] === ') = lower('
+      ? { op: 'lowerEq', col: (values[0] as { col: string }).col, val: values[1] }
+      : { raw: strings.join('?'), values },
 }));
 
 vi.mock('../../authorization/authorize-log.js', async (importOriginal) => ({

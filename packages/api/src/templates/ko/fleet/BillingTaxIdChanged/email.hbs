@@ -1,0 +1,4 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>{{fleetName}}</strong>의 사업자등록번호 또는 세금 번호가{{#if changedBy}} {{changedBy}}님에 의해{{/if}} 변경되었습니다. 이전: {{#if previousTaxId}}{{previousTaxId}}{{else}}없음{{/if}}. 현재: {{#if taxIdRemoved}}없음{{else}}{{newTaxId}}{{/if}}.</p>
+<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{fleetUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>차량대 청구 열기</a></td></tr></table>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>지금부터 발행되는 청구서에는 새 번호가 표시됩니다. 이미 발행된 청구서는 발행 당시의 번호를 유지합니다. 예상하지 못한 변경이면 확인해 주세요.</p>

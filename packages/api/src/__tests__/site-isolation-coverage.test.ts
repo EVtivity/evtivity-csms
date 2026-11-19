@@ -87,7 +87,7 @@ describe('site isolation coverage', () => {
     expect(listed.filter((r) => !declared.has(r))).toEqual([]);
     expect(new Set(listed).size).toBe(listed.length);
     // The fleet routes and the own API key routes: a scanner that stops finding the flag fails here.
-    expect(declared.size).toBe(28);
+    expect(declared.size).toBe(30);
     // Every route that names a resource checks another fleet's or an unreadable one.
     const unchecked = FLEET_SCOPE_ROUTES.filter(
       (e) => e.path.includes(':') && e.other.length === 0,

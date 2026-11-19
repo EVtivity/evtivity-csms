@@ -277,6 +277,7 @@ describe('dashboard layout routes', () => {
       'chart.fleetSessions',
       'chart.fleetCost',
       'chart.fleetInvoices',
+      'chart.fleetChargingSessions',
     ];
     try {
       const res = await app.inject({

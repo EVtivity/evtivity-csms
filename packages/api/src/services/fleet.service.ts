@@ -37,6 +37,7 @@ import {
   sessionUnitJoin,
 } from '../lib/session-charging-point.js';
 import { providerSwitchStore } from '../lib/provider-switch.js';
+import { notifyFleetTaxIdChanged } from '../lib/fleet-tax-id-notice.js';
 import { AppError, escapeLikePattern } from '@evtivity/lib';
 import {
   notifyAccountBillingChange,
@@ -59,6 +60,7 @@ import {
   sites,
   pricingGroupFleets,
   pricingGroups,
+  userFleetAssignments,
 } from '@evtivity/database';
 import type { PaginationParams } from '../lib/pagination.js';
 import { ALL_SITES_READER, type FleetReader } from '../lib/fleet-reader.js';
@@ -519,11 +521,31 @@ const billingContactRequiredError = (): AppError =>
 export async function updateFleetBillingProfile(
   fleetId: string,
   patch: FleetBillingProfilePatch,
-  ctx: FleetBillingContext,
+  ctx: FleetBillingContext & {
+    /**
+     * A fleet user's change: the user must still be assigned to the fleet,
+     * read under the fleet row lock (an assignment removed meanwhile answers
+     * null, like an unknown fleet).
+     */
+    fleetUserId?: string | undefined;
+  },
 ) {
   const result = await db.transaction(async (tx) => {
     const [current] = await tx.select().from(fleets).where(eq(fleets.id, fleetId)).for('update');
     if (current == null) return null;
+    if (ctx.fleetUserId != null) {
+      const [assigned] = await tx
+        .select({ id: userFleetAssignments.id })
+        .from(userFleetAssignments)
+        .where(
+          and(
+            eq(userFleetAssignments.userId, ctx.fleetUserId),
+            eq(userFleetAssignments.fleetId, fleetId),
+          ),
+        )
+        .for('share');
+      if (assigned == null) return null;
+    }
     const next = mergeBillingProfile(current, patch);
     if (next.autoInvoice && next.billingContactEmails.length === 0) {
       throw billingContactRequiredError();
@@ -548,10 +570,23 @@ export async function updateFleetBillingProfile(
         ...ctx.actor,
         before: result.diff.before,
         after: result.diff.after,
+        notes: ctx.fleetUserId != null ? 'Billing profile changed by a fleet manager' : null,
       },
       db,
       ctx.log,
     );
+    if ('billingTaxId' in result.diff.after) {
+      void notifyFleetTaxIdChanged(
+        {
+          fleetId,
+          fleetName: result.fleet.name,
+          previousTaxId: result.diff.before.billingTaxId ?? null,
+          newTaxId: result.diff.after.billingTaxId ?? null,
+          changedByUserId: ctx.actor.actorUserId,
+        },
+        ctx.log,
+      );
+    }
   }
   return result.fleet;
 }

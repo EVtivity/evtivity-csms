@@ -102,4 +102,30 @@ describe('DateRangeControl', () => {
     fireEvent.click(button('common.endDate common.datePicker.open'));
     expect(button('common.datePicker.nextMonth').disabled).toBe(true);
   });
+
+  it('keeps the preset and both days on one row at phone width', () => {
+    const { container } = render(
+      <DateRangeControl
+        days={30}
+        from="2026-10-20"
+        to="2026-11-19"
+        onPresetChange={() => {}}
+        onCustomChange={() => {}}
+      />,
+    );
+    const root = screen.getByTestId('date-range-control');
+    // No wrapping container at any width: a wrap put the three parts on three phone rows.
+    expect(container.innerHTML).not.toContain('flex-wrap');
+    expect(root.className).toContain('w-full');
+    // The days show in the short form below sm, full in the field.
+    expect(screen.getAllByTestId('date-input-short').map((s) => s.className)).toEqual([
+      expect.stringContaining('sm:hidden'),
+      expect.stringContaining('sm:hidden'),
+    ]);
+    expect(getDateInputs(container).map((i) => i.value)).toEqual(['2026-10-20', '2026-11-19']);
+    // "To" only from sm; the inputs carry their own labels.
+    expect(screen.getByText('dashboard.to').className.split(' ')).toEqual(
+      expect.arrayContaining(['hidden', 'sm:inline']),
+    );
+  });
 });

@@ -209,6 +209,7 @@ describe('dashboard fleet items', () => {
     'chart.fleetSessions',
     'chart.fleetCost',
     'chart.fleetInvoices',
+    'chart.fleetChargingSessions',
   ];
   const shown = (layout: ReturnType<typeof defaultDashboardLayout>): string[] =>
     layout.charts.filter((c) => !c.hidden).map((c) => c.id);

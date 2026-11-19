@@ -52,6 +52,8 @@ export function FleetDetail(): React.JSX.Element {
   // The credit limit is money: its GET needs payments:read.
   const canReadPayments = useHasPermission('payments:read');
   const canReadCards = useHasPermission('fleetCards:read');
+  // A fleet user who manages the billing profile (fleetBilling:write implies read).
+  const canReadProfile = useHasPermission('fleetBilling:read');
   // Fleet users are company-wide accounts: only all-site admins who read users see them.
   const canReadUsers = useHasPermission('users:read');
   // A fleet user reads its fleet only: no stations, departures, pricing, reservations or history.
@@ -81,7 +83,9 @@ export function FleetDetail(): React.JSX.Element {
     !isFleetUser &&
     (hasAllSiteAccess || (fleet.accountBillingEnabled !== true && fleet.hasPricingGroup !== true));
   const showOperatorTabs = !isFleetUser;
-  const showBilling = isFleetUser ? canReadPayments : hasAllSiteAccess;
+  const showBilling = isFleetUser ? canReadPayments || canReadProfile : hasAllSiteAccess;
+  // A fleet user reads the account billing, credit limit and invoices only with payments:read.
+  const showBillingMoney = !isFleetUser || canReadPayments;
   // Fleet managers exist only while Fleets is on (known to be on, not assumed while loading).
   const showManagers = !isFleetUser && hasAllSiteAccess && canReadUsers && fleetsOn;
 
@@ -158,10 +162,14 @@ export function FleetDetail(): React.JSX.Element {
 
         {showBilling && (
           <TabsContent value="billing">
-            <FleetBillingTab fleet={fleet} readOnly={isFleetUser} />
-            {!isFleetUser && <FleetBillingProfileCard fleet={fleet} />}
+            {showBillingMoney && <FleetBillingTab fleet={fleet} readOnly={isFleetUser} />}
+            {(!isFleetUser || canReadProfile) && (
+              <FleetBillingProfileCard fleet={fleet} managerMode={isFleetUser} />
+            )}
             {canReadPayments && <FleetCreditLimitCard fleetId={fleetId} />}
-            <FleetInvoicesCard fleetId={fleetId} recipient={fleet.accountInvoiceRecipient} />
+            {showBillingMoney && (
+              <FleetInvoicesCard fleetId={fleetId} recipient={fleet.accountInvoiceRecipient} />
+            )}
           </TabsContent>
         )}
 

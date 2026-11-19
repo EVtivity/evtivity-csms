@@ -16,6 +16,16 @@
 </p>
 
 <p align="center">
+  <a href="https://evtivity.com"><img src="https://img.shields.io/badge/Website-evtivity.com-4ade80" alt="Website" /></a>
+  <a href="https://discord.gg/kKdJxFRksz"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://www.linkedin.com/company/evtivity"><img src="https://img.shields.io/badge/LinkedIn-EVtivity-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
+  <a href="https://x.com/EVtivity"><img src="https://img.shields.io/badge/X-%40EVtivity-000000?logo=x&logoColor=white" alt="X" /></a>
+  <a href="https://www.youtube.com/@evtivity"><img src="https://img.shields.io/badge/YouTube-%40evtivity-FF0000?logo=youtube&logoColor=white" alt="YouTube" /></a>
+  <a href="https://www.instagram.com/evtivity"><img src="https://img.shields.io/badge/Instagram-evtivity-E4405F?logo=instagram&logoColor=white" alt="Instagram" /></a>
+  <a href="https://www.reddit.com/r/EVtivity"><img src="https://img.shields.io/badge/Reddit-r%2FEVtivity-FF4500?logo=reddit&logoColor=white" alt="Reddit" /></a>
+</p>
+
+<p align="center">
   <a href="README.md">English</a> ·
   <a href="README.de.md">Deutsch</a> ·
   <strong>Español</strong> ·

@@ -25,6 +25,7 @@ import {
   isDocsLanguage,
   searchDocs,
 } from '../services/ai/docs/docs-search.js';
+import { selfService } from '../middleware/rbac.js';
 
 const searchQuery = z.object({
   query: z
@@ -83,7 +84,7 @@ export function docsSearchRoutes(app: FastifyInstance): void {
   app.get(
     '/docs/search',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService({ allowApiKey: true, fleetUsers: false })],
       schema: {
         tags: ['Documentation'],
         summary:

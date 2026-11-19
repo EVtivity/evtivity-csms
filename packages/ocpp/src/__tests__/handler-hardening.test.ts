@@ -52,6 +52,14 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('drizzle-orm', () => ({
+  or: vi.fn((...args: unknown[]) => ({ type: 'or', args })),
+  inArray: vi.fn((a: unknown, b: unknown) => ({ type: 'inArray', a, b })),
+  notInArray: vi.fn((a: unknown, b: unknown) => ({ type: 'notInArray', a, b })),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    type: 'sql',
+    raw: strings.join('?'),
+    values,
+  }),
   eq: vi.fn((_col: unknown, val: unknown) => val),
   and: vi.fn((...args: unknown[]) => args),
 }));

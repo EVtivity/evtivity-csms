@@ -20,6 +20,10 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
       }
     },
+  selfService: () => async (request: FastifyRequest) => {
+    request.user = { userId: 'usr_000000000001', roleId: 'rol_000000000001' };
+    await Promise.resolve();
+  },
 }));
 
 import { aiDefaultsRoutes } from '../routes/ai-defaults.js';

@@ -102,6 +102,8 @@ export const DASHBOARD_WIDGETS: readonly DashboardWidget[] = [
   { id: 'chart.fleetSessions', defaultHidden: true, span: 'half', fleet: true },
   { id: 'chart.fleetCost', defaultHidden: true, span: 'half', fleet: true },
   { id: 'chart.fleetInvoices', defaultHidden: true, span: 'half', fleet: true },
+  // The newest sessions billed to the fleets: sessions:read too.
+  { id: 'chart.fleetChargingSessions', defaultHidden: true, span: 'full', fleet: true },
 ];
 
 /** The most items a saved layout may hold. */

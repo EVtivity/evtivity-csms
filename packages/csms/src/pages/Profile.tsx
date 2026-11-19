@@ -15,6 +15,7 @@ import { ProfileNotifications } from '@/components/profile/ProfileNotifications'
 import { ProfileChatbotAi } from '@/components/profile/ProfileChatbotAi';
 import { ProfileSupportAi } from '@/components/profile/ProfileSupportAi';
 import { api } from '@/lib/api';
+import { useIsFleetUser } from '@/lib/auth';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { LoadingLogo } from '@/components/loading-logo';
 import type { AvatarData } from '@/components/AccountAvatar';
@@ -55,7 +56,10 @@ export function Profile(): React.JSX.Element {
     queryFn: () =>
       api.get<{ supportAiEnabled: boolean; ssoEnabled?: boolean }>('/v1/security/public'),
   });
-  const supportAiEnabled = securityPublic?.supportAiEnabled === true;
+  // A fleet user has no assistant or support: no personal AI settings for it.
+  const isFleetUser = useIsFleetUser();
+  const showChatbotAi = chatbotAiEnabled && !isFleetUser;
+  const showSupportAi = securityPublic?.supportAiEnabled === true && !isFleetUser;
   const ssoEnabled = securityPublic?.ssoEnabled === true;
   const queryClient = useQueryClient();
 
@@ -78,12 +82,8 @@ export function Profile(): React.JSX.Element {
           <TabsTrigger value="password">{t('profile.changePassword')}</TabsTrigger>
           <TabsTrigger value="mfa">{t('profile.mfaSecurity')}</TabsTrigger>
           <TabsTrigger value="notifications">{t('profile.notifications')}</TabsTrigger>
-          {chatbotAiEnabled && (
-            <TabsTrigger value="chatbotAi">{t('profile.chatbotAi')}</TabsTrigger>
-          )}
-          {supportAiEnabled && (
-            <TabsTrigger value="supportAi">{t('profile.supportAi')}</TabsTrigger>
-          )}
+          {showChatbotAi && <TabsTrigger value="chatbotAi">{t('profile.chatbotAi')}</TabsTrigger>}
+          {showSupportAi && <TabsTrigger value="supportAi">{t('profile.supportAi')}</TabsTrigger>}
         </TabsList>
         <TabsContent value="personal">
           <ProfilePersonalInfo user={user} />
@@ -113,12 +113,12 @@ export function Profile(): React.JSX.Element {
         <TabsContent value="notifications">
           <ProfileNotifications />
         </TabsContent>
-        {chatbotAiEnabled && (
+        {showChatbotAi && (
           <TabsContent value="chatbotAi">
             <ProfileChatbotAi />
           </TabsContent>
         )}
-        {supportAiEnabled && (
+        {showSupportAi && (
           <TabsContent value="supportAi">
             <ProfileSupportAi />
           </TabsContent>

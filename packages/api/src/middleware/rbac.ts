@@ -183,9 +183,12 @@ export function authorize(...requiredPermissions: string[]) {
  * `SESSION_REQUIRED`) unless `allowApiKey` is set: a key must never read the
  * personal AI keys or change the password, MFA, phone or profile of the user
  * who created it. Reads of the profile, permissions, MFA status and
- * notification preferences allow API keys.
+ * notification preferences allow API keys. `fleetUsers: false` closes the
+ * route to fleet users like a route outside the fleet scope (route-not-found,
+ * 403 FLEET_DISABLED while Fleets is off): the personal AI settings, since a
+ * fleet user has no assistant or support.
  */
-export function selfService(opts: { allowApiKey?: boolean } = {}) {
+export function selfService(opts: { allowApiKey?: boolean; fleetUsers?: boolean } = {}) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const app = request.server;
     await app.authenticate(request, reply);
@@ -195,6 +198,7 @@ export function selfService(opts: { allowApiKey?: boolean } = {}) {
       await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       return;
     }
+    if (opts.fleetUsers === false && (await refuseFleetUser(request, reply))) return;
     if (user.isApiKey === true && opts.allowApiKey !== true) {
       await reply.status(403).send({
         error: 'This route needs a signed-in session, not an API key',

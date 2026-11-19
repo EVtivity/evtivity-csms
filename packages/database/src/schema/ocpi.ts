@@ -225,6 +225,7 @@ export const ocpiExternalTokens = pgTable(
     unique('ocpi_external_tokens_unique').on(table.countryCode, table.partyId, table.uid),
     index('idx_ocpi_external_tokens_partner').on(table.partnerId),
     index('idx_ocpi_external_tokens_uid').on(table.uid),
+    index('idx_ocpi_external_tokens_uid_lower').on(sql`lower(${table.uid})`),
   ],
 );
 

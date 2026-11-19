@@ -454,4 +454,53 @@ describe('FleetBillingProfileCard', () => {
     wrap(<FleetBillingProfileCard fleet={fleet} />);
     expect(screen.queryByRole('button', { name: 'common.edit' })).toBeNull();
   });
+
+  it('lets a fleet manager edit only the contacts, bill-to, VAT ID and invoice language', async () => {
+    const managerFleet = {
+      id: 'flt_1',
+      name: 'Acme Fleet',
+      billingContactEmails: ['ap@acme.example'],
+      billingLegalName: 'Acme GmbH',
+      billingStreet: null,
+      billingCity: null,
+      billingState: null,
+      billingZip: null,
+      billingCountry: null,
+      billingTaxId: 'DE123456789',
+      invoiceLanguage: 'de',
+    };
+    patchMock.mockResolvedValueOnce(managerFleet);
+    wrap(<FleetBillingProfileCard fleet={managerFleet} managerMode />);
+    expect(screen.getByText('fleets.billingProfile.managerDescription')).toBeTruthy();
+    expect(screen.queryByText('fleets.billingProfile.paymentTerms')).toBeNull();
+    expect(screen.queryByText('fleets.billingProfile.autoInvoice')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    expect(screen.queryByLabelText('fleets.billingProfile.paymentTerms')).toBeNull();
+    expect(screen.queryByLabelText('fleets.billingProfile.invoiceDate')).toBeNull();
+    expect(screen.queryByLabelText('fleets.billingProfile.autoInvoice')).toBeNull();
+    expect(screen.getByText('fleets.billingProfile.taxIdHelp')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('fleets.billingProfile.taxId'), {
+      target: { value: 'DE987654321' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith('/v1/fleets/flt_1/billing-profile', {
+        billingContactEmails: ['ap@acme.example'],
+        billingLegalName: 'Acme GmbH',
+        billingStreet: null,
+        billingCity: null,
+        billingState: null,
+        billingZip: null,
+        billingCountry: null,
+        billingTaxId: 'DE987654321',
+        invoiceLanguage: 'de',
+      });
+    });
+  });
+
+  it('hides editing from a fleet manager without fleetBilling:write', () => {
+    permission.canWrite = false;
+    wrap(<FleetBillingProfileCard fleet={{ id: 'flt_1', name: 'Acme Fleet' }} managerMode />);
+    expect(screen.queryByRole('button', { name: 'common.edit' })).toBeNull();
+  });
 });

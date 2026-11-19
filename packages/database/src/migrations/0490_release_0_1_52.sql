@@ -435,3 +435,33 @@ BEGIN
     RAISE NOTICE 'Fleet Manager role and Fleets access: % fleet users moved to the Fleet Manager role, % site users moved to the Operator role', to_fm, to_site;
   END IF;
 END $$;
+--> statement-breakpoint
+-- The fleetBilling permissions (a fleet user edits its fleet's billing
+-- profile): admins hold every catalog permission (sync-admin-permissions.ts
+-- grants them after each migrate too). No other role gets them by default:
+-- an operator grants fleetBilling:write to a fleet manager on purpose.
+INSERT INTO "user_permissions" ("user_id", "permission")
+SELECT u."id", p."permission"
+FROM "users" u
+JOIN "roles" r ON r."id" = u."role_id" AND r."name" = 'admin'
+CROSS JOIN (VALUES ('fleetBilling:read'), ('fleetBilling:write')) AS p("permission")
+ON CONFLICT ("user_id", "permission") DO NOTHING;
+--> statement-breakpoint
+-- Card ids match regardless of letter case from v0.1.52 (GitHub issue 70).
+-- Cards already stored as case-only pairs (the same value in another letter
+-- case, vehicle id cards left out) are kept, not merged or deleted: a station value that matches
+-- one of them exactly picks it, one that matches none exactly is refused. The
+-- count tells the operator how many such groups exist.
+DO $$
+DECLARE pairs integer;
+BEGIN
+  SELECT count(*) INTO pairs FROM (
+    SELECT lower(id_token) FROM driver_tokens
+    WHERE token_type NOT IN ('VIN', 'EVCCID', 'MacAddress')
+    GROUP BY lower(id_token)
+    HAVING count(DISTINCT id_token) > 1
+  ) g;
+  IF pairs > 0 THEN
+    RAISE NOTICE 'RFID cards that differ only in letter case: % groups kept; a station value that matches none of a group exactly is refused', pairs;
+  END IF;
+END $$;

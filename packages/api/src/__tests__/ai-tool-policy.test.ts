@@ -284,6 +284,26 @@ describe('AI tool policy and catalog', () => {
     }
   });
 
+  it('the assistant never sets a unit position, which drivers and partners see (AF-I3)', () => {
+    for (const op of ['createStationUnit', 'updateStationUnit']) {
+      expect(toolPolicy(op).omit, op).toEqual(expect.arrayContaining(['latitude', 'longitude']));
+      const tool = AI_TOOL_CATALOG.find((t) => t.operationId === op);
+      expect(tool, op).toBeDefined();
+      const params = JSON.stringify(tool?.parameters);
+      expect(params, op).not.toContain('"latitude"');
+      expect(params, op).not.toContain('"longitude"');
+    }
+    const tool = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateStationUnit');
+    const toolset = chatbotToolset([tool?.category ?? ''], AI_TOOL_CATALOG);
+    const call = prepareToolCall(toolset, tool?.name ?? '', {
+      id: 'sta_000000000001',
+      unitId: 'unt_000000000001',
+      latitude: '52.5',
+      longitude: '13.4',
+    });
+    expect(call.ok).toBe(false);
+  });
+
   it('the assistant reads station units and writes them only behind the confirm card, never through MCP', () => {
     expect(toolPolicy('listStationUnits').exposure).toBe('read');
     expect(mcpOffers('listStationUnits')).toBe(true);

@@ -7,7 +7,22 @@ import {
   PORTAL_ID_TOKEN_TYPES,
   isOcppIdTokenType,
   driverTokenStatus,
+  FLEET_USER_CARD_TYPES,
+  isFleetUserCardType,
 } from '../id-token-types.js';
+
+describe('fleet user card types', () => {
+  it('offers a fleet user an ordinary RFID card first and another RFID card, both portal types', () => {
+    expect(FLEET_USER_CARD_TYPES).toEqual(['ISO14443', 'ISO15693']);
+    for (const type of FLEET_USER_CARD_TYPES) expect(PORTAL_ID_TOKEN_TYPES).toContain(type);
+  });
+
+  it('refuses every other type', () => {
+    for (const type of OCPP_ID_TOKEN_TYPES) {
+      expect(isFleetUserCardType(type)).toBe(type === 'ISO14443' || type === 'ISO15693');
+    }
+  });
+});
 
 describe('OCPP IdToken types', () => {
   it('lists the 11 OCPP 2.1 IdTokenEnumStringType values', () => {

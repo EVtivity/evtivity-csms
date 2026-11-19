@@ -640,6 +640,9 @@
       "costChart": "Costo de Flota por Día",
       "costChartInfo": "Costo por día de las sesiones de flota en el rango de fechas.",
       "invoicesChart": "Últimas Facturas de Flota",
+      "chargingSessions": "Sesiones de carga",
+      "chargingSessionsInfo": "Las sesiones de carga más recientes facturadas a sus flotas a cuenta. El selector de flota de arriba las limita a una flota. Seleccione una fila para ver la sesión.",
+      "noChargingSessions": "Todavía no hay sesiones de carga facturadas a sus flotas.",
       "invoicesInfo": "Las facturas y notas de crédito más recientes de las flotas.",
       "noInvoices": "Aún no hay facturas de flota.",
       "creditNote": "Nota de Crédito"
@@ -2360,6 +2363,7 @@
       "drivers": "Conductores",
       "fleets": "Flotas",
       "fleetCards": "Tarjetas RFID de flota",
+      "fleetBilling": "Gestionar perfil de facturación de flota",
       "reservations": "Reservas",
       "support": "Casos de Soporte",
       "payments": "Pagos",
@@ -2625,6 +2629,8 @@
     "billingProfile": {
       "title": "Perfil de facturación",
       "description": "A quién se envía la factura de la flota y cómo se emite.",
+      "managerDescription": "Los contactos de facturación, el nombre y la dirección de la empresa, el NIF y el idioma de la factura de la flota. Su operador fija las condiciones de pago.",
+      "taxIdHelp": "Un número nuevo se imprime en las facturas emitidas después del cambio. Las facturas emitidas conservan su número. Se informa del cambio a su operador.",
       "contacts": "Contactos de facturación",
       "contactsHelp": "Una dirección de correo electrónico por línea. La factura de la flota se envía a estas direcciones.",
       "contactsInvalid": "Introduzca direcciones de correo electrónico válidas, una por línea.",
@@ -2900,7 +2906,7 @@
         "title": "Importar tarjetas RFID",
         "description": "Añada muchas tarjetas RFID a esta flota desde un archivo CSV. Cada fila se añade como una tarjeta individual; una fila rechazada no cambia nada.",
         "columns": "Columnas: idToken (el valor de la tarjeta, obligatorio), tokenType (ISO14443 si está vacío), label, memberEmail (un miembro activo de la flota). Como máximo 2000 filas y 512 KB.",
-        "columnsFleetUser": "Columnas: idToken (el valor de la tarjeta, obligatorio), tokenType (ISO14443 si está vacío) y label. Deje vacía la columna memberEmail: asigne las tarjetas a los miembros aquí después de la importación. Como máximo 2000 filas y 512 KB.",
+        "columnsFleetUser": "Columnas: idToken (el valor de la tarjeta, obligatorio), tokenType (ISO14443 para una tarjeta RFID o un llavero, el valor predeterminado si está vacío, o ISO15693 para otra tarjeta RFID) y label. Deje vacía la columna memberEmail: asigne las tarjetas a los miembros aquí después de importar. Como máximo 2000 filas y 512 KB.",
         "template": "Descargar plantilla",
         "chooseFile": "Elegir archivo",
         "chooseFirst": "Elija primero un archivo CSV.",
@@ -2961,6 +2967,17 @@
         "title": "Aún no hay tarjetas RFID",
         "description": "Añada las tarjetas RFID de la flota una a una o importe muchas a la vez desde un archivo CSV. Una tarjeta asignada a un miembro carga como su propia tarjeta. Una tarjeta sin miembro se cobra a la cuenta de la flota.",
         "readOnly": "Las tarjetas RFID de la flota aparecen aquí cuando se añaden."
+      },
+      "types": {
+        "ISO14443": "Tarjeta RFID o llavero (la mayoría de las tarjetas)",
+        "ISO15693": "Otra tarjeta RFID (ISO 15693)"
+      },
+      "typeHints": {
+        "eMAID": "Id. de contrato Plug and Charge",
+        "ISO14443": "Tarjeta RFID o llavero, la mayoría de las tarjetas",
+        "ISO15693": "Otra tarjeta RFID (tarjeta de proximidad)",
+        "KeyCode": "Código que el conductor escribe en el cargador",
+        "Local": "Id. que solo conoce esta red"
       }
     },
     "sessionDialog": {
@@ -2978,7 +2995,6 @@
       "description": "Usuarios de flota que gestionan esta flota en el CSMS. Solo ven las flotas que tienen asignadas.",
       "add": "Añadir gestor de flota",
       "empty": "Esta flota no tiene ningún gestor de flota asignado.",
-      "permissions": "Permisos",
       "lastSignIn": "Último inicio de sesión",
       "neverSignedIn": "Nunca"
     },
@@ -4575,6 +4591,7 @@
       "fleet.CreditLimitWarning": "Aviso de límite de crédito de la flota",
       "fleet.CreditLimitReached": "Límite de crédito de la flota alcanzado",
       "fleet.InvoiceRunFailed": "Falló la facturación mensual de la flota",
+      "fleet.BillingTaxIdChanged": "NIF de la flota cambiado",
       "fleet.DepartureAtRisk": "Salida en riesgo",
       "fleet.DepartureMissed": "Salida perdida",
       "invoice.FleetInvoice": "Factura de flota emitida",

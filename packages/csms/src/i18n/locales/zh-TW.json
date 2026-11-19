@@ -640,6 +640,9 @@
       "costChart": "車隊每日費用",
       "costChartInfo": "日期範圍內車隊工作階段的每日費用。",
       "invoicesChart": "最新車隊發票",
+      "chargingSessions": "充電工作階段",
+      "chargingSessionsInfo": "以帳戶計入您車隊的最新充電工作階段。上方的車隊選擇可將其限定為一個車隊。選擇一列即可查看該工作階段。",
+      "noChargingSessions": "尚無計入您車隊的充電工作階段。",
       "invoicesInfo": "車隊最新的發票和貸項通知單。",
       "noInvoices": "尚無車隊發票。",
       "creditNote": "貸項通知單"
@@ -2360,6 +2363,7 @@
       "drivers": "駕駛員",
       "fleets": "車隊",
       "fleetCards": "車隊 RFID 卡",
+      "fleetBilling": "管理車隊帳單資料",
       "reservations": "預約",
       "support": "客服案件",
       "payments": "支付",
@@ -2625,6 +2629,8 @@
     "billingProfile": {
       "title": "帳單資料",
       "description": "車隊發票的接收方與開立方式。",
+      "managerDescription": "車隊發票的帳單聯絡人、公司名稱與地址、統一編號以及發票語言。付款條件由您的營運商設定。",
+      "taxIdHelp": "新號碼會顯示在變更後開立的發票上。已開立的發票保留原號碼。您的營運商會收到變更通知。",
       "contacts": "帳單聯絡人",
       "contactsHelp": "每行一個電子郵件地址。車隊發票將以電子郵件寄送到這些地址。",
       "contactsInvalid": "請輸入有效的電子郵件地址，每行一個。",
@@ -2900,7 +2906,7 @@
         "title": "匯入 RFID 卡",
         "description": "從 CSV 檔案向此車隊新增多張 RFID 卡。每一列與單獨新增一張卡相同，被拒絕的列不會變更任何內容。",
         "columns": "欄位：idToken（卡值，必填）、tokenType（空白時為 ISO14443）、label、memberEmail（車隊的有效成員）。最多 2000 列、512 KB。",
-        "columnsFleetUser": "欄位：idToken（卡值，必填）、tokenType（空白時為 ISO14443）和 label。memberEmail 欄位請留空：匯入後在此處將卡指派給成員。最多 2000 列、512 KB。",
+        "columnsFleetUser": "欄位：idToken（卡片值，必填）、tokenType（RFID 卡或鑰匙圈為 ISO14443，留空時為預設；其他 RFID 卡為 ISO15693）和 label。請將 memberEmail 欄位留空：匯入後在此處將卡片指派給成員。最多 2000 列、512 KB。",
         "template": "下載範本",
         "chooseFile": "選擇檔案",
         "chooseFirst": "請先選擇一個 CSV 檔案。",
@@ -2961,6 +2967,17 @@
         "title": "尚無 RFID 卡",
         "description": "逐張新增車隊的 RFID 卡，或從 CSV 檔案一次匯入多張。分配給成員的卡與該成員自己的卡一樣充電。沒有成員持有的卡記入車隊帳戶。",
         "readOnly": "車隊的 RFID 卡新增後會顯示在這裡。"
+      },
+      "types": {
+        "ISO14443": "RFID 卡或鑰匙圈（大多數卡片）",
+        "ISO15693": "其他 RFID 卡（ISO 15693）"
+      },
+      "typeHints": {
+        "eMAID": "隨插即充合約 ID",
+        "ISO14443": "RFID 卡或鑰匙圈，大多數卡片",
+        "ISO15693": "其他 RFID 卡（近場卡）",
+        "KeyCode": "駕駛員在充電樁上輸入的代碼",
+        "Local": "僅本網路識別的 ID"
       }
     },
     "sessionDialog": {
@@ -2978,7 +2995,6 @@
       "description": "在 CSMS 中管理此車隊的車隊使用者。他們只能看到分配給自己的車隊。",
       "add": "新增車隊經理",
       "empty": "此車隊未分配車隊經理。",
-      "permissions": "權限",
       "lastSignIn": "上次登入",
       "neverSignedIn": "從未"
     },
@@ -4575,6 +4591,7 @@
       "fleet.CreditLimitWarning": "車隊信用額度預警",
       "fleet.CreditLimitReached": "車隊信用額度已用完",
       "fleet.InvoiceRunFailed": "車隊每月開立發票失敗",
+      "fleet.BillingTaxIdChanged": "車隊統一編號已變更",
       "fleet.DepartureAtRisk": "出發有風險",
       "fleet.DepartureMissed": "出發目標未達成",
       "invoice.FleetInvoice": "車隊發票已開立",

@@ -186,3 +186,34 @@ describe('DateInput', () => {
     expect(screen.getByRole('button', { name: 'From common.datePicker.open' })).toBeTruthy();
   });
 });
+
+describe('DateInput compact', () => {
+  it('shows a stored day in the short numeric form below sm and keeps the full day in the field', () => {
+    render(<DateInput aria-label="From" value="2026-10-20" onChange={() => {}} compact />);
+    const short = screen.getByTestId('date-input-short');
+    expect(short.textContent).toBe('10/20/26');
+    expect(short.getAttribute('aria-hidden')).toBe('true');
+    expect(short.className).toContain('sm:hidden');
+    const field = screen.getByRole<HTMLInputElement>('textbox', { name: 'From' });
+    expect(field.value).toBe('2026-10-20');
+    expect(field.className).toContain('max-sm:text-transparent');
+    expect(field.className).toContain('max-sm:focus:text-foreground');
+  });
+
+  it('shows the typed text instead of the short day while the text is not the stored day', () => {
+    render(<DateInput aria-label="From" value="2026-10-20" onChange={() => {}} compact />);
+    const field = screen.getByRole<HTMLInputElement>('textbox', { name: 'From' });
+    fireEvent.change(field, { target: { value: '2026-10' } });
+    expect(screen.queryByTestId('date-input-short')).toBeNull();
+    expect(field.className).not.toContain('max-sm:text-transparent');
+  });
+
+  it('adds nothing without compact or without a day', () => {
+    const { rerender } = render(
+      <DateInput aria-label="From" value="2026-10-20" onChange={() => {}} />,
+    );
+    expect(screen.queryByTestId('date-input-short')).toBeNull();
+    rerender(<DateInput aria-label="From" value="" onChange={() => {}} compact />);
+    expect(screen.queryByTestId('date-input-short')).toBeNull();
+  });
+});

@@ -208,6 +208,10 @@ const mockFindLinkableStationTokens = vi.hoisted(() =>
 );
 vi.mock('../authorization/station-token-match.js', () => ({
   findLinkableStationTokens: mockFindLinkableStationTokens,
+  findLinkableStationTokenMatch: async (value: string, type?: string | null) => ({
+    tokens: await mockFindLinkableStationTokens(value, type),
+    ambiguous: false,
+  }),
 }));
 
 vi.mock('@evtivity/database', async () => ({

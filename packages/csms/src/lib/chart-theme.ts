@@ -6,6 +6,7 @@
  * ApexCharts requires hex strings, not CSS variables.
  */
 
+import type { ApexOptions } from 'apexcharts';
 import type { SecuritySeverity } from '@evtivity/lib/security-severity';
 import { formatCalendarDate } from './formatting';
 
@@ -25,6 +26,76 @@ export function formatChartDateLabel(val: unknown): string {
   if (typeof val !== 'string') return '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
   return formatCalendarDate(val, { year: undefined, month: 'numeric', day: 'numeric' });
+}
+
+/** Window width below which a chart takes its phone layout (Tailwind `sm`). */
+export const PHONE_CHART_BREAKPOINT = 640;
+
+/** Window width below which a chart takes its smaller height (Tailwind `md`). */
+export const COMPACT_CHART_BREAKPOINT = 768;
+
+/** Height of a chart below `COMPACT_CHART_BREAKPOINT`. */
+export const COMPACT_CHART_HEIGHT = 250;
+
+/**
+ * Most x-axis labels a category chart shows at phone width. A 375 px phone
+ * leaves about 250 px of plot; labels rotated by 45 degrees need about 17 px
+ * each (an 11 px line over sin 45), so 10 labels keep a clear gap.
+ */
+export const PHONE_AXIS_MAX_LABELS = 10;
+
+type ApexXAxis = NonNullable<ApexOptions['xaxis']>;
+type ApexResponsiveEntry = NonNullable<ApexOptions['responsive']>[number];
+
+/**
+ * The x-axis of a category chart at phone width: labels always rotated by 45
+ * degrees, and only every n-th label shown once there are more than
+ * `PHONE_AXIS_MAX_LABELS`, so no two labels overlap. ApexCharts shows label i
+ * when i is a multiple of round(count / (tickAmount + 1)); the tick amount is
+ * picked so that multiple is ceil(count / max).
+ */
+export function phoneCategoryAxis(
+  labelCount: number,
+  maxLabels: number = PHONE_AXIS_MAX_LABELS,
+): ApexXAxis {
+  const labels = { rotate: -45, rotateAlways: true, hideOverlappingLabels: true };
+  if (labelCount <= maxLabels) return { labels };
+  const step = Math.ceil(labelCount / maxLabels);
+  return { tickAmount: Math.max(1, Math.floor(labelCount / step) - 1), labels };
+}
+
+/**
+ * The responsive entry that gives a category chart the phone x-axis of
+ * `phoneCategoryAxis` below 640 px, with the chart height when one is given
+ * and any other phone options of the chart.
+ */
+export function phoneAxisResponsive(
+  labelCount: number,
+  { height, options }: { height?: number; options?: Omit<ApexOptions, 'xaxis'> } = {},
+): ApexResponsiveEntry {
+  return {
+    breakpoint: PHONE_CHART_BREAKPOINT,
+    options: {
+      ...options,
+      ...(height == null ? {} : { chart: { ...options?.chart, height } }),
+      xaxis: phoneCategoryAxis(labelCount),
+    },
+  };
+}
+
+/**
+ * Responsive options of a category chart: the smaller height below 768 px,
+ * and below 640 px also the phone x-axis. The phone entry repeats the height,
+ * so it does not depend on how ApexCharts combines two matching breakpoints.
+ */
+export function categoryChartResponsive(
+  labelCount: number,
+  height: number = COMPACT_CHART_HEIGHT,
+): ApexResponsiveEntry[] {
+  return [
+    { breakpoint: COMPACT_CHART_BREAKPOINT, options: { chart: { height } } },
+    phoneAxisResponsive(labelCount, { height }),
+  ];
 }
 
 export const CHART_COLORS = {

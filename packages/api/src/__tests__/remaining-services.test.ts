@@ -139,6 +139,7 @@ vi.mock('drizzle-orm', () => ({
   gte: vi.fn(),
   count: vi.fn(),
   inArray: vi.fn(),
+  notInArray: vi.fn(),
   ne: vi.fn(),
 }));
 

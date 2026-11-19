@@ -63,6 +63,7 @@ vi.mock('../../../../database/src/lib/pricing-settings.js', () => ({
 // The session's token link (tested in station-token-match.test.ts): no card.
 vi.mock('../../authorization/station-token-match.js', () => ({
   findLinkableStationTokens: vi.fn().mockResolvedValue([]),
+  findLinkableStationTokenMatch: vi.fn().mockResolvedValue({ tokens: [], ambiguous: false }),
 }));
 
 vi.mock('@evtivity/database', async () => ({

@@ -5220,6 +5220,8 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   }),
   // The Dashboard fleet summary counts sessions at the caller's sites; the credit
   // limit and the fleet invoices span every site: all-site users only.
+  // The Dashboard Charging Sessions item: the fleets' sessions at the caller's sites.
+  l('/fleets/dashboard-sessions', 'fleets:read, sessions:read', () => '/fleets/dashboard-sessions'),
   l('/fleets/metrics-summary', 'fleets:read', () => '/fleets/metrics-summary?days=90', {
     noLimit: true,
     hidden: ['creditLimit', 'invoices'],
@@ -5676,6 +5678,11 @@ export interface FleetScopeEntry {
   pdf?: boolean;
   /** The fleet card routes: the reply holds the card value and type. */
   cardRoute?: boolean;
+  /**
+   * Forbidden keys this reply may hold: the billing contacts a fleet user with
+   * fleetBilling:read edits (security case 468).
+   */
+  allowedKeys?: string[];
 }
 
 /**
@@ -5721,6 +5728,19 @@ const FLEET_BILLING_KEYS = [
   'billingCountry',
   'billingTaxId',
   'invoiceLanguage',
+  'paymentTermsDays',
+  'autoInvoice',
+];
+
+/**
+ * What a fleet user with fleetBilling:write never reads on its fleet: the
+ * credit limit, the invoice recipient, the payment terms and automatic
+ * invoicing. The contacts, bill-to, VAT ID and invoice language it edits.
+ */
+const FLEET_MANAGER_HIDDEN_KEYS = [
+  'creditLimitCents',
+  'creditLimitWarningPercent',
+  'accountInvoiceRecipient',
   'paymentTermsDays',
   'autoInvoice',
 ];
@@ -5771,7 +5791,21 @@ export const FLEET_SCOPE_ROUTES: FleetScopeEntry[] = [
     url: fl,
     other: [fleetNotFound(otherFleetUrl), fleetNotFound((w) => `/fleets/${w.pricedFleet}`)],
     shows: (w) => [w.fleet],
-    hidden: FLEET_BILLING_KEYS,
+    hidden: FLEET_MANAGER_HIDDEN_KEYS,
+    allowedKeys: ['billingContactEmails'],
+  },
+  // The billing profile a fleet user with fleetBilling:write edits: contacts,
+  // bill-to, VAT ID and invoice language only (security case 468).
+  {
+    method: 'PATCH',
+    path: '/fleets/:id/billing-profile',
+    perm: 'fleets:read, fleetBilling:write',
+    url: (w) => `${fl(w)}/billing-profile`,
+    body: () => ({ billingLegalName: 'Fleet Billing Co' }),
+    other: [fleetNotFound((w, fx) => `${otherFleetUrl(w, fx)}/billing-profile`)],
+    shows: (w) => [w.fleet],
+    hidden: FLEET_MANAGER_HIDDEN_KEYS,
+    allowedKeys: ['billingContactEmails'],
   },
   {
     method: 'GET',
@@ -5834,6 +5868,14 @@ export const FLEET_SCOPE_ROUTES: FleetScopeEntry[] = [
     url: (w) => `/fleets/metrics-summary?fleetId=${w.fleet}&days=90`,
     other: [fleetNotFound((_w, fx) => `/fleets/metrics-summary?fleetId=${fx.otherFleet}&days=90`)],
     shows: (_w, fx) => [fx.invoice],
+  },
+  {
+    method: 'GET',
+    path: '/fleets/dashboard-sessions',
+    perm: 'fleets:read, sessions:read',
+    url: (w) => `/fleets/dashboard-sessions?fleetId=${w.fleet}&limit=100`,
+    other: [fleetNotFound((_w, fx) => `/fleets/dashboard-sessions?fleetId=${fx.otherFleet}`)],
+    shows: (_w, fx) => [fx.paidSession],
   },
   {
     method: 'GET',

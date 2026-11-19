@@ -41,6 +41,12 @@ export type InvoiceDateMode = 'run_date' | 'period_end';
 
 export interface FleetBillingProfileCardProps {
   fleet: { id: string; name: string } & Partial<FleetBillingProfile>;
+  /**
+   * A fleet user's view: the contacts, the bill-to name and address, the VAT
+   * ID and the invoice language, edited with fleetBilling:write. The payment
+   * terms, the invoice date and automatic invoicing stay with operators.
+   */
+  managerMode?: boolean;
 }
 
 export const MAX_BILLING_CONTACTS = 10;
@@ -92,6 +98,7 @@ const textOrNull = (value: string): string | null => (value.trim() === '' ? null
 /** Fleet billing profile: who the fleet invoice goes to and how it is issued. */
 export function FleetBillingProfileCard({
   fleet,
+  managerMode = false,
 }: FleetBillingProfileCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -99,7 +106,8 @@ export function FleetBillingProfileCard({
   // Fleet billing changes money: fleets:write and payments:write, as the API.
   const canWriteFleets = useHasPermission('fleets:write');
   const canWritePayments = useHasPermission('payments:write');
-  const canWrite = canWriteFleets && canWritePayments;
+  const canWriteProfile = useHasPermission('fleetBilling:write');
+  const canWrite = managerMode ? canWriteProfile : canWriteFleets && canWritePayments;
   const [editing, setEditing] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [form, setForm] = useState<FormState>(() => toForm(fleet));
@@ -132,7 +140,11 @@ export function FleetBillingProfileCard({
     errors.contacts = t('errors.FLEET_BILLING_CONTACT_REQUIRED');
   }
   const terms = form.paymentTerms.trim();
-  if (terms !== '' && (!/^\d+$/.test(terms) || Number(terms) > MAX_PAYMENT_TERMS_DAYS)) {
+  if (
+    !managerMode &&
+    terms !== '' &&
+    (!/^\d+$/.test(terms) || Number(terms) > MAX_PAYMENT_TERMS_DAYS)
+  ) {
     errors.paymentTerms = t('fleets.billingProfile.paymentTermsInvalid', {
       max: MAX_PAYMENT_TERMS_DAYS,
     });
@@ -152,7 +164,7 @@ export function FleetBillingProfileCard({
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
-    mutation.mutate({
+    const profile = {
       billingContactEmails: contacts,
       billingLegalName: textOrNull(form.legalName),
       billingStreet: textOrNull(form.street),
@@ -162,16 +174,24 @@ export function FleetBillingProfileCard({
       billingCountry: textOrNull(form.country),
       billingTaxId: textOrNull(form.taxId),
       invoiceLanguage: form.language,
-      paymentTermsDays: terms === '' ? null : Number(terms),
-      autoInvoice: form.autoInvoice,
-      invoiceDateMode: form.invoiceDateMode,
-    });
+    };
+    mutation.mutate(
+      managerMode
+        ? profile
+        : {
+            ...profile,
+            paymentTermsDays: terms === '' ? null : Number(terms),
+            autoInvoice: form.autoInvoice,
+            invoiceDateMode: form.invoiceDateMode,
+          },
+    );
   }
 
   const textField = (
     key: 'legalName' | 'street' | 'city' | 'state' | 'zip' | 'country' | 'taxId',
     label: string,
     maxLength: number,
+    help?: string,
   ): React.JSX.Element => (
     <div className="space-y-2">
       <Label htmlFor={`billing-${key}`}>{label}</Label>
@@ -179,10 +199,16 @@ export function FleetBillingProfileCard({
         id={`billing-${key}`}
         value={form[key]}
         maxLength={maxLength}
+        aria-describedby={help != null ? `billing-${key}-help` : undefined}
         onChange={(e) => {
           set(key, e.target.value);
         }}
       />
+      {help != null && (
+        <p id={`billing-${key}-help`} className="text-xs text-muted-foreground">
+          {help}
+        </p>
+      )}
     </div>
   );
 
@@ -200,7 +226,11 @@ export function FleetBillingProfileCard({
     <TabPanel
       data-testid="fleet-billing-profile"
       title={t('fleets.billingProfile.title')}
-      description={t('fleets.billingProfile.description')}
+      description={
+        managerMode
+          ? t('fleets.billingProfile.managerDescription')
+          : t('fleets.billingProfile.description')
+      }
       actions={
         canWrite && !editing ? (
           <EditButton label={t('common.edit')} onClick={startEdit} />
@@ -229,7 +259,12 @@ export function FleetBillingProfileCard({
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
             {textField('legalName', t('fleets.billingProfile.legalName'), 255)}
-            {textField('taxId', t('fleets.billingProfile.taxId'), 50)}
+            {textField(
+              'taxId',
+              t('fleets.billingProfile.taxId'),
+              50,
+              managerMode ? t('fleets.billingProfile.taxIdHelp') : undefined,
+            )}
             {textField('street', t('fleets.billingProfile.street'), 255)}
             {textField('city', t('fleets.billingProfile.city'), 100)}
             {textField('state', t('fleets.billingProfile.state'), 100)}
@@ -245,63 +280,77 @@ export function FleetBillingProfileCard({
                 }}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="billing-terms">{t('fleets.billingProfile.paymentTerms')}</Label>
-              <Input
-                id="billing-terms"
-                inputMode="numeric"
-                value={form.paymentTerms}
-                placeholder={t('fleets.billingProfile.paymentTermsDefault')}
-                className={hasSubmitted && errors.paymentTerms != null ? 'border-destructive' : ''}
-                onChange={(e) => {
-                  set('paymentTerms', e.target.value);
-                }}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('fleets.billingProfile.paymentTermsHelp')}
-              </p>
-              {hasSubmitted && errors.paymentTerms != null && (
-                <p className="text-sm text-destructive">{errors.paymentTerms}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="billing-invoice-date">{t('fleets.billingProfile.invoiceDate')}</Label>
-              <Select
-                id="billing-invoice-date"
-                value={form.invoiceDateMode}
-                onChange={(e) => {
-                  set(
-                    'invoiceDateMode',
-                    e.target.value === 'period_end' ? 'period_end' : 'run_date',
-                  );
-                }}
-              >
-                <option value="run_date">{t('fleets.billingProfile.invoiceDateRunDate')}</option>
-                <option value="period_end">
-                  {t('fleets.billingProfile.invoiceDatePeriodEnd')}
-                </option>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {t('fleets.billingProfile.invoiceDateHelp')}
-              </p>
-            </div>
+            {!managerMode && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="billing-terms">{t('fleets.billingProfile.paymentTerms')}</Label>
+                  <Input
+                    id="billing-terms"
+                    inputMode="numeric"
+                    value={form.paymentTerms}
+                    placeholder={t('fleets.billingProfile.paymentTermsDefault')}
+                    className={
+                      hasSubmitted && errors.paymentTerms != null ? 'border-destructive' : ''
+                    }
+                    onChange={(e) => {
+                      set('paymentTerms', e.target.value);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('fleets.billingProfile.paymentTermsHelp')}
+                  </p>
+                  {hasSubmitted && errors.paymentTerms != null && (
+                    <p className="text-sm text-destructive">{errors.paymentTerms}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="billing-invoice-date">
+                    {t('fleets.billingProfile.invoiceDate')}
+                  </Label>
+                  <Select
+                    id="billing-invoice-date"
+                    value={form.invoiceDateMode}
+                    onChange={(e) => {
+                      set(
+                        'invoiceDateMode',
+                        e.target.value === 'period_end' ? 'period_end' : 'run_date',
+                      );
+                    }}
+                  >
+                    <option value="run_date">
+                      {t('fleets.billingProfile.invoiceDateRunDate')}
+                    </option>
+                    <option value="period_end">
+                      {t('fleets.billingProfile.invoiceDatePeriodEnd')}
+                    </option>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t('fleets.billingProfile.invoiceDateHelp')}
+                  </p>
+                </div>
+              </>
+            )}
           </div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="billing-auto-invoice"
-                checked={form.autoInvoice}
-                aria-describedby="billing-auto-invoice-help"
-                onChange={(e) => {
-                  set('autoInvoice', e.target.checked);
-                }}
-              />
-              <Label htmlFor="billing-auto-invoice">{t('fleets.billingProfile.autoInvoice')}</Label>
+          {!managerMode && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="billing-auto-invoice"
+                  checked={form.autoInvoice}
+                  aria-describedby="billing-auto-invoice-help"
+                  onChange={(e) => {
+                    set('autoInvoice', e.target.checked);
+                  }}
+                />
+                <Label htmlFor="billing-auto-invoice">
+                  {t('fleets.billingProfile.autoInvoice')}
+                </Label>
+              </div>
+              <p id="billing-auto-invoice-help" className="text-xs text-muted-foreground">
+                {t('fleets.billingProfile.autoInvoiceHelp')}
+              </p>
             </div>
-            <p id="billing-auto-invoice-help" className="text-xs text-muted-foreground">
-              {t('fleets.billingProfile.autoInvoiceHelp')}
-            </p>
-          </div>
+          )}
           <div className="flex justify-end gap-2">
             <CancelButton
               onClick={() => {
@@ -338,30 +387,34 @@ export function FleetBillingProfileCard({
             <dt className="text-muted-foreground">{t('fleets.billingProfile.invoiceLanguage')}</dt>
             <dd className="font-medium">{languageLabel}</dd>
           </div>
-          <div>
-            <dt className="text-muted-foreground">{t('fleets.billingProfile.paymentTerms')}</dt>
-            <dd className="font-medium">
-              {fleet.paymentTermsDays == null
-                ? t('fleets.billingProfile.paymentTermsDefault')
-                : String(fleet.paymentTermsDays)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">{t('fleets.billingProfile.invoiceDate')}</dt>
-            <dd className="font-medium">
-              {fleet.invoiceDateMode === 'period_end'
-                ? t('fleets.billingProfile.invoiceDatePeriodEnd')
-                : t('fleets.billingProfile.invoiceDateRunDate')}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">{t('fleets.billingProfile.autoInvoice')}</dt>
-            <dd>
-              <Badge variant={fleet.autoInvoice === true ? 'success' : 'outline'}>
-                {fleet.autoInvoice === true ? t('fleets.billing.on') : t('fleets.billing.off')}
-              </Badge>
-            </dd>
-          </div>
+          {!managerMode && (
+            <>
+              <div>
+                <dt className="text-muted-foreground">{t('fleets.billingProfile.paymentTerms')}</dt>
+                <dd className="font-medium">
+                  {fleet.paymentTermsDays == null
+                    ? t('fleets.billingProfile.paymentTermsDefault')
+                    : String(fleet.paymentTermsDays)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('fleets.billingProfile.invoiceDate')}</dt>
+                <dd className="font-medium">
+                  {fleet.invoiceDateMode === 'period_end'
+                    ? t('fleets.billingProfile.invoiceDatePeriodEnd')
+                    : t('fleets.billingProfile.invoiceDateRunDate')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('fleets.billingProfile.autoInvoice')}</dt>
+                <dd>
+                  <Badge variant={fleet.autoInvoice === true ? 'success' : 'outline'}>
+                    {fleet.autoInvoice === true ? t('fleets.billing.on') : t('fleets.billing.off')}
+                  </Badge>
+                </dd>
+              </div>
+            </>
+          )}
         </dl>
       )}
     </TabPanel>

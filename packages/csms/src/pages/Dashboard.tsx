@@ -38,6 +38,7 @@ import { SortableZone } from '@/components/dashboard/SortableZone';
 import { SortableWidget } from '@/components/dashboard/SortableWidget';
 import { SiteLayoutWidget } from '@/components/dashboard/SiteLayoutWidget';
 import { FleetInvoicesWidget } from '@/components/dashboard/FleetInvoicesWidget';
+import { FleetChargingSessionsWidget } from '@/components/dashboard/FleetChargingSessionsWidget';
 import { FleetCombobox, type FleetSelection } from '@/components/fleet-combobox';
 import { Label } from '@/components/ui/label';
 import { useFleetDashboard } from '@/hooks/use-fleet-dashboard';
@@ -607,7 +608,7 @@ function ModeToggle({
         ))}
       </div>
       {mode === 'historical' && pickerOpen && (
-        <div className="absolute right-0 top-full z-20 mt-2 rounded-md border border-border bg-popover p-3 shadow-md animate-slide-in-from-top">
+        <div className="absolute right-0 top-full z-20 mt-2 w-[calc(100vw-2rem)] max-w-sm rounded-md border border-border bg-popover p-3 shadow-md animate-slide-in-from-top sm:w-auto sm:max-w-none">
           <DateRangeControl
             days={range.days}
             from={range.customFrom}
@@ -1942,6 +1943,12 @@ function DashboardBody({
           />
         );
       },
+    },
+    'chart.fleetChargingSessions': {
+      name: t('dashboard.fleet.chargingSessions'),
+      // A fleet user's fleets only: operators keep the Active Sessions item.
+      visible: fleetView && isFleetUser && canSeeSessions,
+      render: () => <FleetChargingSessionsWidget fleetId={fleetPick?.id ?? null} />,
     },
   };
 

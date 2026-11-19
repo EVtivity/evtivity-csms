@@ -300,7 +300,31 @@ const FLEET_CARD_NOT_BILLABLE = {
 };
 
 /** Maps a refused card write to its answer; false when the error is not one. */
-async function sendCardWriteError(reply: FastifyReply, err: unknown): Promise<boolean> {
+/**
+ * What a fleet user gets for a card value it may not add: registered outside
+ * its fleet, a vehicle id in use, or a vehicle id shape. One answer for all,
+ * so an add never tells a fleet user that a value exists (security case 466).
+ */
+const FLEET_USER_CARD_VALUE_REFUSED = {
+  error: 'This RFID card value cannot be added',
+  code: 'VALIDATION_ERROR',
+  details: { field: 'idToken' },
+} as const;
+
+async function sendCardWriteError(
+  reply: FastifyReply,
+  err: unknown,
+  byFleetUser: boolean,
+): Promise<boolean> {
+  if (
+    byFleetUser &&
+    (err instanceof tokenService.DuplicateTokenError ||
+      err instanceof tokenService.VehicleIdTokenInUseError ||
+      err instanceof tokenService.VehicleShapedCardError)
+  ) {
+    await reply.status(400).send(FLEET_USER_CARD_VALUE_REFUSED);
+    return true;
+  }
   if (
     err instanceof tokenService.FleetCardDriverNotMemberError ||
     // A fleet user learns nothing about drivers outside its fleet.
@@ -335,6 +359,14 @@ async function sendCardWriteError(reply: FastifyReply, err: unknown): Promise<bo
     await reply.status(403).send({
       error: 'This card cannot be turned on here',
       code: 'TOKEN_BLOCKED_BY_OPERATOR',
+    });
+    return true;
+  }
+  if (err instanceof tokenService.FleetCardTypeNotAllowedError) {
+    await reply.status(400).send({
+      error: 'Fleet users add ISO14443 or ISO15693 RFID cards only',
+      code: 'VALIDATION_ERROR',
+      details: { field: 'tokenType' },
     });
     return true;
   }
@@ -467,7 +499,7 @@ export function fleetCardRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Add an RFID card to a fleet',
         description:
-          'Adds a card the fleet owns, kept with the fleet or given to an active member (400 FLEET_CARD_DRIVER_NOT_MEMBER otherwise). Every session of the card is billed to the fleet account, whoever holds it, so the fleet must bill on account (409 FLEET_CARD_NOT_BILLABLE otherwise). A value already registered answers 409 TOKEN_DUPLICATE, a vehicle id shape 400.',
+          'Adds a card the fleet owns, kept with the fleet or given to an active member (400 FLEET_CARD_DRIVER_NOT_MEMBER otherwise). Every session of the card is billed to the fleet account, whoever holds it, so the fleet must bill on account (409 FLEET_CARD_NOT_BILLABLE otherwise). A value already registered answers an operator 409 TOKEN_DUPLICATE, a vehicle id shape 400; a fleet user gets one 400 VALIDATION_ERROR (details.field idToken) for a value registered anywhere, a vehicle id in use or a vehicle id shape alike, so it never learns that a value exists. A fleet user adds ISO14443 (an RFID card or key fob, the default) or ISO15693 cards only; another type answers 400 VALIDATION_ERROR with details.field tokenType.',
         operationId: 'createFleetCard',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -515,7 +547,7 @@ export function fleetCardRoutes(app: FastifyInstance): void {
           { fleet: scope },
         );
       } catch (err) {
-        if (await sendCardWriteError(reply, err)) return;
+        if (await sendCardWriteError(reply, err, scope.byFleetUser)) return;
         throw err;
       }
       const card = token == null ? null : await findCard(id, token.id);
@@ -534,7 +566,7 @@ export function fleetCardRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Import RFID cards to a fleet from a CSV file',
         description:
-          'Adds the cards of a CSV file (columns idToken, tokenType, label, memberEmail; idToken required, tokenType ISO14443 when empty) to the fleet, each row like a single add: the same card types, vehicle id and duplicate refusals, and, for an operator, a member email of an active member of the fleet (a fleet user file with a member email answers 400 VALIDATION_ERROR and writes nothing: it gives cards to members on the RFID Cards tab). A fleet that does not bill on account answers 409 FLEET_CARD_NOT_BILLABLE and writes nothing. At most 512 KB and 2000 data rows (400 VALIDATION_ERROR, nothing written). Each row is written on its own, so a refused row changes nothing; refused rows come back as row (the line in the file, the header is line 1), field and reason, never the value. Fleet users of the fleet and operators with access to every site; a site-restricted operator gets 404 FLEET_NOT_FOUND. 5 imports a minute per user.',
+          'Adds the cards of a CSV file (columns idToken, tokenType, label, memberEmail; idToken required, tokenType ISO14443 when empty) to the fleet, each row like a single add: the same card types (a fleet user ISO14443 or ISO15693 only), vehicle id and duplicate refusals, and, for an operator, a member email of an active member of the fleet (a fleet user file with a member email answers 400 VALIDATION_ERROR and writes nothing: it gives cards to members on the RFID Cards tab). A fleet that does not bill on account answers 409 FLEET_CARD_NOT_BILLABLE and writes nothing. At most 512 KB and 2000 data rows (400 VALIDATION_ERROR, nothing written). Each row is written on its own, so a refused row changes nothing; refused rows come back as row (the line in the file, the header is line 1), field and reason, never the value. Fleet users of the fleet and operators with access to every site; a site-restricted operator gets 404 FLEET_NOT_FOUND. 5 imports a minute per user.',
         operationId: 'importFleetCards',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -670,7 +702,7 @@ export function fleetCardRoutes(app: FastifyInstance): void {
           return;
         }
       } catch (err) {
-        if (await sendCardWriteError(reply, err)) return;
+        if (await sendCardWriteError(reply, err, scope.byFleetUser)) return;
         throw err;
       }
       const card = await findCard(id, tokenId);

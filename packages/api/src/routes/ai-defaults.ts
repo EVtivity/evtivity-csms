@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, selfService } from '../middleware/rbac.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
 import { PROMPT_LANGUAGES, promptLanguage } from '@evtivity/ai/prompt';
 import { buildAiDefaults } from '../services/ai/surfaces/defaults.js';
@@ -96,7 +96,7 @@ export function aiDefaultsRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/ai-defaults',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService({ allowApiKey: true, fleetUsers: false })],
       schema: {
         tags: ['Users'],
         summary: 'Get the built-in AI prompts and models for personal AI configuration',

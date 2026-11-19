@@ -249,6 +249,8 @@ export const driverTokens = pgTable(
   },
   (table) => [
     index('idx_driver_tokens_id_token').on(table.idToken),
+    // Stations look card ids up regardless of letter case (OCPP idTokens).
+    index('idx_driver_tokens_id_token_lower').on(sql`lower(${table.idToken})`),
     index('idx_driver_tokens_driver_id').on(table.driverId),
     index('idx_driver_tokens_expires_at').on(table.expiresAt),
     index('idx_driver_tokens_vehicle_id').on(table.vehicleId),

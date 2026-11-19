@@ -463,9 +463,11 @@ describe('SIM inventory routes', () => {
         },
       });
       m.refreshSimProvider.mockResolvedValueOnce({ result: 'skipped', reason: 'provider_off' });
+      // A recent range: a fixed date ages past the history window and the retention.
+      const day = 86_400_000;
       const res = await call('POST', `/sims/${SIM_ID}/refresh`, {
-        from: '2026-10-20T00:00:00Z',
-        to: '2026-10-21T00:00:00Z',
+        from: new Date(Date.now() - 2 * day).toISOString(),
+        to: new Date(Date.now() - day).toISOString(),
         retryLookup: true,
       });
       expect(res.statusCode).toBe(200);

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 const errors = vi.hoisted(() => {
   class DuplicateTokenError extends Error {}
   class VehicleShapedCardError extends Error {}
+  class FleetCardTypeNotAllowedError extends Error {}
   class VehicleIdTokenInUseError extends Error {}
   class FleetCardDeactivatedError extends Error {}
   class TokenReactivationBlockedError extends Error {}
@@ -17,6 +18,7 @@ const errors = vi.hoisted(() => {
   return {
     DuplicateTokenError,
     VehicleShapedCardError,
+    FleetCardTypeNotAllowedError,
     VehicleIdTokenInUseError,
     FleetCardDeactivatedError,
     TokenReactivationBlockedError,
@@ -55,6 +57,61 @@ function deps(
 }
 
 describe('importFleetCards', () => {
+  it('answers a fleet user a value registered outside its fleet as not valid, never as registered', async () => {
+    const createCard = vi.fn((data: { idToken: string }) =>
+      data.idToken === 'TAKEN'
+        ? Promise.reject(new errors.DuplicateTokenError())
+        : Promise.resolve({ id: 'dtk_x' }),
+    );
+    const csv = ['idToken,tokenType,label', 'TAKEN,,', 'CARD-2,,', 'CARD-2,,'].join('\n');
+    const asFleetUser = await importFleetCards(
+      fleetUserScope,
+      csv,
+      actor,
+      deps({}, createCard as unknown as FleetCardImportDeps['createCard']),
+    );
+    expect(asFleetUser.refused).toEqual([
+      { row: 2, field: 'idToken', reason: 'invalid' },
+      // A repeat within the file says nothing about other fleets.
+      { row: 4, field: 'idToken', reason: 'duplicate' },
+    ]);
+    const asOperator = await importFleetCards(
+      scope,
+      csv,
+      actor,
+      deps({}, createCard as unknown as FleetCardImportDeps['createCard']),
+    );
+    expect(asOperator.refused[0]).toEqual({ row: 2, field: 'idToken', reason: 'duplicate' });
+  });
+
+  it('refuses a fleet user every card type but ISO14443 and ISO15693, and writes nothing for them', async () => {
+    const createCard = vi.fn(() => Promise.resolve({ id: 'dtk_x' }));
+    const csv = [
+      'idToken,tokenType,label',
+      'CARD-1,,',
+      'CARD-2,ISO15693,',
+      'CARD-3,KeyCode,',
+      'CARD-4,eMAID,',
+      'CARD-5,Local,',
+    ].join('\n');
+    const result = await importFleetCards(
+      fleetUserScope,
+      csv,
+      actor,
+      deps({}, createCard as unknown as FleetCardImportDeps['createCard']),
+    );
+    expect(result.created).toBe(2);
+    expect(result.refused).toEqual([
+      { row: 4, field: 'tokenType', reason: 'invalid' },
+      { row: 5, field: 'tokenType', reason: 'invalid' },
+      { row: 6, field: 'tokenType', reason: 'invalid' },
+    ]);
+    expect(createCard.mock.calls.map((c) => (c as unknown[])[0])).toEqual([
+      expect.objectContaining({ idToken: 'CARD-1', tokenType: 'ISO14443' }),
+      expect.objectContaining({ idToken: 'CARD-2', tokenType: 'ISO15693' }),
+    ]);
+  });
+
   it('adds every valid row through the token service with the fleet scope', async () => {
     const createCard = vi.fn(() => Promise.resolve({ id: 'dtk_x' }));
     const csv =

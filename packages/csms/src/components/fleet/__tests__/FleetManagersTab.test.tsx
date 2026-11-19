@@ -21,7 +21,7 @@ vi.mock('react-i18next', () => ({
 }));
 vi.mock('@/lib/api', () => ({ api: { get: h.getMock } }));
 
-import { FleetManagersTab, fleetManagerCreatePath, permissionSummary } from '../FleetManagersTab';
+import { FleetManagersTab, fleetManagerCreatePath } from '../FleetManagersTab';
 
 function Where(): React.JSX.Element {
   const location = useLocation();
@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe('FleetManagersTab', () => {
-  it('lists the fleet users with their permissions and last sign-in', async () => {
+  it('lists the fleet users with their email and last sign-in, without a permissions column', async () => {
     h.getMock.mockResolvedValue({
       data: [
         {
@@ -81,15 +81,8 @@ describe('FleetManagersTab', () => {
     expect(screen.getByText('fleets.managers.neverSignedIn')).toBeTruthy();
     expect(screen.getByText('common.unnamedUser')).toBeTruthy();
     expect(screen.getByText('common.inactive')).toBeTruthy();
-    expect(
-      screen.getByText(
-        'users.permissionGroups.fleetCards (users.permissionWrite), users.permissionGroups.fleets (users.permissionRead)',
-      ),
-    ).toBeTruthy();
-    // Table cells default to one line, so a long list must wrap inside its cell.
-    for (const cell of screen.getAllByTestId('fleet-manager-permissions')) {
-      expect(cell.className).toContain('whitespace-normal');
-    }
+    expect(screen.queryByText('fleets.managers.permissions')).toBeNull();
+    expect(screen.queryByText(/users\.permissionGroups/)).toBeNull();
 
     fireEvent.click(screen.getByTestId('fleet-manager-row-usr_1'));
     expect(screen.getByTestId('where').textContent).toBe('/users/usr_1');
@@ -110,12 +103,5 @@ describe('FleetManagersTab', () => {
     renderTab();
     await screen.findByText('fleets.managers.empty');
     expect(screen.queryByTestId('fleet-manager-add')).toBeNull();
-  });
-
-  it('names an unknown permission by itself', () => {
-    const t = ((key: string) => key) as unknown as Parameters<typeof permissionSummary>[1];
-    expect(permissionSummary(['custom.thing:read'], t)).toBe(
-      'custom.thing:read (users.permissionRead)',
-    );
   });
 });

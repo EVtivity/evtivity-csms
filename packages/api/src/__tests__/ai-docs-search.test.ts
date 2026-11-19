@@ -9,6 +9,7 @@ const userLanguage = vi.hoisted((): { value: string | null } => ({ value: 'de' }
 
 vi.mock('@evtivity/database', () => ({
   users: { id: 'id', language: 'language' },
+  isFleetEnabled: () => Promise.resolve(true),
   db: {
     select: () => ({
       from: () => ({
@@ -21,6 +22,11 @@ vi.mock('@evtivity/database', () => ({
   },
 }));
 
+vi.mock('../lib/fleet-scope.js', async () =>
+  (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
+);
+
+import { resetFleetScopeMock, setMockUserAccess } from './helpers/fleet-scope-mock.js';
 import {
   corpusFromFile,
   docsPassageUrl,
@@ -193,6 +199,14 @@ describe('GET /docs/search', () => {
 
   afterEach(() => {
     userLanguage.value = 'de';
+    resetFleetScopeMock();
+  });
+
+  it('answers a fleet user route-not-found: only the assistant reads the docs', async () => {
+    setMockUserAccess('usr_000000000001', { kind: 'fleets', fleetIds: ['flt_aaaaaaaaaaaa'] });
+    const res = await app.inject({ method: 'GET', url: '/docs/search?query=company' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ message: 'Route GET:/docs/search?query=company not found' });
   });
 
   it("searches in the user's language by default", async () => {

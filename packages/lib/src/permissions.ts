@@ -43,6 +43,10 @@ const BUILT_IN_GROUPS = [
   { resource: 'fleets', kind: 'page' },
   // RFID cards a fleet owns: read lists them, write adds, assigns and deactivates them.
   { resource: 'fleetCards', kind: 'page' },
+  // A fleet's billing profile edited by its fleet users: invoice contacts, the
+  // company name and address, the VAT ID and the invoice language. Operators
+  // edit the whole profile with fleets:write and payments:write.
+  { resource: 'fleetBilling', kind: 'page' },
   { resource: 'reservations', kind: 'page' },
   { resource: 'support', kind: 'page' },
   { resource: 'payments', kind: 'page' },
@@ -185,12 +189,18 @@ export const FLEET_USER_PERMISSIONS: readonly Permission[] = [
   'payments:read',
   'fleetCards:read',
   'fleetCards:write',
+  'fleetBilling:write',
   'settings.apiKeys:read',
   'settings.apiKeys:write',
 ];
 
-/** The permissions a new user of the Fleet Manager role starts with. */
-export const FLEET_MANAGER_DEFAULTS: readonly Permission[] = FLEET_USER_PERMISSIONS;
+/**
+ * The permissions a new user of the Fleet Manager role starts with: the fleet
+ * user list without the billing profile, which an operator grants on purpose.
+ */
+export const FLEET_MANAGER_DEFAULTS: readonly Permission[] = FLEET_USER_PERMISSIONS.filter(
+  (p) => p !== 'fleetBilling:write',
+);
 
 /**
  * The permissions of the list a fleet user may not hold. Write implies read, so a write

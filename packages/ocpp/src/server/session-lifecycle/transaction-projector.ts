@@ -43,7 +43,7 @@ import {
   withPaymentActor,
 } from '@evtivity/payments';
 import { cardMayAuthorizeVehicleId, isVehicleIdType } from '@evtivity/lib/vehicle-id';
-import { findLinkableStationTokens } from '../../authorization/station-token-match.js';
+import { findLinkableStationTokenMatch } from '../../authorization/station-token-match.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
 import { linkStartedReservation, markReservationUsed } from '../reservation-projections.js';
@@ -756,7 +756,14 @@ export class TransactionProjector {
         // link by value: a 1.6 transaction event names ISO14443 for any idTag.
         const sentType = payload.tokenType as string | undefined;
         const tokenType = isVehicleIdType(sentType) ? sentType : undefined;
-        const tokenRows = await findLinkableStationTokens(idTokenValue, tokenType);
+        const match = await findLinkableStationTokenMatch(idTokenValue, tokenType);
+        if (match.ambiguous) {
+          this.deps.logger.warn(
+            { sessionId, stationId, idToken: idTokenValue },
+            'Session token matches several cards that differ only in letter case; linking none',
+          );
+        }
+        const tokenRows = match.tokens;
         // The Authorize precedence: a vehicle id the charger sent links a card
         // only of a driver of a vehicle holding it, or when no vehicle does,
         // so another driver's old card never takes the car's session.
@@ -1177,9 +1184,6 @@ export class TransactionProjector {
       const [row] = await this.deps.sql`
         SELECT cs.reservation_id, cs.started_at,
                cs.driver_id AS remote_start_driver_id,
-               dt.id AS token_id, dt.driver_id AS token_driver_id,
-               dt.fleet_id AS token_fleet_id,
-               dt.prepaid_balance_cents IS NOT NULL AS prepaid,
                -- A token one connected partner owns at this station starts a
                -- roaming session; the same rule as isStartableOcpiToken
                -- (@evtivity/database ocpi-token-owner.ts), inline so the
@@ -1193,22 +1197,25 @@ export class TransactionProjector {
                     ON ot.partner_id = oc.partner_id AND ot.uid = oc.token_uid
                   WHERE oc.command_type = 'START_SESSION'
                     AND oc.station_id = ${tx.stationId}
-                    AND oc.token_uid = ${idTokenValue}
+                    AND lower(oc.token_uid) = lower(${idTokenValue})
                     AND oc.charging_session_id IS NULL
                     AND oc.created_at > now() - make_interval(mins => ${OCPI_START_CONTEXT_MINUTES})
                   ORDER BY (oc.remote_start_id IS NOT DISTINCT FROM ${remoteStartId}::integer) DESC,
-                           oc.created_at DESC
+                           (oc.token_uid = ${idTokenValue}) DESC, oc.created_at DESC
                   LIMIT 1),
                  (SELECT count(*) = 1
                   FROM ocpi_external_tokens ot
                   JOIN ocpi_partners op ON op.id = ot.partner_id AND op.status = 'connected'
                     AND op.approved_roles ?| array['EMSP', 'HUB']
-                  WHERE ot.uid = ${idTokenValue} AND ot.is_valid AND ot.whitelist <> 'NEVER'),
+                  WHERE ot.is_valid AND ot.whitelist <> 'NEVER'
+                    AND (ot.uid = ${idTokenValue} OR (lower(ot.uid) = lower(${idTokenValue}) AND NOT EXISTS (
+         SELECT 1 FROM ocpi_external_tokens e
+         JOIN ocpi_partners ep ON ep.id = e.partner_id AND ep.status = 'connected'
+           AND ep.approved_roles ?| array['EMSP', 'HUB']
+         WHERE e.uid = ${idTokenValue})))),
                  false
                ) AS roaming
         FROM charging_sessions cs
-        LEFT JOIN driver_tokens dt
-          ON cs.driver_id IS NULL AND dt.id_token = ${idTokenValue} AND dt.is_active = true
         WHERE cs.id = ${sessionId}
           AND cs.status = 'active'
           AND cs.stopped_reason IS NULL
@@ -1231,17 +1238,31 @@ export class TransactionProjector {
         LIMIT 1
       `;
       if (row == null) return null;
+      const remoteStartDriverId = (row.remote_start_driver_id as string | null) ?? null;
+      // The station token rule Authorize matches by: case-insensitive card
+      // ids, the exact spelling first, none for an ambiguous case variant.
+      const match =
+        remoteStartDriverId == null && idTokenValue != null
+          ? await findLinkableStationTokenMatch(idTokenValue)
+          : null;
+      if (match?.ambiguous === true) {
+        this.deps.logger.warn(
+          { sessionId, stationId: tx.stationId, idToken: idTokenValue },
+          'Session token matches several cards that differ only in letter case; linking none',
+        );
+      }
+      const card = match?.tokens[0];
       return {
         reserved: row.reservation_id != null,
         startedAt: new Date(row.started_at as string | Date).toISOString(),
-        remoteStartDriverId: (row.remote_start_driver_id as string | null) ?? null,
+        remoteStartDriverId,
         token:
-          row.token_id != null
+          card != null
             ? {
-                id: row.token_id as string,
-                driverId: (row.token_driver_id as string | null) ?? null,
-                fleetId: (row.token_fleet_id as string | null) ?? null,
-                prepaid: row.prepaid === true,
+                id: card.id,
+                driverId: card.driverId,
+                fleetId: card.fleetId,
+                prepaid: card.prepaidBalanceCents != null,
               }
             : null,
         roaming: row.roaming === true,

@@ -102,9 +102,9 @@ describe('hasAnySettingsPermission', () => {
 describe('built-in permission catalog', () => {
   const all = permissionCatalog.all();
 
-  it('holds 41 resources with read and write each', () => {
-    expect(permissionCatalog.groups()).toHaveLength(41);
-    expect(all).toHaveLength(82);
+  it('holds 42 resources with read and write each', () => {
+    expect(permissionCatalog.groups()).toHaveLength(42);
+    expect(all).toHaveLength(84);
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -160,19 +160,27 @@ describe('built-in permission catalog', () => {
     for (const p of operator) expect(permissionCatalog.isKnown(p)).toBe(true);
   });
 
-  it('gives viewer read-only access to every page but AI usage, MCP and security events', () => {
+  it('gives viewer read-only access to every page but AI usage, MCP, security events and the fleet billing profile', () => {
     const viewer = permissionCatalog.defaultsFor('viewer');
     const pageReads = permissionCatalog
       .groups()
       .filter((g) => g.kind === 'page')
       .map((g) => g.permissions[0])
-      .filter((p) => p !== 'aiUsage:read' && p !== 'aiMcp:read' && p !== 'securityEvents:read');
+      .filter(
+        (p) =>
+          p !== 'aiUsage:read' &&
+          p !== 'aiMcp:read' &&
+          p !== 'securityEvents:read' &&
+          p !== 'fleetBilling:read',
+      );
     expect([...viewer].sort()).toEqual([...pageReads].sort());
     // A viewer can read AI conversations but not chat (aiAssistant:write).
     expect(viewer).toContain('aiAssistant:read');
     expect(viewer).not.toContain('aiAssistant:write');
     // Station security events are for operators and admins only.
     expect(viewer).not.toContain('securityEvents:read');
+    // The fleet billing profile permission is for fleet users an operator grants it to.
+    expect(viewer).not.toContain('fleetBilling:read');
   });
 
   it('gives any other role the operator defaults', () => {
@@ -189,7 +197,7 @@ describe('built-in permission catalog', () => {
     permissionCatalog.defaultsFor('operator').push('x:read');
     const [first] = permissionCatalog.groups();
     if (first != null) first.resource = 'changed';
-    expect(permissionCatalog.all()).toHaveLength(82);
+    expect(permissionCatalog.all()).toHaveLength(84);
     expect(permissionCatalog.defaultsFor('operator')).toHaveLength(52);
     permissionCatalog.defaultsFor('fleet_manager').push('x:read');
     expect(permissionCatalog.defaultsFor('fleet_manager')).toHaveLength(7);
@@ -281,25 +289,29 @@ describe('AI roadmap permissions (TC-AI-C-12)', () => {
 });
 
 describe('fleet user permissions', () => {
-  it('lists the seven fleet user permissions, all in the catalog', () => {
+  it('lists the eight fleet user permissions, all in the catalog', () => {
     expect([...FLEET_USER_PERMISSIONS]).toEqual([
       'fleets:read',
       'sessions:read',
       'payments:read',
       'fleetCards:read',
       'fleetCards:write',
+      'fleetBilling:write',
       'settings.apiKeys:read',
       'settings.apiKeys:write',
     ]);
     for (const p of FLEET_USER_PERMISSIONS) expect(permissionCatalog.isKnown(p)).toBe(true);
   });
 
-  it('gives the fleet_manager role the fleet user permissions as a copy', () => {
+  it('gives the fleet_manager role the fleet user permissions but the billing profile, as a copy', () => {
     expect(FLEET_MANAGER_ROLE_NAME).toBe('fleet_manager');
     const defaults = permissionCatalog.defaultsFor(FLEET_MANAGER_ROLE_NAME);
     expect(defaults).toEqual([...FLEET_MANAGER_DEFAULTS]);
+    expect(defaults).not.toContain('fleetBilling:write');
     defaults.push('stations:read');
-    expect(permissionCatalog.defaultsFor('fleet_manager')).toEqual([...FLEET_USER_PERMISSIONS]);
+    expect(permissionCatalog.defaultsFor('fleet_manager')).toEqual(
+      FLEET_USER_PERMISSIONS.filter((p) => p !== 'fleetBilling:write'),
+    );
   });
 
   it('accepts permissions inside the list, an empty list included', () => {
@@ -310,6 +322,7 @@ describe('fleet user permissions', () => {
     expect(withinFleetUserPermissions(['settings.apiKeys:read', 'settings.apiKeys:write'])).toBe(
       true,
     );
+    expect(withinFleetUserPermissions(['fleets:read', 'fleetBilling:write'])).toBe(true);
   });
 
   it('refuses every write outside fleet cards and every other permission', () => {
@@ -317,6 +330,7 @@ describe('fleet user permissions', () => {
       'fleets:write',
       'sessions:write',
       'payments:write',
+      'fleetBilling:read',
       'stations:read',
       'drivers:read',
       'settings.system:read',

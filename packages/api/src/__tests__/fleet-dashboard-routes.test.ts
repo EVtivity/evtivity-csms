@@ -65,9 +65,12 @@ vi.mock('@evtivity/database', () => ({
     }),
   },
 }));
+const sessions = vi.hoisted(() => vi.fn());
 vi.mock('../services/fleet-dashboard.service.js', () => ({
   getFleetDashboardSummary: summary,
+  listFleetDashboardSessions: sessions,
 }));
+vi.mock('../lib/session-charging-point.js', () => ({ sessionChargingPointShape: {} }));
 
 import { registerAuth } from '../plugins/auth.js';
 import { fleetDashboardRoutes } from '../routes/fleet-dashboard.js';
@@ -121,6 +124,27 @@ describe('GET /fleets/metrics-summary', () => {
     expect(summary).not.toHaveBeenCalled();
   });
 
+  it('answers a fleet user an unknown fleet id exactly like another fleet, with no lookup', async () => {
+    state.reader = { kind: 'fleets', fleetIds: [FLEET], paymentsRead: true };
+    state.lookedUp = '';
+    const other = await app.inject({
+      method: 'GET',
+      url: `/fleets/metrics-summary?fleetId=${OTHER}`,
+      headers: auth,
+    });
+    const unknown = await app.inject({
+      method: 'GET',
+      url: '/fleets/metrics-summary?fleetId=flt_000000000099',
+      headers: auth,
+    });
+    expect(unknown.statusCode).toBe(other.statusCode);
+    expect(unknown.body).toBe(other.body);
+    expect(other.json()).toEqual({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+    // The answer comes from the assigned fleet ids alone: no fleet row is read.
+    expect(state.lookedUp).toBe('');
+    expect(summary).not.toHaveBeenCalled();
+  });
+
   it('summarizes the assigned fleet, or every assigned fleet, of a fleet user with its billing', async () => {
     state.reader = { kind: 'fleets', fleetIds: [FLEET], paymentsRead: true };
     const one = await app.inject({
@@ -170,5 +194,81 @@ describe('GET /fleets/metrics-summary', () => {
       headers: auth,
     });
     expect(range.statusCode).toBe(400);
+  });
+});
+
+describe('GET /fleets/dashboard-sessions', () => {
+  let app: FastifyInstance;
+  let auth: Record<string, string>;
+  let fleetScope: unknown;
+
+  beforeAll(async () => {
+    app = Fastify();
+    await registerAuth(app);
+    app.addHook('onRoute', (route) => {
+      if (route.url === '/fleets/dashboard-sessions') {
+        fleetScope = (route.config as { fleetScope?: unknown } | undefined)?.fleetScope;
+      }
+    });
+    fleetDashboardRoutes(app);
+    await app.ready();
+    auth = { authorization: `Bearer ${app.jwt.sign({ userId: 'usr_1', roleId: 'rol_1' })}` };
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    state.reader = { kind: 'fleets', fleetIds: [FLEET], paymentsRead: true };
+    state.permissions = new Set(['fleets:read', 'sessions:read', 'payments:read']);
+    sessions.mockReset();
+    sessions.mockResolvedValue({ data: [], total: 0 });
+  });
+
+  it('is open to fleet users', () => {
+    expect(fleetScope).toBe(true);
+  });
+
+  it('lists every assigned fleet when no fleet is picked, with the cost for payments:read', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/fleets/dashboard-sessions?limit=20',
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(sessions).toHaveBeenCalledWith(state.reader, {
+      fleetIds: 'all',
+      page: 1,
+      limit: 20,
+      money: true,
+    });
+  });
+
+  it('lists one picked fleet without the cost when payments:read is missing', async () => {
+    state.permissions = new Set(['fleets:read', 'sessions:read']);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/dashboard-sessions?fleetId=${FLEET}&page=2`,
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(sessions).toHaveBeenCalledWith(state.reader, {
+      fleetIds: [FLEET],
+      page: 2,
+      limit: 10,
+      money: false,
+    });
+  });
+
+  it('answers a fleet user 404 for a fleet it is not assigned, before any read', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/fleets/dashboard-sessions?fleetId=${OTHER}`,
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('FLEET_NOT_FOUND');
+    expect(sessions).not.toHaveBeenCalled();
   });
 });

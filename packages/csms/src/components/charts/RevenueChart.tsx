@@ -8,7 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
+import {
+  CHART_COLORS,
+  getGridColor,
+  formatChartDateLabel,
+  categoryChartResponsive,
+} from '@/lib/chart-theme';
 import { formatCents } from '@/lib/formatting';
 import { LoadingLogo } from '@/components/loading-logo';
 import { CHART_HEIGHT, ChartBody, ChartPlaceholder, type QueryState } from './ChartBody';
@@ -74,14 +79,7 @@ export function RevenueChart({
         },
       },
       colors: [CHART_COLORS.violet],
-      responsive: [
-        {
-          breakpoint: 768,
-          options: {
-            chart: { height: 250 },
-          },
-        },
-      ],
+      responsive: categoryChartResponsive(data.length),
     }),
     [isDark, data, currency, i18n.language],
   );

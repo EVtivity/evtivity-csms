@@ -2,11 +2,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
-const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
+const { getMock, fleetUser } = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  fleetUser: { value: false },
+}));
+
+vi.mock('@/lib/auth', () => ({ useIsFleetUser: () => fleetUser.value }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -69,6 +74,7 @@ function renderPage(): void {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  fleetUser.value = false;
 });
 
 describe('Profile', () => {
@@ -87,6 +93,22 @@ describe('Profile', () => {
     renderPage();
 
     expect(await screen.findByText('profile.personalInfo')).toBeDefined();
+    expect(screen.queryByText('profile.chatbotAi')).toBeNull();
+    expect(screen.queryByText('profile.supportAi')).toBeNull();
+  });
+
+  it('shows a fleet user no AI tabs: it has no assistant or support', async () => {
+    fleetUser.value = true;
+    answer(true, true);
+    renderPage();
+
+    expect(await screen.findByText('profile.personalInfo')).toBeDefined();
+    // Both flags answered on: only the fleet user check hides the tabs.
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith('/v1/portal/features');
+      expect(getMock).toHaveBeenCalledWith('/v1/security/public');
+    });
+    await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByText('profile.chatbotAi')).toBeNull();
     expect(screen.queryByText('profile.supportAi')).toBeNull();
   });

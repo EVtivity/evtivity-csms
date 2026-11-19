@@ -4,7 +4,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { PORTAL_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
+import type { TFunction } from 'i18next';
+import {
+  FLEET_USER_CARD_TYPES,
+  isFleetUserCardType,
+  PORTAL_ID_TOKEN_TYPES,
+} from '@evtivity/lib/id-token-types';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -248,7 +253,7 @@ export function FleetCardsTab({ fleetId }: FleetCardsTabProps): React.JSX.Elemen
                 {rows.map((card) => (
                   <TableRow key={card.id} data-testid={`fleet-card-row-${card.id}`}>
                     <TableCell className="font-medium wrap-anywhere">{card.idToken}</TableCell>
-                    <TableCell>{card.tokenType}</TableCell>
+                    <TableCell>{fleetCardTypeLabel(card.tokenType, isFleetUser, t)}</TableCell>
                     <TableCell className="wrap-anywhere">{card.label ?? ''}</TableCell>
                     <TableCell>
                       {card.driver != null ? (
@@ -358,6 +363,13 @@ export function FleetCardsTab({ fleetId }: FleetCardsTabProps): React.JSX.Elemen
   );
 }
 
+/** A fleet user reads a card type in plain words; operators read the OCPP type. */
+function fleetCardTypeLabel(tokenType: string, isFleetUser: boolean, t: TFunction): string {
+  return isFleetUser && isFleetUserCardType(tokenType)
+    ? t(`fleets.cards.types.${tokenType}`)
+    : tokenType;
+}
+
 function FleetCardAddDialog({
   fleetId,
   onClose,
@@ -368,6 +380,7 @@ function FleetCardAddDialog({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const savedToast = useSavedToast();
+  const isFleetUser = useIsFleetUser();
   const [idToken, setIdToken] = useState('');
   const [tokenType, setTokenType] = useState<string>('ISO14443');
   const [label, setLabel] = useState('');
@@ -441,11 +454,17 @@ function FleetCardAddDialog({
                   setTokenType(e.target.value);
                 }}
               >
-                {PORTAL_ID_TOKEN_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
+                {isFleetUser
+                  ? FLEET_USER_CARD_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {t(`fleets.cards.types.${type}`)}
+                      </option>
+                    ))
+                  : PORTAL_ID_TOKEN_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {`${type} - ${t(`fleets.cards.typeHints.${type}`)}`}
+                      </option>
+                    ))}
               </Select>
             </div>
             <div className="grid gap-2">
@@ -570,6 +589,12 @@ function FleetCardEditDialog({
             <p className="text-sm">
               <span className="text-muted-foreground">{t('fleets.cards.value')}: </span>
               <span className="font-medium wrap-anywhere">{card.idToken}</span>
+            </p>
+            <p className="text-sm">
+              <span className="text-muted-foreground">{t('tokens.type')}: </span>
+              <span className="font-medium" data-testid="fleet-card-edit-type">
+                {fleetCardTypeLabel(card.tokenType, isFleetUser, t)}
+              </span>
             </p>
             <div className="grid gap-2">
               <Label htmlFor="fleet-card-edit-label">{t('tokens.label')}</Label>

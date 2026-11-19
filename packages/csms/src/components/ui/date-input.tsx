@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { uiLocale } from '@/lib/formatting';
+import { formatCalendarDate, uiLocale } from '@/lib/formatting';
 
 /** Space the calendar needs below the field before it opens above it. */
 const CALENDAR_HEIGHT_PX = 380;
@@ -46,6 +46,12 @@ export interface DateInputProps {
   'aria-describedby'?: string | undefined;
   /** Classes of the outer element: width and layout only (`w-auto`, `w-40`, `flex-1`). */
   className?: string | undefined;
+  /**
+   * Below `sm`, shows the day in the short numeric form of the UI language
+   * (10/20/26) with tighter padding, so two fields and a select fit one phone
+   * row. The field keeps its height; focus shows the full day for typing.
+   */
+  compact?: boolean | undefined;
 }
 
 function dayLabel(value: string, locale: string): string {
@@ -92,6 +98,7 @@ export function DateInput({
   'aria-label': ariaLabel,
   'aria-describedby': describedBy,
   className,
+  compact = false,
 }: DateInputProps): React.JSX.Element {
   const { t } = useTranslation();
   const locale = uiLocale();
@@ -220,6 +227,13 @@ export function DateInput({
     moveFocus(isoDay(year, month, day));
   }
 
+  // Only a stored day (the field shows it as typed while focused or invalid).
+  const shortDay =
+    compact && isIsoDay(value) && text === value
+      ? formatCalendarDate(value, { year: '2-digit', month: 'numeric', day: 'numeric' })
+      : '';
+  const showShort = shortDay !== '';
+
   return (
     <div ref={containerRef} className={cn('relative w-full', className)}>
       <Input
@@ -255,8 +269,25 @@ export function DateInput({
             openCalendar();
           }
         }}
-        className={cn('pr-10', invalid === true && 'border-destructive')}
+        className={cn(
+          'peer pr-10',
+          compact && 'max-sm:pl-2 max-sm:pr-8',
+          showShort && 'max-sm:text-transparent max-sm:focus:text-foreground',
+          invalid === true && 'border-destructive',
+        )}
       />
+      {showShort && (
+        <span
+          aria-hidden="true"
+          data-testid="date-input-short"
+          className={cn(
+            'pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2 text-xs sm:hidden peer-focus:hidden',
+            disabled === true && 'opacity-50',
+          )}
+        >
+          {shortDay}
+        </span>
+      )}
       <button
         ref={buttonRef}
         type="button"
@@ -273,7 +304,10 @@ export function DateInput({
           if (open) closeCalendar(false);
           else openCalendar();
         }}
-        className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        className={cn(
+          'absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+          compact && 'max-sm:px-2',
+        )}
       >
         <CalendarDays className="h-4 w-4" />
       </button>

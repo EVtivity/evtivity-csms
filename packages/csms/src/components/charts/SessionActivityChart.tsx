@@ -8,7 +8,12 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, formatChartDateLabel, getGridColor } from '@/lib/chart-theme';
+import {
+  CHART_COLORS,
+  formatChartDateLabel,
+  getGridColor,
+  categoryChartResponsive,
+} from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 import { ChartBody, type QueryState } from './ChartBody';
 
@@ -82,7 +87,7 @@ export function SessionActivityChart({
       },
       dataLabels: { enabled: false },
       colors: [CHART_COLORS.primary, CHART_COLORS.success],
-      responsive: [{ breakpoint: 768, options: { chart: { height: 250 } } }],
+      responsive: categoryChartResponsive(days.length),
     }),
     [isDark, days, t, i18n.language],
   );

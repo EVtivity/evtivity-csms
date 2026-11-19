@@ -147,6 +147,7 @@ vi.mock('drizzle-orm', () => ({
   count: vi.fn(),
   asc: vi.fn(),
   inArray: vi.fn(),
+  notInArray: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({

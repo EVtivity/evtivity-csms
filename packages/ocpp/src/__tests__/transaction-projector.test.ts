@@ -73,7 +73,8 @@ function candidateRow(h: HoldRow) {
 function route(text: string, values: unknown[]): unknown[] {
   if (text.includes('JOIN reservations r ON r.station_id = cs.station_id')) {
     if (text.includes('AND r.reservation_id = ?')) {
-      const ocppId = values[3] as number;
+      // The echoed reservation id is the query's last parameter.
+      const ocppId = values[values.length - 1] as number;
       return holds
         .filter(
           (h) =>

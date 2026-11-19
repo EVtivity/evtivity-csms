@@ -160,6 +160,7 @@ export const FLEET_BILLING_SYSTEM_EVENTS = [
   'fleet.CreditLimitWarning',
   'fleet.CreditLimitReached',
   'fleet.InvoiceRunFailed',
+  'fleet.BillingTaxIdChanged',
 ] as const;
 
 // Fleet manager notices: sent to a fleet's fleet users who may read its payments
@@ -1301,6 +1302,19 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
       name: 'depotSystemUrl',
       description: 'Link to the bus depot systems settings in the CSMS (no token)',
     },
+  ],
+  'fleet.BillingTaxIdChanged': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'fleetName', description: 'Fleet name' },
+    {
+      name: 'previousTaxId',
+      description: 'VAT ID or tax number before the change (empty for none)',
+    },
+    { name: 'newTaxId', description: 'VAT ID or tax number after the change (empty for none)' },
+    { name: 'taxIdRemoved', description: 'True when the change removed the number' },
+    { name: 'changedBy', description: 'Name of the user who changed it' },
+    { name: 'fleetUrl', description: 'Link to the fleet Billing tab in the CSMS (no token)' },
   ],
   'fleet.InvoiceRunFailed': [
     { name: 'firstName', description: 'Operator first name' },

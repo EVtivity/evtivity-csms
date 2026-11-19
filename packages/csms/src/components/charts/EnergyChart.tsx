@@ -9,7 +9,12 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
 import { ChartBody, type QueryState } from './ChartBody';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
+import {
+  CHART_COLORS,
+  getGridColor,
+  formatChartDateLabel,
+  categoryChartResponsive,
+} from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 
 interface EnergyChartProps {
@@ -66,14 +71,7 @@ export function EnergyChart({
         },
       },
       colors: [CHART_COLORS.primary],
-      responsive: [
-        {
-          breakpoint: 768,
-          options: {
-            chart: { height: 250 },
-          },
-        },
-      ],
+      responsive: categoryChartResponsive(data.length),
     }),
     [isDark, data, t, i18n.language],
   );

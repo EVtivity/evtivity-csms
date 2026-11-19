@@ -1,7 +1,19 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, or, ilike, sql, desc, inArray, ne, isNull } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  or,
+  ilike,
+  sql,
+  desc,
+  inArray,
+  ne,
+  isNull,
+  notInArray,
+  type SQL,
+} from 'drizzle-orm';
 import {
   db,
   client,
@@ -34,8 +46,14 @@ import {
   isNewOcpiToken,
   ValidationError,
 } from '@evtivity/lib';
-import { isOcppIdTokenType } from '@evtivity/lib/id-token-types';
-import { isVehicleShapedTokenValue, tokenVehicleIdCandidates } from '@evtivity/lib/vehicle-id';
+import { isFleetUserCardType, isOcppIdTokenType } from '@evtivity/lib/id-token-types';
+import {
+  cardIdMatchKey,
+  isVehicleIdType,
+  VEHICLE_ID_TYPES,
+  isVehicleShapedTokenValue,
+  tokenVehicleIdCandidates,
+} from '@evtivity/lib/vehicle-id';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
@@ -492,6 +510,17 @@ export class FleetCardDriverNotMemberError extends Error {
 }
 
 /**
+ * A fleet user gave a fleet card a type it is not offered: only an ordinary
+ * RFID card or key fob (ISO14443) or another RFID card (ISO15693).
+ */
+export class FleetCardTypeNotAllowedError extends Error {
+  constructor() {
+    super('A fleet user adds only ISO14443 or ISO15693 RFID cards');
+    this.name = 'FleetCardTypeNotAllowedError';
+  }
+}
+
+/**
  * A driver tried to add, change, reactivate or remove a fleet card: the fleet
  * manages it, the member only uses it.
  */
@@ -536,13 +565,38 @@ function mapWriteError(
 
 type TokenDb = Pick<typeof db, 'select'>;
 
+/**
+ * The stored cards a new value of this type collides with. OCPP idTokens are
+ * case-insensitive and a 1.6 idTag carries no type, so a card that is not a
+ * vehicle id collides with the same value of its type in any letter case and
+ * with another spelling of the value in another type. A vehicle id card keeps
+ * the exact rule: its values are stored normalized.
+ */
+function sameCardValue(idToken: string, tokenType: string): SQL {
+  const sameType = eq(driverTokens.tokenType, tokenType);
+  if (isVehicleIdType(tokenType)) {
+    return and(eq(driverTokens.idToken, idToken), sameType) ?? sameType;
+  }
+  const anyCase = sql`lower(${driverTokens.idToken}) = lower(${idToken})`;
+  return (
+    or(
+      and(anyCase, sameType),
+      and(
+        anyCase,
+        ne(driverTokens.idToken, idToken),
+        notInArray(driverTokens.tokenType, [...VEHICLE_ID_TYPES]),
+      ),
+    ) ?? anyCase
+  );
+}
+
 async function tokenExists(
   idToken: string,
   tokenType: string,
   excludeId?: string,
   conn: TokenDb = db,
 ): Promise<boolean> {
-  const conditions = [eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)];
+  const conditions = [sameCardValue(idToken, tokenType)];
   if (excludeId != null) conditions.push(ne(driverTokens.id, excludeId));
   const [row] = await conn
     .select({ id: driverTokens.id })
@@ -989,25 +1043,44 @@ export async function createToken(
   ) {
     throw new VehicleShapedCardError();
   }
+  if (options.fleet?.byFleetUser === true && !isFleetUserCardType(data.tokenType)) {
+    throw new FleetCardTypeNotAllowedError();
+  }
+  // A fleet user's checks that do not depend on the card value run before the
+  // value lookup, so a refusal for the fleet or the member never differs with
+  // whether the value exists: the existence answer is always the last one
+  // (security case 466). They run again under the locks of the insert below.
+  if (options.fleet?.byFleetUser === true && fleetId != null) {
+    assertNoFleetCardBalance(fleetId, data.prepaidBalanceCents ?? null);
+    await db.transaction(async (tx) => {
+      await assertFleetCanHoldCards(fleetId, tx);
+      if (data.driverId != null) await assertFleetCardMember(fleetId, data.driverId, tx);
+    });
+  }
   // Check for an existing row first. If it already belongs to the same driver,
   // treat this as a re-add (driver removed the card, then registered it
   // again) and reactivate the existing row rather than throwing 409. This
   // closes the "can't re-add my own card" UX trap and also means the portal
   // 409 response is reserved for genuine cross-driver collisions only. A
   // driver cannot re-add a card an operator blocked (updateToken refuses).
+  // A stored card that differs only in letter case is the same card at a
+  // station, so it refuses the value too; only the exact spelling is re-added.
   const [existing] = await db
     .select({
       id: driverTokens.id,
+      idToken: driverTokens.idToken,
       driverId: driverTokens.driverId,
       isActive: driverTokens.isActive,
       fleetId: driverTokens.fleetId,
     })
     .from(driverTokens)
-    .where(and(eq(driverTokens.idToken, data.idToken), eq(driverTokens.tokenType, data.tokenType)))
+    .where(sameCardValue(data.idToken, data.tokenType))
+    .orderBy(desc(sql`${driverTokens.idToken} = ${data.idToken}`), driverTokens.id)
     .limit(1);
 
   if (existing != null) {
     if (
+      existing.idToken === data.idToken &&
       data.driverId != null &&
       existing.driverId === data.driverId &&
       !existing.isActive &&
@@ -2073,16 +2146,32 @@ export async function importTokensCsv(
 
     if (prepared.length === 0) return [];
 
+    // Card ids collide in any letter case (`cardIdMatchKey`).
     const existing = await tx
       .select({ idToken: driverTokens.idToken, tokenType: driverTokens.tokenType })
       .from(driverTokens)
       .where(
-        inArray(
-          driverTokens.idToken,
-          prepared.map((p) => p.idToken),
-        ),
+        inArray(sql`lower(${driverTokens.idToken})`, [
+          ...new Set(prepared.map((p) => p.idToken.toLowerCase())),
+        ]),
       );
-    const existsKey = new Set(existing.map((e) => `${e.idToken}\x00${e.tokenType}`));
+    const matchKey = (idToken: string, tokenType: string): string =>
+      `${cardIdMatchKey(idToken, tokenType)}\x00${tokenType}`;
+    const existsKey = new Set(existing.map((e) => matchKey(e.idToken, e.tokenType)));
+    // The spellings each value has among cards that are not vehicle ids: another
+    // spelling collides in any type (`sameCardValue`).
+    const spellings = new Map<string, Set<string>>();
+    const addSpelling = (idToken: string, tokenType: string): void => {
+      if (isVehicleIdType(tokenType)) return;
+      const lower = idToken.toLowerCase();
+      const set = spellings.get(lower) ?? new Set<string>();
+      set.add(idToken);
+      spellings.set(lower, set);
+    };
+    for (const e of existing) addSpelling(e.idToken, e.tokenType);
+    const otherSpelling = (idToken: string, tokenType: string): boolean =>
+      !isVehicleIdType(tokenType) &&
+      [...(spellings.get(idToken.toLowerCase()) ?? [])].some((v) => v !== idToken);
     // A card holding another driver's vehicle id (any spelling) is refused
     // like a single create.
     const candidatesOf = new Map(prepared.map((p) => [p, tokenVehicleIdCandidates(p.idToken)]));
@@ -2098,8 +2187,8 @@ export async function importTokensCsv(
             );
     const toInsert: Prepared[] = [];
     for (const p of prepared) {
-      const key = `${p.idToken}\x00${p.tokenType}`;
-      if (existsKey.has(key)) {
+      const key = matchKey(p.idToken, p.tokenType);
+      if (existsKey.has(key) || otherSpelling(p.idToken, p.tokenType)) {
         errors.push(`Row for ${p.idToken} (${p.tokenType}): token already exists`);
         continue;
       }
@@ -2114,6 +2203,9 @@ export async function importTokensCsv(
         errors.push(`Row for ${p.idToken} (${p.tokenType}): another driver's vehicle uses this id`);
         continue;
       }
+      // A later row of the same card in another letter case is a duplicate.
+      existsKey.add(key);
+      addSpelling(p.idToken, p.tokenType);
       toInsert.push(p);
     }
     if (toInsert.length === 0) return [];

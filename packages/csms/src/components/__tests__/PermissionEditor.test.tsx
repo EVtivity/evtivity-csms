@@ -88,4 +88,15 @@ describe('PermissionEditor', () => {
     );
     expect(onChange).toHaveBeenCalledWith(['stations:write', 'stations:read']);
   });
+
+  it('offers a fleet user the billing profile write only, without adding a read outside its list', async () => {
+    fleet.user = true;
+    const onChange = renderEditor([]);
+    expect(await screen.findByText('t:users.permissionGroups.fleetBilling')).toBeTruthy();
+    expect(document.getElementById('perm-fleetBilling:read')).toBeNull();
+    fireEvent.click(
+      screen.getByLabelText('t:users.permissionWrite', { selector: '#perm-fleetBilling\\:write' }),
+    );
+    expect(onChange).toHaveBeenCalledWith(['fleetBilling:write']);
+  });
 });

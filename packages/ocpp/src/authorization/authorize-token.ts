@@ -17,7 +17,7 @@
 import { eq, and, ne, or, type SQL } from 'drizzle-orm';
 import { cardMayAuthorizeVehicleId } from '@evtivity/lib/vehicle-id';
 import { CARD_MONTHLY_LIMIT_REASON as CARD_MONTHLY_LIMIT } from '@evtivity/lib/fleet-card';
-import { stationTokenCondition } from './station-token-match.js';
+import { pickStationTokenRows, stationTokenCondition } from './station-token-match.js';
 import {
   client,
   db,
@@ -234,10 +234,16 @@ async function freeVendDecision(
     // Best-effort match so the attempts log links a free vend swipe to a
     // registered driver. A failure does not block the accept.
     try {
-      const [row] = await db
-        .select({ id: driverTokens.id, driverId: driverTokens.driverId })
+      const rows = await db
+        .select({
+          id: driverTokens.id,
+          idToken: driverTokens.idToken,
+          tokenType: driverTokens.tokenType,
+          driverId: driverTokens.driverId,
+        })
         .from(driverTokens)
         .where(tokenCondition(input));
+      const [row] = pickStationTokenRows(rows, input.token.value).rows;
       if (row != null) {
         matchedTokenId = row.id;
         matchedDriverId = row.driverId ?? null;
@@ -266,6 +272,8 @@ function tokenCondition(input: AuthorizeTokenInput): SQL {
 
 const TOKEN_COLUMNS = {
   id: driverTokens.id,
+  idToken: driverTokens.idToken,
+  tokenType: driverTokens.tokenType,
   driverId: driverTokens.driverId,
   fleetId: driverTokens.fleetId,
   isActive: driverTokens.isActive,
@@ -279,6 +287,8 @@ const TOKEN_COLUMNS = {
 
 interface TokenRow {
   id: string;
+  idToken: string;
+  tokenType: string;
   driverId: string | null;
   fleetId: string | null;
   isActive: boolean;
@@ -365,6 +375,29 @@ function rejectedToken(
   };
 }
 
+/** The authorize reason of a value two stored cards match only in another letter case. */
+export const CARD_ID_AMBIGUOUS_REASON = 'card_id_ambiguous';
+
+/**
+ * Card ids match regardless of letter case, so two stored cards that differ
+ * only in case and not in the sent spelling cannot be told apart. The value is
+ * refused (fail closed): no card, driver id, guest, vehicle, OCPI or
+ * accept-when-not-found fallback runs for it.
+ */
+function ambiguousCardValue(input: AuthorizeTokenInput, logger: Logger): AuthorizeDecision {
+  logger.warn(
+    { stationId: input.stationId, idToken: input.token.value, context: input.context },
+    'Card id matches several cards that differ only in letter case; refusing it',
+  );
+  return {
+    ...NO_MATCH,
+    status: 'invalid',
+    outcome: 'invalid',
+    reason: CARD_ID_AMBIGUOUS_REASON,
+    source: 'driver_token',
+  };
+}
+
 /**
  * An OCPP 1.6 idTag: every driver token with this value (the same value may
  * exist with several token types), then the drv_ driver id, the guest session
@@ -376,11 +409,14 @@ async function resolveUntyped(
   logger: Logger,
 ): Promise<AuthorizeDecision> {
   const idTag = input.token.value;
-  const tokens: TokenRow[] = await db
+  const matched: TokenRow[] = await db
     .select(TOKEN_COLUMNS)
     .from(driverTokens)
     .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
     .where(stationTokenCondition(idTag));
+  const picked = pickStationTokenRows(matched, idTag);
+  if (picked.ambiguous) return ambiguousCardValue(input, logger);
+  const tokens = picked.rows;
 
   const cards = await countingCards(input, tokens);
   if (cards.counting.length > 0) {
@@ -439,12 +475,14 @@ async function resolveTyped(
   rules: AuthorizeContextRules,
   logger: Logger,
 ): Promise<AuthorizeDecision> {
-  const rows: TokenRow[] = await db
+  const matched: TokenRow[] = await db
     .select(TOKEN_COLUMNS)
     .from(driverTokens)
     .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
     .where(stationTokenCondition(input.token.value, type));
-  const cards = await countingCards(input, rows);
+  const picked = pickStationTokenRows(matched, input.token.value);
+  if (picked.ambiguous) return ambiguousCardValue(input, logger);
+  const cards = await countingCards(input, picked.rows);
   if (cards.yielded && cards.counting.length === 0) return vehicleDecides(input);
   const now = new Date();
   const token =

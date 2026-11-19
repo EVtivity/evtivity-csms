@@ -255,6 +255,60 @@ describe('FleetCardsTab', () => {
     });
   });
 
+  it('offers a fleet user only the two plain card types, ISO14443 first', async () => {
+    mockGets([card({})]);
+    h.post.mockResolvedValue(card({ id: 'dtk_9', tokenType: 'ISO15693' }));
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'fleets.cards.addCard' }));
+    const dialog = await screen.findByRole('dialog');
+    const type = within(dialog).getByLabelText<HTMLSelectElement>('tokens.type');
+    expect([...type.options].map((o) => [o.value, o.textContent])).toEqual([
+      ['ISO14443', 'fleets.cards.types.ISO14443'],
+      ['ISO15693', 'fleets.cards.types.ISO15693'],
+    ]);
+    expect(type.value).toBe('ISO14443');
+    fireEvent.change(within(dialog).getByLabelText('fleets.cards.value'), {
+      target: { value: 'CARD-0009' },
+    });
+    fireEvent.change(type, { target: { value: 'ISO15693' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'fleets.cards.addCard' }));
+    await waitFor(() => {
+      expect(h.post).toHaveBeenCalledWith('/v1/fleets/flt_1/cards', {
+        idToken: 'CARD-0009',
+        tokenType: 'ISO15693',
+      });
+    });
+  });
+
+  it('offers an operator every card type, each with its hint', async () => {
+    h.fleetUser = false;
+    mockGets([card({})]);
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'fleets.cards.addCard' }));
+    const dialog = await screen.findByRole('dialog');
+    const type = within(dialog).getByLabelText<HTMLSelectElement>('tokens.type');
+    expect([...type.options].map((o) => o.textContent)).toEqual([
+      'eMAID - fleets.cards.typeHints.eMAID',
+      'ISO14443 - fleets.cards.typeHints.ISO14443',
+      'ISO15693 - fleets.cards.typeHints.ISO15693',
+      'KeyCode - fleets.cards.typeHints.KeyCode',
+      'Local - fleets.cards.typeHints.Local',
+    ]);
+  });
+
+  it('shows a fleet user the type of a card read-only, in plain words or as stored', async () => {
+    mockGets([card({}), card({ id: 'dtk_2', idToken: 'CARD-0002', tokenType: 'KeyCode' })]);
+    renderTab();
+    const plain = await screen.findByTestId('fleet-card-row-dtk_1');
+    expect(within(plain).getByText('fleets.cards.types.ISO14443')).toBeTruthy();
+    const other = screen.getByTestId('fleet-card-row-dtk_2');
+    expect(within(other).getByText('KeyCode')).toBeTruthy();
+    fireEvent.click(within(other).getByRole('button', { name: 'fleets.cards.editCard' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByTestId('fleet-card-edit-type').textContent).toBe('KeyCode');
+    expect(within(dialog).queryByLabelText('tokens.type')).toBeNull();
+  });
+
   it('locks the active checkbox of a card an operator turned off, for a fleet user', async () => {
     mockGets([card({ isActive: false, status: 'suspended', blockedByOperator: true })]);
     renderTab();

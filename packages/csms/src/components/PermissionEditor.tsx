@@ -66,6 +66,8 @@ export function PermissionEditor({
           .filter((g) => g.permissions.length > 0);
 
   const valueSet = new Set(value);
+  // A write offered without its read (fleetBilling:write for a fleet user) implies the read.
+  const offeredSet = new Set(groups.flatMap((g) => g.permissions));
 
   function handleToggle(perm: string, checked: boolean): void {
     const next = new Set(valueSet);
@@ -75,7 +77,7 @@ export function PermissionEditor({
       // Selecting write auto-selects read
       if (perm.endsWith(':write')) {
         const readVersion = perm.replace(':write', ':read');
-        next.add(readVersion);
+        if (offeredSet.has(readVersion)) next.add(readVersion);
       }
     } else {
       next.delete(perm);

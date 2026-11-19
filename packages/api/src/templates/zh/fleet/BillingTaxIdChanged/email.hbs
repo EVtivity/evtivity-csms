@@ -1,0 +1,4 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>{{fleetName}}</strong> 的增值税号或税号已{{#if changedBy}}由 {{changedBy}} {{/if}}更改。更改前：{{#if previousTaxId}}{{previousTaxId}}{{else}}无{{/if}}。现在：{{#if taxIdRemoved}}无{{else}}{{newTaxId}}{{/if}}。</p>
+<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{fleetUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>打开车队账单</a></td></tr></table>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>从现在起开具的发票将显示新号码。已开具的发票保留开具时的号码。如果您没有预料到此更改，请进行核实。</p>

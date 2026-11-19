@@ -41,6 +41,7 @@ interface CommandRow {
 }
 
 interface TokenRow {
+  uid: string;
   partner_id: string;
   is_valid: boolean;
   whitelist: string;
@@ -83,11 +84,11 @@ export async function resolveOcpiTokenOwner(
     LEFT JOIN ocpi_external_tokens t ON t.partner_id = c.partner_id AND t.uid = c.token_uid
     WHERE c.command_type = 'START_SESSION'
       AND c.station_id = ${input.stationOcppId}
-      AND c.token_uid = ${input.tokenUid}
+      AND lower(c.token_uid) = lower(${input.tokenUid})
       AND c.charging_session_id IS NULL
       AND c.created_at > now() - make_interval(mins => ${OCPI_START_CONTEXT_MINUTES})
     ORDER BY (c.remote_start_id IS NOT DISTINCT FROM ${remoteStartId}::integer) DESC,
-             c.created_at DESC
+             (c.token_uid = ${input.tokenUid}) DESC, c.created_at DESC
     LIMIT 1
   `;
   const command = commands[0];
@@ -109,15 +110,18 @@ export async function resolveOcpiTokenOwner(
     };
   }
 
-  const tokens = await sql<TokenRow[]>`
-    SELECT t.partner_id, t.is_valid, t.whitelist, t.token_data
+  const matched = await sql<TokenRow[]>`
+    SELECT t.uid, t.partner_id, t.is_valid, t.whitelist, t.token_data
     FROM ocpi_external_tokens t
     JOIN ocpi_partners p ON p.id = t.partner_id AND p.status = 'connected'
       AND p.approved_roles ?| array['EMSP', 'HUB']
-    WHERE t.uid = ${input.tokenUid}
+    WHERE lower(t.uid) = lower(${input.tokenUid})
     ORDER BY t.updated_at DESC
   `;
-  if (tokens.length === 0) return { owner: null, ambiguous: false };
+  if (matched.length === 0) return { owner: null, ambiguous: false };
+  // Token uids match regardless of letter case; the exact spelling wins.
+  const exact = matched.filter((t) => t.uid === input.tokenUid);
+  const tokens = exact.length > 0 ? exact : matched;
   const valid = tokens.filter((t) => t.is_valid && t.whitelist !== 'NEVER');
   if (valid.length > 1) return { owner: null, ambiguous: true };
   const row = valid[0] ?? tokens[0];

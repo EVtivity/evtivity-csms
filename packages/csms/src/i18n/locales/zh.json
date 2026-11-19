@@ -640,6 +640,9 @@
       "costChart": "车队每日费用",
       "costChartInfo": "日期范围内车队会话的每日费用。",
       "invoicesChart": "最新车队发票",
+      "chargingSessions": "充电会话",
+      "chargingSessionsInfo": "按账户计入您车队的最新充电会话。上方的车队选择可将其限定为一个车队。选择一行即可查看该会话。",
+      "noChargingSessions": "尚无计入您车队的充电会话。",
       "invoicesInfo": "车队最新的发票和贷项通知单。",
       "noInvoices": "暂无车队发票。",
       "creditNote": "贷项通知单"
@@ -2360,6 +2363,7 @@
       "drivers": "驾驶员",
       "fleets": "车队",
       "fleetCards": "车队 RFID 卡",
+      "fleetBilling": "管理车队账单资料",
       "reservations": "预约",
       "support": "工单管理",
       "payments": "支付",
@@ -2625,6 +2629,8 @@
     "billingProfile": {
       "title": "账单资料",
       "description": "车队发票的接收方和开具方式。",
+      "managerDescription": "车队发票的账单联系人、公司名称和地址、税号以及发票语言。付款条件由您的运营商设置。",
+      "taxIdHelp": "新号码会显示在更改后开具的发票上。已开具的发票保留原号码。您的运营商会收到更改通知。",
       "contacts": "账单联系人",
       "contactsHelp": "每行一个电子邮件地址。车队发票将通过电子邮件发送到这些地址。",
       "contactsInvalid": "请输入有效的电子邮件地址，每行一个。",
@@ -2900,7 +2906,7 @@
         "title": "导入 RFID 卡",
         "description": "从 CSV 文件向此车队添加多张 RFID 卡。每一行与单独添加一张卡相同，被拒绝的行不会更改任何内容。",
         "columns": "列：idToken（卡值，必填）、tokenType（为空时为 ISO14443）、label、memberEmail（车队的有效成员）。最多 2000 行、512 KB。",
-        "columnsFleetUser": "列：idToken（卡值，必填）、tokenType（为空时为 ISO14443）和 label。memberEmail 列请留空：导入后在此处将卡分配给成员。最多 2000 行、512 KB。",
+        "columnsFleetUser": "列：idToken（卡值，必填）、tokenType（RFID 卡或钥匙扣为 ISO14443，留空时默认；其他 RFID 卡为 ISO15693）和 label。请将 memberEmail 列留空：导入后在此处把卡分配给成员。最多 2000 行、512 KB。",
         "template": "下载模板",
         "chooseFile": "选择文件",
         "chooseFirst": "请先选择一个 CSV 文件。",
@@ -2961,6 +2967,17 @@
         "title": "暂无 RFID 卡",
         "description": "逐张添加车队的 RFID 卡，或从 CSV 文件一次导入多张。分配给成员的卡与该成员自己的卡一样充电。没有成员持有的卡记入车队账户。",
         "readOnly": "车队的 RFID 卡添加后会显示在这里。"
+      },
+      "types": {
+        "ISO14443": "RFID 卡或钥匙扣（大多数卡）",
+        "ISO15693": "其他 RFID 卡（ISO 15693）"
+      },
+      "typeHints": {
+        "eMAID": "即插即充合同 ID",
+        "ISO14443": "RFID 卡或钥匙扣，大多数卡",
+        "ISO15693": "其他 RFID 卡（近场卡）",
+        "KeyCode": "驾驶员在充电桩上输入的代码",
+        "Local": "仅本网络识别的 ID"
       }
     },
     "sessionDialog": {
@@ -2978,7 +2995,6 @@
       "description": "在 CSMS 中管理此车队的车队用户。他们只能看到分配给自己的车队。",
       "add": "添加车队经理",
       "empty": "此车队未分配车队经理。",
-      "permissions": "权限",
       "lastSignIn": "上次登录",
       "neverSignedIn": "从未"
     },
@@ -4575,6 +4591,7 @@
       "fleet.CreditLimitWarning": "车队信用额度预警",
       "fleet.CreditLimitReached": "车队信用额度已用完",
       "fleet.InvoiceRunFailed": "车队月度开票失败",
+      "fleet.BillingTaxIdChanged": "车队税号已更改",
       "fleet.DepartureAtRisk": "出发存在风险",
       "fleet.DepartureMissed": "出发目标未达成",
       "invoice.FleetInvoice": "车队发票已开具",

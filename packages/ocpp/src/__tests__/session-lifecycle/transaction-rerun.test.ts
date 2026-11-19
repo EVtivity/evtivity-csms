@@ -291,6 +291,42 @@ const mockElectricityPeriods = vi.fn().mockResolvedValue([]);
 const mockMarkSitePlanStale = vi.fn().mockResolvedValue(true);
 // The session's token link reads the same card the routed queries return.
 vi.mock('../../authorization/station-token-match.js', () => ({
+  findLinkableStationTokenMatch: vi.fn(() => {
+    // The first-token link resolves the card the first-token fixture names.
+    const first = db.firstToken;
+    if (first != null) {
+      return Promise.resolve({
+        ambiguous: false,
+        tokens:
+          first.token_id == null
+            ? []
+            : [
+                {
+                  id: first.token_id,
+                  driverId: first.token_driver_id ?? null,
+                  fleetId: first.token_fleet_id ?? null,
+                  prepaidBalanceCents:
+                    first.prepaid === true ? (db.tokenRow?.prepaid_balance_cents ?? 0) : null,
+                },
+              ],
+      });
+    }
+    const row = db.tokenRow;
+    return Promise.resolve({
+      ambiguous: false,
+      tokens:
+        row == null
+          ? []
+          : [
+              {
+                id: row.id,
+                driverId: row.driver_id ?? null,
+                fleetId: row.fleet_id ?? null,
+                prepaidBalanceCents: row.prepaid_balance_cents ?? null,
+              },
+            ],
+    });
+  }),
   findLinkableStationTokens: vi.fn(() => {
     const row = db.tokenRow;
     return Promise.resolve(

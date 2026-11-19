@@ -392,8 +392,20 @@ export async function linkStartedReservation(
           FROM charging_sessions cs
           JOIN reservations r ON r.station_id = cs.station_id
           LEFT JOIN LATERAL (
-            SELECT id, driver_id FROM driver_tokens
-            WHERE id_token = ${idToken} AND is_active = true LIMIT 1
+            -- Card ids match regardless of letter case: the exact spelling,
+            -- else one case variant of another type than a vehicle id; two
+            -- case variants and no exact spelling match none.
+            SELECT t.id, t.driver_id FROM driver_tokens t
+            WHERE t.is_active = true
+              AND (t.id_token = ${idToken}
+                OR (lower(t.id_token) = lower(${idToken})
+                  AND t.token_type NOT IN ('VIN', 'EVCCID', 'MacAddress')
+                  AND NOT EXISTS (SELECT 1 FROM driver_tokens e WHERE e.id_token = ${idToken})
+                  AND (SELECT count(DISTINCT c.id_token) FROM driver_tokens c
+                       WHERE lower(c.id_token) = lower(${idToken})
+                         AND c.token_type NOT IN ('VIN', 'EVCCID', 'MacAddress')) = 1))
+            ORDER BY (t.id_token = ${idToken}) DESC, t.id
+            LIMIT 1
           ) dt ON true
           WHERE cs.id = ${sessionId} AND cs.station_id = ${stationUuid}
             AND r.reservation_id = ${ocppReservationId}
@@ -409,8 +421,20 @@ export async function linkStartedReservation(
           FROM charging_sessions cs
           JOIN reservations r ON r.station_id = cs.station_id
           LEFT JOIN LATERAL (
-            SELECT id, driver_id FROM driver_tokens
-            WHERE id_token = ${idToken} AND is_active = true LIMIT 1
+            -- Card ids match regardless of letter case: the exact spelling,
+            -- else one case variant of another type than a vehicle id; two
+            -- case variants and no exact spelling match none.
+            SELECT t.id, t.driver_id FROM driver_tokens t
+            WHERE t.is_active = true
+              AND (t.id_token = ${idToken}
+                OR (lower(t.id_token) = lower(${idToken})
+                  AND t.token_type NOT IN ('VIN', 'EVCCID', 'MacAddress')
+                  AND NOT EXISTS (SELECT 1 FROM driver_tokens e WHERE e.id_token = ${idToken})
+                  AND (SELECT count(DISTINCT c.id_token) FROM driver_tokens c
+                       WHERE lower(c.id_token) = lower(${idToken})
+                         AND c.token_type NOT IN ('VIN', 'EVCCID', 'MacAddress')) = 1))
+            ORDER BY (t.id_token = ${idToken}) DESC, t.id
+            LIMIT 1
           ) dt ON true
           WHERE cs.id = ${sessionId} AND cs.station_id = ${stationUuid}
             AND (

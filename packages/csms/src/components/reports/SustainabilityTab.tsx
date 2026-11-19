@@ -24,7 +24,7 @@ import { api } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
 import { formatCo2, formatEnergy, formatNumber, uiLocale } from '@/lib/formatting';
-import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { CHART_COLORS, getGridColor, phoneAxisResponsive } from '@/lib/chart-theme';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface SustainabilityReportData {
@@ -125,6 +125,12 @@ export function SustainabilityTab(): React.JSX.Element {
         formatter: (val: number) => formatNumber(val, 1),
       },
       colors: [CHART_COLORS.success],
+      // The point labels run past the plot edges at phone width; the tooltip keeps the values.
+      responsive: [
+        phoneAxisResponsive(report?.monthlySummary.length ?? 0, {
+          options: { dataLabels: { enabled: false } },
+        }),
+      ],
     }),
     [isDark, report?.monthlySummary, i18n.language],
   );

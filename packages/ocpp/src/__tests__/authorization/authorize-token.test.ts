@@ -17,7 +17,8 @@ import {
 type Row = Record<string, unknown>;
 type Cond =
   | { op: 'eq' | 'ne'; col: string; val: unknown }
-  | { op: 'in'; col: string; vals: unknown[] }
+  | { op: 'in' | 'nin'; col: string; vals: unknown[] }
+  | { op: 'lowerEq'; col: string; val: unknown }
   | { op: 'and'; conds: Cond[] }
   | { op: 'or'; conds: Cond[] }
   | undefined;
@@ -82,7 +83,11 @@ function matches(row: Row, cond: Cond): boolean {
   if (cond.op === 'or') return cond.conds.some((c) => matches(row, c));
   if (cond.op === 'eq') return row[cond.col] === cond.val;
   if (cond.op === 'in') return cond.vals.includes(row[cond.col]);
-  return row[cond.col] !== cond.val;
+  if (cond.op === 'nin') return !cond.vals.includes(row[cond.col]);
+  if (cond.op === 'lowerEq') {
+    return String(row[cond.col]).toLowerCase() === String(cond.val).toLowerCase();
+  }
+  return 'val' in cond && row[cond.col] !== cond.val;
 }
 
 // A select, optionally with the one left join the pipeline makes (driver
@@ -209,6 +214,11 @@ vi.mock('drizzle-orm', () => ({
   eq: (a: { col: string }, val: unknown) => ({ op: 'eq', col: a.col, val }),
   ne: (a: { col: string }, val: unknown) => ({ op: 'ne', col: a.col, val }),
   inArray: (a: { col: string }, vals: unknown[]) => ({ op: 'in', col: a.col, vals }),
+  notInArray: (a: { col: string }, vals: unknown[]) => ({ op: 'nin', col: a.col, vals }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) =>
+    strings[0] === 'lower(' && strings[1] === ') = lower('
+      ? { op: 'lowerEq', col: (values[0] as { col: string }).col, val: values[1] }
+      : { raw: strings.join('?'), values },
   and: (...conds: unknown[]) => ({ op: 'and', conds: conds.filter((c) => c != null) }),
   or: (...conds: unknown[]) => ({ op: 'or', conds: conds.filter((c) => c != null) }),
 }));
@@ -739,10 +749,87 @@ describe('authorizeToken: typed identity resolution', () => {
     expect(h.queries[0]?.cond).toEqual({
       op: 'and',
       conds: [
-        { op: 'eq', col: 'idToken', val: 'X' },
+        {
+          op: 'or',
+          conds: [
+            { op: 'eq', col: 'idToken', val: 'X' },
+            {
+              op: 'and',
+              conds: [
+                { op: 'lowerEq', col: 'idToken', val: 'X' },
+                { op: 'nin', col: 'tokenType', vals: ['VIN', 'EVCCID', 'MacAddress'] },
+              ],
+            },
+          ],
+        },
         { op: 'eq', col: 'tokenType', val: 'eMAID' },
       ],
     });
+  });
+});
+
+describe('authorizeToken: card ids in any letter case (issue 70)', () => {
+  function card(id: string, idToken: string, extra: Record<string, unknown> = {}): Row {
+    return {
+      id,
+      idToken,
+      tokenType: 'ISO14443',
+      driverId: `drv_${id}`,
+      fleetId: null,
+      isActive: true,
+      expiresAt: null,
+      revokedAt: null,
+      prepaidBalanceCents: null,
+      monthlyLimitCents: null,
+      ...extra,
+    };
+  }
+
+  it('accepts a 1.6 idTag sent in another letter case than the stored card', async () => {
+    h.tables['driver_tokens'] = [card('a', 'ABCDEF12')];
+    const d = await authorizeToken(input('authorize', 'abcdef12', null), logger);
+    expect(d.status).toBe('accepted');
+    expect(d.matchedTokenId).toBe('a');
+  });
+
+  it('accepts a 2.1 IdToken in another letter case of its type', async () => {
+    h.tables['driver_tokens'] = [card('a', 'ABCDEF12')];
+    const d = await authorizeToken(input('authorize', 'AbCdEf12', 'ISO14443'), logger);
+    expect(d.status).toBe('accepted');
+    expect(d.matchedTokenId).toBe('a');
+  });
+
+  it('keeps a blocked card blocked when the value comes in another case', async () => {
+    h.tables['driver_tokens'] = [card('a', 'ABCDEF12', { isActive: false })];
+    const d = await authorizeToken(input('authorize', 'abcdef12', null), logger);
+    expect(d.status).toBe('blocked');
+    expect(d.matchedTokenId).toBe('a');
+  });
+
+  it('uses the exact spelling of a stored case pair', async () => {
+    h.tables['driver_tokens'] = [card('a', 'ABCDEF12', { isActive: false }), card('b', 'abcdef12')];
+    const d = await authorizeToken(input('authorize', 'abcdef12', null), logger);
+    expect(d.matchedTokenId).toBe('b');
+    const blocked = await authorizeToken(input('authorize', 'ABCDEF12', null), logger);
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.matchedTokenId).toBe('a');
+  });
+
+  it('refuses a value that matches only case variants of two stored cards', async () => {
+    h.tables['driver_tokens'] = [card('a', 'ABCDEF12'), card('b', 'abcdef12')];
+    const d = await authorizeToken(input('authorize', 'AbcDef12', null), logger);
+    expect(d.status).toBe('invalid');
+    expect(d.reason).toBe('card_id_ambiguous');
+    expect(d.matchedTokenId).toBeNull();
+    const typed = await authorizeToken(input('authorize', 'AbcDef12', 'ISO14443'), logger);
+    expect(typed.status).toBe('invalid');
+    expect(typed.reason).toBe('card_id_ambiguous');
+  });
+
+  it('matches a vehicle id card only in its exact or canonical form', async () => {
+    h.tables['driver_tokens'] = [card('v', 'EVCC0001', { tokenType: 'EVCCID' })];
+    const d = await authorizeToken(input('authorize', 'evcc0001', 'EVCCID'), logger);
+    expect(d.matchedTokenId).toBeNull();
   });
 });
 

@@ -36,17 +36,22 @@ export async function isStartableOcpiToken(
        LEFT JOIN ocpi_external_tokens t ON t.partner_id = c.partner_id AND t.uid = c.token_uid
        WHERE c.command_type = 'START_SESSION'
          AND c.station_id = ${input.stationOcppId}
-         AND c.token_uid = ${input.tokenUid}
+         AND lower(c.token_uid) = lower(${input.tokenUid})
          AND c.charging_session_id IS NULL
          AND c.created_at > now() - make_interval(mins => ${OCPI_START_CONTEXT_MINUTES})
        ORDER BY (c.remote_start_id IS NOT DISTINCT FROM ${remoteStartId}::integer) DESC,
-                c.created_at DESC
+                (c.token_uid = ${input.tokenUid}) DESC, c.created_at DESC
        LIMIT 1),
       (SELECT count(*) = 1
        FROM ocpi_external_tokens t
        JOIN ocpi_partners p ON p.id = t.partner_id AND p.status = 'connected'
          AND p.approved_roles ?| array['EMSP', 'HUB']
-       WHERE t.uid = ${input.tokenUid} AND t.is_valid AND t.whitelist <> 'NEVER')
+       WHERE t.is_valid AND t.whitelist <> 'NEVER'
+         AND (t.uid = ${input.tokenUid} OR (lower(t.uid) = lower(${input.tokenUid}) AND NOT EXISTS (
+         SELECT 1 FROM ocpi_external_tokens e
+         JOIN ocpi_partners ep ON ep.id = e.partner_id AND ep.status = 'connected'
+           AND ep.approved_roles ?| array['EMSP', 'HUB']
+         WHERE e.uid = ${input.tokenUid}))))
     )
   `;
   return rows.length > 0;

@@ -30,6 +30,7 @@ import {
   fleetSessionExportRange,
   fleetSessionsCsv,
 } from '../lib/fleet-session-export.js';
+import { endDeletedFleetUserSessions, fleetUserAssignmentsOf } from '../lib/fleet-user-sessions.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { fleetListSort } from '../lib/sorts/fleet-list-sort.js';
 import { driverListSort } from '../lib/sorts/driver-list-sort.js';
@@ -42,11 +43,14 @@ import {
   requireAllSiteAccess,
 } from '../lib/site-access.js';
 import {
+  FLEET_BILLING_PROFILE_PERMISSION,
+  fieldsOutsideFleetManagerProfile,
+  fleetManagerProfileView,
   refuseFleetBillingRead,
   refuseSiteRestrictedFleetBilling,
   refuseSiteRestrictedFleetMembership,
 } from '../lib/fleet-billing-access.js';
-import { requireFleetAccess } from '../lib/fleet-scope.js';
+import { isFleetUser, requireFleetAccess } from '../lib/fleet-scope.js';
 import { fleetReaderOf, sortsByHiddenField } from '../lib/fleet-reader.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
@@ -722,7 +726,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Get a fleet by ID',
         description:
-          'A user restricted to some sites, and a fleet user, does not get the billing profile and credit limit fields: account billing spans every site. A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).',
+          'A user restricted to some sites, and a fleet user, does not get the billing profile and credit limit fields: account billing spans every site. A fleet user with fleetBilling:read (or write) gets the billing profile fields it may edit: the contacts, the bill-to name and address, the VAT ID and the invoice language. A fleet user reaches only its assigned fleets (else 404 FLEET_NOT_FOUND).',
         operationId: 'getFleet',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -748,7 +752,17 @@ export function fleetRoutes(app: FastifyInstance): void {
       // see the billing profile or the credit limit (the billing routes
       // answer it 404), only that the fleet bills on account.
       const { userId } = request.user as { userId: string };
-      if ((await getUserSiteIds(userId)) != null) return omitFleetBillingFields(withPricing);
+      if ((await getUserSiteIds(userId)) != null) {
+        const omitted = omitFleetBillingFields(withPricing);
+        // A fleet user who manages the billing profile reads its editable fields.
+        if (
+          (await isFleetUser(userId)) &&
+          (await requestHasPermission(request, 'fleetBilling:read'))
+        ) {
+          return { ...omitted, ...fleetManagerProfileView(withPricing) };
+        }
+        return omitted;
+      }
       return withPricing;
     },
   );
@@ -849,7 +863,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         summary: 'Delete a fleet',
         operationId: 'deleteFleet',
         description:
-          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead. Refused with 409 FLEET_HAS_RESERVATIONS while any fleet reservation (cancelled ones included) names the fleet: reservations are kept as history. Refused with 409 FLEET_HAS_CARDS while the fleet owns RFID cards. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the fleet spans every site.',
+          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead. Refused with 409 FLEET_HAS_RESERVATIONS while any fleet reservation (cancelled ones included) names the fleet: reservations are kept as history. Refused with 409 FLEET_HAS_CARDS while the fleet owns RFID cards. The fleet users assigned to it lose it: their sessions end (their API keys stay, with the fleets they keep) and each gets a user history row. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the fleet spans every site.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         response: {
@@ -868,6 +882,8 @@ export function fleetRoutes(app: FastifyInstance): void {
       // site, so it needs access to every site.
       if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const { id } = request.params as z.infer<typeof fleetParams>;
+      // Read before the delete, which cascades the assignments away.
+      const fleetUsers = await fleetUserAssignmentsOf(id);
       let fleet;
       try {
         fleet = await fleetService.deleteFleet(id);
@@ -903,6 +919,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await endDeletedFleetUserSessions(id, fleetUsers, actor, request.log);
       return fleet;
     },
   );
@@ -982,12 +999,13 @@ export function fleetRoutes(app: FastifyInstance): void {
   app.patch(
     '/fleets/:id/billing-profile',
     {
-      onRequest: [authorize('fleets:write', 'payments:write')],
+      onRequest: [authorize('fleets:read')],
+      config: { fleetScope: true },
       schema: {
         tags: ['Fleets'],
         summary: 'Update the fleet billing profile',
         description:
-          'Sets who the fleet invoice goes to and how: billing contacts, the bill-to block (legal name, address, VAT or tax ID), the invoice language, the payment terms (overrides the invoice.paymentTermsDays setting) and automatic monthly invoicing. Fields left out keep their value; null or a blank string clears a text field. Turning on automatic invoicing, or removing the last contact while it is on, answers 400 FLEET_BILLING_CONTACT_REQUIRED. A change is audited (billing_updated with the changed fields); a request that changes nothing is not. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.',
+          'Sets who the fleet invoice goes to and how: billing contacts, the bill-to block (legal name, address, VAT or tax ID), the invoice language, the payment terms (overrides the invoice.paymentTermsDays setting), automatic monthly invoicing and the invoice date. Fields left out keep their value; null or a blank string clears a text field. An operator needs fleets:write and payments:write for every field; with fleetBilling:write alone (a fleet user, or an operator) only the contacts, the bill-to name and address, the VAT ID and the invoice language, any other field answers 403 INSUFFICIENT_PERMISSIONS. A fleet user reaches only its assigned fleets, decided under the fleet row lock (else 404 FLEET_NOT_FOUND). A new VAT ID applies to invoices issued after the change; issued invoices keep theirs. A change of the VAT ID notifies the operators (fleet.BillingTaxIdChanged). Turning on automatic invoicing, or removing the last contact while it is on, answers 400 FLEET_BILLING_CONTACT_REQUIRED. A change is audited (billing_updated with the changed fields); a request that changes nothing is not. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.',
         operationId: 'updateFleetBillingProfile',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -997,6 +1015,7 @@ export function fleetRoutes(app: FastifyInstance): void {
           400: errorWith('Automatic invoicing needs a billing contact', [
             ERROR_CODES.FLEET_BILLING_CONTACT_REQUIRED,
           ]),
+          403: errorWith('Insufficient permissions', [ERROR_CODES.INSUFFICIENT_PERMISSIONS]),
           404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
         },
       },
@@ -1004,12 +1023,45 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof fleetBillingProfileBody>;
-      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
+      // A fleet user never holds fleets:write or payments:write (the fleet user
+      // ceiling drops them), so the whole profile is an operator's.
+      const full =
+        (await requestHasPermission(request, 'fleets:write')) &&
+        (await requestHasPermission(request, 'payments:write'));
+      const limited = await requestHasPermission(request, FLEET_BILLING_PROFILE_PERMISSION);
+      if (!full && !limited) {
+        await reply
+          .status(403)
+          .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
+        return;
+      }
+      const { userId } = request.user as { userId: string };
+      const byFleetUser = await isFleetUser(userId);
+      if (byFleetUser) {
+        if (!(await requireFleetAccess(request, reply, id))) return;
+      } else if (await refuseSiteRestrictedFleetBilling(request, reply)) {
+        return;
+      }
+      if (byFleetUser && !limited) {
+        await reply
+          .status(403)
+          .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
+        return;
+      }
+      const outside = full && !byFleetUser ? [] : fieldsOutsideFleetManagerProfile(body);
+      if (outside.length > 0) {
+        await reply.status(403).send({
+          error: `Only an operator changes ${outside.join(', ')}`,
+          code: 'INSUFFICIENT_PERMISSIONS',
+        });
+        return;
+      }
       let fleet;
       try {
         fleet = await fleetService.updateFleetBillingProfile(id, body, {
           actor: getAuditActor(request),
           log: request.log,
+          fleetUserId: byFleetUser ? userId : undefined,
         });
       } catch (err) {
         if (err instanceof AppError && err.code === 'FLEET_BILLING_CONTACT_REQUIRED') {
@@ -1024,6 +1076,8 @@ export function fleetRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
         return;
       }
+      if (byFleetUser)
+        return { ...omitFleetBillingFields(fleet), ...fleetManagerProfileView(fleet) };
       return fleet;
     },
   );

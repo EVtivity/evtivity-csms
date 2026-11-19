@@ -4,14 +4,25 @@
 import { and, desc, eq, inArray, lt, gte, or, sql, type SQL } from 'drizzle-orm';
 import {
   chargingSessions,
+  chargingStations,
   client,
   db,
   fleets,
+  sites,
   inOperatorStation,
   invoices,
   loadFleetCreditExposure,
 } from '@evtivity/database';
-import { inCompanyCurrency } from '@evtivity/services/company-currency';
+import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
+import {
+  sessionChargingPointColumns,
+  sessionConnector,
+  sessionConnectorJoin,
+  sessionEvse,
+  sessionEvseJoin,
+  sessionUnit,
+  sessionUnitJoin,
+} from '../lib/session-charging-point.js';
 import type { FleetReader } from '../lib/fleet-reader.js';
 import { fleetPaidSessionCondition } from '../lib/fleet-scope.js';
 import { sessionsAtSites } from '../lib/session-site-scope.js';
@@ -220,4 +231,72 @@ async function latestFleetInvoices(fleetIds: string[]) {
     )
     .orderBy(desc(invoices.createdAt), desc(invoices.id))
     .limit(FLEET_DASHBOARD_INVOICE_LIMIT);
+}
+
+export interface FleetDashboardSessionsOptions {
+  /** One picked fleet, or every fleet the reader sees. */
+  fleetIds: string[] | 'all';
+  page: number;
+  limit: number;
+  /** Costs (payments:read). */
+  money: boolean;
+}
+
+/**
+ * The newest sessions of the fleets for the Dashboard Charging Sessions item,
+ * in the fleet session scope (a fleet user: the sessions billed to its fleets
+ * on account; an operator: the fleets' members and RFID cards at its sites).
+ * Never the RFID value or the OCPP transaction id; the cost only with money.
+ */
+export async function listFleetDashboardSessions(
+  reader: FleetReader,
+  options: FleetDashboardSessionsOptions,
+) {
+  const scope = fleetsSessionFilter(options.fleetIds, reader);
+  const offset = (options.page - 1) * options.limit;
+  const [rows, countRows] = await Promise.all([
+    db
+      .select({
+        id: chargingSessions.id,
+        fleetId: chargingSessions.billingFleetId,
+        fleetName: fleets.name,
+        stationId: chargingSessions.stationId,
+        stationName: chargingStations.stationId,
+        siteName: sites.name,
+        ...sessionChargingPointColumns,
+        status: chargingSessions.status,
+        startedAt: chargingSessions.startedAt,
+        endedAt: chargingSessions.endedAt,
+        idleStartedAt: chargingSessions.idleStartedAt,
+        energyDeliveredWh: chargingSessions.energyDeliveredWh,
+        currentCostCents: chargingSessions.currentCostCents,
+        finalCostCents: chargingSessions.finalCostCents,
+        currency: sessionCurrencySql(),
+      })
+      .from(chargingSessions)
+      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+      .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
+      .leftJoin(fleets, eq(chargingSessions.billingFleetId, fleets.id))
+      .leftJoin(sessionEvse, sessionEvseJoin)
+      .leftJoin(sessionUnit, sessionUnitJoin)
+      .leftJoin(sessionConnector, sessionConnectorJoin)
+      .where(scope)
+      .orderBy(desc(chargingSessions.startedAt), desc(chargingSessions.id))
+      .limit(options.limit)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(chargingSessions)
+      .where(scope),
+  ]);
+  const data = options.money ? rows : rows.map(withoutCost);
+  return { data, total: countRows[0]?.count ?? 0 };
+}
+
+const COST_KEYS = new Set(['currentCostCents', 'finalCostCents', 'currency']);
+
+function withoutCost<T extends object>(row: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(row).filter(([key]) => !COST_KEYS.has(key)),
+  ) as Partial<T>;
 }

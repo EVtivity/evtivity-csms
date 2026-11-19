@@ -12,7 +12,13 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { fleetReaderOf } from '../lib/fleet-reader.js';
 import { dateRangeQuery, resolveCalendarRange } from '../lib/date-range.js';
-import { getFleetDashboardSummary } from '../services/fleet-dashboard.service.js';
+import {
+  getFleetDashboardSummary,
+  listFleetDashboardSessions,
+} from '../services/fleet-dashboard.service.js';
+import { paginationQuery } from '../lib/pagination.js';
+import { paginatedResponse } from '../lib/response-schemas.js';
+import { sessionChargingPointShape } from '../lib/session-charging-point.js';
 
 const summaryQuery = dateRangeQuery.extend({
   fleetId: ID_PARAMS.fleetId
@@ -88,7 +94,79 @@ const summaryItem = z
   })
   .loose();
 
+const sessionsQuery = paginationQuery.pick({ page: true, limit: true }).extend({
+  fleetId: ID_PARAMS.fleetId
+    .optional()
+    .describe(
+      'The fleet whose sessions to list; left out for every fleet the caller sees (a fleet user: its assigned fleets)',
+    ),
+});
+
+const dashboardSessionItem = z
+  .object({
+    id: z.string().describe('Session ID'),
+    fleetId: z.string().nullable().describe('The fleet the session is billed to on account'),
+    fleetName: z.string().nullable().describe('Its name'),
+    stationId: z.string().describe('Station ID'),
+    stationName: z.string().nullable().describe('OCPP identity of the station'),
+    siteName: z.string().nullable().describe('Site name'),
+    ...sessionChargingPointShape,
+    status: z.string().describe('Session status'),
+    startedAt: z.coerce.date().nullable().describe('When the session started'),
+    endedAt: z.coerce.date().nullable().describe('When the session ended'),
+    idleStartedAt: z.coerce.date().nullable().describe('When the vehicle stopped drawing power'),
+    energyDeliveredWh: z.coerce.number().nullable().describe('Energy delivered, in Wh'),
+    currentCostCents: z
+      .number()
+      .nullable()
+      .optional()
+      .describe('Running cost in cents. Only with payments:read'),
+    finalCostCents: z
+      .number()
+      .nullable()
+      .optional()
+      .describe('Final cost in cents. Only with payments:read'),
+    currency: z.string().optional().describe('Currency of the session. Only with payments:read'),
+  })
+  .loose();
+
 export function fleetDashboardRoutes(app: FastifyInstance): void {
+  app.get(
+    '/fleets/dashboard-sessions',
+    {
+      onRequest: [authorize('fleets:read', 'sessions:read')],
+      config: { fleetScope: true },
+      schema: {
+        tags: ['Fleets'],
+        summary: 'List the newest charging sessions of the fleets for the Dashboard',
+        description:
+          'The Dashboard Charging Sessions item: the newest sessions first, in the fleet session scope. A fleet user sees the sessions billed to its assigned fleets on account at every site, and a fleetId it is not assigned answers 404 FLEET_NOT_FOUND; an operator the sessions of the fleets members and RFID cards at its sites. No RFID card value or transaction id; the cost only with payments:read.',
+        operationId: 'listFleetDashboardSessions',
+        security: [{ bearerAuth: [] }],
+        querystring: zodSchema(sessionsQuery),
+        response: {
+          200: paginatedResponse(dashboardSessionItem),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const query = request.query as z.infer<typeof sessionsQuery>;
+      const reader = await fleetReaderOf(request);
+      const fleetId = query.fleetId ?? null;
+      if (fleetId != null && !(await knownFleet(reader, fleetId))) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
+      return listFleetDashboardSessions(reader, {
+        fleetIds: fleetId == null ? 'all' : [fleetId],
+        page: query.page,
+        limit: query.limit,
+        money: await requestHasPermission(request, 'payments:read'),
+      });
+    },
+  );
+
   app.get(
     '/fleets/metrics-summary',
     {
@@ -113,16 +191,9 @@ export function fleetDashboardRoutes(app: FastifyInstance): void {
       const query = request.query as z.infer<typeof summaryQuery>;
       const reader = await fleetReaderOf(request);
       const fleetId = query.fleetId ?? null;
-      if (fleetId != null) {
-        const known =
-          reader.kind === 'fleets'
-            ? reader.fleetIds.includes(fleetId)
-            : (await db.select({ id: fleets.id }).from(fleets).where(eq(fleets.id, fleetId)))
-                .length > 0;
-        if (!known) {
-          await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
-          return;
-        }
+      if (fleetId != null && !(await knownFleet(reader, fleetId))) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
       }
       const timeZone = await getSystemTimezone();
       const range = resolveCalendarRange(
@@ -142,4 +213,14 @@ export function fleetDashboardRoutes(app: FastifyInstance): void {
       return { fleetId, ...summary };
     },
   );
+}
+
+/** A fleet the reader may name: a fleet user one of its fleets, an operator any existing fleet. */
+async function knownFleet(
+  reader: Awaited<ReturnType<typeof fleetReaderOf>>,
+  fleetId: string,
+): Promise<boolean> {
+  if (reader.kind === 'fleets') return reader.fleetIds.includes(fleetId);
+  const rows = await db.select({ id: fleets.id }).from(fleets).where(eq(fleets.id, fleetId));
+  return rows.length > 0;
 }

@@ -7,6 +7,15 @@ vi.mock('../lib/fleet-scope.js', async () =>
   (await import('./helpers/fleet-scope-mock.js')).fleetScopeMock(),
 );
 
+const fleetUserSessions = vi.hoisted(() => ({
+  assignments: new Map<string, string[]>(),
+  end: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('../lib/fleet-user-sessions.js', () => ({
+  fleetUserAssignmentsOf: vi.fn(() => Promise.resolve(fleetUserSessions.assignments)),
+  endDeletedFleetUserSessions: fleetUserSessions.end,
+}));
+
 vi.mock('../lib/site-access.js', async () =>
   (await import('./helpers/site-access-mock.js')).siteAccessMock(),
 );
@@ -170,9 +179,13 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
-  requestHasPermission: vi.fn(() => Promise.resolve(heldPayments.read)),
+  requestHasPermission: vi.fn((_request: unknown, permission: string) =>
+    Promise.resolve(
+      permission.startsWith('fleetBilling:') ? heldPayments.fleetBilling : heldPayments.read,
+    ),
+  ),
 }));
-const heldPayments = vi.hoisted(() => ({ read: true }));
+const heldPayments = vi.hoisted(() => ({ read: true, fleetBilling: false }));
 
 import { registerAuth } from '../plugins/auth.js';
 import { fleetRoutes } from '../routes/fleets.js';
@@ -956,6 +969,49 @@ describe('Fleet routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().name).toBe('Deleted Fleet');
+    });
+
+    it('ends the sessions of the fleet users the deleted fleet held, read before the delete', async () => {
+      const held = new Map([['usr_000000000009', [VALID_FLEET_ID, 'flt_000000000077']]]);
+      fleetUserSessions.assignments = held;
+      fleetUserSessions.end.mockClear();
+      mockFleetService.deleteFleet.mockResolvedValue({
+        id: VALID_FLEET_ID,
+        name: 'Gone',
+        description: null,
+        accountBillingEnabled: false,
+        ...BILLING_PROFILE,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/fleets/${VALID_FLEET_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(fleetUserSessions.end).toHaveBeenCalledWith(
+        VALID_FLEET_ID,
+        held,
+        expect.objectContaining({ actor: expect.any(String) }),
+        expect.anything(),
+      );
+      fleetUserSessions.assignments = new Map();
+    });
+
+    it('ends no session when the delete is refused', async () => {
+      const { AppError } = await import('@evtivity/lib');
+      fleetUserSessions.end.mockClear();
+      mockFleetService.deleteFleet.mockRejectedValue(
+        new AppError('The fleet owns RFID cards', 409, 'FLEET_HAS_CARDS'),
+      );
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/fleets/${VALID_FLEET_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(fleetUserSessions.end).not.toHaveBeenCalled();
     });
 
     it('returns 404 when fleet not found', async () => {
@@ -2183,6 +2239,105 @@ describe('Fleet routes - fleet user (access scope fleets)', () => {
     expect(body).not.toHaveProperty('accountInvoiceRecipient');
   });
 
+  describe('billing profile (fleetBilling:write)', () => {
+    afterEach(() => {
+      heldPayments.fleetBilling = false;
+      heldPayments.read = true;
+    });
+
+    it('reads the billing profile fields it may edit, never the credit or terms', async () => {
+      heldPayments.fleetBilling = true;
+      mockFleetService.getFleet.mockResolvedValue(fleet);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/fleets/${VALID_FLEET_ID}`,
+        headers: auth(),
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toHaveProperty('billingContactEmails');
+      expect(body).toHaveProperty('billingTaxId');
+      expect(body).toHaveProperty('invoiceLanguage');
+      expect(body).not.toHaveProperty('paymentTermsDays');
+      expect(body).not.toHaveProperty('autoInvoice');
+      expect(body).not.toHaveProperty('creditLimitCents');
+      expect(body).not.toHaveProperty('accountInvoiceRecipient');
+    });
+
+    it('updates the contacts and the VAT ID of its own fleet, checked on the locked row', async () => {
+      heldPayments.fleetBilling = true;
+      heldPayments.read = false;
+      mockFleetService.updateFleetBillingProfile.mockResolvedValue(fleet);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/fleets/${VALID_FLEET_ID}/billing-profile`,
+        headers: auth(),
+        payload: { billingContactEmails: ['ap@fleet.example'], billingTaxId: 'DE123456789' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).not.toHaveProperty('creditLimitCents');
+      expect(res.json()).not.toHaveProperty('paymentTermsDays');
+      expect(mockFleetService.updateFleetBillingProfile).toHaveBeenCalledWith(
+        VALID_FLEET_ID,
+        { billingContactEmails: ['ap@fleet.example'], billingTaxId: 'DE123456789' },
+        expect.objectContaining({ fleetUserId: VALID_USER_ID }),
+      );
+    });
+
+    it('refuses the payment terms, automatic invoicing and the invoice date', async () => {
+      heldPayments.fleetBilling = true;
+      for (const payload of [
+        { paymentTermsDays: 30 },
+        { autoInvoice: true },
+        { invoiceDateMode: 'period_end' },
+      ]) {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/fleets/${VALID_FLEET_ID}/billing-profile`,
+          headers: auth(),
+          payload,
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.json().code).toBe('INSUFFICIENT_PERMISSIONS');
+      }
+      expect(mockFleetService.updateFleetBillingProfile).not.toHaveBeenCalled();
+    });
+
+    it('refuses a fleet user without fleetBilling:write, and another fleet', async () => {
+      heldPayments.read = false;
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/fleets/${VALID_FLEET_ID}/billing-profile`,
+        headers: auth(),
+        payload: { billingTaxId: 'X' },
+      });
+      expect(res.statusCode).toBe(403);
+      heldPayments.fleetBilling = true;
+      const other = await app.inject({
+        method: 'PATCH',
+        url: `/fleets/${OTHER_FLEET_ID}/billing-profile`,
+        headers: auth(),
+        payload: { billingTaxId: 'X' },
+      });
+      expect(other.statusCode).toBe(404);
+      expect(other.json().code).toBe('FLEET_NOT_FOUND');
+      expect(mockFleetService.updateFleetBillingProfile).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the service finds the assignment gone under the lock', async () => {
+      heldPayments.fleetBilling = true;
+      mockFleetService.updateFleetBillingProfile.mockResolvedValue(null);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/fleets/${VALID_FLEET_ID}/billing-profile`,
+        headers: auth(),
+        payload: { billingTaxId: 'X' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('FLEET_NOT_FOUND');
+    });
+  });
+
   it.each([
     '',
     '/drivers',
@@ -2362,6 +2517,7 @@ describe('Fleet routes - fleet user (access scope fleets)', () => {
         'GET /fleets/:id/sessions/:sessionId',
         'GET /fleets/:id/sessions/export',
         'GET /fleets/:id/vehicles',
+        'PATCH /fleets/:id/billing-profile',
       ].sort(),
     );
   });

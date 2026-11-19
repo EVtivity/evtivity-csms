@@ -266,6 +266,7 @@ async function reconcileLocalAuthEntries(stationId: string, now: Date): Promise<
   const fleetEnabled = rows.some((r) => r.fleetId != null) ? await isFleetEnabled() : true;
   const pushed: PushedEntry[] = [];
   const seen = new Set<string>();
+  const byCase = new Map<string, PushedEntry>();
   for (const row of rows) {
     const unbillableFleetCard = isUnbillableFleetCard(row, {
       fleetEnabled,
@@ -290,14 +291,28 @@ async function reconcileLocalAuthEntries(stationId: string, now: Date): Promise<
     }
     if (seen.has(row.idToken)) continue;
     seen.add(row.idToken);
-    pushed.push({
+    // A station matches card ids regardless of letter case, so two cards that
+    // differ only in case are one entry there: it is pushed once, Blocked
+    // unless both would be Accepted the same way (fail closed).
+    const caseKey = row.idToken.toLowerCase();
+    const sameCase = byCase.get(caseKey);
+    if (sameCase != null) {
+      if (sameCase.authStatus !== authStatus || authStatus !== 'Accepted') {
+        sameCase.authStatus = 'Blocked';
+        sameCase.cacheExpiryDateTime = null;
+      }
+      continue;
+    }
+    const entry: PushedEntry = {
       entryId: row.entryId,
       idToken: row.idToken,
       tokenType: row.tokenType,
       authStatus,
       cacheExpiryDateTime:
         authStatus === 'Accepted' && row.expiresAt != null ? row.expiresAt.toISOString() : null,
-    });
+    };
+    byCase.set(caseKey, entry);
+    pushed.push(entry);
   }
   return pushed;
 }

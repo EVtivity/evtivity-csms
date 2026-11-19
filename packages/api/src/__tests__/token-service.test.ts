@@ -134,6 +134,7 @@ vi.mock('drizzle-orm', () => ({
   sql: vi.fn(),
   desc: vi.fn(),
   inArray: vi.fn(),
+  notInArray: vi.fn(),
   ne: vi.fn(),
   isNull: vi.fn(),
 }));
@@ -189,6 +190,7 @@ import {
   DuplicateTokenError,
   VehicleIdTokenInUseError,
   VehicleShapedCardError,
+  FleetCardTypeNotAllowedError,
   PrepaidBalanceConflictError,
   PrepaidBalanceExpectedError,
   TokenDriverNotFoundError,
@@ -371,6 +373,30 @@ describe('createToken', () => {
     ).rejects.toBeInstanceOf(DuplicateTokenError);
   });
 
+  it('refuses a value that differs only in letter case from a stored card (issue 70)', async () => {
+    // The stored card in another case is the same card at a station: even the
+    // driver's own removed card is refused, never re-added under a new spelling.
+    setupDbResults([{ id: 't1', idToken: 'rfid-1', driverId: 'drv_1', isActive: false }]);
+    await expect(
+      createToken(
+        { idToken: 'RFID-1', tokenType: 'ISO14443', driverId: 'drv_1' },
+        { type: 'driver', driverId: 'drv_1' },
+      ),
+    ).rejects.toBeInstanceOf(DuplicateTokenError);
+  });
+
+  it('looks a new card value up in any letter case', async () => {
+    const { sql } = await import('drizzle-orm');
+    setupDbResults([{ id: 'existing', idToken: 'abc', driverId: null, isActive: true }]);
+    await expect(createToken({ idToken: 'ABC', tokenType: 'ISO14443' })).rejects.toBeInstanceOf(
+      DuplicateTokenError,
+    );
+    const lowered = vi
+      .mocked(sql)
+      .mock.calls.some((call) => (call[0] as unknown as string[]).join('?').includes('lower('));
+    expect(lowered).toBe(true);
+  });
+
   it('allows the same idToken under a different tokenType', async () => {
     const token = { id: 't2', idToken: 'SAME_UID', tokenType: 'ISO15693', driverId: null };
     // dup check on (SAME_UID, ISO15693) returns empty, no vehicle with the
@@ -417,7 +443,7 @@ describe('createToken', () => {
     // 2. updateToken: select current row
     // 3. updateToken: update returning (reactivated)
     // 4. bumpStationsHoldingToken: select entries (empty -> no version bump)
-    const existing = { id: 't1', driverId: 'drv_1', isActive: false };
+    const existing = { id: 't1', idToken: 'RFID-1', driverId: 'drv_1', isActive: false };
     const reactivated = {
       id: 't1',
       idToken: 'RFID-1',
@@ -454,7 +480,7 @@ describe('createToken', () => {
   });
 
   it("re-adds a card with its vehicle checked like an update: another driver's vehicle is refused", async () => {
-    const existing = { id: 't1', driverId: 'drv_1', isActive: false };
+    const existing = { id: 't1', idToken: 'RFID-1', driverId: 'drv_1', isActive: false };
     const currentRow = {
       id: 't1',
       idToken: 'RFID-1',
@@ -477,7 +503,7 @@ describe('createToken', () => {
   });
 
   it("re-adds a card with a vehicle of the card's driver", async () => {
-    const existing = { id: 't1', driverId: 'drv_1', isActive: false };
+    const existing = { id: 't1', idToken: 'RFID-1', driverId: 'drv_1', isActive: false };
     const currentRow = {
       id: 't1',
       idToken: 'RFID-1',
@@ -1840,6 +1866,16 @@ describe('fleet RFID cards', () => {
       expect(databaseModule.db.select).not.toHaveBeenCalled();
     });
 
+    it.each(['eMAID', 'KeyCode', 'Local', 'Central'])(
+      'refuses a fleet user a %s card before any lookup',
+      async (tokenType) => {
+        await expect(
+          createToken({ idToken: 'CARD-T1', tokenType }, operator, fleetUserScope),
+        ).rejects.toBeInstanceOf(FleetCardTypeNotAllowedError);
+        expect(databaseModule.db.select).not.toHaveBeenCalled();
+      },
+    );
+
     it('holds a fleet user to the vehicle id shape rule of drivers', async () => {
       await expect(
         createToken(
@@ -1907,7 +1943,20 @@ describe('fleet RFID cards', () => {
 
     it('stores the fleet of a card given to a member and audits it', async () => {
       const inserted = { ...card, id: 'dtk_1', driverId: 'drv_2' };
-      setupDbResults([], [], [FLEET_ROW], [OWNER_ROW], [{ id: 1 }], [inserted]);
+      // The fleet and member checks first (before the value lookup), then the lookups, then
+      // the insert with the checks again under its locks.
+      setupDbResults(
+        [FLEET_ROW],
+        [OWNER_ROW],
+        [{ id: 1 }],
+        [],
+        [],
+        [FLEET_ROW],
+        [OWNER_ROW],
+        [{ id: 1 }],
+        [inserted],
+      );
+      captureTx();
       const captured = captureTx();
       await createToken(
         { idToken: 'CARD-1', tokenType: 'ISO14443', driverId: 'drv_2', label: 'Van 12' },
@@ -1932,7 +1981,8 @@ describe('fleet RFID cards', () => {
 
     it('sends a fleet card no member holds to no roaming partner', async () => {
       const inserted = { ...card, id: 'dtk_1', driverId: null };
-      setupDbResults([], [], [FLEET_ROW], [inserted]);
+      setupDbResults([FLEET_ROW], [], [], [FLEET_ROW], [inserted]);
+      captureTx();
       captureTx();
       await createToken({ idToken: 'CARD-1', tokenType: 'ISO14443' }, operator, fleetUserScope);
       expect(publishOcpiTokenPushMock).not.toHaveBeenCalled();

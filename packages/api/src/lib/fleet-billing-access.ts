@@ -68,3 +68,41 @@ export async function refuseSiteRestrictedFleetMembership(
   await reply.status(404).send(FLEET_NOT_FOUND);
   return true;
 }
+
+/** The permission a fleet user needs to edit its fleet's billing profile. */
+export const FLEET_BILLING_PROFILE_PERMISSION = 'fleetBilling:write';
+
+/**
+ * The billing profile fields a holder of fleetBilling:write edits: the
+ * invoice contacts, the company name and address, the VAT ID or tax number
+ * and the invoice language. Payment terms, automatic invoicing, the invoice
+ * date, the credit limit, charge on account and the invoices stay with
+ * operators who hold fleets:write and payments:write.
+ */
+export const FLEET_MANAGER_PROFILE_FIELDS = [
+  'billingContactEmails',
+  'billingLegalName',
+  'billingStreet',
+  'billingCity',
+  'billingState',
+  'billingZip',
+  'billingCountry',
+  'billingTaxId',
+  'invoiceLanguage',
+] as const;
+
+const MANAGER_FIELD_SET = new Set<string>(FLEET_MANAGER_PROFILE_FIELDS);
+
+/** The sent keys a holder of fleetBilling:write alone may not change. */
+export function fieldsOutsideFleetManagerProfile(body: Record<string, unknown>): string[] {
+  return Object.keys(body).filter((key) => body[key] !== undefined && !MANAGER_FIELD_SET.has(key));
+}
+
+/** A fleet with only the billing profile fields a fleet billing reader may see. */
+export function fleetManagerProfileView<T extends Record<string, unknown>>(fleet: T): Partial<T> {
+  const view: Record<string, unknown> = {};
+  for (const key of FLEET_MANAGER_PROFILE_FIELDS) {
+    if (key in fleet) view[key] = fleet[key];
+  }
+  return view as Partial<T>;
+}

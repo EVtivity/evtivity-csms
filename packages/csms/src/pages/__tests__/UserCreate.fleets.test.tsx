@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { FLEET_USER_PERMISSIONS } from '@evtivity/lib/permissions';
+import { FLEET_MANAGER_DEFAULTS, FLEET_USER_PERMISSIONS } from '@evtivity/lib/permissions';
 
 const { getMock, postMock, editorProps, state, roleOverride } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -86,8 +86,9 @@ describe('UserCreate fleet users', () => {
     await waitFor(() => {
       expect(editorProps.at(-1)?.allowed).toEqual(FLEET_USER_PERMISSIONS);
     });
+    // The role defaults: every fleet user permission but the billing profile.
     expect([...(editorProps.at(-1)?.value ?? [])].sort()).toEqual(
-      [...FLEET_USER_PERMISSIONS].sort(),
+      [...FLEET_MANAGER_DEFAULTS].sort(),
     );
 
     fireEvent.change(screen.getByLabelText('fleets.searchFleets'), { target: { value: 'Acme' } });
@@ -195,13 +196,14 @@ describe('UserCreate fleet users', () => {
     expect(editorProps.at(-1)?.value).toContain('stations:read');
     expect(screen.queryByText('Acme Vans')).toBeNull();
 
-    // Back to Fleet Manager: Fleets and the seven permissions again, the fleet list empty.
+    // Back to Fleet Manager: Fleets and the role defaults again, the fleet list empty.
     fireEvent.change(screen.getByLabelText('users.role'), { target: { value: 'rol_fleet' } });
     await waitFor(() => {
       expect(access.value).toBe('fleets');
     });
+    // The role defaults: every fleet user permission but the billing profile.
     expect([...(editorProps.at(-1)?.value ?? [])].sort()).toEqual(
-      [...FLEET_USER_PERMISSIONS].sort(),
+      [...FLEET_MANAGER_DEFAULTS].sort(),
     );
     expect(screen.getByText('users.access.noFleetsPicked')).toBeTruthy();
   });

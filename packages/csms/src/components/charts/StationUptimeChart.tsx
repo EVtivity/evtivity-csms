@@ -7,7 +7,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { CHART_COLORS, getGridColor, categoryChartResponsive } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 
 interface StationUptimeChartProps {
@@ -71,14 +71,7 @@ export function StationUptimeChart({ data }: StationUptimeChartProps): React.JSX
         },
       },
       colors: [CHART_COLORS.success],
-      responsive: [
-        {
-          breakpoint: 768,
-          options: {
-            chart: { height: 250 },
-          },
-        },
-      ],
+      responsive: categoryChartResponsive(data.length),
     }),
     [isDark, data],
   );

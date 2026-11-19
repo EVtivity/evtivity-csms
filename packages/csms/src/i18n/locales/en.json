@@ -640,6 +640,9 @@
       "costChart": "Fleet Cost per Day",
       "costChartInfo": "Cost per day of the fleet sessions in the date range.",
       "invoicesChart": "Latest Fleet Invoices",
+      "chargingSessions": "Charging Sessions",
+      "chargingSessionsInfo": "The newest charging sessions billed to your fleets on account. The fleet picker above narrows them to one fleet. Select a row to see the session.",
+      "noChargingSessions": "No charging sessions billed to your fleets yet.",
       "invoicesInfo": "The newest invoices and credit notes of the fleets.",
       "noInvoices": "No fleet invoices yet.",
       "creditNote": "Credit Note"
@@ -2360,6 +2363,7 @@
       "drivers": "Drivers",
       "fleets": "Fleets",
       "fleetCards": "Fleet RFID Cards",
+      "fleetBilling": "Manage Fleet Billing Profile",
       "reservations": "Reservations",
       "support": "Support Cases",
       "payments": "Payments",
@@ -2625,6 +2629,8 @@
     "billingProfile": {
       "title": "Billing Profile",
       "description": "Who the fleet invoice goes to and how it is issued.",
+      "managerDescription": "The invoice contacts, the company name and address, the VAT ID and the invoice language of the fleet invoice. Your operator sets the payment terms.",
+      "taxIdHelp": "A new number is printed on invoices issued after the change. Issued invoices keep their number. Your operator is told about the change.",
       "contacts": "Billing contacts",
       "contactsHelp": "One email address per line. The fleet invoice is emailed to these addresses.",
       "contactsInvalid": "Enter valid email addresses, one per line.",
@@ -2900,7 +2906,7 @@
         "title": "Import RFID Cards",
         "description": "Add many RFID cards to this fleet from a CSV file. Each row is added like a single card; a refused row changes nothing.",
         "columns": "Columns: idToken (the card value, required), tokenType (ISO14443 when empty), label, memberEmail (an active member of the fleet). At most 2000 rows and 512 KB.",
-        "columnsFleetUser": "Columns: idToken (the card value, required), tokenType (ISO14443 when empty) and label. Leave the memberEmail column empty: give the cards to members here after the import. At most 2000 rows and 512 KB.",
+        "columnsFleetUser": "Columns: idToken (the card value, required), tokenType (ISO14443 for an RFID card or key fob, the default when empty, or ISO15693 for another RFID card) and label. Leave the memberEmail column empty: give the cards to members here after the import. At most 2000 rows and 512 KB.",
         "template": "Download Template",
         "chooseFile": "Choose File",
         "chooseFirst": "Choose a CSV file first.",
@@ -2961,6 +2967,17 @@
         "title": "No RFID Cards Yet",
         "description": "Add the fleet's RFID cards one at a time, or import many at once from a CSV file. A card given to a member charges like the member's own card. A card no member holds charges to the fleet account.",
         "readOnly": "The fleet's RFID cards show here once they are added."
+      },
+      "types": {
+        "ISO14443": "RFID card or key fob (most cards)",
+        "ISO15693": "Other RFID card (ISO 15693)"
+      },
+      "typeHints": {
+        "eMAID": "Plug and Charge contract id",
+        "ISO14443": "RFID card or key fob, most cards",
+        "ISO15693": "Other RFID card (vicinity card)",
+        "KeyCode": "Code the driver types at the charger",
+        "Local": "Id only this network knows"
       }
     },
     "sessionDialog": {
@@ -2978,7 +2995,6 @@
       "description": "Fleet users who manage this fleet in the CSMS. They see only the fleets assigned to them.",
       "add": "Add Fleet Manager",
       "empty": "No fleet manager is assigned to this fleet.",
-      "permissions": "Permissions",
       "lastSignIn": "Last Sign-In",
       "neverSignedIn": "Never"
     },
@@ -4575,6 +4591,7 @@
       "fleet.CreditLimitWarning": "Fleet Credit Limit Warning",
       "fleet.CreditLimitReached": "Fleet Credit Limit Reached",
       "fleet.InvoiceRunFailed": "Fleet Invoice Run Failed",
+      "fleet.BillingTaxIdChanged": "Fleet VAT ID Changed",
       "fleet.DepartureAtRisk": "Departure at Risk",
       "fleet.DepartureMissed": "Departure Missed",
       "invoice.FleetInvoice": "Fleet Invoice Issued",

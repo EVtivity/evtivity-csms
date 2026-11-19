@@ -367,6 +367,7 @@ export const SYSTEM_EVENT_TYPES = [
   'fleet.ManagerCreditLimitReached',
   'fleet.ManagerInvoiceIssued',
   'fleet.InvoiceRunFailed',
+  'fleet.BillingTaxIdChanged',
   'fleet.DepartureAtRisk',
   'fleet.DepartureMissed',
   'fleet.DepotRequestsRefused',
@@ -973,6 +974,17 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'total',
     'totalCents',
     'currency',
+  ],
+  // A fleet's VAT ID or tax number changed: sent to the operators who manage fleet billing.
+  'fleet.BillingTaxIdChanged': [
+    'firstName',
+    'lastName',
+    'fleetName',
+    'previousTaxId',
+    'newTaxId',
+    'taxIdRemoved',
+    'changedBy',
+    'fleetUrl',
   ],
   'fleet.InvoiceRunFailed': [
     'firstName',

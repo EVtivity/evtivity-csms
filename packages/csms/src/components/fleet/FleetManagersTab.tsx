@@ -3,8 +3,6 @@
 
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
-import { permissionCatalog } from '@evtivity/lib/permissions';
 import { FLEET_MANAGER_ROLE_NAME } from '@evtivity/lib/user-access-scope';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Badge } from '@/components/ui/badge';
@@ -29,27 +27,12 @@ export interface FleetManager {
   email: string;
   isActive: boolean;
   lastLoginAt: string | null;
-  permissions: string[];
 }
 
 /** The New User page with the Fleet Manager role and this fleet chosen. */
 export function fleetManagerCreatePath(fleetId: string): string {
   const params = new URLSearchParams({ role: FLEET_MANAGER_ROLE_NAME, fleetId });
   return `/users/new?${params.toString()}`;
-}
-
-/** "Fleets (Read), RFID Cards (Write)": a permission list in the editor's words. */
-export function permissionSummary(permissions: readonly string[], t: TFunction): string {
-  const groups = permissionCatalog.groups();
-  return permissions
-    .map((permission) => {
-      const [resource, action] = permission.split(/:(?=[^:]+$)/);
-      const group = groups.find((g) => g.resource === resource);
-      const label = group != null ? t(group.labelKey, resource ?? permission) : permission;
-      const level = action === 'write' ? t('users.permissionWrite') : t('users.permissionRead');
-      return `${label} (${level})`;
-    })
-    .join(', ');
 }
 
 /** The fleet users of a fleet, for all-site admins (the fleet page Fleet Managers tab). */
@@ -94,7 +77,6 @@ export function FleetManagersTab({ fleetId }: { fleetId: string }): React.JSX.El
               <TableRow>
                 <TableHead>{t('common.name')}</TableHead>
                 <TableHead>{t('common.email')}</TableHead>
-                <TableHead>{t('fleets.managers.permissions')}</TableHead>
                 <TableHead>{t('fleets.managers.lastSignIn')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -123,12 +105,6 @@ export function FleetManagersTab({ fleetId }: { fleetId: string }): React.JSX.El
                       )}
                     </TableCell>
                     <TableCell className="wrap-anywhere">{manager.email}</TableCell>
-                    <TableCell
-                      className="min-w-64 whitespace-normal text-sm"
-                      data-testid="fleet-manager-permissions"
-                    >
-                      {permissionSummary(manager.permissions, t)}
-                    </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {manager.lastLoginAt != null
                         ? formatDateTime(manager.lastLoginAt, timezone)

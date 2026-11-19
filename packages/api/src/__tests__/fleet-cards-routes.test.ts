@@ -12,6 +12,7 @@ const { state, svc } = vi.hoisted(() => {
   class PncContractTokenError extends Error {}
   class VehicleIdTokenInUseError extends Error {}
   class VehicleShapedCardError extends Error {}
+  class FleetCardTypeNotAllowedError extends Error {}
   class TokenReactivationBlockedError extends Error {}
   class FleetCardDeactivatedError extends Error {}
   class TokenFleetNotFoundError extends Error {}
@@ -30,6 +31,7 @@ const { state, svc } = vi.hoisted(() => {
       PncContractTokenError,
       VehicleIdTokenInUseError,
       VehicleShapedCardError,
+      FleetCardTypeNotAllowedError,
       TokenReactivationBlockedError,
       FleetCardDeactivatedError,
       TokenFleetNotFoundError,
@@ -432,6 +434,44 @@ describe('fleet card routes', () => {
     });
     expect(res.statusCode).toBe(status);
     expect(res.json().code).toBe(code);
+  });
+
+  it.each([
+    () => new svc.DuplicateTokenError(),
+    () => new svc.VehicleIdTokenInUseError(),
+    () => new svc.VehicleShapedCardError(),
+  ])(
+    'answers a fleet user one refusal for a value it may not add, never that it exists (case %#)',
+    async (make) => {
+      setMockUserAccess(USER_ID, { kind: 'fleets', fleetIds: [FLEET_ID] });
+      setupDbResults([{ id: FLEET_ID }]);
+      svc.createToken.mockRejectedValueOnce(make());
+      const res = await app.inject({
+        method: 'POST',
+        url: `/fleets/${FLEET_ID}/cards`,
+        headers: auth,
+        payload: { idToken: 'CARD-1' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'This RFID card value cannot be added',
+        code: 'VALIDATION_ERROR',
+        details: { field: 'idToken' },
+      });
+    },
+  );
+
+  it('answers a card type a fleet user is not offered with 400 on the tokenType field', async () => {
+    setupDbResults([{ id: FLEET_ID }]);
+    svc.createToken.mockRejectedValueOnce(new svc.FleetCardTypeNotAllowedError());
+    const res = await app.inject({
+      method: 'POST',
+      url: `/fleets/${FLEET_ID}/cards`,
+      headers: auth,
+      payload: { idToken: 'CARD-1', tokenType: 'KeyCode' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'tokenType' } });
   });
 
   it('changes the label, status and member only, through the fleet scope', async () => {

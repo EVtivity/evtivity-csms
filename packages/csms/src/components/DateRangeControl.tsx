@@ -45,7 +45,10 @@ export function DateRangeControl({
   const displayTo = to ?? derived.to;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+    <div
+      data-testid="date-range-control"
+      className="flex w-full items-center gap-1.5 sm:w-auto sm:gap-2"
+    >
       <Select
         aria-label={t('common.dateRange')}
         value={isCustom ? '' : String(days)}
@@ -54,7 +57,7 @@ export function DateRangeControl({
             onPresetChange(Number(e.target.value));
           }
         }}
-        className="w-auto"
+        className="w-auto shrink-0"
       >
         {isCustom && <option value="">{t('dashboard.custom')}</option>}
         {PRESETS.map((p) => (
@@ -63,7 +66,7 @@ export function DateRangeControl({
           </option>
         ))}
       </Select>
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-none sm:gap-2">
         <DateInput
           aria-label={t('common.startDate')}
           value={displayFrom}
@@ -79,9 +82,13 @@ export function DateRangeControl({
               onCustomChange(value, displayTo);
             }
           }}
-          className="w-auto"
+          compact
+          className="min-w-0 flex-1 sm:w-auto sm:flex-none"
         />
-        <span className="text-xs text-muted-foreground">{t('dashboard.to')}</span>
+        <span aria-hidden="true" className="text-xs text-muted-foreground sm:hidden">
+          -
+        </span>
+        <span className="hidden text-xs text-muted-foreground sm:inline">{t('dashboard.to')}</span>
         <DateInput
           aria-label={t('common.endDate')}
           value={displayTo}
@@ -92,7 +99,8 @@ export function DateRangeControl({
               onCustomChange(displayFrom, value);
             }
           }}
-          className="w-auto"
+          compact
+          className="min-w-0 flex-1 sm:w-auto sm:flex-none"
         />
       </div>
     </div>

@@ -32,6 +32,7 @@ vi.mock('../lib/fleet-scope.js', async () =>
 
 import {
   authorize,
+  selfService,
   clearPermissionCacheLocal,
   getEffectivePermissions,
   requestHasPermission,
@@ -226,6 +227,42 @@ describe('fleet user gate on a real Fastify route', () => {
     expect(open.statusCode).toBe(200);
     expect(handler).toHaveBeenCalledTimes(1);
     await app.close();
+  });
+});
+
+describe('self-service routes closed to fleet users', () => {
+  beforeEach(() => {
+    resetFleetScopeMock();
+    fleetEnabled.value = true;
+    setMockUserAccess(FLEET_USER, { kind: 'fleets', fleetIds: ['flt_aaaaaaaaaaaa'] });
+  });
+
+  it('answers a fleet user route-not-found, before the API key check, and an operator nothing', async () => {
+    const guard = selfService({ fleetUsers: false });
+    const fleet = await run(guard, fakeRequest({ userId: FLEET_USER }));
+    expect(fleet.notFound).toBe(true);
+    const key = await run(guard, fakeRequest({ userId: FLEET_USER, isApiKey: true }));
+    expect(key.notFound).toBe(true);
+    expect(key.statusCode).toBeNull();
+    const operator = await run(guard, fakeRequest({ userId: OPERATOR }));
+    expect(operator.notFound).toBe(false);
+    expect(operator.statusCode).toBeNull();
+  });
+
+  it('answers a fleet user 403 FLEET_DISABLED while Fleets is off', async () => {
+    fleetEnabled.value = false;
+    const reply = await run(
+      selfService({ fleetUsers: false }),
+      fakeRequest({ userId: FLEET_USER }),
+    );
+    expect(reply.statusCode).toBe(403);
+    expect(reply.body).toMatchObject({ code: 'FLEET_DISABLED' });
+  });
+
+  it('keeps the other self-service routes open to fleet users', async () => {
+    const reply = await run(selfService(), fakeRequest({ userId: FLEET_USER }));
+    expect(reply.notFound).toBe(false);
+    expect(reply.statusCode).toBeNull();
   });
 });
 

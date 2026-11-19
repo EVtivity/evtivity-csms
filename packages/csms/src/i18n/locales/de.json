@@ -640,6 +640,9 @@
       "costChart": "Flottenkosten pro Tag",
       "costChartInfo": "Kosten pro Tag der Flotten-Ladevorgänge im Zeitraum.",
       "invoicesChart": "Neueste Flottenrechnungen",
+      "chargingSessions": "Ladevorgänge",
+      "chargingSessionsInfo": "Die neuesten Ladevorgänge, die Ihren Flotten auf Rechnung belastet werden. Die Flottenauswahl oben grenzt sie auf eine Flotte ein. Wählen Sie eine Zeile, um den Ladevorgang zu sehen.",
+      "noChargingSessions": "Noch keine Ladevorgänge, die Ihren Flotten belastet werden.",
       "invoicesInfo": "Die neuesten Rechnungen und Gutschriften der Flotten.",
       "noInvoices": "Noch keine Flottenrechnungen.",
       "creditNote": "Gutschrift"
@@ -2360,6 +2363,7 @@
       "drivers": "Fahrer",
       "fleets": "Flotten",
       "fleetCards": "Flotten-RFID-Karten",
+      "fleetBilling": "Flotten-Rechnungsprofil verwalten",
       "reservations": "Reservierungen",
       "support": "Supportfälle",
       "payments": "Zahlungen",
@@ -2625,6 +2629,8 @@
     "billingProfile": {
       "title": "Rechnungsprofil",
       "description": "An wen die Flottenrechnung geht und wie sie ausgestellt wird.",
+      "managerDescription": "Die Rechnungskontakte, der Firmenname und die Adresse, die USt-IdNr. und die Rechnungssprache der Flottenrechnung. Ihr Betreiber legt die Zahlungsbedingungen fest.",
+      "taxIdHelp": "Eine neue Nummer steht auf Rechnungen, die nach der Änderung ausgestellt werden. Ausgestellte Rechnungen behalten ihre Nummer. Ihr Betreiber wird über die Änderung informiert.",
       "contacts": "Rechnungskontakte",
       "contactsHelp": "Eine E-Mail-Adresse pro Zeile. Die Flottenrechnung wird an diese Adressen gesendet.",
       "contactsInvalid": "Geben Sie gültige E-Mail-Adressen ein, eine pro Zeile.",
@@ -2900,7 +2906,7 @@
         "title": "RFID-Karten importieren",
         "description": "Fügen Sie dieser Flotte viele RFID-Karten aus einer CSV-Datei hinzu. Jede Zeile wird wie eine einzelne Karte hinzugefügt; eine abgelehnte Zeile ändert nichts.",
         "columns": "Spalten: idToken (der Kartenwert, erforderlich), tokenType (ISO14443, wenn leer), label, memberEmail (ein aktives Mitglied der Flotte). Höchstens 2000 Zeilen und 512 KB.",
-        "columnsFleetUser": "Spalten: idToken (der Kartenwert, Pflicht), tokenType (ISO14443, wenn leer) und label. Lassen Sie die Spalte memberEmail leer: Geben Sie die Karten nach dem Import hier an Mitglieder. Höchstens 2000 Zeilen und 512 KB.",
+        "columnsFleetUser": "Spalten: idToken (der Kartenwert, Pflicht), tokenType (ISO14443 für eine RFID-Karte oder einen Schlüsselanhänger, Standard wenn leer, oder ISO15693 für eine andere RFID-Karte) und label. Lassen Sie die Spalte memberEmail leer: Geben Sie die Karten nach dem Import hier an Mitglieder. Höchstens 2000 Zeilen und 512 KB.",
         "template": "Vorlage herunterladen",
         "chooseFile": "Datei auswählen",
         "chooseFirst": "Wählen Sie zuerst eine CSV-Datei aus.",
@@ -2961,6 +2967,17 @@
         "title": "Noch keine RFID-Karten",
         "description": "Fügen Sie die RFID-Karten der Flotte einzeln hinzu oder importieren Sie viele auf einmal aus einer CSV-Datei. Eine Karte, die ein Mitglied erhält, lädt wie dessen eigene Karte. Eine Karte ohne Mitglied wird über das Flottenkonto abgerechnet.",
         "readOnly": "Die RFID-Karten der Flotte erscheinen hier, sobald sie hinzugefügt wurden."
+      },
+      "types": {
+        "ISO14443": "RFID-Karte oder Schlüsselanhänger (die meisten Karten)",
+        "ISO15693": "Andere RFID-Karte (ISO 15693)"
+      },
+      "typeHints": {
+        "eMAID": "Plug-and-Charge-Vertrags-ID",
+        "ISO14443": "RFID-Karte oder Schlüsselanhänger, die meisten Karten",
+        "ISO15693": "Andere RFID-Karte (Vicinity-Karte)",
+        "KeyCode": "Code, den der Fahrer an der Ladestation eingibt",
+        "Local": "ID, die nur dieses Netz kennt"
       }
     },
     "sessionDialog": {
@@ -2978,7 +2995,6 @@
       "description": "Flottenbenutzer, die diese Flotte im CSMS verwalten. Sie sehen nur die ihnen zugewiesenen Flotten.",
       "add": "Flottenmanager hinzufügen",
       "empty": "Dieser Flotte ist kein Flottenmanager zugewiesen.",
-      "permissions": "Berechtigungen",
       "lastSignIn": "Letzte Anmeldung",
       "neverSignedIn": "Nie"
     },
@@ -4575,6 +4591,7 @@
       "fleet.CreditLimitWarning": "Kreditlimit-Warnung der Flotte",
       "fleet.CreditLimitReached": "Kreditlimit der Flotte erreicht",
       "fleet.InvoiceRunFailed": "Monatlicher Flottenrechnungslauf fehlgeschlagen",
+      "fleet.BillingTaxIdChanged": "USt-IdNr. der Flotte geändert",
       "fleet.DepartureAtRisk": "Abfahrt gefährdet",
       "fleet.DepartureMissed": "Abfahrt verpasst",
       "invoice.FleetInvoice": "Flottenrechnung ausgestellt",

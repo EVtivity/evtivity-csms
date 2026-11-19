@@ -17,3 +17,31 @@ BEGIN
     ALTER TABLE "charging_sessions" VALIDATE CONSTRAINT "charging_sessions_charging_kind_check";
   END IF;
 END $$;
+--> statement-breakpoint
+-- Card ids match regardless of letter case (OCPP idTokens are case-insensitive),
+-- so station lookups compare lower(id_token) and lower(uid). Built
+-- concurrently: card inserts and updates go on. An INVALID index left by a
+-- failed or interrupted build is dropped first, so IF NOT EXISTS rebuilds it.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relname = 'idx_driver_tokens_id_token_lower' AND NOT i.indisvalid
+  ) THEN
+    EXECUTE 'DROP INDEX "idx_driver_tokens_id_token_lower"';
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_driver_tokens_id_token_lower" ON "driver_tokens" (lower("id_token"));
+--> statement-breakpoint
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relname = 'idx_ocpi_external_tokens_uid_lower' AND NOT i.indisvalid
+  ) THEN
+    EXECUTE 'DROP INDEX "idx_ocpi_external_tokens_uid_lower"';
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_ocpi_external_tokens_uid_lower" ON "ocpi_external_tokens" (lower("uid"));

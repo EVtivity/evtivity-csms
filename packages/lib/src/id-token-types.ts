@@ -45,6 +45,19 @@ export const PORTAL_ID_TOKEN_TYPES = OCPP_ID_TOKEN_TYPES.filter(
 
 export type PortalIdTokenType = (typeof PORTAL_ID_TOKEN_TYPES)[number];
 
+/**
+ * Types a fleet user gives a fleet RFID card: an ordinary RFID card or key fob
+ * (ISO14443, the default) or another RFID card (ISO15693). Operators keep the
+ * portal list; a card of another type a fleet user cannot add or import.
+ */
+export const FLEET_USER_CARD_TYPES = ['ISO14443', 'ISO15693'] as const;
+
+export type FleetUserCardType = (typeof FLEET_USER_CARD_TYPES)[number];
+
+export function isFleetUserCardType(value: string): value is FleetUserCardType {
+  return (FLEET_USER_CARD_TYPES as readonly string[]).includes(value);
+}
+
 export function isOcppIdTokenType(value: string): value is OcppIdTokenType {
   return (OCPP_ID_TOKEN_TYPES as readonly string[]).includes(value);
 }
