@@ -333,9 +333,9 @@ describe('PATCH station circuit', () => {
       [{ id: 'cir_a' }],
       [{ id: 'sta_2' }],
       [
-        { stationId: 'sta_1', maxPowerKw: '11' },
-        { stationId: 'sta_2', maxPowerKw: '7' },
-        { stationId: 'sta_2', maxPowerKw: null },
+        { stationId: 'sta_1', evseDbId: 'evs_1', maxPowerKw: '11' },
+        { stationId: 'sta_2', evseDbId: 'evs_2', maxPowerKw: '7' },
+        { stationId: 'sta_2', evseDbId: 'evs_2', maxPowerKw: null },
       ],
     );
     const res = await send('PATCH', url, { circuitId: 'cir_a' });
@@ -345,6 +345,62 @@ describe('PATCH station circuit', () => {
       code: 'OVERSUBSCRIPTION_EXCEEDED',
     });
     expect(h.state.sets).toHaveLength(0);
+  });
+
+  it('counts the highest connector of each EVSE once, as the allocation does', async () => {
+    // Two DC EVSEs with CCS and CHAdeMO each: 2 x 50 kW, not 4 x 50 kW.
+    results(
+      [station],
+      [
+        {
+          id: 'cir_a',
+          panelId: 'pnl_a',
+          panelMaxKw: '100',
+          panelOversubRatio: '1',
+          panelSiteId: SITE,
+        },
+      ],
+      [],
+      [],
+      [
+        { stationId: 'sta_1', evseDbId: 'evs_1', maxPowerKw: '50' },
+        { stationId: 'sta_1', evseDbId: 'evs_1', maxPowerKw: '50' },
+        { stationId: 'sta_1', evseDbId: 'evs_2', maxPowerKw: '50' },
+        { stationId: 'sta_1', evseDbId: 'evs_2', maxPowerKw: '25' },
+      ],
+      [{ id: 'sta_1', stationId: 'CS-1', circuitId: 'cir_a' }],
+    );
+    const res = await send('PATCH', url, { circuitId: 'cir_a' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['x-oversubscription-warning']).toBeUndefined();
+    expect(h.state.sets[0]).toMatchObject({ circuitId: 'cir_a' });
+  });
+
+  it('refuses when the per-EVSE sum passes the effective capacity', async () => {
+    results(
+      [station],
+      [
+        {
+          id: 'cir_a',
+          panelId: 'pnl_a',
+          panelMaxKw: '40',
+          panelOversubRatio: '1.2',
+          panelSiteId: SITE,
+        },
+      ],
+      [],
+      [],
+      [
+        { stationId: 'sta_1', evseDbId: 'evs_1', maxPowerKw: '50' },
+        { stationId: 'sta_1', evseDbId: 'evs_1', maxPowerKw: '22' },
+      ],
+    );
+    const res = await send('PATCH', url, { circuitId: 'cir_a' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: 'Total connected capacity (50.0 kW) exceeds panel effective capacity (48.0 kW)',
+      code: 'OVERSUBSCRIPTION_EXCEEDED',
+    });
   });
 
   it('assigns within the oversubscription with a warning header and audits the change', async () => {
@@ -361,7 +417,7 @@ describe('PATCH station circuit', () => {
       ],
       [],
       [],
-      [{ stationId: 'sta_1', maxPowerKw: '12' }],
+      [{ stationId: 'sta_1', evseDbId: 'evs_1', maxPowerKw: '12' }],
       [{ id: 'sta_1', stationId: 'CS-1', circuitId: 'cir_a' }],
     );
     const res = await send('PATCH', url, { circuitId: 'cir_a' });

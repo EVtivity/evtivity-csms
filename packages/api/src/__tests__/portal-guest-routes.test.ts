@@ -635,6 +635,61 @@ describe('Portal guest routes - handler logic', () => {
       expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
+    it('answers 409 PAYMENT_SETUP_CHANGED when the payout account changed after the page loaded', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupStartRows();
+      mockAuthorizeGuestHold.mockResolvedValueOnce({ outcome: 'setup_changed' });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: {
+          paymentMethodId: 'pm_test',
+          guestEmail: 'guest@example.com',
+          onBehalfOf: 'acct_old',
+        },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error: 'The payment setup of this charger changed. Reload the payment form',
+        code: 'PAYMENT_SETUP_CHANGED',
+      });
+      expect(mockAuthorizeGuestHold).toHaveBeenCalledWith(
+        expect.objectContaining({ expectedPayoutAccountId: 'acct_old' }),
+        expect.anything(),
+      );
+      expect(mockCountGuestDecline).not.toHaveBeenCalled();
+      expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+    });
+
+    it('passes a null onBehalfOf and compares nothing when it is left out', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupStartRows();
+      mockAuthorizeGuestHold
+        .mockResolvedValueOnce({ outcome: 'not_configured' })
+        .mockResolvedValueOnce({ outcome: 'not_configured' });
+
+      await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com', onBehalfOf: null },
+      });
+      setupStartRows();
+      await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
+      });
+
+      expect(mockAuthorizeGuestHold.mock.calls[0]?.[0]).toMatchObject({
+        expectedPayoutAccountId: null,
+      });
+      expect(mockAuthorizeGuestHold.mock.calls[1]?.[0]).not.toHaveProperty(
+        'expectedPayoutAccountId',
+      );
+    });
+
     it('returns 400 PAYMENT_FAILED with the decline reason when the hold is declined', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
       setupStartRows();

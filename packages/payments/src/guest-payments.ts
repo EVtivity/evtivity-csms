@@ -76,6 +76,13 @@ export interface GuestHoldInput {
   maxEnergyWh: number | null;
   maxTimeSeconds: number | null;
   expiresAt: Date;
+  /**
+   * The payout account (Stripe on_behalf_of) the guest's card form was built
+   * for, from charger-config. Undefined when the client did not send one. A
+   * value other than the site's payout account now (it became ready, or was
+   * removed, after the page loaded) places no hold: `setup_changed`.
+   */
+  expectedPayoutAccountId?: string | null;
 }
 
 export type GuestHoldOutcome =
@@ -87,7 +94,13 @@ export type GuestHoldOutcome =
    */
   | { outcome: 'action_required'; action: ClientAction }
   | { outcome: 'declined'; reason: string }
-  | { outcome: 'not_configured' };
+  | { outcome: 'not_configured' }
+  /**
+   * The site's payout account is not the one the card form was built for, so
+   * the provider would refuse the method: no hold, the client reloads its
+   * payment form.
+   */
+  | { outcome: 'setup_changed' };
 
 /**
  * The guest's hold terms: the site (or global) hold, or, when that hold is
@@ -166,6 +179,16 @@ export async function authorizeGuestHold(
       'Guest hold refused: the payout account of the site is not ready',
     );
     return { outcome: 'declined', reason: PAYOUT_NOT_READY_REASON };
+  }
+  if (
+    input.expectedPayoutAccountId !== undefined &&
+    input.expectedPayoutAccountId !== terms.payoutAccountId
+  ) {
+    ctx.logger.warn(
+      { siteId: input.siteId, sessionToken: input.sessionToken },
+      'Guest hold refused: the payout account of the site changed after the payment form loaded',
+    );
+    return { outcome: 'setup_changed' };
   }
   const merchantReference = `${GUEST_REFERENCE_PREFIX}${input.sessionToken}`;
 

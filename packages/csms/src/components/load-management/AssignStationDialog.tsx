@@ -16,6 +16,7 @@ import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { Zap } from 'lucide-react';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface StationStatus {
   id: string;
@@ -69,7 +70,10 @@ export function AssignStationDialog({
     <Dialog
       open={open}
       onOpenChange={(v) => {
-        if (!v) onClose();
+        if (!v) {
+          mutation.reset();
+          onClose();
+        }
       }}
     >
       <DialogContent className="max-w-sm">
@@ -89,6 +93,7 @@ export function AssignStationDialog({
                 type="button"
                 onClick={() => {
                   setSelectedId(station.id);
+                  mutation.reset();
                 }}
                 className={`w-full flex items-center gap-2 p-2 rounded-md text-sm transition-colors ${
                   selectedId === station.id
@@ -109,8 +114,20 @@ export function AssignStationDialog({
           </div>
         )}
 
+        {mutation.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {getErrorMessage(mutation.error, t, 'loadManagement.saveFailed')}
+          </p>
+        )}
+
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              mutation.reset();
+              onClose();
+            }}
+          >
             {t('common.cancel')}
           </Button>
           <CreateButton

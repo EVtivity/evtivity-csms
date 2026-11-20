@@ -4966,6 +4966,7 @@
     "PAYMENT_PROVIDER_NOT_CONFIGURED": "결제 제공업체가 구성되지 않았습니다",
     "PAYMENT_PROVIDER_PERMISSION_MISSING": "결제 제공업체 자격 증명에 필요한 권한이 없습니다",
     "PAYMENT_PROVIDER_UPGRADE_PENDING": "v0.1.38 이전 프로세스가 아직 연결되어 있습니다. 업그레이드를 완료한 후 Adyen을 선택하세요.",
+    "PAYMENT_SETUP_CHANGED": "이 충전기의 결제 설정이 변경되었습니다. 결제 양식을 다시 불러왔습니다. 다시 결제하세요.",
     "PAYMENT_WEBHOOK_EXISTS": "이 제공업체에 대한 EVtivity 웹훅이 이미 있습니다",
     "PAYOUT_ACCOUNT_EXISTS": "이 사이트에는 이미 정산 계좌가 있습니다",
     "PAYOUT_ACCOUNT_NOT_READY": "사이트의 정산 계좌가 아직 결제를 받을 수 없습니다",

@@ -106,6 +106,8 @@ import {
   LAYOUT_DEMO_MESSAGE_ID,
   LAYOUT_DEMO_PREVIOUS_SETTINGS,
   LEVEL_2_AMPS,
+  demoStationConnectorKw,
+  demoStationEvseCount,
   DEPOT_BODY_TYPE_BATTERY_BEFORE,
   demoLayoutPositions,
   demoStepDowns,
@@ -129,7 +131,7 @@ function demoConnector(station: LayoutDemoStation): {
 } {
   const isDc = station.kind === 'dc';
   const type = station.connectorType ?? (isDc ? 'CCS1' : 'Type1');
-  const kw = station.maxPowerKw ?? (isDc ? 150 : DEMO_AC_KW);
+  const kw = demoStationConnectorKw(station);
   const amps = isDc ? Math.round((kw * 1000) / (kw >= 400 ? 750 : 500)) : LEVEL_2_AMPS;
   // The simulator knows the plug types only: a pantograph or megawatt
   // connector charges as CCS1 there (the connector row keeps its own type).
@@ -141,9 +143,6 @@ function demoConnector(station: LayoutDemoStation): {
 const DAY_MS = 86_400_000;
 /** Local dates of departures created ahead with a demo schedule, today included (the expand cron's window). */
 const DEPOT_DEMO_EXPANSION_DAYS = 8;
-
-/** The demo Level 2 charger: 32 A at 208 V. */
-const DEMO_AC_KW = Math.round((LEVEL_2_AMPS * 208) / 10) / 100;
 
 /**
  * The connector defaults of the plan before the North American plugs: a
@@ -256,6 +255,9 @@ async function seedSite(
         phases: panel.phases,
         maxContinuousKw: String(panel.maxContinuousKw),
         safetyMarginKw: '0',
+        ...(panel.oversubscriptionRatio != null
+          ? { oversubscriptionRatio: String(panel.oversubscriptionRatio) }
+          : {}),
         sortOrder: order,
       },
       treeCtx,
@@ -283,6 +285,27 @@ async function seedSite(
           ),
         },
         { ...treeCtx, notes: 'Site layout demo: panel moved to the current plan' },
+      );
+    }
+    // A panel an earlier demo seeded without oversubscription, still as the
+    // seed wrote it (the plan's name and ratings, ratio 1), takes the plan's
+    // ratio, so the circuit assignment check accepts its stations. An
+    // operator's change of the panel stays.
+    if (panel.oversubscriptionRatio != null) {
+      await updatePanel(
+        {
+          siteId: site.id,
+          panelId: panel.id,
+          set: { oversubscriptionRatio: String(panel.oversubscriptionRatio) },
+          onlyIf: and(
+            eq(panels.siteId, site.id),
+            eq(panels.name, panel.name),
+            eq(panels.breakerRatingAmps, panel.breakerRatingAmps),
+            eq(panels.maxContinuousKw, String(panel.maxContinuousKw)),
+            eq(panels.oversubscriptionRatio, '1'),
+          ),
+        },
+        { ...treeCtx, notes: 'Site layout demo: panel oversubscription for its managed load' },
       );
     }
   }
@@ -448,7 +471,7 @@ async function seedSite(
         );
       }
     }
-    const evseCount = station.evses ?? (isDc ? 2 : 1);
+    const evseCount = demoStationEvseCount(station);
     const connector = demoConnector(station);
     const extra = (station.extraConnectorTypes ?? []).map((type, k) => ({
       connectorId: k + 2,

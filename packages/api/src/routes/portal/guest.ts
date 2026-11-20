@@ -337,6 +337,15 @@ const guestStartBody = z.object({
     })
     .optional()
     .describe('The one-time card, tagged with the provider that collected it'),
+  onBehalfOf: z
+    .string()
+    .min(1)
+    .max(255)
+    .nullable()
+    .optional()
+    .describe(
+      'Stripe only: charger-config paymentProvider.onBehalfOf that the card form was built for (null for none). When it differs from the payout account of the site now, no hold is placed and the start answers 409 PAYMENT_SETUP_CHANGED (reload charger-config and pay again). Omitted, nothing is compared',
+    ),
   guestEmail: z.email().max(255).optional(),
   maxEnergyWh: z
     .number()
@@ -879,6 +888,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             ERROR_CODES.RESERVATION_BUFFER_ACTIVE,
             ERROR_CODES.MAINTENANCE_ACTIVE,
             ERROR_CODES.STATION_UNAVAILABLE,
+            ERROR_CODES.PAYMENT_SETUP_CHANGED,
           ]),
           429: errorWith('Too many guest starts or declined cards from this address', [
             ERROR_CODES.RATE_LIMITED,
@@ -1197,9 +1207,17 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             maxEnergyWh: body.maxEnergyWh ?? null,
             maxTimeSeconds: body.maxTimeSeconds ?? null,
             expiresAt,
+            ...(body.onBehalfOf !== undefined ? { expectedPayoutAccountId: body.onBehalfOf } : {}),
           },
           paymentContext(request.log, GUEST_PAYMENT_ACTOR),
         );
+        if (hold.outcome === 'setup_changed') {
+          await reply.status(409).send({
+            error: 'The payment setup of this charger changed. Reload the payment form',
+            code: 'PAYMENT_SETUP_CHANGED',
+          });
+          return;
+        }
         if (hold.outcome === 'not_configured') {
           await reply.status(400).send({
             error: 'Payment not configured for this station',

@@ -160,6 +160,29 @@ describe.each(['csms', 'portal'])('%s security headers', (app) => {
     );
   });
 
+  // Stripe.js, which the card form and the Apple Pay and Google Pay buttons of the
+  // guest checkout run in (docs.stripe.com/security/guide, "Content Security
+  // Policy", Stripe.js): its frames may start on *.js.stripe.com origins.
+  it('allows every Stripe.js origin Stripe lists for script-src, frame-src and connect-src', () => {
+    const csp = /add_header Content-Security-Policy "([^"]+)" always;/.exec(snippet)?.[1] ?? '';
+    const directive = (name: string): string[] =>
+      (new RegExp(`${name} ([^;]*);`).exec(csp)?.[1] ?? '').split(' ');
+    const scripts = directive('script-src');
+    for (const origin of ['https://js.stripe.com', 'https://*.js.stripe.com']) {
+      expect(scripts).toContain(origin);
+    }
+    const frames = directive('frame-src');
+    for (const origin of [
+      'https://js.stripe.com',
+      'https://*.js.stripe.com',
+      'https://hooks.stripe.com',
+    ]) {
+      expect(frames).toContain(origin);
+    }
+    // connect-src allows every https origin, api.stripe.com included.
+    expect(directive('connect-src')).toContain('https:');
+  });
+
   it('index.html carries no meta CSP and no inline script', () => {
     const html = read('index.html');
     expect(html).not.toContain('Content-Security-Policy');

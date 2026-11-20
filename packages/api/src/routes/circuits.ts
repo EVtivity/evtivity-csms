@@ -26,6 +26,7 @@ import { authorize } from '../middleware/rbac.js';
 import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { loadTreeContext, writeStationLoadAudit } from '../lib/load-management-audit.js';
+import { stationMaxPowerKw } from '@evtivity/services/load-management.service';
 import {
   PANEL_VOLTAGES,
   circuitConductorPhases,
@@ -567,10 +568,13 @@ export function circuitRoutes(app: FastifyInstance): void {
         }
 
         if (stationDbIds.length > 0) {
-          // Sum max power for all stations on this panel
+          // Sum the maximum power of every station on this panel by the rule
+          // the allocation uses: the highest connector rating of each EVSE
+          // (the connectors of one EVSE never charge at the same time).
           const connectorRows = await db
             .select({
               stationId: evses.stationId,
+              evseDbId: evses.id,
               maxPowerKw: connectors.maxPowerKw,
             })
             .from(connectors)
@@ -578,8 +582,8 @@ export function circuitRoutes(app: FastifyInstance): void {
             .where(inArray(evses.stationId, stationDbIds));
 
           let totalConnectedKw = 0;
-          for (const row of connectorRows) {
-            totalConnectedKw += row.maxPowerKw != null ? Number(row.maxPowerKw) : 0;
+          for (const kw of stationMaxPowerKw(connectorRows).values()) {
+            totalConnectedKw += kw;
           }
 
           if (totalConnectedKw > effectiveCapacityKw) {

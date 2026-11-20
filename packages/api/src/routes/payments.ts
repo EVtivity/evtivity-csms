@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { isIP } from 'node:net';
+import { isDeepStrictEqual } from 'node:util';
 import { PRE_AUTH_AMOUNT_MAX_CENTS, PRE_AUTH_AMOUNT_MIN_CENTS } from '@evtivity/lib/currency';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -40,6 +41,8 @@ import {
   dispatchFeeRefundNotification,
   PaymentProviderNotConfiguredError,
   PaymentProviderPermissionError,
+  PaymentProviderUnavailableError,
+  PaymentValidationError,
   refundPaymentRecord,
   removeDriverMethod,
   retryShortfallForRecord,
@@ -547,6 +550,13 @@ function portalWalletDomain(): string | null {
   return host;
 }
 
+/**
+ * Audit key of the portal domain registration at Stripe. It names no settings
+ * row: the registration lives in the Stripe account, and its changes are
+ * recorded in the setting history under this key.
+ */
+const STRIPE_PAYMENT_METHOD_DOMAIN_AUDIT_KEY = 'stripe.paymentMethodDomain';
+
 /** The portal domain registration of a provider with wallet payment method domains. */
 function getProviderPaymentMethodDomain(
   provider: PaymentProvider,
@@ -569,11 +579,23 @@ function registerProviderPaymentMethodDomain(
   return provider.registerPaymentMethodDomain(domain);
 }
 
-/** 400 for a Stripe webhook setup call that Stripe or the configuration refused. */
-async function sendStripeWebhookError(
+/** A Stripe API error (StripeAuthenticationError, StripeInvalidRequestError, ...). */
+function isStripeApiError(err: unknown): err is Error {
+  const type = (err as { type?: unknown } | null)?.type;
+  return err instanceof Error && typeof type === 'string' && type.startsWith('Stripe');
+}
+
+/**
+ * 400 for a Stripe account setup call (webhooks, payment method domains) that
+ * Stripe or the configuration refused. `call` names the call in the log line.
+ * Any other error is rethrown: it is not a connection failure, and the error
+ * handler answers 500.
+ */
+async function sendStripeSetupError(
   request: FastifyRequest,
   reply: FastifyReply,
   err: unknown,
+  call: string,
 ): Promise<void> {
   if (err instanceof PaymentProviderNotConfiguredError) {
     await reply
@@ -589,9 +611,18 @@ async function sendStripeWebhookError(
     });
     return;
   }
-  const message = err instanceof Error ? err.message : 'Connection failed';
-  request.log.warn({ error: message }, 'Stripe webhook setup call failed');
-  await reply.status(400).send({ error: message, code: 'PAYMENT_PROVIDER_CONNECTION_FAILED' });
+  if (
+    err instanceof PaymentValidationError ||
+    err instanceof PaymentProviderUnavailableError ||
+    isStripeApiError(err)
+  ) {
+    request.log.warn({ error: err.message }, `Stripe ${call} call failed`);
+    await reply
+      .status(400)
+      .send({ error: err.message, code: 'PAYMENT_PROVIDER_CONNECTION_FAILED' });
+    return;
+  }
+  throw err;
 }
 
 // --- Site payment config ---
@@ -1477,7 +1508,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         const provider = await paymentRegistry.getPaymentProvider('stripe');
         endpoints = await listProviderWebhooks(provider);
       } catch (err) {
-        await sendStripeWebhookError(request, reply, err);
+        await sendStripeSetupError(request, reply, err, 'webhook setup');
         return;
       }
       const rows = await db
@@ -1555,7 +1586,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           });
           return;
         }
-        await sendStripeWebhookError(request, reply, err);
+        await sendStripeSetupError(request, reply, err, 'webhook setup');
         return;
       }
 
@@ -1618,7 +1649,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         const registration = await getProviderPaymentMethodDomain(provider, domain);
         return { portalUrl: apiConfig.PORTAL_URL, domain, registration };
       } catch (err) {
-        await sendStripeWebhookError(request, reply, err);
+        await sendStripeSetupError(request, reply, err, 'payment method domain');
         return;
       }
     },
@@ -1670,24 +1701,34 @@ export function paymentRoutes(app: FastifyInstance): void {
         before = await getProviderPaymentMethodDomain(provider, domain);
         registration = await registerProviderPaymentMethodDomain(provider, domain);
       } catch (err) {
-        await sendStripeWebhookError(request, reply, err);
+        await sendStripeSetupError(request, reply, err, 'payment method domain registration');
         return;
       }
-      const key = 'stripe.paymentMethodDomain';
+      // A check of a registration Stripe reports unchanged writes no audit row.
+      if (isDeepStrictEqual(before, registration)) {
+        request.log.info(
+          { domain, id: registration.id },
+          'Stripe payment method domain checked, unchanged',
+        );
+        return { portalUrl: apiConfig.PORTAL_URL, domain, registration };
+      }
       await writeAudit(
         { table: settingAuditLog, idColumn: 'setting_key' },
         {
-          entityId: key,
-          entityIdSnapshot: key,
+          entityId: STRIPE_PAYMENT_METHOD_DOMAIN_AUDIT_KEY,
+          entityIdSnapshot: STRIPE_PAYMENT_METHOD_DOMAIN_AUDIT_KEY,
           action: 'updated',
           ...getAuditActor(request),
-          before: { key, value: before },
-          after: { key, value: registration },
+          before: { key: STRIPE_PAYMENT_METHOD_DOMAIN_AUDIT_KEY, value: before },
+          after: { key: STRIPE_PAYMENT_METHOD_DOMAIN_AUDIT_KEY, value: registration },
         },
         db,
         request.log,
       );
-      request.log.info({ domain, id: registration.id }, 'Stripe payment method domain registered');
+      request.log.info(
+        { domain, id: registration.id, created: before == null },
+        'Stripe payment method domain registered',
+      );
       return { portalUrl: apiConfig.PORTAL_URL, domain, registration };
     },
   );

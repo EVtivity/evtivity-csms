@@ -254,6 +254,7 @@ export const ERROR_CODES = {
   PAYMENT_PROVIDER_PERMISSION_MISSING: 'PAYMENT_PROVIDER_PERMISSION_MISSING',
   PAYMENT_PROVIDER_UPGRADE_PENDING: 'PAYMENT_PROVIDER_UPGRADE_PENDING',
   PAYMENT_RECORD_NOT_RECOVERABLE: 'PAYMENT_RECORD_NOT_RECOVERABLE',
+  PAYMENT_SETUP_CHANGED: 'PAYMENT_SETUP_CHANGED',
   PAYMENT_TERMINAL_BUSY: 'PAYMENT_TERMINAL_BUSY',
   PAYMENT_TERMINAL_DEVICE_TAKEN: 'PAYMENT_TERMINAL_DEVICE_TAKEN',
   PAYMENT_TERMINAL_EVSE_TAKEN: 'PAYMENT_TERMINAL_EVSE_TAKEN',
@@ -679,6 +680,7 @@ export type ErrorCode =
   | 'PAYMENT_PROVIDER_PERMISSION_MISSING'
   | 'PAYMENT_PROVIDER_UPGRADE_PENDING'
   | 'PAYMENT_RECORD_NOT_RECOVERABLE'
+  | 'PAYMENT_SETUP_CHANGED'
   | 'PAYMENT_TERMINAL_BUSY'
   | 'PAYMENT_TERMINAL_DEVICE_TAKEN'
   | 'PAYMENT_TERMINAL_EVSE_TAKEN'
@@ -1145,6 +1147,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PAYMENT_PROVIDER_UPGRADE_PENDING:
     'A process older than v0.1.38 is still connected. Finish the upgrade, then select Adyen.',
   PAYMENT_RECORD_NOT_RECOVERABLE: 'Payment record is not in a recoverable state',
+  PAYMENT_SETUP_CHANGED:
+    'The payment setup of this charger changed. The payment form was reloaded. Please pay again.',
   PAYMENT_TERMINAL_BUSY: 'The payment terminal already has a payment in progress',
   PAYMENT_TERMINAL_DEVICE_TAKEN: 'This device is already registered as a payment terminal',
   PAYMENT_TERMINAL_EVSE_TAKEN: 'Another active payment terminal is paired to this connector',

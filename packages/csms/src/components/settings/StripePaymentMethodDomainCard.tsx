@@ -3,11 +3,10 @@
 
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Wallet } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CreateButton } from '@/components/create-button';
+import { RefreshButton } from '@/components/refresh-button';
 import { useToast } from '@/components/ui/toast';
 import { LoadingLogo } from '@/components/loading-logo';
 import { api, getApiErrorCode } from '@/lib/api';
@@ -131,30 +130,24 @@ export function StripePaymentMethodDomainCard({
                 <WalletState label="Google Pay" wallet={data.registration.googlePay} />
               </div>
             )}
-            {canWrite && (
-              <Button
-                type="button"
-                className="relative"
-                disabled={register.isPending}
-                onClick={() => {
-                  register.mutate();
-                }}
-              >
-                {register.isPending && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <ButtonSpinner />
-                  </div>
-                )}
-                <span
-                  className={`flex items-center gap-2 ${register.isPending ? 'invisible' : ''}`}
-                >
-                  <Wallet className="h-4 w-4" />
-                  {data.registration == null
-                    ? t('settings.stripeWalletDomainRegister')
-                    : t('settings.stripeWalletDomainCheck')}
-                </span>
-              </Button>
-            )}
+            {canWrite &&
+              (data.registration == null ? (
+                <CreateButton
+                  label={t('settings.stripeWalletDomainRegister')}
+                  pending={register.isPending}
+                  onClick={() => {
+                    register.mutate();
+                  }}
+                />
+              ) : (
+                <RefreshButton
+                  label={t('settings.stripeWalletDomainCheck')}
+                  isPending={register.isPending}
+                  onClick={() => {
+                    register.mutate();
+                  }}
+                />
+              ))}
             {register.isError && (
               <p className="text-sm text-destructive">{providerErrorMessage(register.error, t)}</p>
             )}

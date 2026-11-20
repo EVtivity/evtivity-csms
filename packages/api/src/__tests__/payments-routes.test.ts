@@ -230,6 +230,10 @@ vi.mock('@evtivity/payments', async () => ({
   PaymentProviderNotConfiguredError: MockPaymentProviderNotConfiguredError,
   WebhookExistsError: MockWebhookExistsError,
   PaymentProviderPermissionError: MockPaymentProviderPermissionError,
+  // Plain error classes: the real ones, so the routes can tell them apart.
+  PaymentValidationError: (await import('../../../payments/src/errors.js')).PaymentValidationError,
+  PaymentProviderUnavailableError: (await import('../../../payments/src/errors.js'))
+    .PaymentProviderUnavailableError,
   STRIPE_PLATFORM_EVENTS: [
     'payment_intent.payment_failed',
     'charge.refunded',
@@ -267,6 +271,10 @@ import { registerAuth } from '../plugins/auth.js';
 import { paymentRoutes } from '../routes/payments.js';
 import { config as apiConfig } from '../lib/config.js';
 import { db, writeAudit } from '@evtivity/database';
+import {
+  PaymentProviderUnavailableError,
+  PaymentValidationError,
+} from '../../../payments/src/errors.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
@@ -2599,6 +2607,11 @@ describe('Payment routes - handler logic', () => {
 
   // --- Stripe webhook setup ---
 
+  /** An error shaped like one the Stripe SDK throws (its `type` names the class). */
+  function stripeApiError(type: string, message: string): Error {
+    return Object.assign(new Error(message), { type });
+  }
+
   describe('Stripe payment method domain', () => {
     const REGISTRATION = {
       id: 'pmd_1',
@@ -2672,6 +2685,82 @@ describe('Payment routes - handler logic', () => {
         before: { key: 'stripe.paymentMethodDomain', value: null },
         after: { key: 'stripe.paymentMethodDomain', value: REGISTRATION },
       });
+    });
+
+    it('writes no audit row for a check that changed nothing', async () => {
+      apiConfig.PORTAL_URL = 'https://portal.example.com';
+      mockGetPaymentProvider.mockResolvedValueOnce({
+        getPaymentMethodDomain: vi.fn().mockResolvedValue({ ...REGISTRATION }),
+        registerPaymentMethodDomain: vi.fn().mockResolvedValue({ ...REGISTRATION }),
+      });
+      vi.mocked(writeAudit).mockClear();
+
+      const response = await inject('POST');
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().registration).toEqual(REGISTRATION);
+      expect(writeAudit).not.toHaveBeenCalled();
+    });
+
+    it('audits a check that changed the wallet status', async () => {
+      apiConfig.PORTAL_URL = 'https://portal.example.com';
+      const before = {
+        ...REGISTRATION,
+        applePay: { status: 'inactive', errorMessage: 'Domain not verified' },
+      };
+      mockGetPaymentProvider.mockResolvedValueOnce({
+        getPaymentMethodDomain: vi.fn().mockResolvedValue(before),
+        registerPaymentMethodDomain: vi.fn().mockResolvedValue(REGISTRATION),
+      });
+      vi.mocked(writeAudit).mockClear();
+
+      await inject('POST');
+
+      expect(vi.mocked(writeAudit).mock.calls[0]?.[1]).toMatchObject({
+        entityId: 'stripe.paymentMethodDomain',
+        before: { key: 'stripe.paymentMethodDomain', value: before },
+        after: { key: 'stripe.paymentMethodDomain', value: REGISTRATION },
+      });
+    });
+
+    it.each([
+      ['a Stripe refusal', new PaymentValidationError('Domain name is invalid')],
+      ['an outage', new PaymentProviderUnavailableError('Stripe is down')],
+      ['a Stripe API error', stripeApiError('StripeAuthenticationError', 'Invalid API Key')],
+    ])('answers %s with 400 PAYMENT_PROVIDER_CONNECTION_FAILED', async (_name, err) => {
+      apiConfig.PORTAL_URL = 'https://portal.example.com';
+      mockGetPaymentProvider.mockResolvedValueOnce({
+        getPaymentMethodDomain: vi.fn().mockRejectedValue(err),
+      });
+      vi.mocked(writeAudit).mockClear();
+
+      const response = await inject('POST');
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        error: err.message,
+        code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
+      });
+      expect(writeAudit).not.toHaveBeenCalled();
+    });
+
+    it('answers 500 for an unexpected error on the read and the register', async () => {
+      apiConfig.PORTAL_URL = 'https://portal.example.com';
+      mockGetPaymentProvider.mockResolvedValueOnce({
+        getPaymentMethodDomain: vi.fn().mockRejectedValue(new TypeError('boom')),
+      });
+      mockGetPaymentProvider.mockResolvedValueOnce({
+        getPaymentMethodDomain: vi.fn().mockResolvedValue(null),
+        registerPaymentMethodDomain: vi.fn().mockRejectedValue(new TypeError('boom')),
+      });
+      vi.mocked(writeAudit).mockClear();
+
+      const read = await inject('GET');
+      const register = await inject('POST');
+
+      expect(read.statusCode).toBe(500);
+      expect(register.statusCode).toBe(500);
+      expect(writeAudit).not.toHaveBeenCalled();
     });
 
     it('names the missing permission of a restricted key', async () => {
@@ -2858,7 +2947,11 @@ describe('Payment routes - handler logic', () => {
 
       it('returns 400 PAYMENT_PROVIDER_CONNECTION_FAILED when Stripe refuses the call', async () => {
         mockGetPaymentProvider.mockResolvedValueOnce({
-          listWebhooks: vi.fn().mockRejectedValue(new Error('Invalid API Key provided')),
+          listWebhooks: vi
+            .fn()
+            .mockRejectedValue(
+              stripeApiError('StripeAuthenticationError', 'Invalid API Key provided'),
+            ),
         });
 
         const response = await getWebhook();
@@ -2868,6 +2961,17 @@ describe('Payment routes - handler logic', () => {
           error: 'Invalid API Key provided',
           code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
         });
+      });
+
+      it('answers 500, not a connection failure, for an unexpected error', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          listWebhooks: vi.fn().mockRejectedValue(new TypeError('boom')),
+        });
+
+        const response = await getWebhook();
+
+        expect(response.statusCode).toBe(500);
+        expect(response.json().code).not.toBe('PAYMENT_PROVIDER_CONNECTION_FAILED');
       });
     });
 
@@ -2993,7 +3097,9 @@ describe('Payment routes - handler logic', () => {
         mockGetPaymentProvider.mockResolvedValueOnce({
           registerWebhook: vi
             .fn()
-            .mockRejectedValue(new Error('Invalid URL: must be publicly accessible')),
+            .mockRejectedValue(
+              new PaymentValidationError('Invalid URL: must be publicly accessible'),
+            ),
         });
 
         const response = await postWebhook({ url: URL, replace: false });

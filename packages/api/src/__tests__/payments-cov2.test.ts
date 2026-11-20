@@ -226,6 +226,10 @@ vi.mock('@evtivity/payments', async () => ({
   PaymentProviderNotConfiguredError: MockPaymentProviderNotConfiguredError,
   WebhookExistsError: MockWebhookExistsError,
   PaymentProviderPermissionError: MockPaymentProviderPermissionError,
+  // Plain error classes: the real ones, so the routes can tell them apart.
+  PaymentValidationError: (await import('../../../payments/src/errors.js')).PaymentValidationError,
+  PaymentProviderUnavailableError: (await import('../../../payments/src/errors.js'))
+    .PaymentProviderUnavailableError,
   STRIPE_PLATFORM_EVENTS: [
     'payment_intent.payment_failed',
     'charge.refunded',
@@ -520,17 +524,15 @@ describe('payment routes - site scope, FK races, provider gaps', () => {
   describe('Stripe webhook calls on a provider without webhook support', () => {
     const URL = 'https://csms.example.com/v1/webhooks/payments/stripe';
 
-    it('GET /settings/stripe/webhook answers 400 PAYMENT_PROVIDER_CONNECTION_FAILED', async () => {
+    // A provider without the calls is a programming error, not a connection failure.
+    it('GET /settings/stripe/webhook answers 500', async () => {
       mockGetPaymentProvider.mockResolvedValueOnce({ id: 'stripe' });
       const res = await app.inject({ method: 'GET', url: '/settings/stripe/webhook', headers });
-      expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({
-        error: 'Payment provider stripe cannot list webhooks',
-        code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
-      });
+      expect(res.statusCode).toBe(500);
+      expect(res.json().code).not.toBe('PAYMENT_PROVIDER_CONNECTION_FAILED');
     });
 
-    it('POST /settings/stripe/webhook answers 400 PAYMENT_PROVIDER_CONNECTION_FAILED', async () => {
+    it('POST /settings/stripe/webhook answers 500', async () => {
       mockGetPaymentProvider.mockResolvedValueOnce({ id: 'stripe' });
       const res = await app.inject({
         method: 'POST',
@@ -538,11 +540,8 @@ describe('payment routes - site scope, FK races, provider gaps', () => {
         headers,
         payload: { url: URL, replace: false },
       });
-      expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({
-        error: 'Payment provider stripe cannot register webhooks',
-        code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
-      });
+      expect(res.statusCode).toBe(500);
+      expect(res.json().code).not.toBe('PAYMENT_PROVIDER_CONNECTION_FAILED');
       expect(db.insert).not.toHaveBeenCalled();
     });
   });

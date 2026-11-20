@@ -292,6 +292,13 @@ export interface LayoutDemoPanel {
    * names and, where given, its breaker rating (an operator's change stays).
    */
   renamedFrom?: ReadonlyArray<{ name: string; amps?: number }>;
+  /**
+   * The oversubscription ratio of a panel whose stations load management
+   * holds below their nameplate (default 1, no oversubscription). The circuit
+   * assignment refuses a station whose nameplate sum, the highest connector of
+   * each EVSE, passes the panel capacity times this ratio.
+   */
+  oversubscriptionRatio?: number;
   circuits: LayoutDemoCircuit[];
 }
 
@@ -602,6 +609,59 @@ export const HVC360_OUTLET_MAX_KW = 180;
 export const TERRA_184_BREAKER_AMPS = 300;
 /** A Level 2 charger's continuous current in the demo (32 A at 208 V). */
 export const LEVEL_2_AMPS = 32;
+/** The demo Level 2 charger's connector rating: 32 A at 208 V. */
+export const DEMO_AC_KW = Math.round((LEVEL_2_AMPS * 208) / 10) / 100;
+
+/** The EVSEs the seed gives a demo station (default 2 for DC, 1 for AC). */
+export function demoStationEvseCount(station: LayoutDemoStation): number {
+  return station.evses ?? (station.kind === 'dc' ? 2 : 1);
+}
+
+/** The rating the seed gives every connector of a demo station, in kW. */
+export function demoStationConnectorKw(station: LayoutDemoStation): number {
+  return station.maxPowerKw ?? (station.kind === 'dc' ? 150 : DEMO_AC_KW);
+}
+
+/** The step a demo panel's oversubscription ratio is rounded up to. */
+const OVERSUBSCRIPTION_STEP = 0.25;
+
+/**
+ * The oversubscription ratio a demo panel needs for its stations: the
+ * nameplate sum of the stations on its own circuits (the highest connector of
+ * each EVSE, the rule of the circuit assignment check and the allocation)
+ * over its continuous capacity, rounded up to the next quarter, at least 1.
+ * The breakers and feeders stay sized for what the chargers draw (NFPA 70
+ * 2023, 625.41, 215.2(A)(1)); the nameplate sum is higher because the EVSEs
+ * of a DC dispenser share its cabinet power and the two EVSEs of a Lindenhof
+ * box share its 32 A supply. Load management holds every station to its
+ * circuit and the panel to its capacity, the managed load NEC 625.42 sizes
+ * the feeder by, so the panel is oversubscribed by that much.
+ */
+export function demoPanelOversubscriptionRatio(
+  site: Pick<LayoutDemoSite, 'stations'>,
+  panel: Pick<LayoutDemoPanel, 'circuits' | 'maxContinuousKw'>,
+): number {
+  let nameplateKw = 0;
+  for (const circuit of panel.circuits) {
+    for (const station of site.stations) {
+      if (station.circuitId !== circuit.id) continue;
+      nameplateKw += demoStationEvseCount(station) * demoStationConnectorKw(station);
+    }
+  }
+  const need = nameplateKw / panel.maxContinuousKw;
+  return Math.max(1, Math.ceil(need / OVERSUBSCRIPTION_STEP - 1e-9) * OVERSUBSCRIPTION_STEP);
+}
+
+/** Every panel of the demo sites with the oversubscription its stations need. */
+function withPanelOversubscription(sites: LayoutDemoSite[]): LayoutDemoSite[] {
+  return sites.map((site) => ({
+    ...site,
+    panels: site.panels.map((panel) => {
+      const ratio = demoPanelOversubscriptionRatio(site, panel);
+      return ratio > 1 ? { ...panel, oversubscriptionRatio: ratio } : panel;
+    }),
+  }));
+}
 
 const round2 = (v: number): number => Math.round(v * 100) / 100;
 
@@ -1327,7 +1387,7 @@ export const LAYOUT_DEMO: {
   terminals: LayoutDemoTerminal[];
   fleet: LayoutDemoFleet;
 } = {
-  sites: [
+  sites: withPanelOversubscription([
     {
       id: HARBOR,
       name: 'Harbor Point Charging Hub',
@@ -1912,7 +1972,7 @@ export const LAYOUT_DEMO: {
         },
       ],
     },
-  ],
+  ]),
   /**
    * The fleet of Northgate Fleet Depot: transit buses, semi trucks and box
    * trucks, one vehicle per driver, in the colors such fleets run. The depot's

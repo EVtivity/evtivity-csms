@@ -48,6 +48,9 @@ import {
   dcInputAmps,
   evseBreakerAmps,
   LINDENHOF_BOX_AMPS,
+  DEMO_AC_KW,
+  demoStationConnectorKw,
+  demoStationEvseCount,
   serviceTransformerKva,
 } from '../seed-demo-layout-plan.js';
 import type { LayoutDemoPanel, LayoutDemoSite } from '../seed-demo-layout-plan.js';
@@ -786,6 +789,41 @@ describe('site layout demo plan', () => {
           }
         }
       }
+    });
+
+    it('gives every panel room for its stations under the circuit assignment check', () => {
+      // The API refuses a circuit assignment when the stations on the panel's
+      // circuits, the highest connector of each EVSE, pass the panel
+      // capacity times its oversubscription ratio (issue 72).
+      const over: string[] = [];
+      for (const site of LAYOUT_DEMO.sites) {
+        for (const panel of site.panels) {
+          const nameplateKw = panel.circuits.reduce((sum, c) => {
+            const st = site.stations.find((s) => s.circuitId === c.id);
+            return st == null ? sum : sum + demoStationEvseCount(st) * demoStationConnectorKw(st);
+          }, 0);
+          const ratio = panel.oversubscriptionRatio ?? 1;
+          // Within the API's 1 to 3 range, on a quarter step.
+          expect(ratio).toBeGreaterThanOrEqual(1);
+          expect(ratio).toBeLessThanOrEqual(3);
+          expect((ratio * 4) % 1).toBe(0);
+          if (nameplateKw > panel.maxContinuousKw * ratio + 1e-6) {
+            over.push(`${site.name} ${panel.name}: ${String(nameplateKw)} kW`);
+          }
+          // No more oversubscription than the stations need.
+          if (ratio > 1) {
+            expect(nameplateKw, `${site.name} ${panel.name}`).toBeGreaterThan(
+              panel.maxContinuousKw * (ratio - 0.25),
+            );
+          }
+        }
+      }
+      expect(over).toEqual([]);
+      // Parkhaus Lindenhof: 16 x 22 kW on the 220.8 kW board.
+      const board = LAYOUT_DEMO.sites.find((s) => s.id === 'sit_demogarage01')?.panels[0];
+      expect(board?.maxContinuousKw).toBe(220.8);
+      expect(board?.oversubscriptionRatio).toBe(1.75);
+      expect(DEMO_AC_KW).toBe(6.66);
     });
 
     it('splits many AC chargers over several panelboards in the order they stand', () => {

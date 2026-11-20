@@ -849,6 +849,7 @@
     "PAYMENT_PROVIDER_NOT_CONFIGURED": "Proveedor de pago no configurado",
     "PAYMENT_PROVIDER_PERMISSION_MISSING": "La credencial del proveedor de pago no tiene un permiso necesario",
     "PAYMENT_PROVIDER_UPGRADE_PENDING": "Un proceso anterior a v0.1.38 sigue conectado. Termine la actualización y luego seleccione Adyen.",
+    "PAYMENT_SETUP_CHANGED": "La configuración de pago de este cargador cambió. El formulario de pago se volvió a cargar. Vuelva a pagar.",
     "PAYMENT_WEBHOOK_EXISTS": "Ya existe un webhook de EVtivity para este proveedor",
     "PAYOUT_ACCOUNT_EXISTS": "El sitio ya tiene una cuenta de cobro",
     "PAYOUT_ACCOUNT_NOT_READY": "La cuenta de cobro del sitio aún no puede recibir pagos",

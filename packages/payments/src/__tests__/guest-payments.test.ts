@@ -1277,6 +1277,32 @@ describe('authorizeGuestHold', () => {
     expect(m.inserts).toHaveLength(0);
   });
 
+  it.each([
+    ['the account became ready', null, 'acct_site'],
+    ['the account was removed', 'acct_site', null],
+    ['the site moved to another account', 'acct_old', 'acct_site'],
+  ])('refuses with setup_changed and places no hold when %s', async (_name, expected, current) => {
+    m.holdTerms.mockResolvedValue({ ...TERMS, payoutAccountId: current });
+
+    expect(await authorizeGuestHold({ ...input, expectedPayoutAccountId: expected }, deps)).toEqual(
+      { outcome: 'setup_changed' },
+    );
+    expect(provider.authorizeHold).not.toHaveBeenCalled();
+    expect(m.inserts).toHaveLength(0);
+  });
+
+  it('places the hold when the payout account is the one the form was built for', async () => {
+    const result = await authorizeGuestHold(
+      { ...input, expectedPayoutAccountId: 'acct_site' },
+      deps,
+    );
+
+    expect(result.outcome).toBe('authorized');
+    expect(provider.authorizeHold).toHaveBeenCalledWith(
+      expect.objectContaining({ payoutAccountId: 'acct_site' }),
+    );
+  });
+
   it('places the hold, stores the guest session and caps the cost at the hold', async () => {
     const result = await authorizeGuestHold(input, deps);
 

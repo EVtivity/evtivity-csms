@@ -13,7 +13,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { checkGuestConnectorStatus, qrTransactionLimits } from '@/lib/charger-utils';
 import { guestStartExtras } from '@/lib/guest-start';
@@ -57,6 +57,38 @@ function paidCheckout(config: ChargerConfig): PaidCheckout | null {
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * The payout account (Stripe on_behalf_of) the provider's card form was built
+ * for, sent back on the start so the API can tell when it changed since the
+ * page loaded (409 PAYMENT_SETUP_CHANGED). Empty for a provider without one.
+ */
+function paymentSetupFields(provider: ClientConfig): { onBehalfOf?: string | null } {
+  if (!('onBehalfOf' in provider)) return {};
+  const value = provider['onBehalfOf'];
+  return { onBehalfOf: typeof value === 'string' && value !== '' ? value : null };
+}
+
+/**
+ * Identity of the payment form: a provider builds its form once from these terms
+ * (Stripe Elements cannot change on_behalf_of after it mounts), so a reload that
+ * changes them mounts a new form.
+ */
+function paymentFormKey(checkout: PaidCheckout): string {
+  const onBehalfOf = checkout.provider['onBehalfOf'];
+  return [
+    checkout.provider.provider,
+    typeof onBehalfOf === 'string' ? onBehalfOf : '',
+    checkout.currency,
+    String(checkout.preAuthAmountCents),
+  ].join('|');
+}
+
+function isSetupChanged(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 409) return false;
+  const body = err.body as { code?: unknown } | null;
+  return body != null && typeof body === 'object' && body.code === 'PAYMENT_SETUP_CHANGED';
+}
 
 function FreeStartForm({
   stationId,
@@ -140,12 +172,15 @@ function CheckoutForm({
   checkout,
   isSimulator,
   connectorType,
+  onSetupChanged,
 }: {
   stationId: string;
   evseId: string;
   checkout: PaidCheckout;
   isSimulator: boolean;
   connectorType: string | null;
+  /** Loads charger-config again after the start answered PAYMENT_SETUP_CHANGED. */
+  onSetupChanged: () => void;
 }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -207,6 +242,7 @@ function CheckoutForm({
                 payload,
                 ...(browser != null ? { browser } : {}),
               },
+              ...paymentSetupFields(checkout.provider),
               guestEmail: email,
               ...qrTransactionLimits(searchParams),
               ...extras,
@@ -214,6 +250,13 @@ function CheckoutForm({
           );
           start.result = guestOutcome(result);
         } catch (err: unknown) {
+          if (isSetupChanged(err)) {
+            // No hold was placed: show why on the page and build a new payment
+            // form from the current charger-config.
+            setError(getErrorMessage(err, t, 'guest.paymentFailed'));
+            onSetupChanged();
+            return;
+          }
           start.failed = true;
           start.error = err;
         }
@@ -258,6 +301,7 @@ function CheckoutForm({
         )}
       </div>
       <ProviderHost
+        key={paymentFormKey(checkout)}
         provider={checkout.provider.provider}
         component="GuestPayment"
         props={{
@@ -301,6 +345,7 @@ export function GuestCheckout(): React.JSX.Element {
   const navigate = useNavigate();
   const { companyName, companyLogo, branding } = useAuthBranding();
   const [config, setConfig] = useState<ChargerConfig | null>(null);
+  const [reloadCount, setReloadCount] = useState(0);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -319,7 +364,7 @@ export function GuestCheckout(): React.JSX.Element {
       .catch((err: unknown) => {
         setError(getErrorMessage(err, t, 'charger.notFound'));
       });
-  }, [stationId, evseId, t, navigate]);
+  }, [stationId, evseId, t, navigate, reloadCount]);
 
   if (error !== '') {
     return (
@@ -382,6 +427,9 @@ export function GuestCheckout(): React.JSX.Element {
               checkout={checkout}
               isSimulator={config.isSimulator === true}
               connectorType={config.connectorType ?? null}
+              onSetupChanged={() => {
+                setReloadCount((count) => count + 1);
+              }}
             />
           ) : null}
         </CardContent>

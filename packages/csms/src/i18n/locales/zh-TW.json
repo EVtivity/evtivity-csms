@@ -4966,6 +4966,7 @@
     "PAYMENT_PROVIDER_NOT_CONFIGURED": "尚未設定付款服務提供者",
     "PAYMENT_PROVIDER_PERMISSION_MISSING": "付款服務提供者憑證缺少必要權限",
     "PAYMENT_PROVIDER_UPGRADE_PENDING": "仍有早於 v0.1.38 的程序處於連線狀態。請完成升級後再選擇 Adyen。",
+    "PAYMENT_SETUP_CHANGED": "此充電樁的付款設定已變更。付款表單已重新載入。請重新付款。",
     "PAYMENT_WEBHOOK_EXISTS": "此服務提供者已有 EVtivity Webhook",
     "PAYOUT_ACCOUNT_EXISTS": "此充電站已有收款帳戶",
     "PAYOUT_ACCOUNT_NOT_READY": "此充電站的收款帳戶尚無法接收付款",
