@@ -421,6 +421,8 @@
     "emailForReceipt": "電子郵件 (用於收據)",
     "card": "信用卡",
     "preAuthHold": "您的信用卡將被預授權 {{amount}}。您只需為實際使用的電量付費。",
+    "orPayByCard": "或使用信用卡付款",
+    "walletHoldLabel": "充電預授權",
     "processing": "處理中...",
     "startCharging": "開始充電",
     "paymentFailed": "支付失敗",

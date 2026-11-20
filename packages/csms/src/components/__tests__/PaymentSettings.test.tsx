@@ -139,11 +139,20 @@ const SITE_CONFIG = {
 
 let siteConfig: Record<string, unknown> = SITE_CONFIG;
 
+const WALLET_DOMAIN_PATH = '/v1/settings/stripe/payment-method-domain';
+
+let walletDomain: Record<string, unknown> = {
+  portalUrl: 'https://portal.example.com',
+  domain: 'portal.example.com',
+  registration: null,
+};
+
 function mockGets(
   webhook: (url: string) => Promise<unknown> = () => Promise.resolve(webhookSetup()),
 ): void {
   getMock.mockImplementation((url: string) => {
     if (url === '/v1/settings/stripe') return Promise.resolve(stripeSettings);
+    if (url === WALLET_DOMAIN_PATH) return Promise.resolve(walletDomain);
     if (url.startsWith(WEBHOOK_GET_PREFIX)) {
       return webhook(decodeURIComponent(url.slice(WEBHOOK_GET_PREFIX.length)));
     }
@@ -199,6 +208,11 @@ afterEach(() => {
   permission.hasAllSiteAccess = true;
   stripeSettings = STRIPE_SETTINGS_WITH_SECRETS;
   siteConfig = SITE_CONFIG;
+  walletDomain = {
+    portalUrl: 'https://portal.example.com',
+    domain: 'portal.example.com',
+    registration: null,
+  };
 });
 
 describe('PaymentSettings sub-tabs', () => {
@@ -767,5 +781,58 @@ describe('PaymentSettings settings reload', () => {
     await waitFor(() => {
       expect(preAuth.value).toBe('60.00');
     });
+  });
+});
+
+describe('PaymentSettings Apple Pay and Google Pay', () => {
+  const REGISTRATION = {
+    id: 'pmd_1',
+    domain: 'portal.example.com',
+    enabled: true,
+    applePay: { status: 'inactive', errorMessage: 'The domain did not answer over https.' },
+    googlePay: { status: 'active', errorMessage: null },
+  };
+
+  it('registers the portal domain and shows the wallet states', async () => {
+    mockGets();
+    postMock.mockResolvedValue({ ...walletDomain, registration: REGISTRATION });
+    renderSettings();
+    expect(await screen.findByText('settings.stripeWalletDomainNotRegistered')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /settings\.stripeWalletDomainRegister/ }));
+
+    expect(await screen.findByText('The domain did not answer over https.')).toBeTruthy();
+    expect(postMock).toHaveBeenCalledWith(WALLET_DOMAIN_PATH, {});
+    expect(screen.getByText('settings.stripeWalletInactive')).toBeTruthy();
+    expect(screen.getByText('settings.stripeWalletActive')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /settings\.stripeWalletDomainCheck/ })).toBeTruthy();
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'settings.stripeWalletDomainRegistered' }),
+    );
+  });
+
+  it('explains a PORTAL_URL Stripe cannot verify and offers no button', async () => {
+    walletDomain = { portalUrl: 'http://localhost:7101', domain: null, registration: null };
+    mockGets();
+    renderSettings();
+    expect(await screen.findByText('settings.stripeWalletDomainUnusable')).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: /settings\.stripeWalletDomainRegister/ }),
+    ).toBeNull();
+  });
+
+  it('shows the missing permission when Stripe refuses the registration', async () => {
+    mockGets();
+    postMock.mockRejectedValue(
+      new ApiError(400, {
+        code: 'PAYMENT_PROVIDER_PERMISSION_MISSING',
+        permission: 'Payment Method Domains: write',
+      }),
+    );
+    renderSettings();
+    fireEvent.click(
+      await screen.findByRole('button', { name: /settings\.stripeWalletDomainRegister/ }),
+    );
+    expect(await screen.findByText(/Payment Method Domains: write/)).toBeTruthy();
   });
 });

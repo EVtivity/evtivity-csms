@@ -421,6 +421,8 @@
     "emailForReceipt": "Email (for receipt)",
     "card": "Card",
     "preAuthHold": "A hold of {{amount}} will be placed on your card. You will only be charged for the energy used.",
+    "orPayByCard": "or pay by card",
+    "walletHoldLabel": "Charging hold",
     "processing": "Processing...",
     "startCharging": "Start Charging",
     "paymentFailed": "Payment failed",

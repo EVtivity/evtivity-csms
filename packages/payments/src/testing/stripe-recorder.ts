@@ -57,6 +57,16 @@ export interface FakeWebhookEndpoint {
   secret?: string;
 }
 
+/** A payment method domain as Stripe returns it (the wallets EVtivity reads). */
+export interface FakePaymentMethodDomain {
+  id: string;
+  object: 'payment_method_domain';
+  domain_name: string;
+  enabled: boolean;
+  apple_pay: { status: 'active' | 'inactive'; status_details?: { error_message: string } };
+  google_pay: { status: 'active' | 'inactive'; status_details?: { error_message: string } };
+}
+
 /** A connected account as v1 `accounts.retrieve` returns it (the fields EVtivity reads). */
 export interface FakePayoutAccount {
   id: string;
@@ -131,6 +141,8 @@ class StripeRecorder {
   staleCustomers = new Set<string>();
   /** Webhook endpoints of the account (secrets are not kept, as in Stripe). */
   webhookEndpoints = new Map<string, FakeWebhookEndpoint>();
+  /** Payment method domains of the account, by id. */
+  paymentMethodDomains = new Map<string, FakePaymentMethodDomain>();
   /**
    * Per call name (`webhookEndpoints.create`), the outcome of its next calls
    * in order: an error to throw, or null to succeed. Empty means succeed.
@@ -153,6 +165,7 @@ class StripeRecorder {
     this.retrieveFailIntents.clear();
     this.staleCustomers.clear();
     this.webhookEndpoints.clear();
+    this.paymentMethodDomains.clear();
     this.callFailures.clear();
     this.payoutAccounts.clear();
     this.counters.clear();
@@ -180,6 +193,21 @@ class StripeRecorder {
     delete endpoint.secret;
     this.webhookEndpoints.set(endpoint.id, endpoint);
     return endpoint;
+  }
+
+  /** A payment method domain registered before the scenario. Default: enabled, wallets active. */
+  seedPaymentMethodDomain(
+    fields: Partial<FakePaymentMethodDomain> & { id: string; domain_name: string },
+  ): FakePaymentMethodDomain {
+    const domain: FakePaymentMethodDomain = {
+      object: 'payment_method_domain',
+      enabled: true,
+      apple_pay: { status: 'active' },
+      google_pay: { status: 'active' },
+      ...fields,
+    };
+    this.paymentMethodDomains.set(domain.id, domain);
+    return domain;
   }
 
   /**
@@ -468,6 +496,69 @@ class FakeStripe {
     retrieve: (): Promise<unknown> => {
       stripeRecorder.record('balance.retrieve', []);
       return Promise.resolve({ object: 'balance', available: [], pending: [] });
+    },
+  };
+
+  paymentMethodDomains = {
+    list: (params?: Record<string, unknown>): Promise<unknown> => {
+      stripeRecorder.record('paymentMethodDomains.list', [params ?? {}]);
+      return settle(() => {
+        stripeRecorder.failIfQueued('paymentMethodDomains.list');
+        const name = params?.['domain_name'];
+        return {
+          object: 'list',
+          data: [...stripeRecorder.paymentMethodDomains.values()]
+            .filter((d) => name == null || d.domain_name === name)
+            .map((d) => clone(d)),
+          has_more: false,
+        };
+      });
+    },
+    create: (params: Record<string, unknown>): Promise<unknown> => {
+      stripeRecorder.record('paymentMethodDomains.create', [params]);
+      return settle(() => {
+        stripeRecorder.failIfQueued('paymentMethodDomains.create');
+        // A new domain: Stripe checks the wallets asynchronously.
+        const domain = stripeRecorder.seedPaymentMethodDomain({
+          id: stripeRecorder.next('pmd_fake'),
+          domain_name: params['domain_name'] as string,
+          enabled: (params['enabled'] as boolean | undefined) ?? true,
+          apple_pay: { status: 'inactive' },
+          google_pay: { status: 'active' },
+        });
+        return clone(domain);
+      });
+    },
+    update: (id: string, params: Record<string, unknown>): Promise<unknown> => {
+      stripeRecorder.record('paymentMethodDomains.update', [id, params]);
+      return settle(() => {
+        stripeRecorder.failIfQueued('paymentMethodDomains.update');
+        const domain = stripeRecorder.paymentMethodDomains.get(id);
+        if (domain == null) {
+          throw new FakeStripeError(
+            'StripeInvalidRequestError',
+            `No such payment method domain: '${id}'`,
+            { code: 'resource_missing', statusCode: 404 },
+          );
+        }
+        if (typeof params['enabled'] === 'boolean') domain.enabled = params['enabled'];
+        return clone(domain);
+      });
+    },
+    validate: (id: string): Promise<unknown> => {
+      stripeRecorder.record('paymentMethodDomains.validate', [id]);
+      return settle(() => {
+        stripeRecorder.failIfQueued('paymentMethodDomains.validate');
+        const domain = stripeRecorder.paymentMethodDomains.get(id);
+        if (domain == null) {
+          throw new FakeStripeError(
+            'StripeInvalidRequestError',
+            `No such payment method domain: '${id}'`,
+            { code: 'resource_missing', statusCode: 404 },
+          );
+        }
+        return clone(domain);
+      });
     },
   };
 

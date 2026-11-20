@@ -44,6 +44,8 @@ const ROUTES = [
   ['GET', '/settings/stripe', 'settings.payment:read'],
   ['PUT', '/settings/stripe', 'settings.payment:write'],
   ['POST', '/settings/stripe/test', 'settings.payment:write'],
+  ['GET', '/settings/stripe/payment-method-domain', 'settings.payment:read'],
+  ['POST', '/settings/stripe/payment-method-domain', 'settings.payment:write'],
   ['GET', '/settings/stripe/webhook', 'settings.payment:read'],
   ['POST', '/settings/stripe/webhook', 'settings.payment:write'],
   ['GET', '/settings/adyen', 'settings.payment:read'],

@@ -362,10 +362,34 @@ describe('Portal guest routes - handler logic', () => {
       const body = response.json();
       expect(body.paymentEnabled).toBe(true);
       expect(body.publishableKey).toBe('pk_test_abc');
-      expect(body.paymentProvider).toEqual({ provider: 'stripe', publishableKey: 'pk_test_abc' });
+      expect(body.paymentProvider).toEqual({
+        provider: 'stripe',
+        publishableKey: 'pk_test_abc',
+        onBehalfOf: null,
+      });
       expect(body.currency).toBe('EUR');
       expect(body.preAuthAmountCents).toBe(7500);
       expect(mockHoldTerms).toHaveBeenCalledWith(CTX, 'site-1', 'CS-001');
+    });
+
+    it('names the payout account of a destination-charge hold for the Stripe Elements', async () => {
+      setupDbResults(
+        [{ id: 'sta_000000000001', siteId: 'site-1', freeVendEnabled: false }],
+        [{ id: 'evs_000000000001' }],
+      );
+      mockActivePaymentProvider.mockResolvedValue(stripeProvider('pk_test_abc'));
+      mockHoldTerms.mockResolvedValue({
+        preAuthAmountCents: 7500,
+        sitePaymentConfigId: 4,
+        payoutAccountId: 'acct_payout_1',
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/charger-config/CS-001/1',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().paymentProvider.onBehalfOf).toBe('acct_payout_1');
     });
 
     it('returns the provider client config and no publishable key for a provider other than Stripe', async () => {

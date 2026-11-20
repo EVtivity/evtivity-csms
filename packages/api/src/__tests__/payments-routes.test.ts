@@ -266,7 +266,7 @@ vi.mock('../lib/hold-fee-check.js', () => ({ holdFeeCheck: mockHoldFeeCheck }));
 import { registerAuth } from '../plugins/auth.js';
 import { paymentRoutes } from '../routes/payments.js';
 import { config as apiConfig } from '../lib/config.js';
-import { db } from '@evtivity/database';
+import { db, writeAudit } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
@@ -2323,6 +2323,8 @@ describe('Payment routes - handler logic', () => {
       ['POST', '/settings/stripe/test'],
       ['GET', '/settings/stripe/webhook'],
       ['POST', '/settings/stripe/webhook'],
+      ['GET', '/settings/stripe/payment-method-domain'],
+      ['POST', '/settings/stripe/payment-method-domain'],
     ] as const)('answers 404 SETTING_NOT_FOUND on %s %s', async (method, url) => {
       const response = await app.inject({
         method,
@@ -2596,6 +2598,102 @@ describe('Payment routes - handler logic', () => {
   });
 
   // --- Stripe webhook setup ---
+
+  describe('Stripe payment method domain', () => {
+    const REGISTRATION = {
+      id: 'pmd_1',
+      domain: 'portal.example.com',
+      enabled: true,
+      applePay: { status: 'active', errorMessage: null },
+      googlePay: { status: 'active', errorMessage: null },
+    };
+    const portalUrl = apiConfig.PORTAL_URL;
+
+    afterEach(() => {
+      apiConfig.PORTAL_URL = portalUrl;
+    });
+
+    function inject(method: 'GET' | 'POST') {
+      return app.inject({
+        method,
+        url: '/settings/stripe/payment-method-domain',
+        headers: { authorization: 'Bearer ' + token },
+      });
+    }
+
+    it('reads the registration of the PORTAL_URL hostname', async () => {
+      apiConfig.PORTAL_URL = 'https://portal.example.com';
+      const getPaymentMethodDomain = vi.fn().mockResolvedValue(REGISTRATION);
+      mockGetPaymentProvider.mockResolvedValueOnce({ getPaymentMethodDomain });
+
+      const response = await inject('GET');
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        portalUrl: 'https://portal.example.com',
+        domain: 'portal.example.com',
+        registration: REGISTRATION,
+      });
+      expect(getPaymentMethodDomain).toHaveBeenCalledWith('portal.example.com');
+    });
+
+    it.each(['http://portal.example.com', 'https://localhost:7101', 'https://10.0.0.5'])(
+      'calls no Stripe for PORTAL_URL %s and refuses to register it',
+      async (url) => {
+        apiConfig.PORTAL_URL = url;
+
+        const read = await inject('GET');
+        const register = await inject('POST');
+
+        expect(read.json()).toEqual({ portalUrl: url, domain: null, registration: null });
+        expect(register.statusCode).toBe(400);
+        expect(register.json().code).toBe('VALIDATION_ERROR');
+        expect(mockGetPaymentProvider).not.toHaveBeenCalled();
+      },
+    );
+
+    it('registers the domain and audits the status before and after', async () => {
+      apiConfig.PORTAL_URL = 'https://portal.example.com';
+      const registerPaymentMethodDomain = vi.fn().mockResolvedValue(REGISTRATION);
+      mockGetPaymentProvider.mockResolvedValueOnce({
+        getPaymentMethodDomain: vi.fn().mockResolvedValue(null),
+        registerPaymentMethodDomain,
+      });
+      vi.mocked(writeAudit).mockClear();
+
+      const response = await inject('POST');
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().registration).toEqual(REGISTRATION);
+      expect(registerPaymentMethodDomain).toHaveBeenCalledWith('portal.example.com');
+      expect(vi.mocked(writeAudit).mock.calls[0]?.[1]).toMatchObject({
+        entityId: 'stripe.paymentMethodDomain',
+        action: 'updated',
+        before: { key: 'stripe.paymentMethodDomain', value: null },
+        after: { key: 'stripe.paymentMethodDomain', value: REGISTRATION },
+      });
+    });
+
+    it('names the missing permission of a restricted key', async () => {
+      apiConfig.PORTAL_URL = 'https://portal.example.com';
+      mockGetPaymentProvider.mockResolvedValueOnce({
+        getPaymentMethodDomain: vi
+          .fn()
+          .mockRejectedValue(
+            new MockPaymentProviderPermissionError('stripe', 'Payment Method Domains: read'),
+          ),
+      });
+
+      const response = await inject('POST');
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'PAYMENT_PROVIDER_PERMISSION_MISSING',
+        permission: 'Payment Method Domains: read',
+      });
+      expect(writeAudit).not.toHaveBeenCalled();
+    });
+  });
 
   describe('Stripe webhook setup', () => {
     const URL = 'https://csms.example.com/v1/webhooks/payments/stripe';

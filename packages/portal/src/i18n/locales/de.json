@@ -421,6 +421,8 @@
     "emailForReceipt": "E-Mail (für Beleg)",
     "card": "Karte",
     "preAuthHold": "Auf deiner Karte wird ein Betrag von {{amount}} reserviert. Berechnet wird nur die tatsächlich verbrauchte Energie.",
+    "orPayByCard": "oder mit Karte bezahlen",
+    "walletHoldLabel": "Reservierung für den Ladevorgang",
     "processing": "Wird verarbeitet...",
     "startCharging": "Ladevorgang starten",
     "paymentFailed": "Zahlung fehlgeschlagen",

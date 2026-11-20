@@ -421,6 +421,8 @@
     "emailForReceipt": "电子邮箱 (用于收据)",
     "card": "银行卡",
     "preAuthHold": "您的银行卡将被预授权 {{amount}}。您只需为实际使用的电量付费。",
+    "orPayByCard": "或使用银行卡支付",
+    "walletHoldLabel": "充电预授权",
     "processing": "处理中...",
     "startCharging": "开始充电",
     "paymentFailed": "支付失败",

@@ -337,6 +337,22 @@ export interface WebhookRegistration {
   activate?: () => Promise<void>;
 }
 
+/** A wallet's state on a payment method domain (Stripe `apple_pay`, `google_pay`). */
+export interface WalletDomainStatus {
+  status: 'active' | 'inactive';
+  /** Why the wallet is inactive on the domain, as the provider words it. */
+  errorMessage: string | null;
+}
+
+/** A web domain registered for wallet payments in Elements (Stripe payment method domain). */
+export interface PaymentMethodDomainStatus {
+  id: string;
+  domain: string;
+  enabled: boolean;
+  applePay: WalletDomainStatus;
+  googlePay: WalletDomainStatus;
+}
+
 export type PayoutAccountState =
   | 'onboarding'
   | 'action_required'
@@ -437,6 +453,12 @@ export interface PaymentProvider {
    * and one exists there.
    */
   registerWebhook?(input: WebhookRegistrationInput): Promise<WebhookRegistration>;
+
+  // Wallet payment method domains (Stripe)
+  /** The registration of a web domain for Apple Pay and Google Pay; null when none. */
+  getPaymentMethodDomain?(domain: string): Promise<PaymentMethodDomainStatus | null>;
+  /** Registers the domain, or enables or re-checks its registration. */
+  registerPaymentMethodDomain?(domain: string): Promise<PaymentMethodDomainStatus>;
 
   // Site host payout accounts
   /** Required when capabilities.payoutOnboarding is 'hosted_link'. */

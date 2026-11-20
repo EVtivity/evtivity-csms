@@ -268,6 +268,7 @@ function CheckoutForm({
           disabled: isCheckingStatus,
           pay,
           payDetails,
+          canPay: validateEmail,
         }}
       />
       {isCheckingStatus && (

@@ -33,6 +33,7 @@ export type { FakeAdyen, FakeAnswer, RecordedCall } from './fake-adyen.js';
 export type {
   FakeIntent,
   FakePayoutAccount,
+  FakePaymentMethodDomain,
   FakeWebhookEndpoint,
   RecordedStripeCall,
 } from './stripe-recorder.js';
