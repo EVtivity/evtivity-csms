@@ -19,6 +19,8 @@ beforeAll(async () => {
             RATE_LIMITED: 'Too many requests. Wait a moment and try again.',
             unknown: 'Something went wrong',
             RESERVATION_CONFLICT: 'This time slot is already reserved',
+            OVERSUBSCRIPTION_EXCEEDED:
+              'Total connected capacity ({{connectedKw}} kW) exceeds panel effective capacity ({{allowedKw}} kW)',
           },
           favorites: { removeFailed: 'Could not remove favorite' },
         },
@@ -29,6 +31,17 @@ beforeAll(async () => {
 });
 
 describe('getErrorMessage', () => {
+  it('fills the translated message with the values of the reply details', () => {
+    const err = new ApiError(400, {
+      error: 'Total connected capacity (45.0 kW) exceeds panel effective capacity (19.2 kW)',
+      code: 'OVERSUBSCRIPTION_EXCEEDED',
+      details: { connectedKw: 45, allowedKw: 19.2, count: 3, nested: { a: 1 } },
+    });
+    expect(getErrorMessage(err, t)).toBe(
+      'Total connected capacity (45 kW) exceeds panel effective capacity (19.2 kW)',
+    );
+  });
+
   it('returns the translation for a known error code', () => {
     const err = new ApiError(409, { error: 'Conflict', code: 'RESERVATION_CONFLICT' });
     expect(getErrorMessage(err, t)).toBe('This time slot is already reserved');

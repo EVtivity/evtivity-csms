@@ -110,7 +110,13 @@ import {
   seedSettingRows,
 } from './seed-settings.js';
 import { writeStationUnitsSetting } from './lib/station-units-setting.js';
-import { demoStationProtocol, STATION_MODELS, STATION_MODELS_16 } from './seed-station-defs.js';
+import { demoConfigPush } from './seed-config-pushes.js';
+import {
+  demoAcConnectorKw,
+  demoStationProtocol,
+  STATION_MODELS,
+  STATION_MODELS_16,
+} from './seed-station-defs.js';
 import argon2 from 'argon2';
 import {
   calculateCo2AvoidedKg,
@@ -1406,7 +1412,7 @@ async function seed(): Promise<void> {
         connectorId: 2,
         status: pick(connectorStatuses),
         connectorType: 'Type1',
-        maxPowerKw: '7',
+        maxPowerKw: String(demoAcConnectorKw(32)),
         maxCurrentAmps: 32,
       });
     }
@@ -3704,15 +3710,6 @@ async function seed(): Promise<void> {
     )
     .returning({ id: configTemplates.id });
 
-  const pushStationStatuses: Array<'pending' | 'accepted' | 'rejected' | 'failed'> = [
-    'accepted',
-    'accepted',
-    'accepted',
-    'accepted',
-    'rejected',
-    'failed',
-  ];
-
   let totalPushes = 0;
   let totalPushStations = 0;
 
@@ -3726,27 +3723,22 @@ async function seed(): Promise<void> {
         pi * def.stationsPerPush,
         (pi + 1) * def.stationsPerPush,
       );
-      const isCompleted = pi < def.pushCount - 1;
+      const plan = demoConfigPush(
+        stationPool.map((station) => station.id),
+        pick,
+      );
 
       const [push] = await db
         .insert(configTemplatePushes)
         .values({
           templateId: template.id,
-          status: isCompleted ? 'completed' : 'active',
+          status: plan.status,
           stationCount: stationPool.length,
         })
         .returning({ id: configTemplatePushes.id });
 
-      if (push != null && stationPool.length > 0) {
-        const pushStationRows = stationPool.map((station) => {
-          const status = isCompleted ? pick(pushStationStatuses) : 'pending';
-          return {
-            pushId: push.id,
-            stationId: station.id,
-            status,
-            errorInfo: status === 'failed' ? 'Station offline' : null,
-          };
-        });
+      if (push != null && plan.stations.length > 0) {
+        const pushStationRows = plan.stations.map((row) => ({ pushId: push.id, ...row }));
         await db.insert(configTemplatePushStations).values(pushStationRows);
         totalPushStations += pushStationRows.length;
       }

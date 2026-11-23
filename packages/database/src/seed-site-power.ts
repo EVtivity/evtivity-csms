@@ -51,6 +51,8 @@ import {
 } from './lib/station-layout.js';
 import { LAYOUT_DEMO } from './seed-demo-layout-plan.js';
 import {
+  MAX_OVERSUBSCRIPTION_RATIO,
+  panelOversubscription,
   V208,
   V480,
   groupTransformerPoints,
@@ -121,6 +123,20 @@ function powerStationOf(
         : Math.ceil((Number(r.max_power_kw ?? 0) * 1000) / 208),
     ),
   );
+  // The circuit assignment check's nameplate: the highest connector of each
+  // EVSE, summed; an EVSE without a rating makes the station count 0.
+  const evseMax = new Map<string, number | null>();
+  for (const r of connectorRows) {
+    const rating = Number(r.max_power_kw ?? 0) > 0 ? Number(r.max_power_kw) : null;
+    const current = evseMax.get(r.evse_id as string);
+    if (current === undefined || (rating != null && (current == null || rating > current))) {
+      evseMax.set(r.evse_id as string, rating ?? current ?? null);
+    }
+  }
+  const ratings = [...evseMax.values()];
+  const nameplateKw = ratings.some((v) => v == null)
+    ? 0
+    : ratings.reduce<number>((n, v) => n + (v ?? 0), 0);
   return {
     kind,
     station: {
@@ -130,6 +146,7 @@ function powerStationOf(
       kw: kw > 0 ? kw : 50,
       ports: Math.max(1, evseIds.size),
       portAmps,
+      nameplateKw,
     },
   };
 }
@@ -147,6 +164,73 @@ function ids(siteId: string) {
     panelboard: (g: number, k: number) => `pnl_pw${site}g${String(g + 1)}p${String(k + 1)}`,
     circuit: (stationId: string) => `cir_pw${stationId.replace(/[^A-Za-z0-9]/g, '').slice(-20)}`,
   };
+}
+
+/** The names the plan gives its switchboards and panelboards. */
+const PLAN_PANEL_NAME = /^(Main Switchboard \d+|Panelboard \d+[A-Z])$/;
+
+/**
+ * Every panel of the plan an earlier seed left without oversubscription (its
+ * plan id and name, ratio 1) takes the ratio the circuit assignment check needs
+ * for the stations now on its own circuits against its stored capacity
+ * (`panelOversubscription`, at most 3). An operator's ratio or renamed panel
+ * stays; the tree writer audits the one change.
+ */
+async function raiseTreeOversubscription(
+  sql: postgres.Sql,
+  siteId: string,
+  ctx: DemoFeatureContext,
+): Promise<void> {
+  const prefix = ids(siteId).switchboard(0).replace(/g1$/, 'g');
+  const candidates = await sql<Array<{ id: string; name: string; cap: string }>>`
+    SELECT id, name, max_continuous_kw::text AS cap FROM panels
+    WHERE site_id = ${siteId} AND starts_with(id, ${prefix}) AND oversubscription_ratio = 1
+  `;
+  for (const panel of candidates) {
+    if (!PLAN_PANEL_NAME.test(panel.name)) continue;
+    // The check's nameplate: the highest connector of each EVSE, an EVSE without a rating 0.
+    const rows = await sql<Array<{ kw: string | null }>>`
+      SELECT max(c.max_power_kw)::text AS kw
+      FROM circuits ci
+      JOIN charging_stations cs ON cs.circuit_id = ci.id AND cs.site_id = ${siteId}
+        AND NOT cs.is_conformance
+      JOIN evses e ON e.station_id = cs.id
+      JOIN connectors c ON c.evse_id = e.id
+      WHERE ci.panel_id = ${panel.id}
+      GROUP BY e.id
+    `;
+    const nameplateKw = rows.reduce((n, r) => n + Number(r.kw ?? 0), 0);
+    const { ratio } = panelOversubscription(
+      [
+        {
+          stationId: '',
+          breakerAmps: 0,
+          maxContinuousKw: 0,
+          loadKw: 0,
+          phaseConnections: null,
+          nameplateKw,
+        },
+      ],
+      Number(panel.cap),
+    );
+    if (ratio <= 1) continue;
+    await updatePanel(
+      {
+        siteId,
+        panelId: panel.id,
+        set: { oversubscriptionRatio: String(ratio) },
+        onlyIf: and(
+          eq(panels.siteId, siteId),
+          eq(panels.name, panel.name),
+          eq(panels.oversubscriptionRatio, '1'),
+        ),
+      },
+      {
+        ...auditActor(ctx),
+        notes: 'Demo site power equipment: panel oversubscription for its managed load',
+      },
+    );
+  }
 }
 
 /** Writes a site's tree through the tree writer and hangs each station on its circuit. */
@@ -195,6 +279,7 @@ async function writeTree(
           phases: 3,
           maxContinuousKw: String(group.switchboardMaxContinuousKw),
           safetyMarginKw: '0',
+          oversubscriptionRatio: String(group.switchboardOversubscription.ratio),
           sortOrder: g,
         },
         treeCtx,
@@ -239,6 +324,7 @@ async function writeTree(
             phases: 3,
             maxContinuousKw: String(board.maxContinuousKw),
             safetyMarginKw: '0',
+            oversubscriptionRatio: String(board.oversubscription.ratio),
             sortOrder: group.dc.length + k,
           },
           treeCtx,
@@ -388,6 +474,8 @@ export interface SitePowerSummary {
   panelboards: number;
   treeWritten: boolean;
   layoutWritten: boolean;
+  /** Panels whose stations need more oversubscription than the panel routes allow (kept at 3). */
+  panelsAboveMaxRatio: number;
 }
 
 /**
@@ -491,6 +579,7 @@ export async function seedSitePower(
       await writeTree(sql, site.id, groups, stationIds, ctx);
       treeWritten = true;
     }
+    await raiseTreeOversubscription(sql, site.id, ctx);
     // The transformers and their links, while the tree is this plan's (and
     // the transformers the layout below places).
     const writesLayout =
@@ -544,6 +633,14 @@ export async function seedSitePower(
       panelboards: groups.reduce((n, g) => n + g.panelboards.length, 0),
       treeWritten,
       layoutWritten,
+      panelsAboveMaxRatio: groups.reduce(
+        (n, g) =>
+          n +
+          (g.switchboardOversubscription.needed > MAX_OVERSUBSCRIPTION_RATIO ? 1 : 0) +
+          g.panelboards.filter((b) => b.oversubscription.needed > MAX_OVERSUBSCRIPTION_RATIO)
+            .length,
+        0,
+      ),
     });
   }
   return out;

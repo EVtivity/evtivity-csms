@@ -10,6 +10,7 @@ import {
 import {
   DUAL_PORT_SHARED_AMPS,
   GROUP_MAX_KW,
+  MAX_OVERSUBSCRIPTION_RATIO,
   PANELBOARD_SPACES,
   V208,
   V480,
@@ -18,13 +19,21 @@ import {
   plannedAcCircuit,
   plannedDcCircuit,
   plannedGroup,
+  panelOversubscription,
   stationLoadKw,
+  stationNameplateKw,
   type PlannedGroup,
   type PowerStation,
 } from '../seed-site-power-plan.js';
 import { isEarlierBaseTree } from '../seed-site-power.js';
 import { seedAllowsSimulatedEnergyAssets } from '../seed-demo-layout.js';
-import { STATION_MODELS, STATION_MODELS_16 } from '../seed-station-defs.js';
+import {
+  DEMO_AC_RATINGS_BEFORE,
+  STATION_MODELS,
+  STATION_MODELS_16,
+  demoAcConnectorKw,
+} from '../seed-station-defs.js';
+import { correctedAcRating } from '../seed-demo-ac-ratings.js';
 import {
   KEMPOWER_C502P200_FUSE_AMPS,
   LAYOUT_DEMO,
@@ -51,14 +60,23 @@ const DC_TYPES = new Set(['CCS1', 'CCS2', 'CHAdeMO']);
 function baseSite(count: number, seed: number): PowerStation[] {
   const rand = lcg(seed);
   return Array.from({ length: count }, (_, i) => {
-    const models = rand() < 0.5 ? STATION_MODELS : STATION_MODELS_16;
+    const is16 = rand() < 0.5;
+    const models: Array<{
+      model: string;
+      power: number;
+      type: string;
+      amps: number;
+      outputs?: number;
+    }> = is16 ? STATION_MODELS_16 : STATION_MODELS;
     const m = models[Math.floor(rand() * models.length)]!;
     const dc = DC_TYPES.has(m.type) && m.power > 22;
     return {
       id: `sta_${String(i)}`,
       kind: dc ? ('dc' as const) : ('ac' as const),
+      model: m.model,
       kw: m.power,
-      ports: 1 + Math.floor(rand() * 3),
+      // The seed's EVSEs: a 1.6 station 1 or 2, a 2.x station its outputs or 2.
+      ports: is16 ? 1 + Math.floor(rand() * 2) : (m.outputs ?? 2),
       portAmps: m.amps,
       spot: { x: (i % 10) * 2.7, z: Math.floor(i / 10) * 8 },
     };
@@ -233,6 +251,93 @@ describe('demo site power plan', () => {
       isEarlierBaseTree([panel], [...circuits, { name: 'Circuit 3', breakerRatingAmps: 40 }]),
     ).toBe(false);
     expect(isEarlierBaseTree([], [])).toBe(false);
+  });
+});
+
+describe('base demo panel oversubscription', () => {
+  it('gives every base seed panel the ratio its stations need, at most 3', () => {
+    const aboveMax: Array<{ at: string; needed: number }> = [];
+    for (const count of [1, 5, 40, 82, 100, 127]) {
+      for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+        const stations = baseSite(count, seed);
+        const byId = new Map(stations.map((s) => [s.id, s]));
+        for (const [g, group] of planSitePower(stations).entries()) {
+          const panels = [
+            {
+              at: `${String(count)}/${String(seed)} switchboard ${String(g + 1)}`,
+              circuits: group.dc,
+              capacityKw: group.switchboardMaxContinuousKw,
+              over: group.switchboardOversubscription,
+            },
+            ...group.panelboards.map((b, k) => ({
+              at: `${String(count)}/${String(seed)} panelboard ${String(g + 1)}.${String(k + 1)}`,
+              circuits: b.circuits,
+              capacityKw: b.maxContinuousKw,
+              over: b.oversubscription,
+            })),
+          ];
+          for (const panel of panels) {
+            // The circuit assignment check: the per-EVSE nameplate sum of the
+            // panel's own circuits against its capacity times the ratio.
+            const nameplateKw = panel.circuits.reduce(
+              (n, c) => n + stationNameplateKw(byId.get(c.stationId)!),
+              0,
+            );
+            expect(panel.over.needed % 0.25, panel.at).toBe(0);
+            expect(panel.over.needed, panel.at).toBeGreaterThanOrEqual(1);
+            expect(nameplateKw, panel.at).toBeLessThanOrEqual(
+              panel.capacityKw * panel.over.needed + 1e-6,
+            );
+            expect(nameplateKw, panel.at).toBeGreaterThan(
+              panel.over.needed === 1 ? -1 : panel.capacityKw * (panel.over.needed - 0.25),
+            );
+            expect(panel.over.ratio, panel.at).toBe(
+              Math.min(panel.over.needed, MAX_OVERSUBSCRIPTION_RATIO),
+            );
+            if (panel.over.needed > MAX_OVERSUBSCRIPTION_RATIO) {
+              aboveMax.push({ at: panel.at, needed: panel.over.needed });
+            }
+          }
+        }
+      }
+    }
+    // With every AC connector rated at what its 208 V circuit carries, no base
+    // seed panel needs more than the panel routes allow.
+    expect(aboveMax).toEqual([]);
+  });
+
+  it('rates every base demo AC connector at what its 208 V circuit carries', () => {
+    for (const m of [...STATION_MODELS, ...STATION_MODELS_16]) {
+      if (m.type !== 'Type1') continue;
+      expect(m.power, m.model).toBe(demoAcConnectorKw(m.amps));
+      expect(m.power, m.model).toBeLessThanOrEqual((m.amps * 208) / 1000 + 0.005);
+      // A dual-port pedestal shares one 32 A circuit: its two ports stay within 3 times it.
+      expect(2 * m.power, m.model).toBeLessThanOrEqual(3 * ((DUAL_PORT_SHARED_AMPS * 208) / 1000));
+    }
+    // Every rating an earlier seed wrote moves to a current-based one, and only those.
+    expect(correctedAcRating(43, 63)).toEqual({ kw: 9.98, amps: 48 });
+    expect(correctedAcRating(7, 32)).toEqual({ kw: 6.66, amps: 32 });
+    expect(correctedAcRating(6.66, 32)).toBeNull();
+    expect(correctedAcRating(22, 16)).toBeNull();
+    for (const r of DEMO_AC_RATINGS_BEFORE)
+      expect(correctedAcRating(r.to.kw, r.to.amps)).toBeNull();
+  });
+
+  it('rounds the ratio up to a quarter and keeps 1 without oversubscription', () => {
+    const circuit = (nameplateKw: number) => ({
+      stationId: 'x',
+      breakerAmps: 40,
+      maxContinuousKw: 10,
+      loadKw: 6.66,
+      phaseConnections: null,
+      nameplateKw,
+    });
+    expect(panelOversubscription([circuit(9)], 10)).toEqual({ needed: 1, ratio: 1 });
+    expect(panelOversubscription([circuit(10)], 10)).toEqual({ needed: 1, ratio: 1 });
+    expect(panelOversubscription([circuit(10.1)], 10)).toEqual({ needed: 1.25, ratio: 1.25 });
+    expect(panelOversubscription([circuit(17.5)], 10)).toEqual({ needed: 1.75, ratio: 1.75 });
+    expect(panelOversubscription([circuit(45)], 10)).toEqual({ needed: 4.5, ratio: 3 });
+    expect(panelOversubscription([], 10)).toEqual({ needed: 1, ratio: 1 });
   });
 });
 

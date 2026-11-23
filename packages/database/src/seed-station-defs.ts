@@ -96,6 +96,44 @@ export function devStationDefs(vendorIds: {
 }
 
 /**
+ * The voltage of a demo AC Level 2 circuit: a 2-pole 208 V branch circuit of a
+ * 208Y/120 V panelboard (seed-site-power-plan.ts, NEC 625.40).
+ */
+export const DEMO_AC_CIRCUIT_VOLTS = 208;
+
+/**
+ * An AC Level 2 connector's rating: its current at the 208 V circuit that feeds
+ * it, so the circuit carries it (NFPA 70 (NEC) 2023, 625.41: the circuit is
+ * sized at 125 percent of this continuous load). SAE J1772 Level 2 runs at 208
+ * to 240 V, up to 80 A; the same current gives 7.68 kW at 240 V and 6.66 kW at
+ * 208 V (ChargePoint CT4000 datasheet: 32 A per port, "6.6 kW at 208 V").
+ */
+export function demoAcConnectorKw(amps: number): number {
+  return Math.round((amps * DEMO_AC_CIRCUIT_VOLTS) / 10) / 100;
+}
+
+/**
+ * The AC connector ratings earlier demo seeds wrote (kW and A, a power the 208 V
+ * circuit could not carry), and the rating that replaces each on a rerun while a
+ * connector still holds it. DualPlug's 63 A port became 48 A: a dual-port
+ * pedestal shares one 32 A circuit, and the circuit assignment check counts the
+ * per-EVSE nameplate, so a port above 48 A would ask more than the panel
+ * routes' maximum oversubscription ratio of 3.
+ */
+export const DEMO_AC_RATINGS_BEFORE: ReadonlyArray<{
+  kw: number;
+  amps: number;
+  to: { kw: number; amps: number };
+}> = [
+  { kw: 7, amps: 32, to: { kw: demoAcConnectorKw(32), amps: 32 } },
+  { kw: 19, amps: 32, to: { kw: demoAcConnectorKw(32), amps: 32 } },
+  { kw: 22, amps: 32, to: { kw: demoAcConnectorKw(32), amps: 32 } },
+  { kw: 11, amps: 16, to: { kw: demoAcConnectorKw(16), amps: 16 } },
+  { kw: 40, amps: 48, to: { kw: demoAcConnectorKw(48), amps: 48 } },
+  { kw: 43, amps: 63, to: { kw: demoAcConnectorKw(48), amps: 48 } },
+];
+
+/**
  * The station models of the demo seed's OCPP 2.x stations (power kW, connector
  * type and current). `outputs`: a DC split system's EVSEs, one per satellite
  * dispenser; every other model has two EVSEs (a dual-outlet dispenser or a
@@ -116,14 +154,14 @@ export const STATION_MODELS: Array<{
 }> = [
   { model: 'Terra 360', power: 360, type: 'CCS1', amps: 500 },
   { model: 'Terra 184', power: 180, type: 'CCS1', amps: 250 },
-  { model: 'CT4000', power: 7, type: 'Type1', amps: 32 },
-  { model: 'CP6000', power: 19, type: 'Type1', amps: 32 },
+  { model: 'CT4000', power: demoAcConnectorKw(32), type: 'Type1', amps: 32 },
+  { model: 'CP6000', power: demoAcConnectorKw(32), type: 'Type1', amps: 32 },
   { model: 'RTM75', power: 75, type: 'CCS1', amps: 200 },
   { model: 'RT50', power: 50, type: 'CCS1', amps: 125 },
-  { model: 'BusinessLine', power: 22, type: 'Type1', amps: 32 },
+  { model: 'BusinessLine', power: demoAcConnectorKw(32), type: 'Type1', amps: 32 },
   { model: 'Troniq 50', power: 50, type: 'CCS1', amps: 125 },
-  { model: 'Pulsar Plus', power: 11, type: 'Type1', amps: 16 },
-  { model: 'JuiceBox', power: 40, type: 'Type1', amps: 48 },
+  { model: 'Pulsar Plus', power: demoAcConnectorKw(16), type: 'Type1', amps: 16 },
+  { model: 'JuiceBox', power: demoAcConnectorKw(48), type: 'Type1', amps: 48 },
   { model: 'Series 6', power: 150, type: 'CCS1', amps: 350 },
   { model: 'IQ 200', power: 200, type: 'CCS1', amps: 500 },
   { model: 'C-Series Satellites', power: 200, type: 'CCS1', amps: 300, outputs: 4 },
@@ -136,8 +174,8 @@ export const STATION_MODELS_16: Array<{
   type: string;
   amps: number;
 }> = [
-  { model: 'CT4000 (1.6)', power: 7, type: 'Type1', amps: 32 },
-  { model: 'AV-30 (1.6)', power: 22, type: 'Type1', amps: 32 },
+  { model: 'CT4000 (1.6)', power: demoAcConnectorKw(32), type: 'Type1', amps: 32 },
+  { model: 'AV-30 (1.6)', power: demoAcConnectorKw(32), type: 'Type1', amps: 32 },
   { model: 'QC-50 (1.6)', power: 50, type: 'CCS1', amps: 125 },
-  { model: 'DualPlug (1.6)', power: 43, type: 'Type1', amps: 63 },
+  { model: 'DualPlug (1.6)', power: demoAcConnectorKw(48), type: 'Type1', amps: 48 },
 ];

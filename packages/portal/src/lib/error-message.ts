@@ -13,16 +13,38 @@ export function getErrorMessage(
   if (error instanceof ApiError) {
     const body = error.body;
     if (body != null && typeof body === 'object' && !Array.isArray(body)) {
-      const { code, error: message } = body as { code?: unknown; error?: unknown };
+      const {
+        code,
+        error: message,
+        details,
+      } = body as {
+        code?: unknown;
+        error?: unknown;
+        details?: unknown;
+      };
       if (typeof code === 'string' && code !== '') {
         const key = `errors.${code}`;
         const translated = t(key);
-        if (translated !== key) return translated;
+        if (translated !== key) {
+          // A message that names values takes them from the reply's details.
+          const replace = scalarDetails(details);
+          return Object.keys(replace).length > 0 ? t(key, { replace }) : translated;
+        }
       }
       if (typeof message === 'string' && message !== '') return message;
     }
   }
   return t(fallbackKey);
+}
+
+// The string and number fields of a reply's details fill the placeholders of its translated message.
+function scalarDetails(details: unknown): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  if (details == null || typeof details !== 'object' || Array.isArray(details)) return out;
+  for (const [k, v] of Object.entries(details as Record<string, unknown>)) {
+    if (typeof v === 'string' || typeof v === 'number') out[k] = v;
+  }
+  return out;
 }
 
 // A throttled request (429 RATE_LIMITED) gets the translated "too many requests" text, so a

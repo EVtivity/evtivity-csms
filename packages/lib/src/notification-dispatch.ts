@@ -792,7 +792,7 @@ export async function sendEmail(
     });
     return true;
   } catch (err) {
-    logger.error({ err, to, subject }, 'Failed to send email');
+    logger.warn({ err, to, subject }, 'Failed to send email');
     return false;
   }
 }

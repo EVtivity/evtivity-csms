@@ -137,6 +137,23 @@ const stationCircuitItem = z
   })
   .loose();
 
+const oversubscriptionErrorFields = {
+  details: z
+    .object({
+      connectedKw: z
+        .number()
+        .describe('Maximum power of the stations on the panel with this station, in kW, to 0.1 kW'),
+      allowedKw: z
+        .number()
+        .describe(
+          'Panel effective capacity (max continuous kW times the oversubscription ratio), in kW, to 0.1 kW',
+        ),
+    })
+    .loose()
+    .optional()
+    .describe('With OVERSUBSCRIPTION_EXCEEDED: the connected and allowed kW'),
+};
+
 // --- Helpers ---
 
 const CIRCUIT_VOLTAGE_ERROR = {
@@ -478,10 +495,11 @@ export function circuitRoutes(app: FastifyInstance): void {
         body: zodSchema(assignCircuitBody),
         response: {
           200: itemResponse(stationCircuitItem),
-          400: errorWith('Bad request', [
-            ERROR_CODES.INVALID_CIRCUIT,
-            ERROR_CODES.OVERSUBSCRIPTION_EXCEEDED,
-          ]),
+          400: errorWith(
+            'Bad request',
+            [ERROR_CODES.INVALID_CIRCUIT, ERROR_CODES.OVERSUBSCRIPTION_EXCEEDED],
+            oversubscriptionErrorFields,
+          ),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
         },
       },
@@ -587,9 +605,12 @@ export function circuitRoutes(app: FastifyInstance): void {
           }
 
           if (totalConnectedKw > effectiveCapacityKw) {
+            const connectedKw = Number(totalConnectedKw.toFixed(1));
+            const allowedKw = Number(effectiveCapacityKw.toFixed(1));
             await reply.status(400).send({
-              error: `Total connected capacity (${totalConnectedKw.toFixed(1)} kW) exceeds panel effective capacity (${effectiveCapacityKw.toFixed(1)} kW)`,
+              error: `Total connected capacity (${connectedKw.toFixed(1)} kW) exceeds panel effective capacity (${allowedKw.toFixed(1)} kW)`,
               code: 'OVERSUBSCRIPTION_EXCEEDED',
+              details: { connectedKw, allowedKw },
             });
             return;
           }

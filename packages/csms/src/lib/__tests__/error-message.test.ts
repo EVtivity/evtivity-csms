@@ -20,6 +20,8 @@ beforeAll(async () => {
             unknown: 'An unexpected error occurred',
             networkError: 'The server could not be reached.',
             STATION_NOT_FOUND: 'Station not found',
+            OVERSUBSCRIPTION_EXCEEDED:
+              'Total connected capacity ({{connectedKw}} kW) exceeds panel effective capacity ({{allowedKw}} kW)',
           },
           stations: { uploadFailed: 'Image upload failed' },
         },
@@ -30,6 +32,17 @@ beforeAll(async () => {
 });
 
 describe('getErrorMessage', () => {
+  it('fills the translated message with the values of the reply details', () => {
+    const err = new ApiError(400, {
+      error: 'Total connected capacity (45.0 kW) exceeds panel effective capacity (19.2 kW)',
+      code: 'OVERSUBSCRIPTION_EXCEEDED',
+      details: { connectedKw: 45, allowedKw: 19.2, count: 3, nested: { a: 1 } },
+    });
+    expect(getErrorMessage(err, t)).toBe(
+      'Total connected capacity (45 kW) exceeds panel effective capacity (19.2 kW)',
+    );
+  });
+
   it('returns the translation for a known error code', () => {
     const err = new ApiError(404, { error: 'English text', code: 'STATION_NOT_FOUND' });
     expect(getErrorMessage(err, t)).toBe('Station not found');

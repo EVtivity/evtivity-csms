@@ -10,13 +10,17 @@ const { apiMock } = vi.hoisted(() => ({
 }));
 
 const TRANSLATED: Record<string, string> = {
-  'errors.OVERSUBSCRIPTION_EXCEEDED': 'The panel cannot take this station.',
+  'errors.OVERSUBSCRIPTION_EXCEEDED':
+    'Total connected capacity ({{connectedKw}} kW) exceeds panel effective capacity ({{allowedKw}} kW)',
 };
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string) => TRANSLATED[key] ?? key,
+    t: (key: string, options?: { replace?: Record<string, string | number> }) =>
+      (TRANSLATED[key] ?? key).replace(/\{\{(\w+)\}\}/g, (match, name: string) =>
+        String(options?.replace?.[name] ?? match),
+      ),
     i18n: { language: 'en' },
   }),
 }));
@@ -73,13 +77,16 @@ describe('AssignStationDialog', () => {
       new ApiError(400, {
         error: 'Total connected capacity (352.0 kW) exceeds panel effective capacity (220.8 kW)',
         code: 'OVERSUBSCRIPTION_EXCEEDED',
+        details: { connectedKw: 352, allowedKw: 220.8 },
       }),
     );
     const { onClose, onAssigned } = renderDialog();
     fireEvent.click(screen.getByText('EM4-MASTER-01'));
     fireEvent.click(screen.getAllByText('loadManagement.addStation').at(-1) as HTMLElement);
     await waitFor(() => {
-      expect(screen.getByRole('alert').textContent).toBe('The panel cannot take this station.');
+      expect(screen.getByRole('alert').textContent).toBe(
+        'Total connected capacity (352 kW) exceeds panel effective capacity (220.8 kW)',
+      );
     });
     expect(apiMock.patch).toHaveBeenCalledWith('/v1/sites/sit_1/stations/sta_1/circuit', {
       circuitId: 'cir_1',

@@ -1985,6 +1985,7 @@ export class TransactionProjector {
                   idle_started_at = NULL,
                   updated_at = now()
               WHERE id = ${sessionId} AND status = 'active' AND idle_started_at IS NOT NULL
+                AND idle_started_at <= ${timestamp}::timestamptz
             `;
         }
       }

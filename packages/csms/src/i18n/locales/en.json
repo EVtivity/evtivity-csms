@@ -4948,7 +4948,7 @@
     "OCPP_COMMAND_FAILED": "OCPP command failed",
     "OCPP_VERSION_MISMATCH": "The command is for a different OCPP version than the station uses",
     "OCTT_RUN_NOT_FOUND": "Conformance run not found",
-    "OVERSUBSCRIPTION_EXCEEDED": "Total connected capacity (... kW) exceeds panel effective capacity (... kW)",
+    "OVERSUBSCRIPTION_EXCEEDED": "Total connected capacity ({{connectedKw}} kW) exceeds panel effective capacity ({{allowedKw}} kW)",
     "PANEL_NOT_FOUND": "Panel not found",
     "PARTNER_NOT_CONNECTED": "Partner must be connected to sync",
     "PARTNER_NOT_FOUND": "Partner not found",

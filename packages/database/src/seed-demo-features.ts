@@ -27,6 +27,8 @@ import { loadDemoStationPlace, seedFleetUsersDemo } from './seed-fleet-billing.j
 import type { FleetUserDemoCounts } from './seed-fleet-billing.js';
 import { seedLayoutDemo } from './seed-demo-layout.js';
 import { seedSitePower } from './seed-site-power.js';
+import { seedDemoAcRatings } from './seed-demo-ac-ratings.js';
+import { demoAcConnectorKw } from './seed-station-defs.js';
 import { seedDemoVehicleLooks } from './seed-demo-vehicles.js';
 import { seedDemoDriverAvatars } from './seed-demo-avatars.js';
 
@@ -530,7 +532,8 @@ export async function seedFreeVendDemo(
     await sql`
       INSERT INTO connectors (id, evse_id, connector_id, status, connector_type, max_power_kw,
         max_current_amps)
-      VALUES (${station.connectorDbId}, ${station.evseDbId}, 1, 'unavailable', 'Type1', '22', 32)
+      VALUES (${station.connectorDbId}, ${station.evseDbId}, 1, 'unavailable', 'Type1',
+        ${String(demoAcConnectorKw(32))}, 32)
       ON CONFLICT DO NOTHING
     `;
     // Disabled like the SP3 simulators: no E2E or chaos run picks a free vend station.
@@ -542,7 +545,8 @@ export async function seedFreeVendDemo(
     await sql`
       INSERT INTO css_evses (id, css_station_id, evse_id, connector_id, connector_type, max_power_w,
         phases, voltage)
-      VALUES (${station.cssEvseId}, ${station.cssStationId}, 1, 1, 'ac_type1', 22000,
+      VALUES (${station.cssEvseId}, ${station.cssStationId}, 1, 1, 'ac_type1',
+        ${Math.round(demoAcConnectorKw(32) * 1000)},
         ${ocpp16 ? 1 : 3}, ${ocpp16 ? 240 : 230})
       ON CONFLICT DO NOTHING
     `;
@@ -1333,6 +1337,8 @@ export interface DemoFeatureCounts {
   stationUnits: number;
   /** Sites outside the layout demo whose power equipment this run sized (seed-site-power.ts). */
   powerSites: number;
+  /** Base demo AC connectors moved from an earlier seed's rating to what their circuit carries. */
+  acRatings: number;
   /** Demo drivers given a generated avatar (seed-demo-avatars.ts). */
   driverAvatars: number;
   /** Demo vehicles given a color and body type (seed-demo-vehicles.ts). */
@@ -1378,6 +1384,8 @@ export async function seedDemoFeatures(
   const terminalPayments = await seedPaymentTerminalDemo(sql, ctx);
   const layout = await seedLayoutDemo(sql, ctx, vendor?.id ?? null);
   // Every other site's transformers, switchboards and panelboards, sized to its stations.
+  // AC connectors an earlier seed rated above their circuit, before the power plan reads them.
+  const acRatingsCorrected = await seedDemoAcRatings(sql, ctx);
   const power = await seedSitePower(sql, ctx);
   const vehicleLooks = await seedDemoVehicleLooks(sql, ctx.actorUserId);
   // The fleet user and fleet cards of the Northwind demo fleet, also on an
@@ -1394,6 +1402,7 @@ export async function seedDemoFeatures(
     layoutStations: layout.stations,
     stationUnits: layout.units,
     powerSites: power.filter((p) => p.treeWritten || p.layoutWritten).length,
+    acRatings: acRatingsCorrected,
     driverAvatars,
     vehicleLooks: vehicleLooks.vehicles,
     fleetUser: fleetUsers.fleetUser,

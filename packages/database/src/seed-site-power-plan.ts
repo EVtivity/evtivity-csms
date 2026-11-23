@@ -122,6 +122,11 @@ export interface PowerStation {
   portAmps: number;
   /** Where its spot is, in lot meters (groups gather nearby stations). */
   spot: { x: number; z: number };
+  /**
+   * The nameplate the circuit assignment check counts: the highest connector
+   * of each EVSE, summed (default: `ports` x `kw`).
+   */
+  nameplateKw?: number;
 }
 
 export interface PlannedCircuit {
@@ -133,6 +138,19 @@ export interface PlannedCircuit {
   loadKw: number;
   /** A 2-pole 208 V circuit's phase pair; null for a 3-phase DC breaker. */
   phaseConnections: string | null;
+  /** The station's nameplate (`stationNameplateKw`), kW. */
+  nameplateKw: number;
+}
+
+/**
+ * A panel's oversubscription: the ratio the circuit assignment check needs
+ * (the nameplate sum of the stations on its own circuits over its capacity,
+ * rounded up to a quarter, at least 1) and the ratio stored, at most the API
+ * maximum (`MAX_OVERSUBSCRIPTION_RATIO`).
+ */
+export interface PanelOversubscription {
+  needed: number;
+  ratio: number;
 }
 
 export interface PlannedPanelboard {
@@ -144,6 +162,7 @@ export interface PlannedPanelboard {
   spaces: number;
   /** The step-down transformer that feeds it from the 480Y/277 V switchboard, kVA. */
   stepDownKva: number;
+  oversubscription: PanelOversubscription;
 }
 
 export interface PlannedGroup {
@@ -155,6 +174,39 @@ export interface PlannedGroup {
   /** Connected load of the group, kVA. */
   loadKw: number;
   stationIds: string[];
+  /** The switchboard's own circuits are the DC chargers. */
+  switchboardOversubscription: PanelOversubscription;
+}
+
+/** The highest oversubscription ratio a panel takes (the panel routes allow 1 to 3). */
+export const MAX_OVERSUBSCRIPTION_RATIO = 3;
+
+/** The step a demo panel's oversubscription ratio is rounded up to. */
+const OVERSUBSCRIPTION_STEP = 0.25;
+
+/** The nameplate of a station as the circuit assignment check counts it, kW. */
+export function stationNameplateKw(station: PowerStation): number {
+  return station.nameplateKw ?? station.ports * station.kw;
+}
+
+/**
+ * The oversubscription a panel needs for its circuits' stations. The breakers
+ * and feeders stay sized for what the chargers draw (NFPA 70 2023, 625.41,
+ * 215.2(A)(1)); the nameplate sum is higher because the EVSEs of a charger
+ * share its input. Load management holds every station to its circuit and the
+ * panel to its capacity, the managed load NEC 625.42 sizes the feeder by.
+ */
+export function panelOversubscription(
+  circuits: readonly PlannedCircuit[],
+  maxContinuousKw: number,
+): PanelOversubscription {
+  const nameplateKw = circuits.reduce((n, c) => n + c.nameplateKw, 0);
+  const need = maxContinuousKw > 0 ? nameplateKw / maxContinuousKw : 1;
+  const needed = Math.max(
+    1,
+    Math.ceil(need / OVERSUBSCRIPTION_STEP - 1e-9) * OVERSUBSCRIPTION_STEP,
+  );
+  return { needed, ratio: Math.min(needed, MAX_OVERSUBSCRIPTION_RATIO) };
 }
 
 const PHASE_PAIRS = ['L1L2', 'L2L3', 'L1L3'] as const;
@@ -173,6 +225,7 @@ export function plannedDcCircuit(station: PowerStation): PlannedCircuit {
     maxContinuousKw: round2(computeMaxContinuousKw(breakerAmps, V480, 3)),
     loadKw: round2((SQRT3 * 480 * inputAmps) / 1000),
     phaseConnections: null,
+    nameplateKw: stationNameplateKw(station),
   };
 }
 
@@ -193,6 +246,7 @@ export function plannedAcCircuit(station: PowerStation, index: number): PlannedC
     ),
     loadKw: round2((208 * amps) / 1000),
     phaseConnections,
+    nameplateKw: stationNameplateKw(station),
   };
 }
 
@@ -229,13 +283,15 @@ function panelboardsOf(stations: readonly PowerStation[]): PlannedPanelboard[] {
   return out.map((p) => {
     const amps =
       PANELBOARD_AMPS.find((a) => computeMaxContinuousKw(a, V208, 3) >= p.loadKw - 1e-9) ?? 400;
+    const maxContinuousKw = round2(computeMaxContinuousKw(amps, V208, 3));
     return {
       amps,
-      maxContinuousKw: round2(computeMaxContinuousKw(amps, V208, 3)),
+      maxContinuousKw,
       circuits: p.circuits,
       loadKw: p.loadKw,
       spaces: p.spaces,
       stepDownKva: stepDownTransformerKva(p.loadKw, amps),
+      oversubscription: panelOversubscription(p.circuits, maxContinuousKw),
     };
   });
 }
@@ -253,10 +309,12 @@ export function plannedGroup(stations: readonly PowerStation[]): PlannedGroup {
   // A group never holds more than the largest main carries (`planSitePower` splits).
   if (switchboardAmps == null) throw new Error(`Group load ${String(loadKw)} kW past 4000 A`);
   const transformerKva = serviceTransformerKva(loadKw);
+  const switchboardMaxContinuousKw = round2(computeMaxContinuousKw(switchboardAmps, V480, 3));
   return {
     transformerKva,
     switchboardAmps,
-    switchboardMaxContinuousKw: round2(computeMaxContinuousKw(switchboardAmps, V480, 3)),
+    switchboardMaxContinuousKw,
+    switchboardOversubscription: panelOversubscription(dc, switchboardMaxContinuousKw),
     dc,
     panelboards,
     loadKw,

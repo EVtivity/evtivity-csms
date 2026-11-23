@@ -4948,7 +4948,7 @@
     "OCPP_COMMAND_FAILED": "OCPP-Befehl fehlgeschlagen",
     "OCPP_VERSION_MISMATCH": "Der Befehl ist für eine andere OCPP-Version als die der Station",
     "OCTT_RUN_NOT_FOUND": "Konformitätslauf nicht gefunden",
-    "OVERSUBSCRIPTION_EXCEEDED": "Gesamte angeschlossene Leistung (... kW) überschreitet die effektive Verteilerleistung (... kW)",
+    "OVERSUBSCRIPTION_EXCEEDED": "Gesamte angeschlossene Leistung ({{connectedKw}} kW) überschreitet die effektive Verteilerleistung ({{allowedKw}} kW)",
     "PANEL_NOT_FOUND": "Verteiler nicht gefunden",
     "PARTNER_NOT_CONNECTED": "Partner muss zur Synchronisierung verbunden sein",
     "PARTNER_NOT_FOUND": "Partner nicht gefunden",

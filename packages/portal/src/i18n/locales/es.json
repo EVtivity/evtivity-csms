@@ -831,7 +831,7 @@
     "OCPP_COMMAND_FAILED": "Comando OCPP fallido",
     "OCPP_VERSION_MISMATCH": "El comando es para una versión de OCPP distinta de la que usa la estación",
     "OCTT_RUN_NOT_FOUND": "Ejecución de conformidad no encontrada",
-    "OVERSUBSCRIPTION_EXCEEDED": "La capacidad total conectada (... kW) excede la capacidad efectiva del panel (... kW)",
+    "OVERSUBSCRIPTION_EXCEEDED": "La capacidad total conectada ({{connectedKw}} kW) excede la capacidad efectiva del panel ({{allowedKw}} kW)",
     "PANEL_NOT_FOUND": "Panel no encontrado",
     "PARTNER_NOT_CONNECTED": "El socio debe estar conectado para sincronizar",
     "PARTNER_NOT_FOUND": "Socio no encontrado",

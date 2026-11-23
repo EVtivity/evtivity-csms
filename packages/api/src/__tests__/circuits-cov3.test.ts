@@ -343,6 +343,7 @@ describe('PATCH station circuit', () => {
     expect(res.json()).toEqual({
       error: 'Total connected capacity (18.0 kW) exceeds panel effective capacity (15.0 kW)',
       code: 'OVERSUBSCRIPTION_EXCEEDED',
+      details: { connectedKw: 18, allowedKw: 15 },
     });
     expect(h.state.sets).toHaveLength(0);
   });
@@ -400,6 +401,7 @@ describe('PATCH station circuit', () => {
     expect(res.json()).toEqual({
       error: 'Total connected capacity (50.0 kW) exceeds panel effective capacity (48.0 kW)',
       code: 'OVERSUBSCRIPTION_EXCEEDED',
+      details: { connectedKw: 50, allowedKw: 48 },
     });
   });
 

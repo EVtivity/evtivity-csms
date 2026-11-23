@@ -4948,7 +4948,7 @@
     "OCPP_COMMAND_FAILED": "OCPP 指令失敗",
     "OCPP_VERSION_MISMATCH": "此命令適用的 OCPP 版本與充電樁使用的版本不同",
     "OCTT_RUN_NOT_FOUND": "找不到合規執行",
-    "OVERSUBSCRIPTION_EXCEEDED": "已連接的總容量（... kW）超過配電盤的有效容量（... kW）",
+    "OVERSUBSCRIPTION_EXCEEDED": "已連接的總容量（{{connectedKw}} kW）超過配電盤的有效容量（{{allowedKw}} kW）",
     "PANEL_NOT_FOUND": "找不到配電盤",
     "PARTNER_NOT_CONNECTED": "合作夥伴必須先連線才能同步",
     "PARTNER_NOT_FOUND": "找不到合作夥伴",

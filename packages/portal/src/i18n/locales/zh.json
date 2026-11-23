@@ -831,7 +831,7 @@
     "OCPP_COMMAND_FAILED": "OCPP 命令失败",
     "OCPP_VERSION_MISMATCH": "该命令适用的 OCPP 版本与充电桩使用的版本不同",
     "OCTT_RUN_NOT_FOUND": "未找到合规运行",
-    "OVERSUBSCRIPTION_EXCEEDED": "总连接容量（... kW）超过配电盘有效容量（... kW）",
+    "OVERSUBSCRIPTION_EXCEEDED": "总连接容量（{{connectedKw}} kW）超过配电盘有效容量（{{allowedKw}} kW）",
     "PANEL_NOT_FOUND": "未找到配电盘",
     "PARTNER_NOT_CONNECTED": "合作伙伴必须已连接才能同步",
     "PARTNER_NOT_FOUND": "未找到合作伙伴",
