@@ -92,7 +92,7 @@ export function isEarlierBaseTree(
   );
 }
 
-interface StationRow {
+export interface StationRow {
   id: string;
   station_id: string;
   model: string | null;
@@ -102,10 +102,35 @@ interface StationRow {
   max_current_amps: number | null;
 }
 
+/**
+ * The EVSEs the simulator defines for a site's stations that the CSMS has no
+ * row for yet, each as its highest connector rating in kW, by station. The base
+ * seed leaves the last EVSE off some OCPP 2.x stations on purpose, and the OCPP
+ * server adds it when the simulator connects, so the panels are sized for it.
+ */
+async function simulatorOnlyEvseKw(
+  sql: postgres.Sql,
+  siteId: string,
+): Promise<Map<string, number[]>> {
+  const rows = await sql<Array<{ id: string; kw: string }>>`
+    SELECT cs.id, (max(ce.max_power_w) / 1000.0)::text AS kw
+    FROM charging_stations cs
+    JOIN css_stations css ON css.station_id = cs.station_id
+    JOIN css_evses ce ON ce.css_station_id = css.id
+    WHERE cs.site_id = ${siteId} AND NOT cs.is_conformance
+      AND NOT EXISTS (SELECT 1 FROM evses e WHERE e.station_id = cs.id AND e.evse_id = ce.evse_id)
+    GROUP BY cs.id, ce.evse_id
+  `;
+  const out = new Map<string, number[]>();
+  for (const r of rows) out.set(r.id, [...(out.get(r.id) ?? []), Number(r.kw)]);
+  return out;
+}
+
 /** A station's kind and connected load data from its in-service connectors. */
-function powerStationOf(
+export function powerStationOf(
   id: string,
   rows: readonly StationRow[],
+  simulatorOnlyKw: readonly number[] = [],
 ): { kind: LayoutStationKind; station: Omit<PowerStation, 'spot'> } {
   const evseIds = new Set(rows.flatMap((r) => (r.evse_id != null ? [r.evse_id] : [])));
   const connectorRows = rows.filter((r) => r.evse_id != null);
@@ -136,7 +161,7 @@ function powerStationOf(
   const ratings = [...evseMax.values()];
   const nameplateKw = ratings.some((v) => v == null)
     ? 0
-    : ratings.reduce<number>((n, v) => n + (v ?? 0), 0);
+    : [...ratings, ...simulatorOnlyKw].reduce<number>((n, v) => n + (v ?? 0), 0);
   return {
     kind,
     station: {
@@ -166,15 +191,46 @@ function ids(siteId: string) {
   };
 }
 
+/** The audit note every write of this plan starts with. */
+const SEED_TREE_NOTES = 'Demo site power equipment';
+
 /** The names the plan gives its switchboards and panelboards. */
 const PLAN_PANEL_NAME = /^(Main Switchboard \d+|Panelboard \d+[A-Z])$/;
 
 /**
- * Every panel of the plan an earlier seed left without oversubscription (its
- * plan id and name, ratio 1) takes the ratio the circuit assignment check needs
- * for the stations now on its own circuits against its stored capacity
- * (`panelOversubscription`, at most 3). An operator's ratio or renamed panel
- * stays; the tree writer audits the one change.
+ * The ratio a plan panel holds as an earlier seed wrote it: the ratio of the
+ * last audit row that set it when a seed wrote that row, or 1 (seeds before the
+ * oversubscription) unless an operator wrote that row. Null when an operator
+ * set it, or another ratio changed without a row.
+ */
+async function seededRatio(
+  sql: postgres.Sql,
+  siteId: string,
+  panel: { id: string; ratio: string },
+): Promise<number | null> {
+  const current = Number(panel.ratio);
+  const [last] = await sql<Array<{ notes: string | null; r: string }>>`
+    SELECT notes,
+      COALESCE(after->>'oversubscriptionRatio', after->'panel'->>'oversubscriptionRatio') AS r
+    FROM site_audit_log
+    WHERE site_id = ${siteId} AND action = 'load_management_changed'
+      AND (after->>'panelId' = ${panel.id} OR after->'panel'->>'id' = ${panel.id})
+      AND COALESCE(after->>'oversubscriptionRatio', after->'panel'->>'oversubscriptionRatio')
+        IS NOT NULL
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  `;
+  const bySeed = last == null || (last.notes ?? '').startsWith(SEED_TREE_NOTES);
+  if (!bySeed) return null;
+  return current === 1 || Number(last?.r) === current ? current : null;
+}
+
+/**
+ * Every panel of the plan whose ratio an earlier seed wrote (`seededRatio`)
+ * and that is now below what the circuit assignment check needs for the
+ * stations on its own circuits, the simulator's EVSEs the CSMS has not created
+ * yet included, takes that ratio (`panelOversubscription`, at most 3). An
+ * operator's ratio or renamed panel stays; the tree writer audits the change.
  */
 async function raiseTreeOversubscription(
   sql: postgres.Sql,
@@ -182,12 +238,15 @@ async function raiseTreeOversubscription(
   ctx: DemoFeatureContext,
 ): Promise<void> {
   const prefix = ids(siteId).switchboard(0).replace(/g1$/, 'g');
-  const candidates = await sql<Array<{ id: string; name: string; cap: string }>>`
-    SELECT id, name, max_continuous_kw::text AS cap FROM panels
-    WHERE site_id = ${siteId} AND starts_with(id, ${prefix}) AND oversubscription_ratio = 1
+  const candidates = await sql<Array<{ id: string; name: string; cap: string; ratio: string }>>`
+    SELECT id, name, max_continuous_kw::text AS cap, oversubscription_ratio::text AS ratio
+    FROM panels
+    WHERE site_id = ${siteId} AND starts_with(id, ${prefix})
   `;
   for (const panel of candidates) {
     if (!PLAN_PANEL_NAME.test(panel.name)) continue;
+    const current = await seededRatio(sql, siteId, panel);
+    if (current == null) continue;
     // The check's nameplate: the highest connector of each EVSE, an EVSE without a rating 0.
     const rows = await sql<Array<{ kw: string | null }>>`
       SELECT max(c.max_power_kw)::text AS kw
@@ -198,6 +257,16 @@ async function raiseTreeOversubscription(
       JOIN connectors c ON c.evse_id = e.id
       WHERE ci.panel_id = ${panel.id}
       GROUP BY e.id
+      UNION ALL
+      SELECT (max(ce.max_power_w) / 1000.0)::text AS kw
+      FROM circuits ci
+      JOIN charging_stations cs ON cs.circuit_id = ci.id AND cs.site_id = ${siteId}
+        AND NOT cs.is_conformance
+      JOIN css_stations css ON css.station_id = cs.station_id
+      JOIN css_evses ce ON ce.css_station_id = css.id
+      WHERE ci.panel_id = ${panel.id}
+        AND NOT EXISTS (SELECT 1 FROM evses e WHERE e.station_id = cs.id AND e.evse_id = ce.evse_id)
+      GROUP BY cs.id, ce.evse_id
     `;
     const nameplateKw = rows.reduce((n, r) => n + Number(r.kw ?? 0), 0);
     const { ratio } = panelOversubscription(
@@ -213,7 +282,7 @@ async function raiseTreeOversubscription(
       ],
       Number(panel.cap),
     );
-    if (ratio <= 1) continue;
+    if (ratio <= current) continue;
     await updatePanel(
       {
         siteId,
@@ -222,12 +291,12 @@ async function raiseTreeOversubscription(
         onlyIf: and(
           eq(panels.siteId, siteId),
           eq(panels.name, panel.name),
-          eq(panels.oversubscriptionRatio, '1'),
+          eq(panels.oversubscriptionRatio, panel.ratio),
         ),
       },
       {
         ...auditActor(ctx),
-        notes: 'Demo site power equipment: panel oversubscription for its managed load',
+        notes: `${SEED_TREE_NOTES}: panel oversubscription for its managed load`,
       },
     );
   }
@@ -515,7 +584,10 @@ export async function seedSitePower(
       byStation.set(r.id, [...(byStation.get(r.id) ?? []), r]);
       stationIds.set(r.id, r.station_id);
     }
-    const parsed = order.map((id) => powerStationOf(id, byStation.get(id) ?? []));
+    const simulatorKw = await simulatorOnlyEvseKw(sql, site.id);
+    const parsed = order.map((id) =>
+      powerStationOf(id, byStation.get(id) ?? [], simulatorKw.get(id) ?? []),
+    );
 
     // The spots: stored positions, else the slots automatic placement gives
     // them (the API's order, `freeSlotsFor`), on the stored or default lot.

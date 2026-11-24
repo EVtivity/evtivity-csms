@@ -14,6 +14,7 @@ import {
   isOcpp21OnlyMessage,
   OCPP21_ONLY_SEND_MESSAGES,
   ocpp2xActionFitsProtocol,
+  paidStartTokenType,
   stationMessageContentFor,
 } from '../ocpp-version.js';
 import * as lib from '../index.js';
@@ -78,6 +79,22 @@ describe('isOcpp21', () => {
   it('is false for null and undefined', () => {
     expect(isOcpp21(null)).toBe(false);
     expect(isOcpp21(undefined)).toBe(false);
+  });
+});
+
+describe('paidStartTokenType', () => {
+  it.each([
+    ['ocpp2.1', 'DirectPayment'],
+    ['ocpp2.0.1', 'Central'],
+    ['ocpp1.6', 'Central'],
+    [null, 'Central'],
+    [undefined, 'Central'],
+  ])('%s -> %s', (protocol, expected) => {
+    expect(paidStartTokenType(protocol)).toBe(expected);
+  });
+
+  it('is exported from the package root', () => {
+    expect(lib.paidStartTokenType).toBe(paidStartTokenType);
   });
 });
 

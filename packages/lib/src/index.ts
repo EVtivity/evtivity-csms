@@ -921,6 +921,7 @@ export {
   isOcpp21OnlyMessage,
   OCPP21_ONLY_SEND_MESSAGES,
   ocpp2xActionFitsProtocol,
+  paidStartTokenType,
 } from './ocpp-version.js';
 export {
   OCPP21_ONLY_PERIOD_FIELDS,

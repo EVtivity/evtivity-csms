@@ -788,6 +788,37 @@ describe('Portal guest routes - handler logic', () => {
       expect(mockRollbackGuestStart).not.toHaveBeenCalled();
     });
 
+    it('starts a paid session on an OCPP 2.0.1 station as Central', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupDbResults(
+        [{ ...PAID_STATION, ocppProtocol: 'ocpp2.0.1' }],
+        [{ id: 'evs_000000000001' }],
+        [{ status: 'available' }],
+        [],
+        [],
+        [{ freeVendEnabled: false }],
+      );
+      mockAuthorizeGuestHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentId: 'pi_guest_201',
+        preAuthAmountCents: 5000,
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const sessionToken = response.json().sessionToken as string;
+      expect(vi.mocked(sendOcppCommandAndWait)).toHaveBeenCalledWith(
+        'CS-001',
+        'RequestStartTransaction',
+        expect.objectContaining({ idToken: { idToken: sessionToken, type: 'Central' } }),
+      );
+    });
+
     it('places the hold with a provider-tagged one-time card', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
       setupStartRows();
@@ -1272,6 +1303,7 @@ describe('Portal guest routes - handler logic', () => {
     }
 
     it('continues the hold, claims the start and starts it as DirectPayment', async () => {
+      setupDbResults([{ ocppProtocol: 'ocpp2.1' }]);
       mockContinueGuestHold.mockResolvedValueOnce({
         outcome: 'authorized',
         paymentId: 'PSP1',
@@ -1302,6 +1334,30 @@ describe('Portal guest routes - handler logic', () => {
         }),
       );
       expect(mockScheduleGuestStartTimeout).toHaveBeenCalledWith(TOKEN, expect.anything());
+    });
+
+    it('starts a claimed session on an OCPP 2.0.1 station as Central', async () => {
+      setupDbResults([{ ocppProtocol: 'ocpp2.0.1' }]);
+      mockContinueGuestHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentId: 'PSP2',
+        preAuthAmountCents: 5000,
+      });
+      mockClaimGuestStart.mockResolvedValueOnce({
+        claim: 'claimed',
+        stationOcppId: 'CS-201',
+        evseId: 1,
+        paymentId: 'PSP2',
+      });
+
+      const response = await post();
+
+      expect(response.statusCode).toBe(200);
+      expect(vi.mocked(sendOcppCommandAndWait)).toHaveBeenCalledWith(
+        'CS-201',
+        'RequestStartTransaction',
+        expect.objectContaining({ idToken: { idToken: TOKEN, type: 'Central' } }),
+      );
     });
 
     it('answers started without a second start when the start was already requested', async () => {

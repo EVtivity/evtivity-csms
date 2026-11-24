@@ -32,6 +32,17 @@ export function isOcpp21(protocol: string | null | undefined): protocol is 'ocpp
 }
 
 /**
+ * The idToken type of a CSMS-sent start for a paid session (guest checkout,
+ * payment terminal): DirectPayment on OCPP 2.1 (C25.FR.23), Central on 2.0.1
+ * and 1.6, whose IdTokenEnumType has no DirectPayment.
+ */
+export function paidStartTokenType(
+  protocol: string | null | undefined,
+): 'DirectPayment' | 'Central' {
+  return isOcpp21(protocol) ? 'DirectPayment' : 'Central';
+}
+
+/**
  * The messages OCPP 2.1 defines and OCPP 2.0.1 does not, in both directions.
  * Every other 2.1 message exists in 2.0.1 too. The OCPP package tests this
  * list against the generated 2.1 and 2.0.1 registries.

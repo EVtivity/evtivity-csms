@@ -3,6 +3,7 @@
 
 import type { TFunction } from 'i18next';
 import { ApiError } from './api';
+import { formatNumberUpTo } from './utils';
 
 // Never returns Error.message: "API error 400" and "Failed to fetch" are not driver text.
 export function getErrorMessage(
@@ -37,12 +38,14 @@ export function getErrorMessage(
   return t(fallbackKey);
 }
 
-// The string and number fields of a reply's details fill the placeholders of its translated message.
-function scalarDetails(details: unknown): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
+// The string and number fields of a reply's details fill the placeholders of its translated
+// message, numbers in the UI language (19,2 in German).
+function scalarDetails(details: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
   if (details == null || typeof details !== 'object' || Array.isArray(details)) return out;
   for (const [k, v] of Object.entries(details as Record<string, unknown>)) {
-    if (typeof v === 'string' || typeof v === 'number') out[k] = v;
+    if (typeof v === 'string') out[k] = v;
+    else if (typeof v === 'number' && Number.isFinite(v)) out[k] = formatNumberUpTo(v, 2);
   }
   return out;
 }

@@ -20,6 +20,7 @@ import {
   startChargingKinds,
 } from '@evtivity/database';
 import { isUiLanguage, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
+import { paidStartTokenType } from '@evtivity/lib/ocpp-version';
 import {
   chargingStations,
   connectors,
@@ -483,16 +484,22 @@ interface GuestStartFailure {
  * accepted start schedules its close-out (`scheduleGuestStartTimeout`).
  */
 async function dispatchGuestStart(
-  input: { sessionToken: string; stationOcppId: string; evseId: number; paymentId: string | null },
+  input: {
+    sessionToken: string;
+    stationOcppId: string;
+    evseId: number;
+    paymentId: string | null;
+    ocppProtocol: string | null;
+  },
   log: FastifyBaseLogger,
 ): Promise<GuestStartFailure | null> {
   const cmdResult = await sendOcppCommandAndWait(input.stationOcppId, 'RequestStartTransaction', {
     evseId: input.evseId,
     remoteStartId: Math.floor(Math.random() * 2_147_483_647),
-    // A paid session is an ad hoc payment (OCPP 2.1 C25.FR.23): DirectPayment.
+    // A paid session is an ad hoc payment (OCPP 2.1 C25.FR.23); 2.0.1 and 1.6 have no DirectPayment.
     idToken: {
       idToken: input.sessionToken,
-      type: input.paymentId != null ? 'DirectPayment' : 'Central',
+      type: input.paymentId != null ? paidStartTokenType(input.ocppProtocol) : 'Central',
     },
   });
   await auditGuestCommand(
@@ -855,7 +862,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         tags: ['Portal Guest'],
         summary: 'Start a guest charging session with payment',
         description:
-          'Creates a guest_sessions row with a 20-character session token (unique per guest), creates a Stripe PaymentIntent with capture_method=manual for paid sessions (free sessions skip Stripe), and dispatches RequestStartTransaction with the token as the OCPP idToken (type DirectPayment for paid sessions, Central for free ones). An OCPP 2.1 station receives the limits as transactionLimit when the transaction starts: maxCost is the pre-authorized amount (or the lower maxCostCents), maxEnergy and maxTime come from maxEnergyWh and maxTimeSeconds. Rate limited 5/min per IP. Returns 504 if the station does not ack within 35s (cancels the pre-auth and rolls back the row). The one-time card is paymentMethod { provider, payload, browser? } (400 PAYMENT_PROVIDER_NOT_CONFIGURED when provider is not the active one) or, for Stripe, paymentMethodId; both give 400 VALIDATION_ERROR. Answers status started, or status action_required with the 3D Secure action when the card needs it and browser was sent (browser.origin must be the PORTAL_URL origin, else 400 VALIDATION_ERROR): the session then waits in pending_payment and POST /v1/portal/guest/payment-details/{sessionToken} continues it.',
+          'Creates a guest_sessions row with a 20-character session token (unique per guest), creates a Stripe PaymentIntent with capture_method=manual for paid sessions (free sessions skip Stripe), and dispatches RequestStartTransaction with the token as the OCPP idToken (type DirectPayment for paid sessions on an OCPP 2.1 station, Central for free sessions and for paid sessions on OCPP 2.0.1 and 1.6, whose idToken types have no DirectPayment). An OCPP 2.1 station receives the limits as transactionLimit when the transaction starts: maxCost is the pre-authorized amount (or the lower maxCostCents), maxEnergy and maxTime come from maxEnergyWh and maxTimeSeconds. Rate limited 5/min per IP. Returns 504 if the station does not ack within 35s (cancels the pre-auth and rolls back the row). The one-time card is paymentMethod { provider, payload, browser? } (400 PAYMENT_PROVIDER_NOT_CONFIGURED when provider is not the active one) or, for Stripe, paymentMethodId; both give 400 VALIDATION_ERROR. Answers status started, or status action_required with the 3D Secure action when the card needs it and browser was sent (browser.origin must be the PORTAL_URL origin, else 400 VALIDATION_ERROR): the session then waits in pending_payment and POST /v1/portal/guest/payment-details/{sessionToken} continues it.',
         operationId: 'portalGuestStartCharging',
         security: [],
         params: zodSchema(chargerConfigParams),
@@ -1244,6 +1251,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           stationOcppId: station.stationId,
           evseId: params.evseId,
           paymentId: paymentIntentId,
+          ocppProtocol: station.ocppProtocol,
         },
         request.log,
       );
@@ -1321,12 +1329,17 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         });
         return;
       }
+      const [claimedStation] = await db
+        .select({ ocppProtocol: chargingStations.ocppProtocol })
+        .from(chargingStations)
+        .where(eq(chargingStations.stationId, claim.stationOcppId));
       const failure = await dispatchGuestStart(
         {
           sessionToken,
           stationOcppId: claim.stationOcppId,
           evseId: claim.evseId,
           paymentId: claim.paymentId,
+          ocppProtocol: claimedStation?.ocppProtocol ?? null,
         },
         request.log,
       );

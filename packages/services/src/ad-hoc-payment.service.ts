@@ -15,7 +15,7 @@ import {
   writeAudit,
   type AuditActor,
 } from '@evtivity/database';
-import { isOcpp21 } from '@evtivity/lib/ocpp-version';
+import { isOcpp21, paidStartTokenType } from '@evtivity/lib/ocpp-version';
 import { sendOcppCommandAndWait } from './ocpp-command.js';
 import { getActiveMaintenanceForStation } from './maintenance.service.js';
 
@@ -202,13 +202,11 @@ export async function startAdHocPayment(
   const cmdResult = await sendOcppCommandAndWait(input.stationId, 'RequestStartTransaction', {
     ...(stationWide ? {} : { evseId: input.evseId }),
     remoteStartId: crypto.randomInt(1, 2_147_483_647),
-    idToken: directPayment
-      ? {
-          idToken: token,
-          type: 'DirectPayment',
-          ...(additionalInfo.length > 0 ? { additionalInfo } : {}),
-        }
-      : { idToken: token, type: 'Central' },
+    idToken: {
+      idToken: token,
+      type: paidStartTokenType(station.ocppProtocol),
+      ...(directPayment && additionalInfo.length > 0 ? { additionalInfo } : {}),
+    },
   });
 
   const cmdStatus = cmdResult.response?.['status'] as string | undefined;

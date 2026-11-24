@@ -263,6 +263,18 @@ describe('start', () => {
     expect(h.audits[0]!['after']).toMatchObject({ evseId: null, maxCostCents: null });
   });
 
+  it('starts a terminal payment on a 2.0.1 station with a Central token and no card details', async () => {
+    h.fake.queue('select:charging_stations', [{ ...station, ocppProtocol: 'ocpp2.0.1' }]);
+    h.fake.queue('insert:guest_sessions', [{ id: 13 }]);
+    const out = await startAdHocPayment(
+      { stationId: 'CS-1', evseId: 0, pspRef: 'ref_201', cardLast4Digits: '4242' },
+      { ...access, terminalToken: true },
+    );
+    const token = (out as { token: string }).token;
+    const payload = h.send.mock.calls[0]![2] as Record<string, unknown>;
+    expect(payload['idToken']).toEqual({ idToken: token, type: 'Central' });
+  });
+
   it('sends a DirectPayment token without additionalInfo when no card details came', async () => {
     queueStation();
     h.fake.queue('insert:guest_sessions', [{ id: 11 }]);

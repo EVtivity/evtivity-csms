@@ -25,7 +25,7 @@ import {
   type PlannedGroup,
   type PowerStation,
 } from '../seed-site-power-plan.js';
-import { isEarlierBaseTree } from '../seed-site-power.js';
+import { isEarlierBaseTree, powerStationOf } from '../seed-site-power.js';
 import { seedAllowsSimulatedEnergyAssets } from '../seed-demo-layout.js';
 import {
   DEMO_AC_RATINGS_BEFORE,
@@ -321,6 +321,41 @@ describe('base demo panel oversubscription', () => {
     expect(correctedAcRating(22, 16)).toBeNull();
     for (const r of DEMO_AC_RATINGS_BEFORE)
       expect(correctedAcRating(r.to.kw, r.to.amps)).toBeNull();
+  });
+
+  it('sizes a station the seed left one EVSE short by every EVSE the simulator defines', () => {
+    // A 2.x DC station with EVSE 1 in the CSMS and EVSE 2 only on the simulator,
+    // which the OCPP server adds when the simulator connects.
+    const rows = (id: string, kw: string | null) => [
+      {
+        id,
+        station_id: id,
+        model: null,
+        evse_id: `${id}-e1`,
+        connector_type: 'CCS1',
+        max_power_kw: kw,
+        max_current_amps: null,
+      },
+    ];
+    expect(powerStationOf('a', rows('a', '150'), [150]).station.nameplateKw).toBe(300);
+    expect(powerStationOf('a', rows('a', '150')).station.nameplateKw).toBe(150);
+    // An unrated EVSE makes the station count 0, as the assignment check does.
+    expect(powerStationOf('a', rows('a', null), [150]).station.nameplateKw).toBe(0);
+
+    const stations = Array.from({ length: 40 }, (_, i) => {
+      const id = `sta_${String(i)}`;
+      const { station } = powerStationOf(id, rows(id, '150'), [150]);
+      return { ...station, spot: { x: (i % 10) * 2.7, z: Math.floor(i / 10) * 8 } };
+    });
+    for (const group of planSitePower(stations)) {
+      const full = group.dc.length * 300;
+      expect(group.switchboardOversubscription.needed).toBeLessThanOrEqual(
+        MAX_OVERSUBSCRIPTION_RATIO,
+      );
+      expect(full).toBeLessThanOrEqual(
+        group.switchboardMaxContinuousKw * group.switchboardOversubscription.ratio + 1e-6,
+      );
+    }
   });
 
   it('rounds the ratio up to a quarter and keeps 1 without oversubscription', () => {

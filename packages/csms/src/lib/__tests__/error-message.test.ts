@@ -137,3 +137,40 @@ describe('rateLimitedMessage', () => {
     expect(rateLimitedMessage(undefined, t)).toBeNull();
   });
 });
+
+describe('getErrorMessage number details', () => {
+  const de =
+    'Die angeschlossene Gesamtleistung ({{connectedKw}} kW) übersteigt die effektive Kapazität des Verteilers ({{allowedKw}} kW)';
+  const en =
+    'Total connected capacity ({{connectedKw}} kW) exceeds panel effective capacity ({{allowedKw}} kW)';
+  const reply = () =>
+    new ApiError(400, {
+      error: 'Total connected capacity (4590.0 kW) exceeds panel effective capacity (19.2 kW)',
+      code: 'OVERSUBSCRIPTION_EXCEEDED',
+      details: { connectedKw: 4590, allowedKw: 19.2 },
+    });
+
+  beforeAll(async () => {
+    await i18next.init({
+      lng: 'en',
+      resources: {
+        en: { translation: { errors: { OVERSUBSCRIPTION_EXCEEDED: en } } },
+        de: { translation: { errors: { OVERSUBSCRIPTION_EXCEEDED: de } } },
+      },
+    });
+  });
+
+  it('formats numbers in German', async () => {
+    await i18next.changeLanguage('de');
+    expect(getErrorMessage(reply(), i18next.t)).toBe(
+      'Die angeschlossene Gesamtleistung (4.590 kW) übersteigt die effektive Kapazität des Verteilers (19,2 kW)',
+    );
+  });
+
+  it('formats numbers in English', async () => {
+    await i18next.changeLanguage('en');
+    expect(getErrorMessage(reply(), i18next.t)).toBe(
+      'Total connected capacity (4,590 kW) exceeds panel effective capacity (19.2 kW)',
+    );
+  });
+});
