@@ -14,6 +14,9 @@ import {
   loadManagementAppliedAgeMaxSeconds,
   loadManagementSitesSendFailed,
   loadManagementSupplyCreditKw,
+  loadManagementEvseSessionsPaused,
+  loadManagementStationsEvseRefused,
+  loadAllocationEntriesLastHour,
   departuresScheduled,
   departureNoticesLastHour,
   departuresCompletedLast24h,
@@ -84,6 +87,8 @@ async function runFeatureCollection(): Promise<void> {
       refusedRows,
       interfaceOn,
       securityRows,
+      evseRows,
+      replyRows,
     ] = await Promise.all([
       // idx_worker_job_logs_started_at serves the window.
       db.execute(sql`
@@ -195,6 +200,34 @@ async function runFeatureCollection(): Promise<void> {
         WHERE e.severity = 'critical' AND e.created_at > NOW() - INTERVAL '1 hour'
           AND ${sql.raw(operatorStationSql('s'))}
       `),
+      // The EVSE limits of the last send (applied_allocations) and the stations
+      // that refused them, of sites with load management on.
+      db.execute(sql`
+        SELECT
+          (SELECT count(*)::int
+            FROM site_load_management sent,
+              jsonb_array_elements(
+                CASE WHEN jsonb_typeof(sent.applied_allocations) = 'array'
+                  THEN sent.applied_allocations ELSE '[]'::jsonb END) a,
+              jsonb_array_elements(
+                CASE WHEN jsonb_typeof(a->'evses') = 'array' THEN a->'evses' ELSE '[]'::jsonb END) e
+            WHERE sent.is_enabled AND e->>'kind' = 'ac' AND (e->>'limitA')::numeric = 0) AS paused,
+          (SELECT count(*)::int
+            FROM charging_stations s
+            INNER JOIN site_load_management lm ON lm.site_id = s.site_id AND lm.is_enabled
+            WHERE s.evse_limits_refused_at IS NOT NULL) AS refused
+      `),
+      // idx_load_alloc_entries_created serves the window.
+      db.execute(sql`
+        SELECT
+          COALESCE(reply,
+            CASE WHEN created_at < NOW() - INTERVAL '2 minutes' THEN 'no_reply' ELSE 'pending' END
+          ) AS reply,
+          count(*)::int AS count
+        FROM load_allocation_entries
+        WHERE created_at >= NOW() - INTERVAL '1 hour'
+        GROUP BY 1
+      `),
     ]);
 
     // Reset first, so a label that no longer has rows drops out.
@@ -223,6 +256,17 @@ async function runFeatureCollection(): Promise<void> {
     loadManagementSitesSendFailed.set(num(load, 'send_failed'));
     loadManagementAppliedAgeMaxSeconds.set(num(load, 'applied_age_max'));
     loadManagementSupplyCreditKw.set(num(load, 'supply_credit_kw'));
+    const evse = rows(evseRows)[0];
+    loadManagementEvseSessionsPaused.set(num(evse, 'paused'));
+    loadManagementStationsEvseRefused.set(num(evse, 'refused'));
+    // Every reply always exports, so an alert on rejected reads 0 instead of no data.
+    loadAllocationEntriesLastHour.reset();
+    for (const reply of ['accepted', 'rejected', 'not_sent', 'no_reply', 'pending']) {
+      loadAllocationEntriesLastHour.set({ reply }, 0);
+    }
+    for (const row of rows(replyRows)) {
+      loadAllocationEntriesLastHour.set({ reply: String(row['reply']) }, num(row, 'count'));
+    }
 
     departuresScheduled.reset();
     for (const row of rows(departureRows)) {

@@ -206,14 +206,12 @@ export function computeCompositeSchedule(input: CompositeInput): CompositePeriod
   for (const t of breakpoints(relevant, input)) {
     let limit = input.localLimit;
     let numberPhases = input.numberPhases;
-    for (const group of [max, external]) {
-      const p = purposeLimit(group, input, t);
-      if (p != null && p.limit < limit) limit = p.limit;
-    }
     const txPeriod = purposeLimit(tx, input, t) ?? purposeLimit(txDefault, input, t);
-    if (txPeriod != null) {
-      if (txPeriod.limit < limit) limit = txPeriod.limit;
-      if (txPeriod.numberPhases != null) numberPhases = txPeriod.numberPhases;
+    for (const p of [purposeLimit(max, input, t), purposeLimit(external, input, t), txPeriod]) {
+      if (p == null) continue;
+      if (p.limit < limit) limit = p.limit;
+      // Phase conflicts between profiles resolve to the lowest numberPhases (OCPP 2.1 Part 2, 3.8).
+      if (p.numberPhases != null && p.numberPhases < numberPhases) numberPhases = p.numberPhases;
     }
     const last = periods[periods.length - 1];
     if (last != null && last.limit === limit && last.numberPhases === numberPhases) continue;
@@ -227,7 +225,7 @@ export function computeCompositeSchedule(input: CompositeInput): CompositePeriod
  * profile limits it. The meter loop calls this every tick, so each schedule
  * period applies from its start time.
  */
-export function limitNowW(input: {
+export interface LimitNowInput {
   profiles: StoredProfile[];
   evseId: number;
   now: Date;
@@ -235,7 +233,14 @@ export function limitNowW(input: {
   phases: number;
   transactionId: string | null;
   transactionStart: Date | null;
-}): number | null {
+}
+
+export function limitNowW(input: LimitNowInput): number | null {
+  return limitNow(input)?.limitW ?? null;
+}
+
+/** The composite limit in W at `now` and the phases it allows, or null when no profile limits it. */
+export function limitNow(input: LimitNowInput): { limitW: number; numberPhases: number } | null {
   const [current] = computeCompositeSchedule({
     profiles: input.profiles,
     evseId: input.evseId,
@@ -250,5 +255,8 @@ export function limitNowW(input: {
   });
   if (current == null || !Number.isFinite(current.limit)) return null;
   // A negative limit asks for discharging, which the simulator does not model: it draws nothing.
-  return Math.max(0, current.limit);
+  return {
+    limitW: Math.max(0, current.limit),
+    numberPhases: current.numberPhases ?? input.phases,
+  };
 }

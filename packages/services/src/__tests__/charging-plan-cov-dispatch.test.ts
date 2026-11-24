@@ -40,7 +40,7 @@ vi.mock('@evtivity/database', () => {
   };
 });
 
-const { clearSitePlanProfiles, dispatchDepotPlanProfiles } =
+const { clearSitePlanProfiles, dispatchDepotPlanProfiles, planOwnedSessionIds } =
   await import('../charging-plan.service.js');
 
 const NOW = Date.UTC(2026, 10, 2, 1, 0, 0);
@@ -357,5 +357,47 @@ describe('dispatchDepotPlanProfiles with the stored plan', () => {
       expect.objectContaining({ siteId: 'sit_1' }),
       'Plan profile state not restored after a failed send',
     );
+  });
+});
+
+describe('planOwnedSessionIds', () => {
+  const entries = [
+    { departureId: 'd1', sessionId: 'ses_planned', stationDbId: 'sta_a', powerKw: [1] },
+    {
+      departureId: 'd2',
+      sessionId: 'ses_left_live',
+      stationDbId: 'sta_a',
+      powerKw: [1],
+      left: true,
+      profile: liveProfile,
+    },
+    {
+      departureId: 'd3',
+      sessionId: 'ses_left_cleared',
+      stationDbId: 'sta_a',
+      powerKw: [1],
+      left: true,
+      profile: { ...liveProfile, state: 'cleared' },
+    },
+  ];
+
+  it('names the planned sessions and the ones whose plan profile is still due a clear', async () => {
+    dbMock.getSitePlan.mockResolvedValue(plan(entries));
+    expect([...(await planOwnedSessionIds('sit_1', 'departure_aware'))].sort()).toEqual([
+      'ses_left_live',
+      'ses_planned',
+    ]);
+  });
+
+  it('names only the sessions with a live plan profile off the plan', async () => {
+    dbMock.getSitePlan.mockResolvedValue(plan(entries));
+    expect([...(await planOwnedSessionIds('sit_1', 'equal_share'))]).toEqual(['ses_left_live']);
+    dbMock.isFleetChargingEnabled.mockResolvedValue(false);
+    expect([...(await planOwnedSessionIds('sit_1', 'departure_aware'))]).toEqual(['ses_left_live']);
+  });
+
+  it('is empty without a plan', async () => {
+    dbMock.getSitePlan.mockResolvedValue(null);
+    expect((await planOwnedSessionIds('sit_1', 'departure_aware')).size).toBe(0);
   });
 });

@@ -81,6 +81,7 @@ const freeTariff: TariffPriceSnapshot = {
   idleFeePricePerMinute: null,
   reservationFeePerMinute: null,
   taxRate: null,
+  maxCurrentA: null,
 };
 
 const pricedTariff: TariffPriceSnapshot = {

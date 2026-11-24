@@ -50,6 +50,7 @@ import {
   phasesOfEnergyTransfer,
   planProfileRate,
   planProfileSends,
+  planSessionCapsKw,
   readPlanProfileInputs,
   storedSlots,
   withRejectedProfiles,
@@ -126,6 +127,62 @@ function input(overrides: Partial<PlanProfileSendInput> = {}): PlanProfileSendIn
 function makeLogger(): ServiceLogger {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
+
+describe('plan profiles within the tariff and EVSE limits', () => {
+  const acSession = {
+    sessionId: 'ses_1',
+    transactionId: 'tx-1',
+    evseDbId: 'evs_1',
+    evseNumber: 1,
+    unitId: null,
+    kind: 'ac' as const,
+    ratingKw: 22,
+    ratingA: 32,
+    tariffId: 'trf_1',
+    tariffMaxCurrentA: 16 as number | null,
+    phases: null,
+    startedAt: new Date(NOW),
+  };
+  const acStation: StationPowerInfo = {
+    ...station,
+    circuitVoltageV: 230,
+    circuitPhases: 3,
+    sessions: [acSession],
+  };
+
+  it('caps each session at its tariff limit and an EVSE limit its own maximum set', () => {
+    // 16 A on three phases at 230 V is 11.04 kW.
+    expect(planSessionCapsKw([acStation]).get('ses_1')).toBeCloseTo(11.04, 5);
+    const limit = {
+      sessionId: 'ses_1',
+      transactionId: 'tx-1',
+      evseNumber: 1,
+      unitId: null,
+      kind: 'ac' as const,
+      limitA: 10,
+      limitKw: 6.9,
+      phases: 3,
+      reason: 'connector_max' as const,
+      paused: false,
+    };
+    expect(planSessionCapsKw([acStation], new Map([['sta_a', [limit]]])).get('ses_1')).toBe(6.9);
+    // A limit from the station's share leaves the plan its own split.
+    const share = { ...limit, reason: 'station_share' as const };
+    expect(planSessionCapsKw([acStation], new Map([['sta_a', [share]]])).get('ses_1')).toBeCloseTo(
+      11.04,
+      5,
+    );
+    const uncapped = { ...acStation, sessions: [{ ...acSession, tariffMaxCurrentA: null }] };
+    expect(planSessionCapsKw([uncapped]).size).toBe(0);
+  });
+
+  it('holds every period of the plan profile to the session cap', () => {
+    const [send] = planProfileSends(input({ sessionCapKw: new Map([['ses_1', 11.04]]) }));
+    expect(send?.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod).toEqual([
+      { startPeriod: 0, limit: 11040 },
+    ]);
+  });
+});
 
 describe('planProfileSends', () => {
   it('sends the plan of a planned session that has none yet', () => {

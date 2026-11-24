@@ -126,6 +126,9 @@ export async function handleTransactionEvent(
       // Queued while offline (E04.FR.03): history that never sets the live
       // connector status.
       ...(request.offline === true ? { offline: true } : {}),
+      ...(request.numberOfPhasesUsed != null
+        ? { numberOfPhasesUsed: request.numberOfPhasesUsed }
+        : {}),
       ...(request.eventType === 'Ended' && cost?.calculated === true
         ? { finalCostCents: cost.totalCostCents }
         : {}),

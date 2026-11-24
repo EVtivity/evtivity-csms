@@ -852,6 +852,98 @@ groups:
         noDataState: OK
         execErrState: Error
 
+      - uid: feat-load-management-evse-refused
+        title: Stations Refusing Per-EVSE Limits
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(load_management_stations_evse_refused)'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 15m
+        annotations:
+          summary: 'A station refused per-EVSE limits for 15 minutes and is limited as a whole (tariff current limits then hold through the station limit only)'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: feat-load-management-limits-rejected
+        title: Stations Rejecting Load Management Limits
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(load_allocation_entries_last_hour{reply="rejected"})'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 20
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'Stations rejected more than 20 load management limits in the last hour (the station becomes a fixed load until it accepts one)'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
       - uid: feat-site-over-capacity
         title: Site Over Capacity
         condition: C

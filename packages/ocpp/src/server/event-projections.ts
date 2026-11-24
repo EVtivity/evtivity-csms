@@ -48,12 +48,16 @@ import {
   PG_FOREIGN_KEY_VIOLATION,
   alertStationWatchersIfAvailable,
   markLoadManagementStale,
+  markEvseLimitsRefused,
   recordLoadManagementProfileReply,
   getSimGeneralSettings,
   markSitePlanStale,
   recordChargingPlanProfileReply,
 } from '@evtivity/database';
 import type { PlanProfileReplyOutcome } from '@evtivity/database';
+import { recordSessionPhases, recordAllocationEntryReply } from '@evtivity/database';
+import type { LoadAllocationReply } from '@evtivity/database';
+import { phasesFromReadings } from '@evtivity/lib/ev-phases';
 import { planProfileHash } from '@evtivity/services/charging-plan-profile-hash';
 import { getSecuritySeverity } from '@evtivity/lib/security-severity';
 import { paymentContext } from '../lib/payments.js';
@@ -135,6 +139,7 @@ import {
   energyToWh,
   isFlatEnergyReading,
   overallValue,
+  phaseCurrentReadings,
   readingSummary,
 } from './meter-units.js';
 import type { PhaseSample } from './meter-units.js';
@@ -1300,6 +1305,9 @@ export function registerProjections(
       let summaryPeakW: number | null = null;
       let summarySoc: number | null = null;
       let summarySocAtMs: number | null = null;
+      // The per-phase currents of the newest reading of this delivery.
+      let phaseReadings: { phase: string; amps: number }[] = [];
+      let phaseReadingsAtMs: number | null = null;
       for (const [reading, mv] of meterValues.entries()) {
         const mvTimestamp = mv.timestamp as string;
         const sampledValues = mv.sampledValue as Array<Record<string, unknown>> | undefined;
@@ -1429,6 +1437,15 @@ export function registerProjections(
         ) {
           summarySoc = summary.socPercent;
           summarySocAtMs = readingMs;
+        }
+        const currents = phaseCurrentReadings(sampledValues);
+        if (
+          currents.length > 0 &&
+          !Number.isNaN(readingMs) &&
+          (phaseReadingsAtMs == null || readingMs > phaseReadingsAtMs)
+        ) {
+          phaseReadings = currents;
+          phaseReadingsAtMs = readingMs;
         }
         if (!Number.isNaN(readingMs) && (latestReadingMs == null || readingMs > latestReadingMs)) {
           latestReadingMs = readingMs;
@@ -1706,6 +1723,25 @@ export function registerProjections(
             reading,
           }),
         );
+      }
+
+      // The phases the session charges on, for the per-phase load management
+      // split. Readings under 1 A on every line (a paused EV) change nothing.
+      const phases = phasesFromReadings(phaseReadings, null);
+      if (appliesToSession && phases != null) {
+        const phasesStationUuid = stationUuid;
+        try {
+          await attempt.memo('mv:phases', () =>
+            recordSessionPhases(sql, {
+              stationUuid: phasesStationUuid,
+              sessionId,
+              evseUuid,
+              phases,
+            }),
+          );
+        } catch (err: unknown) {
+          logger.warn({ err, stationId, sessionId }, 'Recording the session phases failed');
+        }
       }
 
       // Notify for all MeterValues (both standalone and transaction-scoped).
@@ -2898,6 +2934,25 @@ export function registerProjections(
 
   // ---- Command Tracking Projections ----
 
+  // The station's reply on the allocation log entry of the command (fail-open:
+  // the entry then shows no reply).
+  async function recordAllocationReply(
+    event: DomainEvent,
+    stationUuid: string,
+    reply: LoadAllocationReply,
+  ): Promise<void> {
+    const commandId = event.payload.commandId;
+    if (typeof commandId !== 'string' || commandId === '') return;
+    try {
+      await recordAllocationEntryReply(sql, stationUuid, commandId, reply);
+    } catch (err) {
+      logger.warn(
+        { err, stationId: event.aggregateId, commandId },
+        'Recording the reply on the load allocation log failed',
+      );
+    }
+  }
+
   // The station's answer to its load management profile (the profile the
   // load management cycle sends: the API refuses it from every other path).
   // Fail-open: the cycle keeps sending, and the stored copy is written.
@@ -2923,6 +2978,49 @@ export function registerProjections(
       logger.warn(
         { err, stationId: event.aggregateId },
         'Recording the reply to the load management limit failed',
+      );
+    }
+  }
+
+  // A refused or failed per-EVSE limit (a TxProfile at the load management
+  // stack level): the station falls back to one station limit, which the
+  // tariff caps still lower. Only a transaction load management sent a limit
+  // for marks it (`markEvseLimitsRefused`). Fail-open: the station limit holds.
+  async function recordEvseLimitRefusal(event: DomainEvent, stationUuid: string): Promise<void> {
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const raw = request.chargingProfile ?? request.csChargingProfiles;
+    if (raw == null || typeof raw !== 'object') return;
+    const profile = raw as Record<string, unknown>;
+    if (
+      profile['chargingProfilePurpose'] !== 'TxProfile' ||
+      profile['stackLevel'] !== LOAD_MANAGEMENT_STACK_LEVEL
+    ) {
+      return;
+    }
+    const rawTransaction = profile['transactionId'];
+    const transactionId =
+      typeof rawTransaction === 'string'
+        ? rawTransaction
+        : typeof rawTransaction === 'number'
+          ? String(rawTransaction)
+          : null;
+    if (transactionId == null || transactionId === '') return;
+    try {
+      if (await markEvseLimitsRefused(sql, stationUuid, transactionId)) {
+        logger.warn(
+          {
+            stationId: event.aggregateId,
+            transactionId,
+            response: event.payload.response,
+            error: event.payload.error,
+          },
+          'Station refused per-EVSE limits, falling back to the station limit',
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, stationId: event.aggregateId },
+        'Recording the refusal of the per-EVSE limit failed',
       );
     }
   }
@@ -2988,13 +3086,16 @@ export function registerProjections(
     const accepted = response?.status === 'Accepted';
     // No answer, or a send failure: the station never decided on the profile.
     if (event.payload.notSent === true) {
+      await recordAllocationReply(event, stationUuid, 'not_sent');
       await recordPlanProfileReply(event, stationUuid, 'not_sent');
       return;
     }
     if (!accepted) {
       // A rejected load management limit (or an error reply, published with
       // `error`) makes the station a fixed load until it accepts one.
+      await recordAllocationReply(event, stationUuid, 'rejected');
       await recordLoadManagementReply(event, stationUuid, false);
+      await recordEvseLimitRefusal(event, stationUuid);
       await recordPlanProfileReply(event, stationUuid, 'rejected');
       return;
     }
@@ -3032,6 +3133,7 @@ export function registerProjections(
     `;
     const siteId = await lookups.resolveSiteId(stationUuid);
     await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
+    await recordAllocationReply(event, stationUuid, 'accepted');
     await recordLoadManagementReply(event, stationUuid, true);
     await recordPlanProfileReply(event, stationUuid, 'accepted');
   });

@@ -1,13 +1,14 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, gte, lte, eq, count, type SQL } from 'drizzle-orm';
+import { sql, and, gte, lt, eq, count, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
   chargingStations,
   drivers,
   getCompanyCurrency,
+  getSystemTimezone,
   isOperatorStation,
 } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
@@ -18,6 +19,7 @@ import { queryRevenue, revenueItem } from '../session-revenue.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { csvRows, moneyCell, pdfRows, type MoneyCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
+import { reportDay, reportDayBounds, reportFileName } from './report-dates.js';
 import { columnVisible } from '../report-registry.js';
 import type {
   ReportColumnAccess,
@@ -31,31 +33,32 @@ interface Filters {
   dateTo?: string | undefined;
   /** The report's site scope (report-scope.ts). */
   scope: ReportSiteScope;
+  /** The company time zone the report days start and end in. */
+  timeZone: string;
 }
 
-function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
+function parseFilters(
+  raw: Record<string, unknown>,
+  scope: ReportSiteScope,
+  timeZone: string,
+): Filters {
   return {
-    dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
-    dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
+    dateFrom: reportDay(raw['dateFrom']),
+    dateTo: reportDay(raw['dateTo']),
     scope,
+    timeZone,
   };
 }
 
-function dateBounds(filters: Filters): { from: Date | null; to: Date | null } {
-  const from = filters.dateFrom ? new Date(filters.dateFrom) : null;
-  let to: Date | null = null;
-  if (filters.dateTo) {
-    to = new Date(filters.dateTo);
-    to.setHours(23, 59, 59, 999);
-  }
-  return { from, to };
+function dateBounds(filters: Filters): { from: Date | null; until: Date | null } {
+  return reportDayBounds(filters.dateFrom, filters.dateTo, filters.timeZone);
 }
 
 function buildDateConditions(filters: Filters): SQL[] {
-  const { from, to } = dateBounds(filters);
+  const { from, until } = dateBounds(filters);
   const conditions: SQL[] = [];
   if (from != null) conditions.push(gte(chargingSessions.startedAt, from));
-  if (to != null) conditions.push(lte(chargingSessions.startedAt, to));
+  if (until != null) conditions.push(lt(chargingSessions.startedAt, until));
   return conditions;
 }
 
@@ -103,7 +106,7 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
 
   // Spend is the drivers' revenue (session-revenue.ts): ended sessions and
   // reservation fees billed in the company currency, minus refunds.
-  const { from, to } = dateBounds(filters);
+  const { from, until } = dateBounds(filters);
   const where: SQL[] = [
     sql`${revenueItem.driverId} IN (${sql.join(
       rows.length > 0 ? rows.map((r) => sql`${r.driverId}`) : [sql`NULL`],
@@ -112,7 +115,8 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
   ];
   if (from != null)
     where.push(sql`${revenueItem.occurredAt} >= ${from.toISOString()}::timestamptz`);
-  if (to != null) where.push(sql`${revenueItem.occurredAt} <= ${to.toISOString()}::timestamptz`);
+  if (until != null)
+    where.push(sql`${revenueItem.occurredAt} < ${until.toISOString()}::timestamptz`);
   const revenueInScope = stationSiteInScope(revenueItem.siteId, filters.scope);
   if (revenueInScope != null) where.push(revenueInScope);
   const spend = await queryRevenue({ companyCurrency: currency, key: revenueItem.driverId, where });
@@ -136,11 +140,11 @@ export async function generateDriverActivityReport(
   siteIds: ReportSiteScope,
   access: ReportColumnAccess,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters, siteIds);
+  const [currency, tz] = await Promise.all([getCompanyCurrency(), getSystemTimezone()]);
+  const filters = parseFilters(rawFilters, siteIds, tz);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.driverActivity;
-  const currency = await getCompanyCurrency();
   const driverActivity = await queryDriverActivity(filters, currency);
 
   const totalDrivers = driverActivity.length;
@@ -168,11 +172,14 @@ export async function generateDriverActivityReport(
     const csv = buildCsv(headers, csvRows(rows));
     return {
       data: Buffer.from(csv, 'utf-8'),
-      fileName: `driver-activity-${String(Date.now())}.csv`,
+      fileName: reportFileName('driver-activity', filters.dateFrom, filters.dateTo, 'csv'),
     };
   } else if (format === 'xlsx') {
     const data = await buildXlsx([{ name: l.sheets.driverActivity, headers, rows }]);
-    return { data, fileName: `driver-activity-${String(Date.now())}.xlsx` };
+    return {
+      data,
+      fileName: reportFileName('driver-activity', filters.dateFrom, filters.dateTo, 'xlsx'),
+    };
   }
 
   const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
@@ -208,5 +215,8 @@ export async function generateDriverActivityReport(
   );
 
   const data = await pdf.build();
-  return { data, fileName: `driver-activity-${String(Date.now())}.pdf` };
+  return {
+    data,
+    fileName: reportFileName('driver-activity', filters.dateFrom, filters.dateTo, 'pdf'),
+  };
 }

@@ -64,6 +64,9 @@ export const tariffs = pgTable(
     chargingType: varchar('charging_type', { length: 4 }).notNull().default('both'),
     // all or selected (tariff_sites lists the sites; CHECK tariffs_site_scope_check).
     siteScope: varchar('site_scope', { length: 8 }).notNull().default('all'),
+    // Maximum charging current per phase in A (6 to 500) load management gives
+    // each session on this tariff; null: no limit. Not on a DC tariff.
+    maxCurrentA: numeric('max_current_a', { precision: 5, scale: 1, mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -79,6 +82,14 @@ export const tariffs = pgTable(
     check(
       'tariffs_default_unscoped_check',
       sql`NOT ${table.isDefault} OR (${table.chargingType} = 'both' AND ${table.siteScope} = 'all')`,
+    ),
+    check(
+      'tariffs_max_current_a_check',
+      sql`${table.maxCurrentA} IS NULL OR (${table.maxCurrentA} >= 6 AND ${table.maxCurrentA} <= 500)`,
+    ),
+    check(
+      'tariffs_max_current_a_dc_check',
+      sql`${table.maxCurrentA} IS NULL OR ${table.chargingType} <> 'dc'`,
     ),
   ],
 );
@@ -226,6 +237,7 @@ export const sessionTariffSegments = pgTable(
     idleFeePricePerMinute: numeric('idle_fee_price_per_minute'),
     reservationFeePerMinute: numeric('reservation_fee_per_minute'),
     taxRate: numeric('tax_rate'),
+    maxCurrentA: numeric('max_current_a', { precision: 5, scale: 1, mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

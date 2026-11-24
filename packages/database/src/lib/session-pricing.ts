@@ -37,6 +37,8 @@ export interface TariffPriceSnapshot {
   idleFeePricePerMinute: string | null;
   reservationFeePerMinute: string | null;
   taxRate: string | null;
+  /** Tariff current limit, A per phase; null: no limit. */
+  maxCurrentA: string | null;
 }
 
 /** What a session is priced from, as loadSessionPricing reads it. */
@@ -46,6 +48,8 @@ export interface SessionPricingRow {
   tariffId: string | null;
   basis: TaxBasis;
   tariff: TariffInput;
+  /** The tariff current limit snapshot, A per phase; null: no limit. */
+  tariffMaxCurrentA: string | null;
   idleStartedAt: Date | null;
   idleMinutes: number;
   /** The reservation's start (or creation) when the session fulfilled one. */
@@ -73,7 +77,7 @@ export async function loadSessionPricing(
   const rows = await sql`
     SELECT s.id, s.started_at, s.tariff_id, s.tax_basis,
            s.tariff_price_per_kwh, s.tariff_price_per_minute, s.tariff_price_per_session,
-           s.tariff_idle_fee_price_per_minute, s.tariff_tax_rate,
+           s.tariff_idle_fee_price_per_minute, s.tariff_tax_rate, s.tariff_max_current_a,
            CASE WHEN s.tax_basis IS NULL THEN t.reservation_fee_per_minute
                 ELSE s.tariff_reservation_fee_per_minute END AS reservation_fee_per_minute,
            s.idle_started_at, s.idle_minutes, s.cost_ceiling_cents,
@@ -99,6 +103,7 @@ export async function loadSessionPricing(
       reservationFeePerMinute: toPrice(row.reservation_fee_per_minute),
       taxRate: toPrice(row.tariff_tax_rate),
     },
+    tariffMaxCurrentA: toPrice(row.tariff_max_current_a),
     idleStartedAt: toDateOrNull(row.idle_started_at as RawTimestamp),
     idleMinutes: Number(row.idle_minutes ?? 0),
     reservationReferenceAt: toDateOrNull(row.reservation_reference_at as RawTimestamp),
@@ -353,6 +358,7 @@ export async function snapshotSessionTariff(
         tariff_idle_fee_price_per_minute = ${tariff.idleFeePricePerMinute},
         tariff_reservation_fee_per_minute = ${tariff.reservationFeePerMinute},
         tariff_tax_rate = ${tariff.taxRate},
+        tariff_max_current_a = ${tariff.maxCurrentA},
         pricing_group_id = (SELECT pricing_group_id FROM tariffs WHERE id = ${tariff.id}),
         tax_basis = ${basis},
         updated_at = now()
@@ -385,12 +391,13 @@ async function insertSegment(
     INSERT INTO session_tariff_segments (
       session_id, tariff_id, started_at, energy_wh_start, price_snapshot,
       price_per_kwh, price_per_minute, price_per_session, idle_fee_price_per_minute,
-      reservation_fee_per_minute, tax_rate
+      reservation_fee_per_minute, tax_rate, max_current_a
     )
     VALUES (
       ${sessionId}, ${tariff.id}, ${startedAt}, ${energyWhStart}, true,
       ${tariff.pricePerKwh}, ${tariff.pricePerMinute}, ${tariff.pricePerSession},
-      ${tariff.idleFeePricePerMinute}, ${tariff.reservationFeePerMinute}, ${tariff.taxRate}
+      ${tariff.idleFeePricePerMinute}, ${tariff.reservationFeePerMinute}, ${tariff.taxRate},
+      ${tariff.maxCurrentA}
     )
     ON CONFLICT (session_id) WHERE ended_at IS NULL DO NOTHING
   `;
@@ -698,7 +705,8 @@ async function repriceLocked(
           price_per_session = ${segmentTariff.pricePerSession},
           idle_fee_price_per_minute = ${segmentTariff.idleFeePricePerMinute},
           reservation_fee_per_minute = ${segmentTariff.reservationFeePerMinute},
-          tax_rate = ${segmentTariff.taxRate}
+          tax_rate = ${segmentTariff.taxRate},
+          max_current_a = ${segmentTariff.maxCurrentA}
       WHERE id = ${segment.id as number}
     `;
   }

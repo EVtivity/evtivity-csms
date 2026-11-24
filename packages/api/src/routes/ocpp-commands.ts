@@ -37,6 +37,12 @@ import {
 import {
   isLoadManagedStationIdentity,
   isPlannedConnectorSession,
+  isEvseManagedConnectorSession,
+  isEvseManagedTransaction,
+  evseManagedClearConflict,
+  evseManagedClearMessage,
+  evseManagedConnectorMessage,
+  evseManagedSessionMessage,
   isPlannedTransaction,
   plannedClearConflict,
   plannedClearMessage,
@@ -400,6 +406,20 @@ async function dispatchCommandRaw(
         },
       };
     }
+    // A TxProfile for a session load management limits per EVSE would lift its limit.
+    if (
+      plannedTransaction != null &&
+      (await isEvseManagedTransaction(stationId, plannedTransaction))
+    ) {
+      return {
+        code: 400,
+        body: {
+          error: evseManagedSessionMessage(plannedTransaction),
+          code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          action,
+        },
+      };
+    }
     // A 1.6 TxProfile without a transactionId applies to the connector's transaction.
     const plannedConnector = txProfileConnectorWithoutTransaction(payload);
     if (
@@ -415,6 +435,19 @@ async function dispatchCommandRaw(
         },
       };
     }
+    if (
+      plannedConnector != null &&
+      (await isEvseManagedConnectorSession(stationId, plannedConnector))
+    ) {
+      return {
+        code: 400,
+        body: {
+          error: evseManagedConnectorMessage(plannedConnector),
+          code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          action,
+        },
+      };
+    }
   }
 
   if (action === 'ClearChargingProfile') {
@@ -425,6 +458,18 @@ async function dispatchCommandRaw(
         code: 400,
         body: {
           error: plannedClearMessage(plannedClear),
+          code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          action,
+        },
+      };
+    }
+    // A clear that could remove the EVSE limit of a session limited per EVSE.
+    const evseClear = await evseManagedClearConflict(stationId, payload);
+    if (evseClear != null) {
+      return {
+        code: 400,
+        body: {
+          error: evseManagedClearMessage(evseClear),
           code: 'CHARGING_PROFILE_LOAD_MANAGED',
           action,
         },

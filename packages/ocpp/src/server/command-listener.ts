@@ -239,7 +239,7 @@ export class CommandListener {
           eventType: 'command.SetChargingProfile',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, response },
+          payload: { request: payload, response, ...(commandId != null ? { commandId } : {}) },
         });
       } else if (action === 'GetVariables') {
         // Persisted in domain_events: a credential a station returns is masked.
@@ -386,6 +386,7 @@ export class CommandListener {
               request: payload,
               error: 'Station offline, command not queued',
               notSent: true,
+              ...(commandId != null ? { commandId } : {}),
             },
           });
         }
@@ -484,9 +485,12 @@ export class CommandListener {
           eventType: 'command.SetChargingProfile',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: callError
-            ? { request: payload, error: errorMessage }
-            : { request: payload, error: errorMessage, notSent: true },
+          payload: {
+            request: payload,
+            error: errorMessage,
+            ...(callError ? {} : { notSent: true }),
+            ...(commandId != null ? { commandId } : {}),
+          },
         });
       }
 

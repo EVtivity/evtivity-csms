@@ -12,7 +12,7 @@
  */
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { AppError, chargingProfileClearCriteria } from '@evtivity/lib';
+import { AppError, chargingProfileClearCriteria, evseChargingKind } from '@evtivity/lib';
 import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
 import {
   db,
@@ -329,6 +329,159 @@ export function plannedConnectorMessage(connectorId: number): string {
 
 export function plannedSessionMessage(transactionId: string): string {
   return `Transaction ${transactionId} follows the depot charging plan, which sends its TxProfile; a manual TxProfile would replace the plan`;
+}
+
+// ---- Load management owns the TxProfile of a session it limits per EVSE ----
+//
+// On a managed station whose effective balancing mode is per EVSE (the
+// operator chose it, or an AC session has a tariff current limit, and the
+// station never refused an EVSE limit), the load management cycle sends each
+// charging EVSE a TxProfile with the transaction's TxProfile id. A manual
+// TxProfile for such a session would replace it and lift the tariff limit, so
+// the generic SetChargingProfile commands refuse it with 400
+// CHARGING_PROFILE_LOAD_MANAGED.
+
+interface EvseManagedStationRow {
+  id: string;
+  mode: string;
+}
+
+interface CappedSessionRow {
+  charging_kind: string | null;
+  connector_type: string | null;
+  max_power_kw: string | null;
+}
+
+async function evseManagedStation(
+  stationIdentity: string,
+  session: { transactionId: string } | { connectorId: number },
+): Promise<boolean> {
+  const sessionMatch =
+    'transactionId' in session
+      ? sql`cs.transaction_id = ${session.transactionId}`
+      : sql`e.evse_id = ${session.connectorId}`;
+  const stations = (await db.execute(sql`SELECT st.id, st.load_balancing_mode AS mode
+    FROM charging_stations st
+    JOIN circuits c ON c.id = st.circuit_id
+    JOIN panels p ON p.id = c.panel_id AND p.site_id = st.site_id
+    JOIN site_load_management slm ON slm.site_id = st.site_id AND slm.is_enabled = true
+    WHERE st.station_id = ${stationIdentity}
+      AND st.evse_limits_refused_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM charging_sessions cs
+        LEFT JOIN evses e ON e.id = cs.evse_id
+        WHERE cs.station_id = st.id AND cs.status = 'active' AND ${sessionMatch}
+      )
+    LIMIT 1`)) as unknown as EvseManagedStationRow[];
+  const station = stations[0];
+  if (station == null) return false;
+  if (station.mode === 'evse') return true;
+  // An AC session with a tariff current limit in force (the open segment's,
+  // else the session's) makes the station per EVSE, as the cycle decides it.
+  const capped = (await db.execute(sql`SELECT cs.id AS session_id, cs.charging_kind,
+      con.connector_type, con.max_power_kw
+    FROM charging_sessions cs
+    LEFT JOIN session_tariff_segments seg ON seg.session_id = cs.id AND seg.ended_at IS NULL
+    LEFT JOIN connectors con ON con.evse_id = cs.evse_id
+    WHERE cs.station_id = ${station.id}
+      AND cs.status = 'active'
+      AND (CASE WHEN seg.id IS NOT NULL THEN seg.max_current_a ELSE cs.tariff_max_current_a END)
+        IS NOT NULL`)) as unknown as Array<CappedSessionRow & { session_id: string }>;
+  const bySession = new Map<string, CappedSessionRow[]>();
+  for (const row of capped) {
+    const list = bySession.get(row.session_id) ?? [];
+    list.push(row);
+    bySession.set(row.session_id, list);
+  }
+  for (const rows of bySession.values()) {
+    const stored = rows[0]?.charging_kind;
+    const kind =
+      stored === 'ac' || stored === 'dc'
+        ? stored
+        : evseChargingKind(
+              rows.map((r) => ({ connectorType: r.connector_type, maxPowerKw: r.max_power_kw })),
+            ) === 'dc'
+          ? 'dc'
+          : 'ac';
+    if (kind === 'ac') return true;
+  }
+  return false;
+}
+
+/** True when load management limits the station's active session with that transaction per EVSE. */
+export async function isEvseManagedTransaction(
+  stationIdentity: string,
+  transactionId: string,
+): Promise<boolean> {
+  return evseManagedStation(stationIdentity, { transactionId });
+}
+
+/** True when load management limits the active session on that connector (1.6: EVSE number) per EVSE. */
+export async function isEvseManagedConnectorSession(
+  stationIdentity: string,
+  connectorId: number,
+): Promise<boolean> {
+  return evseManagedStation(stationIdentity, { connectorId });
+}
+
+export function evseManagedSessionMessage(transactionId: string): string {
+  return `Load management limits transaction ${transactionId} per EVSE (its tariff current limit or the station's balancing mode); a manual TxProfile would replace that limit`;
+}
+
+export function evseManagedConnectorMessage(connectorId: number): string {
+  return `Load management limits the session on connector ${String(connectorId)} per EVSE (its tariff current limit or the station's balancing mode); a manual TxProfile would replace that limit`;
+}
+
+/**
+ * The transaction of an active session the station's load management limits
+ * per EVSE whose EVSE limit TxProfile a ClearChargingProfile (2.1 or 1.6 form)
+ * could remove, else null. Matched like `plannedClearConflict`: the clear
+ * names that profile's id, or no id and a TxProfile purpose (or none) for the
+ * session's EVSE (1.6: connector) or for every EVSE. Removing it would lift
+ * the EVSE limit, and with it the tariff limit, until the next send.
+ */
+export async function evseManagedClearConflict(
+  stationIdentity: string,
+  payload: Record<string, unknown>,
+): Promise<string | null> {
+  const criteria = chargingProfileClearCriteria(payload);
+  if (criteria.chargingProfilePurpose != null && criteria.chargingProfilePurpose !== 'TxProfile') {
+    return null;
+  }
+  if (criteria.evseId === 0) return null;
+  const rows = (await db.execute(sql`SELECT cs.transaction_id, e.evse_id
+    FROM charging_sessions cs
+    JOIN charging_stations st ON st.id = cs.station_id
+    LEFT JOIN evses e ON e.id = cs.evse_id
+    WHERE st.station_id = ${stationIdentity}
+      AND cs.status = 'active'
+      AND cs.transaction_id IS NOT NULL`)) as unknown as Array<{
+    transaction_id: string;
+    evse_id: number | null;
+  }>;
+  for (const row of rows) {
+    if (
+      criteria.chargingProfileId != null &&
+      criteria.chargingProfileId !== chargingNeedsProfileId(stationIdentity, row.transaction_id)
+    ) {
+      continue;
+    }
+    if (
+      criteria.chargingProfileId == null &&
+      criteria.evseId != null &&
+      row.evse_id !== criteria.evseId
+    ) {
+      continue;
+    }
+    if (await isEvseManagedTransaction(stationIdentity, row.transaction_id)) {
+      return row.transaction_id;
+    }
+  }
+  return null;
+}
+
+export function evseManagedClearMessage(transactionId: string): string {
+  return `Load management limits transaction ${transactionId} per EVSE (its tariff current limit or the station's balancing mode); a manual clear would remove that limit`;
 }
 
 // ---- A manual clear never removes the TxProfile of a planned session ----

@@ -32,6 +32,7 @@ import {
   markSitePlanStale,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
+import { recordReportedPhaseCount } from '@evtivity/database';
 import {
   isStartableOcpiToken,
   OCPI_START_CONTEXT_MINUTES,
@@ -134,6 +135,8 @@ interface TransactionEventContext {
   triggerReason: string;
   timestamp: string;
   payloadJson: string;
+  /** 2.1 numberOfPhasesUsed (0 to 3) as the station reported it; null when omitted. */
+  numberOfPhasesUsed: number | null;
 }
 
 /** What resolveStartedSession resolved for the session, read by completeStartedSession. */
@@ -188,6 +191,8 @@ export class TransactionProjector {
     const triggerReason = payload.triggerReason as string;
     const timestamp = payload.timestamp as string;
     const payloadJson = JSON.stringify(payload);
+    const phasesUsed = payload['numberOfPhasesUsed'];
+    const numberOfPhasesUsed = typeof phasesUsed === 'number' ? phasesUsed : null;
 
     const tx: TransactionEventContext = {
       event,
@@ -200,6 +205,7 @@ export class TransactionProjector {
       triggerReason,
       timestamp,
       payloadJson,
+      numberOfPhasesUsed,
     };
 
     if (eventType === 'Started') {
@@ -208,6 +214,19 @@ export class TransactionProjector {
       await this.projectUpdated(tx);
     } else if (eventType === 'Ended') {
       await this.projectEnded(tx);
+    }
+
+    if (numberOfPhasesUsed != null && eventType !== 'Ended') {
+      try {
+        await attempt.memo('phases:reported', () =>
+          recordReportedPhaseCount(this.deps.sql, stationUuid, transactionId, numberOfPhasesUsed),
+        );
+      } catch (err: unknown) {
+        this.deps.logger.warn(
+          { err, stationId, transactionId },
+          'Recording the reported phase count failed',
+        );
+      }
     }
 
     // Local cost calculation (OCPP 2.1 I08, I11, I12): after the event's
@@ -335,8 +354,8 @@ export class TransactionProjector {
     });
     if (ended == null) return false;
     await this.deps.sql`
-      INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload)
-      VALUES (${ended.id}, 'ended', ${tx.seqNo}, ${tx.timestamp}, ${tx.triggerReason}, ${tx.payloadJson})
+      INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload, number_of_phases_used)
+      VALUES (${ended.id}, 'ended', ${tx.seqNo}, ${tx.timestamp}, ${tx.triggerReason}, ${tx.payloadJson}, ${tx.numberOfPhasesUsed})
       ON CONFLICT DO NOTHING
     `;
     this.deps.logger.info(
@@ -677,8 +696,8 @@ export class TransactionProjector {
     await tx.attempt.once('started:transaction-event', async () => {
       try {
         await this.deps.sql`
-            INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload)
-            VALUES (${sessionId}, 'started', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson})
+            INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload, number_of_phases_used)
+            VALUES (${sessionId}, 'started', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson}, ${tx.numberOfPhasesUsed})
             ON CONFLICT DO NOTHING
           `;
       } catch (txEvtErr: unknown) {
@@ -1404,7 +1423,9 @@ export class TransactionProjector {
     // repriced above).
     const pricing = await loadSessionPricing(this.deps.sql, sessionId);
     const sessionTariff: TariffPriceSnapshot | null =
-      pricing?.tariffId != null ? { id: pricing.tariffId, ...pricing.tariff } : null;
+      pricing?.tariffId != null
+        ? { id: pricing.tariffId, ...pricing.tariff, maxCurrentA: pricing.tariffMaxCurrentA }
+        : null;
     try {
       await tx.attempt.memo(`${stage}:gate`, () =>
         runPaymentGate(this.deps, {
@@ -1911,8 +1932,8 @@ export class TransactionProjector {
       await tx.attempt.once('updated:transaction-event', async () => {
         try {
           await this.deps.sql`
-            INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload)
-            VALUES (${sessionId}, 'updated', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson})
+            INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload, number_of_phases_used)
+            VALUES (${sessionId}, 'updated', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson}, ${tx.numberOfPhasesUsed})
             ON CONFLICT DO NOTHING
           `;
         } catch (txEvtErr: unknown) {
@@ -2280,8 +2301,8 @@ export class TransactionProjector {
       await tx.attempt.once('ended:transaction-event', async () => {
         try {
           await this.deps.sql`
-            INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload)
-            VALUES (${sessionId}, 'ended', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson})
+            INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload, number_of_phases_used)
+            VALUES (${sessionId}, 'ended', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson}, ${tx.numberOfPhasesUsed})
             ON CONFLICT DO NOTHING
           `;
         } catch (txEvtErr: unknown) {

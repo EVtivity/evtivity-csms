@@ -463,6 +463,7 @@ describe('Portal guest routes - handler logic', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
+        maxCurrentA: null,
         restrictions: null,
         priority: 0,
         isDefault: true,

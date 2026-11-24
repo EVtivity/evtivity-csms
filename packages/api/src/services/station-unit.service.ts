@@ -185,6 +185,12 @@ function unwrap<T>(result: UnitWriteResult<T>): Extract<UnitWriteResult<T>, { ok
         409,
         'STATION_UNITS_DISABLED',
       );
+    case 'budget_kind_mismatch':
+      throw new AppError(
+        "The EVSE's charging kind does not match the load budget of the unit",
+        409,
+        'UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH',
+      );
   }
 }
 

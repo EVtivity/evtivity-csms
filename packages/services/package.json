@@ -97,6 +97,12 @@
     "./invoice.service": {
       "import": "./src/invoice.service.ts"
     },
+    "./evse-limits": {
+      "import": "./src/evse-limits.ts"
+    },
+    "./session-profile-cap": {
+      "import": "./src/session-profile-cap.ts"
+    },
     "./load-management.service": {
       "import": "./src/load-management.service.ts"
     },
@@ -126,6 +132,9 @@
     },
     "./report-registry": {
       "import": "./src/report-registry.ts"
+    },
+    "./report-period": {
+      "import": "./src/report-period.ts"
     },
     "./report-scope": {
       "import": "./src/report-scope.ts"

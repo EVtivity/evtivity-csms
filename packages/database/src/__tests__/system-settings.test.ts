@@ -195,6 +195,62 @@ describe('getCompanyTaxBasis', () => {
   });
 });
 
+describe('getCompanyWeekStart', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mockSelect.mockReset();
+  });
+
+  it('reads sunday', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'sunday' }]));
+    const { getCompanyWeekStart } = await import('../lib/system-settings.js');
+    expect(await getCompanyWeekStart()).toBe('sunday');
+  });
+
+  it('falls back to monday for an unset or invalid value', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'friday' }]));
+    const { getCompanyWeekStart, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    expect(await getCompanyWeekStart()).toBe('monday');
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeChain([]));
+    expect(await getCompanyWeekStart()).toBe('monday');
+  });
+
+  it('caches the value until the cache is cleared', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'sunday' }]));
+    const { getCompanyWeekStart, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    await getCompanyWeekStart();
+    await getCompanyWeekStart();
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeChain([{ value: 'monday' }]));
+    expect(await getCompanyWeekStart()).toBe('monday');
+  });
+
+  it('keeps the cached value on a read error', async () => {
+    vi.useFakeTimers();
+    try {
+      mockSelect.mockReturnValue(makeChain([{ value: 'sunday' }]));
+      const { getCompanyWeekStart } = await import('../lib/system-settings.js');
+      expect(await getCompanyWeekStart()).toBe('sunday');
+      vi.advanceTimersByTime(61_000);
+      mockSelect.mockReturnValue(makeFailingChain());
+      expect(await getCompanyWeekStart()).toBe('sunday');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back to monday when the first read fails', async () => {
+    mockSelect.mockReturnValue(makeFailingChain());
+    const { getCompanyWeekStart } = await import('../lib/system-settings.js');
+    expect(await getCompanyWeekStart()).toBe('monday');
+  });
+});
+
 describe('getCompanyCountry', () => {
   beforeEach(() => {
     vi.resetModules();

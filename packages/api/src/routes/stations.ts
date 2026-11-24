@@ -85,6 +85,8 @@ import {
   maxExternalConstraintsIds,
   plannedClearConflict,
   plannedClearMessage,
+  evseManagedClearConflict,
+  evseManagedClearMessage,
 } from '../lib/charging-profile-id.js';
 import { clearProfileSlotBeforePush } from '../lib/charging-profile-push.js';
 import { requestSessionEnd } from '../lib/session-end.js';
@@ -6305,6 +6307,14 @@ export function stationRoutes(app: FastifyInstance): void {
         if (plannedClear != null) {
           await reply.status(400).send({
             error: plannedClearMessage(plannedClear),
+            code: 'CHARGING_PROFILE_LOAD_MANAGED',
+          });
+          return;
+        }
+        const evseClear = await evseManagedClearConflict(station.stationId, payload);
+        if (evseClear != null) {
+          await reply.status(400).send({
+            error: evseManagedClearMessage(evseClear),
             code: 'CHARGING_PROFILE_LOAD_MANAGED',
           });
           return;

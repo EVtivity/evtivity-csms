@@ -132,6 +132,7 @@ export function sessionStartTariff(row: Record<string, unknown>): TariffPriceSna
     idleFeePricePerMinute: price('tariff_idle_fee_price_per_minute'),
     reservationFeePerMinute: price('tariff_reservation_fee_per_minute'),
     taxRate: price('tariff_tax_rate'),
+    maxCurrentA: price('tariff_max_current_a'),
   };
 }
 
@@ -143,6 +144,7 @@ interface OpenSegmentPriceRow {
   idle_fee_price_per_minute: string | null;
   reservation_fee_per_minute: string | null;
   tax_rate: string | null;
+  max_current_a: string | null;
 }
 
 /**
@@ -164,7 +166,7 @@ export async function runDuePaymentGate(
   try {
     const [segment] = await deps.sql<OpenSegmentPriceRow[]>`
       SELECT tariff_id, price_per_kwh, price_per_minute, price_per_session,
-             idle_fee_price_per_minute, reservation_fee_per_minute, tax_rate
+             idle_fee_price_per_minute, reservation_fee_per_minute, tax_rate, max_current_a
       FROM session_tariff_segments
       WHERE session_id = ${sessionId} AND ended_at IS NULL
       ORDER BY started_at DESC
@@ -179,6 +181,7 @@ export async function runDuePaymentGate(
       idleFeePricePerMinute: segment.idle_fee_price_per_minute,
       reservationFeePerMinute: segment.reservation_fee_per_minute,
       taxRate: segment.tax_rate,
+      maxCurrentA: segment.max_current_a,
     };
     if (isTariffFree(tariff)) return null;
     return await runSegmentPaymentGate(deps, sessionId, tariff);

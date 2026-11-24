@@ -58,6 +58,8 @@ const BY_ID_ONLY = new Set([
   'api/src/routes/audit.ts',
   'api/src/routes/display-messages.ts',
   'api/src/routes/fleet-reservations.ts',
+  // A station of the URL site, by its id.
+  'api/src/routes/unit-load-budgets.ts',
   'api/src/routes/fleets.ts',
   // The station of each invoice line's session, by the session id.
   'api/src/routes/invoices.ts',
@@ -116,6 +118,8 @@ const BY_ID_ONLY = new Set([
   'services/src/payment-terminal-flow.ts',
   'services/src/reservation-expiry.ts',
   'services/src/reservation.service.ts',
+  // The active session of a transaction at a station, by the station id.
+  'services/src/session-profile-cap.ts',
   'services/src/sim-inventory.service.ts',
   'services/src/station-data-plan.service.ts',
   'services/src/station-derived-status.ts',

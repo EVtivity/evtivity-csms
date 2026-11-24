@@ -50,7 +50,8 @@ import {
 import { ocpiIdTooLongForKinds } from '../lib/ocpi-kind-tariff-id.js';
 import type { GroupDefaultTariff } from '@evtivity/lib';
 import type { TariffRestrictions } from '@evtivity/lib';
-import { zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
+import { hasAtMostDecimals } from '@evtivity/lib/connector-power';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import {
   itemResponse,
@@ -137,6 +138,12 @@ const tariffItem = z
       .describe(
         'Charging type the tariff applies to: ac (EVSEs with AC connectors), dc (EVSEs with DC connectors) or both',
       ),
+    maxCurrentA: z
+      .number()
+      .nullable()
+      .describe(
+        'Maximum charging current per phase in A that load management gives each AC session on this tariff; null: no limit',
+      ),
     siteScope: z
       .enum(['all', 'selected'])
       .describe('Site availability: all sites, or the selected sites in siteIds'),
@@ -151,6 +158,11 @@ const tariffItem = z
       .int()
       .min(0)
       .describe('Selected sites the reader may not see (always 0 for an all-site reader)'),
+    currentLimitNotEnforcedSiteIds: z
+      .array(z.string())
+      .describe(
+        "Sites in the reader's scope this tariff applies at whose load management is off, so its maxCurrentA is not enforced there (empty without a limit)",
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the tariff was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the tariff was last updated'),
   })
@@ -302,6 +314,23 @@ const createGroupBody = z.object({
   isDefault: z.boolean().optional().describe('Whether this is the default pricing group'),
 });
 
+/** A tariff current limit: 6 to 500 A per phase, at most 1 decimal. */
+const maxCurrentA = z
+  .number()
+  .min(6)
+  .max(500)
+  .refine((v) => hasAtMostDecimals(v, 1), {
+    message: 'Maximum current takes at most 1 decimal',
+  });
+
+const MAX_CURRENT_DESCRIPTION =
+  'Maximum charging current per phase in A (6 to 500, at most 1 decimal), applied by load management to each session on this tariff. Null: no limit. Not allowed on a DC tariff; on a Both tariff it applies to AC sessions only.';
+
+const CURRENT_LIMIT_DC = {
+  error: 'A current limit cannot be set on a DC tariff',
+  code: 'TARIFF_CURRENT_LIMIT_DC',
+} as const;
+
 /** The sites of a Selected Sites tariff: 1 to 500 site ids. */
 const siteIdsSchema = z.array(ID_PARAMS.siteId).min(1).max(500);
 
@@ -338,6 +367,7 @@ const createTariffBody = z.object({
     .describe(
       'Site availability: the sites the tariff applies at (Selected Sites), or null or omitted for All Sites. Only on tariffs of driver and fleet pricing groups.',
     ),
+  maxCurrentA: maxCurrentA.nullable().optional().describe(MAX_CURRENT_DESCRIPTION),
 });
 
 const updateGroupBody = z.object({
@@ -370,6 +400,7 @@ const updateTariffBody = z.object({
   isDefault: z.boolean().optional().describe('Whether this is the default tariff for the group'),
   chargingType: z.enum(TARIFF_CHARGING_TYPES).optional().describe('Charging type: ac, dc or both'),
   siteIds: siteIdsSchema.nullable().optional().describe('Selected sites, or null for All Sites'),
+  maxCurrentA: maxCurrentA.nullable().optional().describe(MAX_CURRENT_DESCRIPTION),
 });
 
 const DEFAULT_REQUIRED_MESSAGE =
@@ -901,9 +932,10 @@ export function pricingRoutes(app: FastifyInstance): void {
         body: zodSchema(createTariffBody),
         response: {
           201: itemResponse(tariffItem),
-          400: errorWith('Invalid restrictions or sites', [
+          400: errorWith('Invalid restrictions, sites or current limit', [
             ERROR_CODES.INVALID_RESTRICTIONS,
             ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.TARIFF_CURRENT_LIMIT_DC,
           ]),
           409: errorWith('Tariff conflict', [
             ERROR_CODES.TARIFF_OVERLAP,
@@ -919,7 +951,11 @@ export function pricingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TARIFF_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof groupParams>;
-      const body = request.body as z.infer<typeof createTariffBody>;
+      const body = parseZodRequest(createTariffBody, request.body);
+      if (body.maxCurrentA != null && body.chargingType === 'dc') {
+        await reply.status(400).send(CURRENT_LIMIT_DC);
+        return;
+      }
 
       // Validate restrictions
       const restrictions = body.restrictions as TariffRestrictions | null | undefined;
@@ -1016,6 +1052,7 @@ export function pricingRoutes(app: FastifyInstance): void {
               isDefault,
               chargingType,
               siteScope: siteIds != null ? 'selected' : 'all',
+              maxCurrentA: body.maxCurrentA ?? null,
             })
             .returning();
           if (inserted == null) return undefined;
@@ -1068,9 +1105,10 @@ export function pricingRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTariffBody),
         response: {
           200: itemResponse(tariffItem),
-          400: errorWith('Invalid restrictions or sites', [
+          400: errorWith('Invalid restrictions, sites or current limit', [
             ERROR_CODES.INVALID_RESTRICTIONS,
             ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.TARIFF_CURRENT_LIMIT_DC,
           ]),
           404: errorWith('Tariff not found', [ERROR_CODES.TARIFF_NOT_FOUND]),
           409: errorWith('Tariff conflict', [
@@ -1084,7 +1122,7 @@ export function pricingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TARIFF_NOT_FOUND))) return;
       const { id, tariffId } = request.params as z.infer<typeof tariffParams>;
-      const body = request.body as z.infer<typeof updateTariffBody>;
+      const body = parseZodRequest(updateTariffBody, request.body);
 
       // The tariff must belong to the group in the path (security review AZ-L5).
       const [existing] = await db
@@ -1118,6 +1156,11 @@ export function pricingRoutes(app: FastifyInstance): void {
       const groupTariffs = await loadGroupDefaultTariffs(existing.pricingGroupId);
       const before = groupTariffs.find((t) => t.id === tariffId);
       const chargingType = body.chargingType ?? (existing.chargingType as TariffChargingType);
+      const limitAfter = body.maxCurrentA !== undefined ? body.maxCurrentA : existing.maxCurrentA;
+      if (limitAfter != null && chargingType === 'dc') {
+        await reply.status(400).send(CURRENT_LIMIT_DC);
+        return;
+      }
       const siteIds = body.siteIds !== undefined ? body.siteIds : (before?.siteIds ?? null);
       const scope = { chargingType, siteIds };
       // The default follows the rule only when the edit touches it (activity,
@@ -1181,6 +1224,7 @@ export function pricingRoutes(app: FastifyInstance): void {
         updateData['isDefault'] = isDefault;
       }
       if (body.chargingType !== undefined) updateData['chargingType'] = body.chargingType;
+      if (body.maxCurrentA !== undefined) updateData['maxCurrentA'] = body.maxCurrentA;
       if (body.siteIds !== undefined) {
         updateData['siteScope'] = body.siteIds != null ? 'selected' : 'all';
       }

@@ -39,7 +39,10 @@ import {
   plannedProfileIdConflict,
   isPlannedConnectorSession,
   isPlannedTransaction,
+  isEvseManagedConnectorSession,
+  isEvseManagedTransaction,
   plannedClearConflict,
+  evseManagedClearConflict,
   txProfileConnectorWithoutTransaction,
   txProfileTransactionId,
   assertProfileIdAllowed,
@@ -205,6 +208,32 @@ describe('manual TxProfiles on a session the depot plan charges', () => {
     expect(await isPlannedTransaction('DEPOT-01', 'tx-2')).toBe(false);
   });
 
+  it('names a session per EVSE on a managed station in EVSE mode', async () => {
+    selectRows.executed = [[{ id: 'sta_1', mode: 'evse' }]];
+    expect(await isEvseManagedTransaction('CS-1', 'tx-1')).toBe(true);
+    expect(selectRows.executed).toHaveLength(0);
+  });
+
+  it('names a session per EVSE on a station with an AC session under a tariff limit', async () => {
+    selectRows.executed = [
+      [{ id: 'sta_1', mode: 'station' }],
+      [{ session_id: 'ses_1', charging_kind: null, connector_type: 'Type2', max_power_kw: '22' }],
+    ];
+    expect(await isEvseManagedTransaction('CS-1', 'tx-1')).toBe(true);
+  });
+
+  it('leaves a station whose only capped session is DC, or none, to manual TxProfiles', async () => {
+    selectRows.executed = [
+      [{ id: 'sta_1', mode: 'station' }],
+      [{ session_id: 'ses_1', charging_kind: null, connector_type: 'CCS2', max_power_kw: '150' }],
+    ];
+    expect(await isEvseManagedTransaction('CS-1', 'tx-1')).toBe(false);
+    selectRows.executed = [[{ id: 'sta_1', mode: 'station' }], []];
+    expect(await isEvseManagedConnectorSession('CS-1', 1)).toBe(false);
+    selectRows.executed = [[]];
+    expect(await isEvseManagedConnectorSession('CS-1', 1)).toBe(false);
+  });
+
   it('reads the connector of a 1.6 TxProfile sent without a transaction', () => {
     const v16 = (profile: Record<string, unknown>, connectorId: unknown = 1) => ({
       connectorId,
@@ -231,6 +260,55 @@ describe('manual TxProfiles on a session the depot plan charges', () => {
     selectRows.executed = [[{ planned: 1 }], []];
     expect(await isPlannedConnectorSession('DEPOT-01', 1)).toBe(true);
     expect(await isPlannedConnectorSession('DEPOT-01', 2)).toBe(false);
+  });
+});
+
+describe('manual clears of the EVSE limit of a session limited per EVSE', () => {
+  const sessions = [{ transaction_id: 'tx-1', evse_id: 1 }];
+  const evseMode = [{ id: 'sta_1', mode: 'evse' }];
+
+  it('finds a clear by the EVSE limit profile id, by TxProfile or by the EVSE', async () => {
+    const id = chargingNeedsProfileId('CS-1', 'tx-1');
+    for (const payload of [
+      { chargingProfileId: id },
+      { chargingProfileCriteria: { chargingProfilePurpose: 'TxProfile' } },
+      { chargingProfileCriteria: { evseId: 1 } },
+      { id },
+      { connectorId: 1, chargingProfilePurpose: 'TxProfile' },
+      {},
+    ]) {
+      selectRows.executed = [sessions, evseMode];
+      expect(await evseManagedClearConflict('CS-1', payload), JSON.stringify(payload)).toBe('tx-1');
+    }
+  });
+
+  it('passes a clear of another EVSE or id, and a session the station limits as a whole', async () => {
+    selectRows.executed = [sessions];
+    expect(
+      await evseManagedClearConflict('CS-1', { chargingProfileCriteria: { evseId: 2 } }),
+    ).toBeNull();
+    selectRows.executed = [sessions];
+    expect(
+      await evseManagedClearConflict('CS-1', {
+        chargingProfileId: chargingNeedsProfileId('CS-1', 'tx-1') + 1,
+      }),
+    ).toBeNull();
+    selectRows.executed = [sessions, [{ id: 'sta_1', mode: 'station' }], []];
+    expect(await evseManagedClearConflict('CS-1', {})).toBeNull();
+    selectRows.executed = [sessions, []];
+    expect(await evseManagedClearConflict('CS-1', {})).toBeNull();
+  });
+
+  it('reads no database for another purpose or the station EVSE', async () => {
+    selectRows.executed = [sessions];
+    expect(
+      await evseManagedClearConflict('CS-1', {
+        chargingProfileCriteria: { chargingProfilePurpose: 'ChargingStationMaxProfile' },
+      }),
+    ).toBeNull();
+    expect(await evseManagedClearConflict('CS-1', { connectorId: 0 })).toBeNull();
+    expect(selectRows.executed).toHaveLength(1);
+    selectRows.executed = [];
   });
 });
 

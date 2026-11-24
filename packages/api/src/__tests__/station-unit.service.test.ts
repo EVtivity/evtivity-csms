@@ -328,6 +328,7 @@ describe('station unit service', () => {
       ['limit', 'STATION_UNIT_LIMIT_REACHED', 400],
       ['other_station', 'VALIDATION_ERROR', 400],
       ['units_disabled', 'STATION_UNITS_DISABLED', 409],
+      ['budget_kind_mismatch', 'UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH', 409],
     ];
     for (const [reason, code, statusCode] of cases) {
       m.updateStationUnit.mockResolvedValueOnce({ ok: false, reason });

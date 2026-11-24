@@ -73,6 +73,8 @@ import {
   updateCircuit,
   updatePanel,
   updateTransformer,
+  readUnitLoadBudgets,
+  setUnitLoadBudget,
   LoadTreeValidationError,
   type LoadTreeWriteContext,
 } from './lib/load-management-tree.js';
@@ -98,6 +100,7 @@ import {
   saveSiteLayout,
 } from './lib/station-layout.js';
 import { seedDemoStationUnitsOf } from './seed-demo-station-units.js';
+import { readStationUnits } from './lib/station-units.js';
 import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import { seedStationFaultInsight } from './seed-ai-insights.js';
 import type { DemoFeatureContext } from './seed-demo-features.js';
@@ -1206,6 +1209,62 @@ async function seedTerminals(sql: postgres.Sql, ctx: DemoFeatureContext): Promis
   return created;
 }
 
+/**
+ * Gives every unit of a demo station without a budget its budget through the
+ * tree writer, and limits the station per EVSE when it gets its first budget,
+ * so an operator's later budget or mode stays. Returns the budgets written.
+ */
+async function seedUnitLoadBudgets(
+  sql: postgres.Sql,
+  siteId: string,
+  stationId: string,
+  budget: { maxCurrentA: number; phases: 1 | 3 },
+  ctx: DemoFeatureContext,
+): Promise<number> {
+  const units = await readStationUnits(stationId);
+  if (units.length === 0) return 0;
+  const existing = new Set((await readUnitLoadBudgets([stationId])).map((b) => b.unitId));
+  const treeCtx: LoadTreeWriteContext = {
+    ...auditActor(ctx),
+    notes: 'Site layout demo: unit load budget',
+  };
+  let written = 0;
+  for (const unit of units) {
+    if (existing.has(unit.id)) continue;
+    const result = await setUnitLoadBudget(
+      {
+        siteId,
+        stationId,
+        unitId: unit.id,
+        budget: { kind: 'ac', maxCurrentA: budget.maxCurrentA, phases: budget.phases },
+      },
+      treeCtx,
+    );
+    if (result.ok && result.changed) written++;
+  }
+  if (existing.size === 0 && written > 0) {
+    const moved = await sql<{ id: string }[]>`
+      UPDATE charging_stations SET load_balancing_mode = 'evse', updated_at = now()
+      WHERE id = ${stationId} AND load_balancing_mode = 'station'
+      RETURNING id`;
+    if (moved.length > 0) {
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: stationId,
+          entityIdSnapshot: stationId,
+          action: 'updated',
+          ...auditActor(ctx),
+          before: { loadBalancingMode: 'station' },
+          after: { loadBalancingMode: 'evse' },
+          notes: 'Site layout demo: each unit limited per EVSE',
+        },
+      );
+    }
+  }
+  return written;
+}
+
 export interface LayoutDemoCounts {
   stations: number;
   /** Stations of the earlier plan moved to the site of their charger type. */
@@ -1213,6 +1272,8 @@ export interface LayoutDemoCounts {
   layouts: number;
   /** Units created on demo stations with units (a master and its extenders). */
   units: number;
+  /** Unit load budgets created on those stations. */
+  unitBudgets: number;
   terminals: number;
   /** Active display messages created on demo stations. */
   messages: number;
@@ -1680,6 +1741,22 @@ export async function seedLayoutDemo(
     else if (await regroupLayout(site, seeded, ctx)) layouts++;
     await seedPowerWiring(site, ctx);
   }
+  // After the circuits, so each budget lands on a station of its tree.
+  let unitBudgets = 0;
+  for (const site of LAYOUT_DEMO.sites) {
+    for (const station of site.stations) {
+      if (station.unitLoadBudget == null || !(present.get(site.id) ?? []).includes(station.id)) {
+        continue;
+      }
+      unitBudgets += await seedUnitLoadBudgets(
+        sql,
+        site.id,
+        station.id,
+        station.unitLoadBudget,
+        ctx,
+      );
+    }
+  }
   // The maintenance event of Harbor Point: active, on one station.
   const harbor = LAYOUT_DEMO.sites[0];
   const inMaintenance = harbor?.stations.filter((s) => s.maintenance === true) ?? [];
@@ -1732,6 +1809,7 @@ export async function seedLayoutDemo(
     moved,
     layouts,
     units,
+    unitBudgets,
     terminals,
     faultInsights,
     messages,

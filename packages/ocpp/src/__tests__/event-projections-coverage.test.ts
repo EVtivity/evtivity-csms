@@ -266,6 +266,12 @@ vi.mock('@evtivity/database', async () => ({
   )),
   // The session meter summary UPDATE (tested on a real database, integration v21 64).
   applySessionMeterSummary: vi.fn().mockResolvedValue(false),
+  // The session phase writes (tested in database session-phases.test.ts).
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-phases.js',
+  )),
+  recordSessionPhases: vi.fn().mockResolvedValue(false),
+  recordReportedPhaseCount: vi.fn().mockResolvedValue(false),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',

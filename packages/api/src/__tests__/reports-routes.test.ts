@@ -121,6 +121,23 @@ vi.mock('@evtivity/services/report.service', () => ({
   ],
 }));
 
+const mockReportFiltersForPeriod = vi.hoisted(() =>
+  vi.fn((period: string, filters: Record<string, unknown>, _anchor: Date) =>
+    Promise.resolve(
+      period === 'custom' ? filters : { ...filters, dateFrom: '2026-10-01', dateTo: '2026-10-31' },
+    ),
+  ),
+);
+vi.mock('@evtivity/services/report-period', async () => {
+  const actual = await vi.importActual<typeof import('@evtivity/services/report-period')>(
+    '@evtivity/services/report-period',
+  );
+  return {
+    reportPeriodError: actual.reportPeriodError,
+    reportFiltersForPeriod: mockReportFiltersForPeriod,
+  };
+});
+
 const mockPublish = vi.hoisted(() => vi.fn());
 // The permissions beyond reports:* the caller holds (every one by default).
 const mockHasPermission = vi.hoisted(() =>
@@ -160,7 +177,22 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { reportRoutes } from '../routes/reports.js';
-import { queueReport } from '@evtivity/services/report.service';
+import { queueReport, computeNextRunAtInTz } from '@evtivity/services/report.service';
+import { db } from '@evtivity/database';
+
+function insertedValues(): Record<string, unknown> {
+  const chain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+    values: ReturnType<typeof vi.fn>;
+  };
+  return chain.values.mock.calls[0]?.[0] as Record<string, unknown>;
+}
+
+function updateSet(): Record<string, unknown> {
+  const chain = vi.mocked(db.update).mock.results.at(-1)?.value as {
+    set: ReturnType<typeof vi.fn>;
+  };
+  return chain.set.mock.calls[0]?.[0] as Record<string, unknown>;
+}
 
 const VALID_REPORT_ID = 'rpt_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -553,6 +585,60 @@ describe('Report routes', () => {
     expect(queueReport).not.toHaveBeenCalled();
   });
 
+  it('POST /v1/reports/generate resolves a relative period at request time', async () => {
+    vi.mocked(queueReport).mockClear();
+    mockReportFiltersForPeriod.mockClear();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/reports/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        name: 'Last week',
+        reportType: 'energy',
+        format: 'csv',
+        reportPeriod: 'last7Days',
+        filters: { siteId: 'sit_1' },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockReportFiltersForPeriod).toHaveBeenCalledWith(
+      'last7Days',
+      { siteId: 'sit_1' },
+      expect.any(Date),
+    );
+    const resolved = { siteId: 'sit_1', dateFrom: '2026-10-01', dateTo: '2026-10-31' };
+    expect(vi.mocked(queueReport).mock.calls[0]?.[0]).toMatchObject({ filters: resolved });
+    expect(mockWriteAudit.mock.calls.at(-1)?.[1]).toMatchObject({ after: { filters: resolved } });
+  });
+
+  it('POST /v1/reports/generate refuses a period with fixed dates, for NEVI, and an unknown one', async () => {
+    for (const payload of [
+      {
+        reportType: 'energy',
+        format: 'csv',
+        reportPeriod: 'previousMonth',
+        filters: { dateFrom: '2026-01-01' },
+      },
+      {
+        reportType: 'nevi',
+        format: 'xlsx',
+        reportPeriod: 'previousQuarter',
+        filters: { quarter: 1, year: 2026 },
+      },
+      { reportType: 'energy', format: 'csv', reportPeriod: 'lastFortnight' },
+    ]) {
+      vi.mocked(queueReport).mockClear();
+      const response = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'R', ...payload },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(queueReport).not.toHaveBeenCalled();
+    }
+  });
+
   it('POST /v1/reports/generate queues a NEVI report with quarter and year', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -617,6 +703,24 @@ describe('Report routes', () => {
   });
 });
 
+const scheduleRow = {
+  id: 7,
+  name: 'Monthly Energy',
+  reportType: 'energy',
+  format: 'csv',
+  frequency: 'monthly',
+  dayOfWeek: 2,
+  dayOfMonth: 10,
+  filters: { siteId: 'sit_1', dateFrom: '2026-01-01', dateTo: '2026-01-31' },
+  reportPeriod: 'custom',
+  recipientEmails: [],
+  isEnabled: true,
+  siteScope: null,
+  nextRunAt: null,
+  createdAt: '2024-01-01T00:00:00.000Z',
+  updatedAt: '2024-01-01T00:00:00.000Z',
+};
+
 describe('Report schedule routes', () => {
   let app: FastifyInstance;
   let token: string;
@@ -646,6 +750,7 @@ describe('Report schedule routes', () => {
         dayOfWeek: null,
         dayOfMonth: null,
         filters: null,
+        reportPeriod: 'custom',
         recipientEmails: [],
         isEnabled: true,
         siteScope: null,
@@ -675,6 +780,7 @@ describe('Report schedule routes', () => {
         dayOfWeek: null,
         dayOfMonth: null,
         filters: null,
+        reportPeriod: 'custom',
         recipientEmails: [],
         isEnabled: true,
         siteScope: null,
@@ -715,6 +821,7 @@ describe('Report schedule routes', () => {
       dayOfWeek: null,
       dayOfMonth: null,
       filters: null,
+      reportPeriod: 'custom',
       recipientEmails: [],
       isEnabled: true,
       siteScope: null,
@@ -769,6 +876,154 @@ describe('Report schedule routes', () => {
     expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
   });
 
+  it('POST /v1/report-schedules stores custom without a period and the period sent', async () => {
+    setupDbResults([scheduleRow]);
+    await app.inject({
+      method: 'POST',
+      url: '/report-schedules',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'A', reportType: 'energy', format: 'csv', frequency: 'monthly' },
+    });
+    expect(insertedValues()).toMatchObject({ reportPeriod: 'custom' });
+    setupDbResults([scheduleRow]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/report-schedules',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        name: 'B',
+        reportType: 'energy',
+        format: 'csv',
+        frequency: 'monthly',
+        reportPeriod: 'previousMonth',
+        filters: { siteId: 'sit_1' },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(insertedValues()).toMatchObject({
+      reportPeriod: 'previousMonth',
+      filters: { siteId: 'sit_1' },
+    });
+  });
+
+  it('POST /v1/report-schedules refuses fixed dates with a relative period and an unknown period', async () => {
+    for (const extra of [
+      { reportPeriod: 'previousMonth', filters: { dateFrom: '2026-01-01' } },
+      { reportPeriod: 'lastFortnight' },
+    ]) {
+      vi.mocked(db.insert).mockClear();
+      const response = await app.inject({
+        method: 'POST',
+        url: '/report-schedules',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'A', reportType: 'energy', format: 'csv', frequency: 'monthly', ...extra },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(db.insert).not.toHaveBeenCalled();
+    }
+  });
+
+  it('PATCH to a relative period drops the stored dates and keeps the other filters', async () => {
+    setupDbResults([scheduleRow], [{ ...scheduleRow, reportPeriod: 'previousMonth' }]);
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/report-schedules/7',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reportPeriod: 'previousMonth' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(updateSet()).toMatchObject({
+      reportPeriod: 'previousMonth',
+      filters: { siteId: 'sit_1' },
+    });
+  });
+
+  it('PATCH refuses a relative period on a NEVI schedule', async () => {
+    setupDbResults([{ ...scheduleRow, reportType: 'nevi', filters: { quarter: 1, year: 2026 } }]);
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/report-schedules/7',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reportPeriod: 'previousQuarter' },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('PATCH recomputes the next run when a paused schedule is enabled again, and only then', async () => {
+    vi.mocked(computeNextRunAtInTz).mockClear();
+    setupDbResults([{ ...scheduleRow, isEnabled: false }], [scheduleRow]);
+    await app.inject({
+      method: 'PATCH',
+      url: '/report-schedules/7',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { isEnabled: true },
+    });
+    expect(computeNextRunAtInTz).toHaveBeenCalledWith('monthly', 2, 10);
+    expect(updateSet()['nextRunAt']).toEqual(new Date('2026-01-02T06:00:00Z'));
+    vi.mocked(computeNextRunAtInTz).mockClear();
+    setupDbResults([scheduleRow], [{ ...scheduleRow, isEnabled: false }]);
+    await app.inject({
+      method: 'PATCH',
+      url: '/report-schedules/7',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { isEnabled: false },
+    });
+    expect(computeNextRunAtInTz).not.toHaveBeenCalled();
+    expect(updateSet()).not.toHaveProperty('nextRunAt');
+  });
+
+  it('PATCH recomputes the next run with the stored frequency and days', async () => {
+    vi.mocked(computeNextRunAtInTz).mockClear();
+    setupDbResults([scheduleRow], [scheduleRow]);
+    await app.inject({
+      method: 'PATCH',
+      url: '/report-schedules/7',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { dayOfMonth: 15 },
+    });
+    expect(computeNextRunAtInTz).toHaveBeenLastCalledWith('monthly', 2, 15);
+    setupDbResults([scheduleRow], [scheduleRow]);
+    await app.inject({
+      method: 'PATCH',
+      url: '/report-schedules/7',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { frequency: 'weekly' },
+    });
+    expect(computeNextRunAtInTz).toHaveBeenLastCalledWith('weekly', 2, 10);
+  });
+
+  it('GET /v1/report-schedules returns the report period', async () => {
+    setupDbResults([{ ...scheduleRow, reportPeriod: 'previousWeek' }]);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/report-schedules',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(JSON.parse(response.body).data[0].reportPeriod).toBe('previousWeek');
+  });
+
+  it('POST /v1/report-schedules/:id/run-now resolves the period at the request time', async () => {
+    mockReportFiltersForPeriod.mockClear();
+    vi.mocked(queueReport).mockClear();
+    setupDbResults([
+      { ...scheduleRow, reportPeriod: 'previousMonth', filters: { siteId: 'sit_1' } },
+    ]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/report-schedules/7/run-now',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockReportFiltersForPeriod).toHaveBeenCalledWith(
+      'previousMonth',
+      { siteId: 'sit_1' },
+      expect.any(Date),
+    );
+    expect(vi.mocked(queueReport).mock.calls[0]?.[0]).toMatchObject({
+      filters: { siteId: 'sit_1', dateFrom: '2026-10-01', dateTo: '2026-10-31' },
+    });
+  });
+
   it('PATCH /v1/report-schedules/:id returns 404 when not found', async () => {
     setupDbResults([]);
     const response = await app.inject({
@@ -820,6 +1075,7 @@ describe('Report schedule routes', () => {
         reportType: 'energy',
         format: 'csv',
         filters: { dateFrom: '2026-01-01' },
+        reportPeriod: 'custom',
         siteScope: null,
       },
     ]);

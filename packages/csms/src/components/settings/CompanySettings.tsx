@@ -28,6 +28,7 @@ import {
   type DistanceUnit,
 } from '@evtivity/lib/driver-defaults';
 import { isUiLanguage } from '@evtivity/lib/languages';
+import { DEFAULT_WEEK_START, isWeekStart, type WeekStart } from '@evtivity/lib/report-period';
 import { SaveButton } from '@/components/save-button';
 import { DistanceUnitSelect } from '@/components/ui/distance-unit-select';
 import { LanguageSelect } from '@/components/ui/language-select';
@@ -85,6 +86,7 @@ interface CompanyValues {
   priceDisplay: PriceDisplay;
   taxBasis: TaxBasis;
   timezone: string;
+  weekStart: WeekStart;
   driverLanguage: string;
   driverDistanceUnit: DistanceUnit;
   contactEmail: string;
@@ -118,6 +120,9 @@ function companyValuesFrom(settings: Record<string, unknown> | undefined): Compa
     priceDisplay: isPriceDisplay(priceDisplay) ? priceDisplay : DEFAULT_PRICE_DISPLAY,
     taxBasis: settings == null ? DEFAULT_TAX_BASIS : resolveTaxBasis(settings['company.taxBasis']),
     timezone: s('system.timezone') || 'America/New_York',
+    weekStart: isWeekStart(settings?.['company.weekStart'])
+      ? settings['company.weekStart']
+      : DEFAULT_WEEK_START,
     driverLanguage: isUiLanguage(driverLanguage) ? driverLanguage : DEFAULT_DRIVER_LANGUAGE,
     driverDistanceUnit: isDistanceUnit(driverDistanceUnit)
       ? driverDistanceUnit
@@ -187,6 +192,7 @@ export function CompanySettings({
     priceDisplay: companyPriceDisplay,
     taxBasis: companyTaxBasis,
     timezone: companyTimezone,
+    weekStart: companyWeekStart,
     driverLanguage,
     driverDistanceUnit,
     contactEmail: companyContactEmail,
@@ -209,6 +215,7 @@ export function CompanySettings({
   const setCompanyPriceDisplay = companyField('priceDisplay');
   const setCompanyTaxBasis = companyField('taxBasis');
   const setCompanyTimezone = companyField('timezone');
+  const setCompanyWeekStart = companyField('weekStart');
   const setDriverLanguage = companyField('driverLanguage');
   const setDriverDistanceUnit = companyField('driverDistanceUnit');
   const setCompanyContactEmail = companyField('contactEmail');
@@ -235,6 +242,7 @@ export function CompanySettings({
         api.put('/v1/settings/company.priceDisplay', { value: vals.priceDisplay }),
         api.put('/v1/settings/company.taxBasis', { value: vals.taxBasis }),
         api.put('/v1/settings/system.timezone', { value: vals.timezone }),
+        api.put('/v1/settings/company.weekStart', { value: vals.weekStart }),
         api.put('/v1/settings/system.driverLanguage', { value: vals.driverLanguage }),
         api.put('/v1/settings/system.distanceUnit', { value: vals.driverDistanceUnit }),
         api.put('/v1/settings/company.contactEmail', { value: vals.contactEmail }),
@@ -732,6 +740,25 @@ export function CompanySettings({
                 onChange={setCompanyTimezone}
               />
               <p className="text-xs text-muted-foreground">{t('settings.companyTimezoneHelper')}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company-week-start" className="leading-6">
+                {t('settings.companyWeekStart')}
+              </Label>
+              <Select
+                id="company-week-start"
+                value={companyWeekStart}
+                onChange={(e) => {
+                  if (isWeekStart(e.target.value)) setCompanyWeekStart(e.target.value);
+                }}
+              >
+                <option value="monday">{t('reports.days.monday')}</option>
+                <option value="sunday">{t('reports.days.sunday')}</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.companyWeekStartHelper')}
+              </p>
             </div>
 
             <div className="space-y-2">

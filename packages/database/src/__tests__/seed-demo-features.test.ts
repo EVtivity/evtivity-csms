@@ -17,7 +17,6 @@ import {
   PNC_STATION_CONFIGURATION,
   SIM_DEMO,
   SIM_DEMO_STATION_IDS,
-  demoRandom,
   demoTransactionId,
   freeVendSessionPlan,
   freeVendTemplates,
@@ -28,6 +27,7 @@ import {
   simStatusOf,
 } from '../seed-demo-features.js';
 import { demoStationProtocol } from '../seed-station-defs.js';
+import { demoRandom } from '../lib/demo-random.js';
 
 const now = new Date('2026-10-26T15:00:00Z');
 const ID = /^[a-z]{3}_[0-9a-z]{12}$/;

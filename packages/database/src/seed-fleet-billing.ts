@@ -16,10 +16,17 @@ import type { TaxLine } from '@evtivity/lib';
 import { db } from './config.js';
 import { writeAudit } from './lib/audit.js';
 import { createId } from './lib/id.js';
-import { tokenAuditLog, userAuditLog } from './schema/audit.js';
+import { fleetAuditLog, tokenAuditLog, userAuditLog } from './schema/audit.js';
 import { loadElectricityRatePeriodsForSite } from './lib/electricity-rate.js';
 import { allocateInvoiceNumber } from './lib/invoice-number.js';
 import { sessionSiteIdSql } from './lib/session-site.js';
+import { loadFleetCreditExposure } from './lib/fleet-credit-limit.js';
+import {
+  fleetHistoryBudget,
+  fleetHistoryCandidates,
+  selectFleetHistory,
+} from './seed-fleet-history-plan.js';
+import type { FleetHistoryBusy, FleetHistoryPayerSlot } from './seed-fleet-history-plan.js';
 
 // Demo data of fleet account billing (charge on account, features/fleet-billing.md):
 // one fleet that bills its members on account, with a billing profile and a
@@ -132,7 +139,10 @@ const FLEET_CARDS = [
 
 const FLEET_NAME = 'Northwind Logistics';
 const TAX_RATE = 0.08;
-const CREDIT_LIMIT_CENTS = 50_000;
+/** Room for a month of delivery van charging on account under the history exposure cap. */
+export const CREDIT_LIMIT_CENTS = 500_000;
+/** The credit limit earlier demo seeds gave the fleet, raised once by a rerun. */
+export const PREVIOUS_CREDIT_LIMIT_CENTS = 50_000;
 const PAYMENT_TERMS_DAYS = 14;
 
 const BILL_TO = {
@@ -541,6 +551,193 @@ export async function seedFleetBillingDemo(
   return inserted;
 }
 
+// ---------- Rolling charging history of the Northwind fleet ----------
+
+/**
+ * Raises the credit limit of the demo fleet from the value earlier demo seeds
+ * wrote, only while the fleet still holds it and no one ever changed the
+ * limit (no `billing_updated` row naming it), audited as a billing update.
+ * Returns whether it raised the limit.
+ */
+async function raiseEarlierDemoCreditLimit(sql: postgres.Sql): Promise<boolean> {
+  const fleetId = FLEET_BILLING_DEMO.fleetId;
+  const raised = await sql<{ id: string }[]>`
+    UPDATE fleets SET credit_limit_cents = ${CREDIT_LIMIT_CENTS}, updated_at = now()
+    WHERE id = ${fleetId} AND credit_limit_cents = ${PREVIOUS_CREDIT_LIMIT_CENTS}
+      AND NOT EXISTS (
+        SELECT 1 FROM fleet_audit_log a
+        WHERE a.fleet_id = ${fleetId} AND a.action = 'billing_updated'
+          AND jsonb_exists(coalesce(a.after, '{}'::jsonb), 'creditLimitCents'))
+    RETURNING id
+  `;
+  if (raised.length === 0) return false;
+  await writeAudit(
+    { table: fleetAuditLog, idColumn: 'fleet_id' },
+    {
+      entityId: fleetId,
+      entityIdSnapshot: fleetId,
+      action: 'billing_updated',
+      actor: 'system',
+      before: { creditLimitCents: PREVIOUS_CREDIT_LIMIT_CENTS },
+      after: { creditLimitCents: CREDIT_LIMIT_CENTS },
+      notes: 'Demo data: credit limit raised for the rolling charging history',
+    },
+  );
+  return true;
+}
+
+/** What one run of the fleet history demo did. */
+export interface FleetHistoryCounts {
+  sessions: number;
+  skippedBusy: number;
+  skippedBudget: number;
+  creditLimitRaised: boolean;
+}
+
+const NO_HISTORY: FleetHistoryCounts = {
+  sessions: 0,
+  skippedBusy: 0,
+  skippedBudget: 0,
+  creditLimitRaised: false,
+};
+
+/** Who each payer slot is, from the demo cards and members that exist and still charge on account. */
+async function loadHistoryPayers(
+  sql: postgres.Sql,
+): Promise<Map<FleetHistoryPayerSlot, { driverId: string | null; tokenId: string | null }>> {
+  const demo = FLEET_BILLING_DEMO;
+  const cards = await sql<{ id: string; driver_id: string | null }[]>`
+    SELECT id, driver_id FROM driver_tokens
+    WHERE id IN (${demo.poolCardId}, ${demo.memberCardId}) AND fleet_id = ${demo.fleetId}
+      AND is_active
+  `;
+  const members = await sql<{ driver_id: string }[]>`
+    SELECT fd.driver_id FROM fleet_drivers fd JOIN drivers d ON d.id = fd.driver_id
+    WHERE fd.fleet_id = ${demo.fleetId} AND NOT fd.account_billing_opt_out AND d.is_active
+      AND fd.driver_id IN (${demo.accountDriverId}, ${demo.secondDriverId})
+  `;
+  const memberIds = new Set(members.map((m) => m.driver_id));
+  const payers = new Map<
+    FleetHistoryPayerSlot,
+    { driverId: string | null; tokenId: string | null }
+  >();
+  const pool = cards.find((c) => c.id === demo.poolCardId);
+  if (pool != null && pool.driver_id == null)
+    payers.set('poolCard', { driverId: null, tokenId: pool.id });
+  const member = cards.find((c) => c.id === demo.memberCardId);
+  if (member?.driver_id != null && memberIds.has(member.driver_id)) {
+    payers.set('memberCard', { driverId: member.driver_id, tokenId: member.id });
+  }
+  if (memberIds.has(demo.accountDriverId)) {
+    payers.set('accountDriver', { driverId: demo.accountDriverId, tokenId: null });
+  }
+  if (memberIds.has(demo.secondDriverId)) {
+    payers.set('secondDriver', { driverId: demo.secondDriverId, tokenId: null });
+  }
+  return payers;
+}
+
+/**
+ * Tops the Northwind fleet's charging history up to the last 30 days
+ * (seed-fleet-history-plan.ts): completed sessions billed on account to the
+ * fleet through its cards and members, on the station of its seeded demo
+ * sessions, never overlapping a session on the same EVSE. Under the fleet
+ * row lock, as a credit check reads it, the sessions stop where the fleet's
+ * exposure would pass FLEET_HISTORY.exposureCapPercent of its limit. Ids
+ * are fixed per day, so a rerun inserts only what is missing and never
+ * changes an existing session. Nothing while the demo fleet or its seeded
+ * sessions are missing.
+ */
+export async function seedFleetAccountHistory(
+  sql: postgres.Sql,
+  input: { now: Date; currency: string },
+): Promise<FleetHistoryCounts> {
+  const demo = FLEET_BILLING_DEMO;
+  const [fleet] = await sql<{ id: string }[]>`SELECT id FROM fleets WHERE id = ${demo.fleetId}`;
+  if (fleet == null) return NO_HISTORY;
+  const creditLimitRaised = await raiseEarlierDemoCreditLimit(sql);
+  const [anchor] = await sql<{ station_id: string }[]>`
+    SELECT station_id FROM charging_sessions
+    WHERE left(id, 12) = 'ses_demoacct' AND billing_fleet_id = ${demo.fleetId}
+    ORDER BY id LIMIT 1
+  `;
+  if (anchor == null) return { ...NO_HISTORY, creditLimitRaised };
+  const stationId = anchor.station_id;
+  const evses = await sql<{ id: string; kw: string | null }[]>`
+    SELECT e.id, max(c.max_power_kw)::text AS kw
+    FROM evses e LEFT JOIN connectors c ON c.evse_id = e.id
+    WHERE e.station_id = ${stationId} AND e.retired_at IS NULL
+    GROUP BY e.id, e.evse_id ORDER BY e.evse_id
+  `;
+  const payers = await loadHistoryPayers(sql);
+  if (payers.size === 0) return { ...NO_HISTORY, creditLimitRaised };
+  const fallback = [...payers.values()];
+  const stationKw = Math.max(0, ...evses.map((e) => Number(e.kw ?? 0)));
+  const candidates = fleetHistoryCandidates(input.now, stationKw);
+  if (candidates.length === 0) return { ...NO_HISTORY, creditLimitRaised };
+  const place = await loadDemoStationPlace(sql, stationId);
+  const windowStart = candidates[0]?.startedAt ?? input.now;
+
+  const result = await sql.begin(async (tx) => {
+    const [limit] = await tx<{ credit_limit_cents: number | null }[]>`
+      SELECT credit_limit_cents FROM fleets WHERE id = ${demo.fleetId} FOR UPDATE
+    `;
+    const exposure = await loadFleetCreditExposure(tx, demo.fleetId);
+    const existing = await tx<{ id: string }[]>`
+      SELECT id FROM charging_sessions WHERE id = ANY(${candidates.map((c) => c.id)}::text[])
+    `;
+    const busyRows = await tx<
+      { evse_id: string | null; started_at: Date | string | null; ended_at: Date | string | null }[]
+    >`
+      SELECT evse_id, started_at, coalesce(ended_at, now()) AS ended_at FROM charging_sessions
+      WHERE station_id = ${stationId} AND started_at IS NOT NULL
+        AND started_at < ${input.now.toISOString()}::timestamptz
+        AND coalesce(ended_at, now()) > ${windowStart.toISOString()}::timestamptz
+    `;
+    const busy: FleetHistoryBusy[] = busyRows.map((r) => ({
+      evseId: r.evse_id,
+      startedAt: new Date(r.started_at ?? 0),
+      endedAt: new Date(r.ended_at ?? 0),
+    }));
+    const selection = selectFleetHistory({
+      candidates,
+      existingIds: new Set(existing.map((r) => r.id)),
+      evseIds: evses.length > 0 ? evses.map((e) => e.id) : [null],
+      busy,
+      budgetCents: fleetHistoryBudget(limit?.credit_limit_cents ?? null, exposure.totalCents),
+    });
+    let inserted = 0;
+    for (const session of selection.sessions) {
+      const payer = payers.get(session.payer) ?? fallback[0];
+      inserted += await insertDemoAccountSession(tx, {
+        id: session.id,
+        transactionId: session.transactionId,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        energyWh: session.energyWh,
+        costCents: session.costCents,
+        invoiceId: null,
+        stationId,
+        evseId: session.evseId,
+        driverId: payer?.driverId ?? null,
+        tokenId: payer?.tokenId ?? null,
+        fleetId: demo.fleetId,
+        memberBilled: false,
+        taxRate: TAX_RATE,
+        currency: input.currency,
+        electricityCostCents: place.electricityCostOf(session.endedAt, session.energyWh),
+      });
+    }
+    return { inserted, skippedBusy: selection.skippedBusy, skippedBudget: selection.skippedBudget };
+  });
+  return {
+    sessions: result.inserted,
+    skippedBusy: result.skippedBusy,
+    skippedBudget: result.skippedBudget,
+    creditLimitRaised,
+  };
+}
+
 // ---------- Shared by the fleet billing and member invoice demos ----------
 
 /** Where the demo sessions ran: the printed station name and the site's electricity cost. */
@@ -682,7 +879,9 @@ export interface DemoAccountSession {
   invoiceId: string | null;
   stationId: string;
   evseId: string | null;
-  driverId: string;
+  driverId: string | null;
+  /** The fleet RFID card the session started with; null for an app or portal start. */
+  tokenId?: string | null;
   fleetId: string;
   memberBilled: boolean;
   taxRate: number;
@@ -692,18 +891,18 @@ export interface DemoAccountSession {
 
 /** Inserts a demo account session when missing. Returns 1 when inserted, else 0. */
 export async function insertDemoAccountSession(
-  sql: postgres.Sql,
+  sql: postgres.Sql | postgres.TransactionSql,
   session: DemoAccountSession,
 ): Promise<number> {
   const breakdown = chargedCostBreakdown(session.costCents, session.taxRate, DEFAULT_TAX_BASIS);
   const rows = await sql`
-    INSERT INTO charging_sessions (id, station_id, site_id, evse_id, driver_id, transaction_id, status,
+    INSERT INTO charging_sessions (id, station_id, site_id, evse_id, driver_id, token_id, transaction_id, status,
       started_at, ended_at, meter_start, meter_stop, energy_delivered_wh, final_cost_cents,
       tariff_tax_rate, net_cents, tax_cents, cost_breakdown, currency, stopped_reason,
       billing_mode, billing_fleet_id, invoice_id, electricity_cost_cents, created_at, updated_at,
       member_billed)
     VALUES (${session.id}, ${session.stationId}, ${sessionSiteIdSql(sql, session.stationId)}, ${session.evseId}, ${session.driverId},
-      ${session.transactionId}, 'completed', ${session.startedAt}, ${session.endedAt}, 0,
+      ${session.tokenId ?? null}, ${session.transactionId}, 'completed', ${session.startedAt}, ${session.endedAt}, 0,
       ${session.energyWh}, ${String(session.energyWh)}, ${session.costCents},
       ${String(session.taxRate)}, ${breakdown.netCents}, ${breakdown.taxCents},
       ${sql.json(breakdown as unknown as postgres.JSONValue)}, ${session.currency},

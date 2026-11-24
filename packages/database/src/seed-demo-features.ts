@@ -16,6 +16,7 @@ import {
 } from '@evtivity/lib';
 import type { ConfigTemplateVariable, TaxBasis } from '@evtivity/lib';
 import { db } from './config.js';
+import { demoBetween, demoRandom } from './lib/demo-random.js';
 import { writeAudit } from './lib/audit.js';
 import { paymentTerminalAuditLog, simAuditLog } from './schema/audit.js';
 import { createTerminal, recordTerminalDeviceStatus } from './lib/payment-terminals.js';
@@ -23,7 +24,11 @@ import { attachSimToPaymentTerminal } from './lib/sim-inventory.js';
 import type { StoredSimStatus } from './lib/sim-inventory.js';
 import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import { sessionSiteIdSql } from './lib/session-site.js';
-import { loadDemoStationPlace, seedFleetUsersDemo } from './seed-fleet-billing.js';
+import {
+  loadDemoStationPlace,
+  seedFleetAccountHistory,
+  seedFleetUsersDemo,
+} from './seed-fleet-billing.js';
 import type { FleetUserDemoCounts } from './seed-fleet-billing.js';
 import { seedLayoutDemo } from './seed-demo-layout.js';
 import { seedSitePower } from './seed-site-power.js';
@@ -111,22 +116,6 @@ export const SIM_DEMO = {
   inactive: { id: 'sim_demosim00092', iccid: '89014103000000000992', imsi: '310410000000992' },
 } as const;
 
-/** A small deterministic generator, so a rerun plans the same rows. */
-export function demoRandom(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
-
-function between(rand: () => number, min: number, max: number): number {
-  return min + Math.floor(rand() * (max - min + 1));
-}
-
 function pad(n: number, width: number): string {
   return String(n).padStart(width, '0');
 }
@@ -200,11 +189,11 @@ export function pncSessionPlan(
     const day = new Date(now.getTime() - dayAgo * DAY_MS);
     day.setUTCHours(0, 0, 0, 0);
     const startedAt = new Date(
-      day.getTime() + between(rand, 7, 21) * HOUR_MS + between(rand, 0, 59) * MINUTE_MS,
+      day.getTime() + demoBetween(rand, 7, 21) * HOUR_MS + demoBetween(rand, 0, 59) * MINUTE_MS,
     );
-    const endedAt = new Date(startedAt.getTime() + between(rand, 20, 75) * MINUTE_MS);
-    const energyWh = between(rand, 15_000, 60_000);
-    const costCents = Math.round((energyWh / 1000) * between(rand, 25, 45));
+    const endedAt = new Date(startedAt.getTime() + demoBetween(rand, 20, 75) * MINUTE_MS);
+    const energyWh = demoBetween(rand, 15_000, 60_000);
+    const costCents = Math.round((energyWh / 1000) * demoBetween(rand, 25, 45));
     let contractIndex = i % contracts.length;
     const contract = contracts[contractIndex];
     if (contract?.revokedAt != null && endedAt.getTime() > contract.revokedAt.getTime()) {
@@ -398,16 +387,16 @@ export function freeVendSessionPlan(now: Date, stationCount: number): DemoSessio
     const day = new Date(now.getTime() - dayAgo * DAY_MS);
     day.setUTCHours(0, 0, 0, 0);
     const startedAt = new Date(
-      day.getTime() + between(rand, 12, 23) * HOUR_MS + between(rand, 0, 59) * MINUTE_MS,
+      day.getTime() + demoBetween(rand, 12, 23) * HOUR_MS + demoBetween(rand, 0, 59) * MINUTE_MS,
     );
-    const endedAt = new Date(startedAt.getTime() + between(rand, 30, 180) * MINUTE_MS);
+    const endedAt = new Date(startedAt.getTime() + demoBetween(rand, 30, 180) * MINUTE_MS);
     return {
       id: `ses_demofv${pad(i + 1, 6)}`,
       transactionNumber: i + 1,
       stationIndex: i % Math.max(stationCount, 1),
       startedAt,
       endedAt,
-      energyWh: between(rand, 3_000, 25_000),
+      energyWh: demoBetween(rand, 3_000, 25_000),
       costCents: 0,
     };
   });
@@ -609,17 +598,17 @@ export function simSessionPlan(now: Date, simNumber: number): SimSessionPlan[] {
   for (let d = days; d >= 1; d--) {
     const dayStart = now.getTime() - d * DAY_MS;
     for (let s = 0; s < SIM_DEMO.sessionsPerDay; s++) {
-      const startedAt = dayStart + s * 8 * HOUR_MS + between(rand, 0, 120) * MINUTE_MS;
-      const endedAt = startedAt + between(rand, 60, 360) * MINUTE_MS;
+      const startedAt = dayStart + s * 8 * HOUR_MS + demoBetween(rand, 0, 120) * MINUTE_MS;
+      const endedAt = startedAt + demoBetween(rand, 60, 360) * MINUTE_MS;
       if (endedAt > latest) continue;
       plans.push({
         providerSessionId: `demo-${pad(simNumber, 2)}${pad(plans.length + 1, 5)}`,
         startedAt: new Date(startedAt),
         endedAt: new Date(endedAt),
-        bytes: between(rand, 40_000, 4_000_000),
+        bytes: demoBetween(rand, 40_000, 4_000_000),
         networkName: network,
         radioAccessTechnology: rand() < 0.8 ? 'LTE' : 'LTE-M',
-        cellId: String(between(rand, 10_000_000, 99_999_999)),
+        cellId: String(demoBetween(rand, 10_000_000, 99_999_999)),
       });
     }
   }
@@ -1335,6 +1324,8 @@ export interface DemoFeatureCounts {
   layoutStations: number;
   /** Units created on the layout demo's station with units (Parkhaus Lindenhof). */
   stationUnits: number;
+  /** Unit load budgets created on that station's units. */
+  unitBudgets: number;
   /** Sites outside the layout demo whose power equipment this run sized (seed-site-power.ts). */
   powerSites: number;
   /** Base demo AC connectors moved from an earlier seed's rating to what their circuit carries. */
@@ -1347,6 +1338,8 @@ export interface DemoFeatureCounts {
   fleetUser: FleetUserDemoCounts['fleetUser'];
   /** Demo fleet RFID cards this run created (seed-fleet-billing.ts). */
   fleetCards: number;
+  /** Account sessions of the Northwind fleet's rolling 30-day history this run added. */
+  fleetHistorySessions: number;
   /** Demo sessions linked to their driver's only vehicle (seed-demo-vehicles.ts). */
   vehicleSessions: number;
   /** Weekly departure schedules of the Northgate depot vehicles (seed-demo-layout.ts). */
@@ -1391,6 +1384,8 @@ export async function seedDemoFeatures(
   // The fleet user and fleet cards of the Northwind demo fleet, also on an
   // install seeded before they existed.
   const fleetUsers = await seedFleetUsersDemo(sql);
+  // The fleet's last 30 days of account sessions, topped up on every run.
+  const fleetHistory = await seedFleetAccountHistory(sql, { now: ctx.now, currency: ctx.currency });
   await enableDemoFeatureSettings(sql);
   // Last, so a driver any earlier demo step created gets its avatar too.
   const driverAvatars = await seedDemoDriverAvatars(sql, ctx.actorUserId);
@@ -1401,12 +1396,14 @@ export async function seedDemoFeatures(
     terminalPayments,
     layoutStations: layout.stations,
     stationUnits: layout.units,
+    unitBudgets: layout.unitBudgets,
     powerSites: power.filter((p) => p.treeWritten || p.layoutWritten).length,
     acRatings: acRatingsCorrected,
     driverAvatars,
     vehicleLooks: vehicleLooks.vehicles,
     fleetUser: fleetUsers.fleetUser,
     fleetCards: fleetUsers.fleetCards,
+    fleetHistorySessions: fleetHistory.sessions,
     vehicleSessions: vehicleLooks.sessions,
     departureSchedules: layout.departureSchedules,
     securityEvents: layout.securityEvents,

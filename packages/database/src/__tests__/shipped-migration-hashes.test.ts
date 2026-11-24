@@ -35,14 +35,18 @@ describe('shipped migration hashes', () => {
     expect(shippedMigrationProblems(SHIPPED, JOURNAL, currentHash, BASELINE)).toEqual([]);
   });
 
-  it('records every release up to v0.1.51, with its release files', () => {
+  it('records every release up to v0.1.52, with its release files', () => {
     // 0487 (public PR 54) shipped with v0.1.50.
     expect(Object.keys(SHIPPED['v0.1.50'] ?? {})).toContain('0487_station_portal_listed');
     expect(SHIPPED['v0.1.51']).toEqual({
       '0488_release_0_1_51': expect.any(String),
       '0489_release_0_1_51_indexes': expect.any(String),
     });
-    expect(Object.values(SHIPPED).flatMap((files) => Object.keys(files))).toHaveLength(244);
+    expect(SHIPPED['v0.1.52']).toEqual({
+      '0490_release_0_1_52': expect.any(String),
+      '0491_release_0_1_52_validate': expect.any(String),
+    });
+    expect(Object.values(SHIPPED).flatMap((files) => Object.keys(files))).toHaveLength(246);
   });
 
   it('leaves only the files of the release being built unrecorded', () => {

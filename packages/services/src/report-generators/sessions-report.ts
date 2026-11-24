@@ -26,6 +26,7 @@ import { storedCostBreakdown } from '@evtivity/lib';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { csvRows, moneyCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
+import { reportDay, reportFileName } from './report-dates.js';
 import { columnVisible } from '../report-registry.js';
 import type {
   ReportColumnAccess,
@@ -44,18 +45,14 @@ interface Filters {
   scope: ReportSiteScope;
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
 function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
-  const dateFromRaw = typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined;
-  const dateToRaw = typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined;
   return {
     // Drop malformed dates so the generator doesn't bind Invalid Date into SQL
     // (which silently returns zero rows on Postgres). A 400 from the route is
     // the right surface for explicit input errors; scheduled re-runs that
     // somehow inherit a bad string just degrade to no-filter instead of empty.
-    dateFrom: dateFromRaw != null && ISO_DATE.test(dateFromRaw) ? dateFromRaw : undefined,
-    dateTo: dateToRaw != null && ISO_DATE.test(dateToRaw) ? dateToRaw : undefined,
+    dateFrom: reportDay(raw['dateFrom']),
+    dateTo: reportDay(raw['dateTo']),
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
     stationId: typeof raw['stationId'] === 'string' ? raw['stationId'] : undefined,
     status: typeof raw['status'] === 'string' ? raw['status'] : undefined,
@@ -364,7 +361,7 @@ export async function generateSessionsReport(
     const csv = buildCsv(headers, rows);
     return {
       data: Buffer.from(csv, 'utf-8'),
-      fileName: `sessions-report-${String(Date.now())}.csv`,
+      fileName: reportFileName('sessions-report', filters.dateFrom, filters.dateTo, 'csv'),
     };
   } else if (format === 'xlsx') {
     const tables: Array<{ name: string; headers: string[]; rows: unknown[][] }> = [
@@ -391,7 +388,10 @@ export async function generateSessionsReport(
     }
 
     const data = await buildXlsx(tables);
-    return { data, fileName: `sessions-report-${String(Date.now())}.xlsx` };
+    return {
+      data,
+      fileName: reportFileName('sessions-report', filters.dateFrom, filters.dateTo, 'xlsx'),
+    };
   }
 
   // PDF
@@ -428,5 +428,8 @@ export async function generateSessionsReport(
   }
 
   const data = await pdf.build();
-  return { data, fileName: `sessions-report-${String(Date.now())}.pdf` };
+  return {
+    data,
+    fileName: reportFileName('sessions-report', filters.dateFrom, filters.dateTo, 'pdf'),
+  };
 }

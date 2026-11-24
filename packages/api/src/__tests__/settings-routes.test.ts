@@ -200,6 +200,11 @@ vi.mock('@evtivity/services/station-message.service', () => ({
   requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockRescheduleReportSchedules = vi.hoisted(() => vi.fn().mockResolvedValue(0));
+vi.mock('@evtivity/services/report.service', () => ({
+  rescheduleReportSchedules: mockRescheduleReportSchedules,
+}));
+
 // The provider-switch guard has its own tests (settings-routes-full, provider-switch).
 vi.mock('../lib/provider-switch.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/provider-switch.js')>()),
@@ -1152,6 +1157,41 @@ describe('Settings routes', () => {
     expect(clearSystemSettingsCache).toHaveBeenCalled();
   });
 
+  it('PUT /v1/settings/company.weekStart rejects a day other than monday or sunday', async () => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.weekStart',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'saturday' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(response.json().error).toBe('company.weekStart must be one of: monday, sunday');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it.each(['monday', 'sunday'])(
+    'PUT /v1/settings/company.weekStart stores %s and clears the cache',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      vi.mocked(clearSystemSettingsCache).mockClear();
+      setupDbResults([], [{ key: 'company.weekStart', value }]);
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/company.weekStart',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(200);
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith({ key: 'company.weekStart', value });
+      expect(clearSystemSettingsCache).toHaveBeenCalled();
+    },
+  );
+
   it.each([
     ['system.distanceUnit', 'km'],
     ['system.driverLanguage', 'zh-TW'],
@@ -1172,6 +1212,48 @@ describe('Settings routes', () => {
     };
     expect(insertChain.values).toHaveBeenCalledWith({ key, value });
     expect(clearSystemSettingsCache).toHaveBeenCalled();
+  });
+
+  it('moves the report schedules when the company time zone changes, and only then', async () => {
+    mockRescheduleReportSchedules.mockClear();
+    setupDbResults(
+      [{ key: 'system.timezone', value: 'America/New_York' }],
+      [{ key: 'system.timezone', value: 'Europe/Berlin' }],
+    );
+    const changed = await app.inject({
+      method: 'PUT',
+      url: '/settings/system.timezone',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'Europe/Berlin' },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(mockRescheduleReportSchedules).toHaveBeenCalledTimes(1);
+    expect(mockRescheduleReportSchedules.mock.calls[0]?.[0]).toMatchObject({ actor: 'operator' });
+
+    mockRescheduleReportSchedules.mockClear();
+    setupDbResults(
+      [{ key: 'system.timezone', value: 'Europe/Berlin' }],
+      [{ key: 'system.timezone', value: 'Europe/Berlin' }],
+    );
+    await app.inject({
+      method: 'PUT',
+      url: '/settings/system.timezone',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'Europe/Berlin' },
+    });
+    expect(mockRescheduleReportSchedules).not.toHaveBeenCalled();
+  });
+
+  it('keeps the time zone save when moving the report schedules fails', async () => {
+    mockRescheduleReportSchedules.mockRejectedValueOnce(new Error('db down'));
+    setupDbResults([], [{ key: 'system.timezone', value: 'Asia/Seoul' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/system.timezone',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'Asia/Seoul' },
+    });
+    expect(response.statusCode).toBe(200);
   });
 
   it.each([

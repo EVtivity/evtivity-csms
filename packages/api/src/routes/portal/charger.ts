@@ -63,6 +63,7 @@ import {
 } from '../../lib/portal-units.js';
 import { evseDisplayStatus } from '@evtivity/lib/evse-status';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { loadManagedStationIds } from '../../lib/charging-profile-id.js';
 import { optionalDriverId } from '../../lib/optional-driver.js';
 import { requestSessionEnd } from '../../lib/session-end.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
@@ -642,6 +643,13 @@ const portalPricingInfo = z
       .describe(
         'True when split billing is on and the pricing group has a paid tariff: a session that starts on a free tariff can become paid, so the start needs a payment method like a paid tariff',
       ),
+    maxCurrentA: z
+      .number()
+      .nullable()
+      .optional()
+      .describe(
+        'Maximum charging current per phase in A that load management gives an AC session on the tariff above, only while load management manages the station; null for none, for a DC-only station and while nothing enforces the limit',
+      ),
     chargingKind: z
       .enum(['ac', 'dc'])
       .nullable()
@@ -664,6 +672,13 @@ const portalPricingInfo = z
               .describe('Reservation holding fee per minute'),
             taxRate: z.string().nullable().describe('Sales tax rate as a decimal'),
             restrictions: z.unknown().nullable().describe('Restrictions of the resolved tariff'),
+            maxCurrentA: z
+              .number()
+              .nullable()
+              .optional()
+              .describe(
+                'Maximum charging current per phase in A this kind gets on the tariff; null for none and always null for DC',
+              ),
           })
           .loose(),
       )
@@ -1068,6 +1083,13 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       );
       const kindPricesDiffer =
         new Set(byChargingKind.map((k) => JSON.stringify({ ...k, chargingKind: null }))).size > 1;
+      // A tariff current limit holds only for AC sessions on a station load management manages.
+      const limitEnforced = (await loadManagedStationIds([station.id])).has(station.id);
+      const currentLimitOf = (
+        kind: 'ac' | 'dc' | null,
+        limit: string | null | undefined,
+      ): number | null => (limitEnforced && kind !== 'dc' && limit != null ? Number(limit) : null);
+      const acResolved = perKind.find((k) => k.kind === 'ac')?.resolved;
       // AC and DC agree: every session pays that price, not the Both tariff's.
       const agreedKind =
         kinds.length > 1 && !kindPricesDiffer && byChargingKind.length === kinds.length
@@ -1121,12 +1143,24 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         taxBasis: await getCompanyTaxBasis(),
         isFreeVend: false,
         restrictions: shown.restrictions ?? null,
+        maxCurrentA:
+          kinds.length > 1
+            ? currentLimitOf('ac', (acResolved ?? resolved).tariff.maxCurrentA)
+            : currentLimitOf(topKind, shown.maxCurrentA),
         billing: toDriverBilling(await resolveAccountBilling(client, driverId)),
         timezone: shown.timezone,
         priceChangesDuringSession,
         paidTariffAhead,
         chargingKind: topKind,
-        byChargingKind: kindPricesDiffer ? byChargingKind : [],
+        byChargingKind: kindPricesDiffer
+          ? byChargingKind.map((k) => ({
+              ...k,
+              maxCurrentA: currentLimitOf(
+                k.chargingKind,
+                perKind.find((p) => p.kind === k.chargingKind)?.resolved?.tariff.maxCurrentA,
+              ),
+            }))
+          : [],
         evseFree,
       };
     },

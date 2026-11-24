@@ -118,6 +118,7 @@ import {
   STATION_MODELS_16,
 } from './seed-station-defs.js';
 import argon2 from 'argon2';
+import { DEFAULT_WEEK_START } from '@evtivity/lib/report-period';
 import {
   calculateCo2AvoidedKg,
   FLEET_MANAGER_ROLE_NAME,
@@ -618,6 +619,7 @@ async function seed(): Promise<void> {
     'company.currency': DEFAULT_CURRENCY,
     'company.priceDisplay': DEFAULT_PRICE_DISPLAY,
     'company.taxBasis': DEFAULT_TAX_BASIS,
+    'company.weekStart': DEFAULT_WEEK_START,
     'company.contactEmail': 'contact@evtivity.local',
     'company.supportEmail': 'support@evtivity.local',
     'company.supportPhone': '+1 (555) 123-4567',
@@ -1064,10 +1066,17 @@ async function seed(): Promise<void> {
   if (demoMarker != null) {
     console.log('  Demo dataset already present (CS-0003 exists); skipping demo generation.');
     // Demo rows added after an install was seeded, each created only while missing.
-    const { seedFleetUsersDemo } = await import('./seed-fleet-billing.js');
+    const { seedFleetAccountHistory, seedFleetUsersDemo } = await import('./seed-fleet-billing.js');
     const fleetUsers = await seedFleetUsersDemo(client);
     console.log(
       `  Demo fleet user: ${fleetUsers.fleetUser}, ${String(fleetUsers.fleetCards)} demo fleet RFID cards created.`,
+    );
+    const fleetHistory = await seedFleetAccountHistory(client, {
+      now: new Date(),
+      currency: companyCurrency,
+    });
+    console.log(
+      `  Demo fleet history: ${String(fleetHistory.sessions)} account sessions added, ${String(fleetHistory.skippedBudget)} left out under the credit cap.`,
     );
     console.log('Seed complete (demo data skipped).');
     await client.end();
@@ -2732,6 +2741,7 @@ async function seed(): Promise<void> {
       idleFeePricePerMinute: tariffs.idleFeePricePerMinute,
       reservationFeePerMinute: tariffs.reservationFeePerMinute,
       taxRate: tariffs.taxRate,
+      maxCurrentA: sql<string | null>`${tariffs.maxCurrentA}::text`,
     })
     .from(tariffs)
     .where(isNotNull(tariffs.pricePerKwh))

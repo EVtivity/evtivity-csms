@@ -156,6 +156,41 @@ describe('buildPlanInput held requests', () => {
   });
 });
 
+describe('buildPlanInput tariff current limits', () => {
+  it('holds a plugged-in AC session to its tariff current limit', () => {
+    const capped = station({
+      id: 'sta_a',
+      maxPowerKw: 22,
+      circuitVoltageV: 230,
+      circuitPhases: 3,
+      sessions: [
+        {
+          sessionId: 'ses_1',
+          transactionId: 'tx-1',
+          evseDbId: 'evs_a1',
+          evseNumber: 1,
+          unitId: null,
+          kind: 'ac',
+          ratingKw: 22,
+          ratingA: 32,
+          tariffId: 'trf_1',
+          tariffMaxCurrentA: 6,
+          phases: null,
+          startedAt: new Date(NOW),
+        },
+      ],
+    });
+    const d = departure({ id: 'dep_1', sessionId: 'ses_1' });
+    const s = session({ id: 'ses_1', evseMaxKw: 22, acCharging: true });
+    const out = build([d], [s], {
+      hierarchy: [panelOf(circuit([capped, staB]))],
+      stations: [capped, staB],
+    });
+    // 6 A on three phases at 230 V.
+    expect(out.input.vehicles[0]?.maxKw).toBeCloseTo(4.14, 5);
+  });
+});
+
 describe('buildPlanInput targets', () => {
   it('adds the energy up to the SoC maximum as extra', () => {
     const d = departure({

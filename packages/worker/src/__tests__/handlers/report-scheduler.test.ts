@@ -114,6 +114,13 @@ vi.mock('@evtivity/services/report-audit', () => ({
   writeReportGeneratedAudit: (...args: unknown[]) => mockWriteReportGeneratedAudit(...args),
 }));
 
+const mockReportFiltersForPeriod = vi.fn();
+const mockReportPeriodText = vi.fn();
+vi.mock('@evtivity/services/report-period', () => ({
+  reportFiltersForPeriod: (...args: unknown[]) => mockReportFiltersForPeriod(...args),
+  reportPeriodText: (...args: unknown[]) => mockReportPeriodText(...args),
+}));
+
 const mockEnqueueReport = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../report-worker.js', () => ({
   enqueueReport: (...args: unknown[]) => mockEnqueueReport(...args),
@@ -154,6 +161,8 @@ function makeSchedule(overrides: Record<string, unknown> = {}): Record<string, u
     dayOfWeek: null,
     dayOfMonth: null,
     recipientEmails: ['ops@evtivity.com'],
+    reportPeriod: 'custom',
+    nextRunAt: new Date('2026-01-01T06:00:00Z'),
     ...overrides,
   };
 }
@@ -183,6 +192,98 @@ describe('reportSchedulerHandler', () => {
     mockScheduleRunScope.mockResolvedValue(['site_1']);
     mockScheduleSkipReason.mockResolvedValue(null);
     mockClient.json.mockImplementation((v: unknown) => v);
+    mockReportFiltersForPeriod.mockImplementation((_p: string, filters: unknown) =>
+      Promise.resolve(filters),
+    );
+    mockReportPeriodText.mockImplementation(
+      (language: string, period: string, filters: Record<string, string | undefined>) =>
+        `${language}|${period}|${filters['dateFrom'] ?? ''}`,
+    );
+  });
+
+  it('resolves the period at the due time and stores the resolved filters', async () => {
+    const due = new Date('2026-12-01T11:00:00Z');
+    setupDbResults([
+      makeSchedule({ reportPeriod: 'previousMonth', nextRunAt: due, recipientEmails: [] }),
+    ]);
+    const resolved = { siteId: 'site_1', dateFrom: '2026-11-01', dateTo: '2026-11-30' };
+    mockReportFiltersForPeriod.mockResolvedValue(resolved);
+    await reportSchedulerModule.reportSchedulerHandler(makeLog());
+    expect(mockReportFiltersForPeriod).toHaveBeenCalledWith(
+      'previousMonth',
+      { siteId: 'site_1' },
+      due,
+      { scheduled: true },
+    );
+    expect(mockQueueReport).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: resolved }),
+      expect.anything(),
+    );
+    expect(mockWriteReportGeneratedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: resolved }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('uses the same anchor when a run is retried after midnight', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-12-02T05:10:00Z'));
+      const due = new Date('2026-12-01T11:00:00Z');
+      setupDbResults([
+        makeSchedule({
+          reportPeriod: 'previousDay',
+          nextRunAt: due,
+          filters: null,
+          recipientEmails: [],
+        }),
+      ]);
+      await reportSchedulerModule.reportSchedulerHandler(makeLog());
+      expect(mockReportFiltersForPeriod).toHaveBeenCalledWith('previousDay', {}, due, {
+        scheduled: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders other-language attachments with the resolved filters and names the period per language', async () => {
+    const resolved = { siteId: 'site_1', dateFrom: '2026-11-01', dateTo: '2026-11-30' };
+    mockReportFiltersForPeriod.mockResolvedValue(resolved);
+    setupDbResults(
+      [
+        makeSchedule({
+          reportPeriod: 'previousMonth',
+          recipientEmails: ['de@example.com', 'x@ext.com'],
+        }),
+      ],
+      [],
+      [{ status: 'completed', fileData: Buffer.from('stored'), fileName: 'stored.csv' }],
+      [{ email: 'de@example.com', language: 'de' }],
+    );
+    setupClientResults([{ value: 'Acme' }], [], []);
+    mockGetNotificationSettings.mockResolvedValue({ smtp: SMTP, emailWrapperTemplate: null });
+    mockRenderTemplate.mockResolvedValue({ subject: 's', body: 'b' });
+    mockSendEmail.mockResolvedValue(true);
+    mockRenderReport.mockResolvedValue({ data: Buffer.from('de'), fileName: 'de.csv' });
+    await reportSchedulerModule.reportSchedulerHandler(makeLog());
+    expect(mockRenderReport).toHaveBeenCalledWith(
+      'sessions',
+      resolved,
+      'csv',
+      'de',
+      ['site_1'],
+      OWNER_ACCESS,
+    );
+    const vars = mockRenderTemplate.mock.calls.map((c) => [
+      c[2],
+      (c[3] as Record<string, unknown>)['reportPeriod'],
+    ]);
+    expect(vars).toEqual([
+      ['de', 'de|previousMonth|2026-11-01'],
+      ['en', 'en|previousMonth|2026-11-01'],
+    ]);
   });
 
   it('attaches the report in each recipient language, reusing the stored file', async () => {

@@ -8,6 +8,11 @@ export interface ChargingProfile {
   voltage: number;
 }
 
+/** Whether the connector type is an AC one (Type 1 or Type 2). */
+export function isAcConnector(type: ChargingProfile['connectorType']): boolean {
+  return type === 'ac_type1' || type === 'ac_type2';
+}
+
 const DEFAULT_PROFILE: ChargingProfile = {
   connectorType: 'ac_type2',
   maxPowerW: 22000,
@@ -21,6 +26,7 @@ export interface SampledValue {
   unit?: string;
   unitOfMeasure?: { unit: string };
   context?: string;
+  phase?: string;
 }
 
 const MEASURAND_UNITS: Record<string, string> = {
@@ -99,9 +105,16 @@ export class MeterValueGenerator {
   private soc = 20;
   private capacityKwh = DEFAULT_BATTERY_KWH;
   private tickCount = 0;
+  private phasesInUse: number;
 
   constructor(private readonly profile: ChargingProfile = DEFAULT_PROFILE) {
     this.voltage = profile.voltage;
+    this.phasesInUse = profile.phases;
+  }
+
+  /** Phases an AC EV draws on (at most the EVSE's): fewer phases draw less power. */
+  setPhasesInUse(phases: number): void {
+    this.phasesInUse = Math.max(1, Math.min(this.profile.phases, Math.floor(phases)));
   }
 
   /** Call once per meter interval to advance simulation state */
@@ -115,15 +128,10 @@ export class MeterValueGenerator {
       // Temperature slowly cools down when idle
       this.temperature = Math.max(25, this.temperature - 0.2);
     } else {
-      const isDc =
-        this.profile.connectorType === 'dc_ccs2' ||
-        this.profile.connectorType === 'dc_ccs1' ||
-        this.profile.connectorType === 'dc_chademo';
-
-      if (isDc) {
-        this.tickDc(powerLimitW);
-      } else {
+      if (isAcConnector(this.profile.connectorType)) {
         this.tickAc(powerLimitW);
+      } else {
+        this.tickDc(powerLimitW);
       }
 
       this.temperature = Math.min(45, 25 + this.tickCount * 0.5);
@@ -135,7 +143,8 @@ export class MeterValueGenerator {
   private tickAc(powerLimitW: number | null): void {
     // Flat power at ~95% of maxPowerW with +/- 5% random variation
     const variation = 0.9 + Math.random() * 0.1; // 0.90 to 1.00, centered around 0.95
-    let power = Math.floor(this.profile.maxPowerW * 0.95 * variation);
+    const phaseShare = this.phasesInUse / Math.max(1, this.profile.phases);
+    let power = Math.floor(this.profile.maxPowerW * phaseShare * 0.95 * variation);
 
     if (powerLimitW != null) {
       power = Math.min(power, powerLimitW);
@@ -144,7 +153,7 @@ export class MeterValueGenerator {
     this.powerW = this.soc >= 100 ? 0 : power;
     this.addEnergy();
     this.voltage = this.profile.voltage - 2 + Math.random() * 4;
-    this.currentA = this.powerW / this.voltage / this.profile.phases;
+    this.currentA = this.powerW / this.voltage / this.phasesInUse;
   }
 
   // One 10 s tick of energy at the current power; the SoC rises by that energy
@@ -243,16 +252,27 @@ export class MeterValueGenerator {
       const raw = this.getValue(m);
       if (raw == null) continue;
       const unit = MEASURAND_UNITS[m] ?? '';
+      // A single-phase EV on a multi-phase EVSE draws its current on L1 only.
+      const phase = m === 'Current.Import' && this.onePhaseOfMany() ? 'L1' : undefined;
       if (isOcpp16) {
         // Omit unit if not in the 1.6 unit enum (field is optional)
         const sv: SampledValue = { value: String(raw), measurand: m };
         if (OCPP_16_VALID_UNITS.has(unit)) sv.unit = unit;
+        if (phase != null) sv.phase = phase;
         result.push(sv);
       } else {
-        result.push({ value: raw, measurand: m, unitOfMeasure: { unit } });
+        const sv: SampledValue = { value: raw, measurand: m, unitOfMeasure: { unit } };
+        if (phase != null) sv.phase = phase;
+        result.push(sv);
       }
     }
     return result;
+  }
+
+  private onePhaseOfMany(): boolean {
+    return (
+      isAcConnector(this.profile.connectorType) && this.phasesInUse === 1 && this.profile.phases > 1
+    );
   }
 
   private getValue(measurand: string): number | null {

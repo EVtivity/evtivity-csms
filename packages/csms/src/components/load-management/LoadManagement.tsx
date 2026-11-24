@@ -4,7 +4,8 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { LoadAllocationStrategy } from '@evtivity/lib/load-allocation';
@@ -32,10 +33,15 @@ import {
 } from './load-management-types';
 import { useHasPermission } from '@/lib/auth';
 import { TabPanel } from '@/components/ui/tab-panel';
-import { EmptyState } from '@/components/ui/content-state';
+import { EmptyState, LoadingState } from '@/components/ui/content-state';
 import { formatNumber } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { getErrorMessage } from '@/lib/error-message';
+
+// ApexCharts stays out of the site page chunk until the chart shows.
+const AllocationChart = lazy(() =>
+  import('./AllocationChart').then((m) => ({ default: m.AllocationChart })),
+);
 
 interface CircuitStation {
   id: string;
@@ -106,6 +112,17 @@ interface StationStatus {
   limitReserved?: boolean;
   isOnline: boolean;
   hasActiveSession: boolean;
+  balancingMode?: 'station' | 'evse';
+  evseLimitsRefusedAt?: string | null;
+  /** An AC session with a tariff current limit that load management does not apply (pricing:read only). */
+  tariffLimitsNotEnforced?: boolean;
+}
+
+interface TariffLimitItem {
+  id: string;
+  pricingGroupId: string;
+  name: string;
+  currentLimitNotEnforcedSiteIds?: string[];
 }
 
 interface LoadManagementConfig {
@@ -163,6 +180,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   const [addPanelOpen, setAddPanelOpen] = useState(false);
   const [addTransformerOpen, setAddTransformerOpen] = useState(false);
   const canWrite = useHasPermission('loadManagement:write');
+  const canReadPricing = useHasPermission('pricing:read');
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['sites', siteId, 'load-management'],
@@ -180,6 +198,12 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
     queryKey: energyAssetsQueryKey(siteId),
     queryFn: () => api.get<EnergyAssetItem[]>(`/v1/sites/${siteId}/energy-assets`),
     refetchInterval: 5000,
+  });
+
+  const { data: tariffList } = useQuery({
+    queryKey: ['sites', siteId, 'load-management', 'tariff-limits'],
+    queryFn: () => api.get<{ data: TariffLimitItem[] }>('/v1/pricing/tariffs'),
+    enabled: canReadPricing,
   });
 
   const { data: history } = useQuery({
@@ -249,12 +273,51 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   const stations = data?.stations ?? [];
   const transformers = asList<TransformerItem>(transformersQuery.data);
   const energyAssets = asList<EnergyAssetItem>(energyAssetsQuery.data);
+  const unenforcedTariffs = (tariffList?.data ?? []).filter(
+    (tariff) => tariff.currentLimitNotEnforcedSiteIds?.includes(siteId) === true,
+  );
+  const unenforcedStations = stations.filter((s) => s.tariffLimitsNotEnforced === true);
 
   return (
     <div className="space-y-6">
       {/* Configuration Card */}
       <TabPanel title={t('sites.loadManagement')}>
         <form onSubmit={handleSave} noValidate className="space-y-4">
+          {(unenforcedTariffs.length > 0 || unenforcedStations.length > 0) && (
+            <Alert
+              variant="warning"
+              className="items-start"
+              data-testid="tariff-limits-not-enforced"
+            >
+              <AlertTriangle className="mt-0.5" />
+              <div>
+                <AlertTitle>{t('loadManagement.tariffLimitsNotEnforcedTitle')}</AlertTitle>
+                {unenforcedTariffs.length > 0 && (
+                  <AlertDescription>
+                    {t('loadManagement.tariffLimitsNotEnforced')}{' '}
+                    {unenforcedTariffs.map((tariff, i) => (
+                      <span key={tariff.id}>
+                        {i > 0 && ', '}
+                        <Link
+                          to={`/pricing/${tariff.pricingGroupId}/tariffs/${tariff.id}`}
+                          className="font-medium underline wrap-anywhere"
+                        >
+                          {tariff.name}
+                        </Link>
+                      </span>
+                    ))}
+                  </AlertDescription>
+                )}
+                {unenforcedStations.length > 0 && (
+                  <AlertDescription>
+                    {t('loadManagement.tariffLimitsNotEnforcedStations', {
+                      stations: unenforcedStations.map((s) => s.stationId).join(', '),
+                    })}
+                  </AlertDescription>
+                )}
+              </div>
+            </Alert>
+          )}
           {isEnabled && (
             <Alert variant="warning" data-testid="load-management-safety-notice">
               <AlertTriangle />
@@ -370,7 +433,12 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
           onRefresh={handleRefresh}
         />
         {hierarchy.length > 0 && (
-          <p className="mt-3 text-xs text-muted-foreground">{t('loadManagement.minPowerHint')}</p>
+          <>
+            <p className="mt-3 text-xs text-muted-foreground">{t('loadManagement.minPowerHint')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('loadManagement.balancingModeHint')}
+            </p>
+          </>
         )}
       </TabPanel>
 
@@ -387,6 +455,10 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
           void energyAssetsQuery.refetch();
         }}
       />
+
+      <Suspense fallback={<LoadingState />}>
+        <AllocationChart siteId={siteId} timezone={timezone} />
+      </Suspense>
 
       {/* Allocations Card */}
       <Card>

@@ -125,6 +125,7 @@ function scheduleRow(overrides: Record<string, unknown> = {}): Record<string, un
     dayOfWeek: 1,
     dayOfMonth: null,
     filters: null,
+    reportPeriod: 'custom',
     recipientEmails: [],
     isEnabled: true,
     siteScope: ['sit_a'],

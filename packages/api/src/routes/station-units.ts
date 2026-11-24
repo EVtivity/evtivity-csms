@@ -357,7 +357,7 @@ export function stationUnitRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Move an EVSE into a unit',
         description:
-          'Puts the EVSE in a unit of the same station, or takes it out of every unit with null. An EVSE already in that unit changes nothing (changed false). Moving an EVSE into a unit of a station with Uses Station Units off answers 409 STATION_UNITS_DISABLED, and while the Enable Station Units setting is off 409 STATION_UNITS_FEATURE_OFF.',
+          'Puts the EVSE in a unit of the same station, or takes it out of every unit with null. An EVSE already in that unit changes nothing (changed false). Moving an EVSE into a unit of a station with Uses Station Units off answers 409 STATION_UNITS_DISABLED, and while the Enable Station Units setting is off 409 STATION_UNITS_FEATURE_OFF. An EVSE whose connectors are of the other charging kind than the unit load budget (an AC EVSE into a unit with a DC budget, or one that holds both) answers 409 UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH.',
         operationId: 'setStationEvseUnit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -370,10 +370,14 @@ export function stationUnitRoutes(app: FastifyInstance): void {
           ),
           400: errorWith('A unit of another station', [ERROR_CODES.VALIDATION_ERROR]),
           404: notFoundErrors,
-          409: errorWith('The station does not use units', [
-            ERROR_CODES.STATION_UNITS_DISABLED,
-            ERROR_CODES.STATION_UNITS_FEATURE_OFF,
-          ]),
+          409: errorWith(
+            'The station does not use units, or the unit budget is of the other kind',
+            [
+              ERROR_CODES.STATION_UNITS_DISABLED,
+              ERROR_CODES.STATION_UNITS_FEATURE_OFF,
+              ERROR_CODES.UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH,
+            ],
+          ),
         },
       },
     },

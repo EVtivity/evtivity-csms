@@ -73,7 +73,10 @@ vi.mock('../lib/charging-profile-id.js', async (importOriginal) => ({
   plannedProfileIdConflict: vi.fn(async () => null),
   isPlannedTransaction: vi.fn(async () => false),
   isPlannedConnectorSession: vi.fn(async () => false),
+  isEvseManagedTransaction: vi.fn(async () => false),
+  isEvseManagedConnectorSession: vi.fn(async () => false),
   plannedClearConflict: vi.fn(async () => null),
+  evseManagedClearConflict: vi.fn(async () => null),
 }));
 
 vi.mock('../lib/site-access.js', () => ({ getUserSiteIds }));
@@ -108,12 +111,15 @@ import { ocppCommandRoutes } from '../routes/ocpp-commands.js';
 const station21 = { id: 'sta_internal', siteId: 'sit_a', ocppProtocol: 'ocpp2.1' };
 
 import {
+  isEvseManagedConnectorSession,
+  isEvseManagedTransaction,
   isLoadManagedStationIdentity,
   isPlannedConnectorSession,
   isPlannedTransaction,
   maxExternalConstraintsIdByIdentity,
   plannedClearConflict,
   plannedProfileIdConflict,
+  evseManagedClearConflict,
 } from '../lib/charging-profile-id.js';
 
 const station16 = { ...station21, ocppProtocol: 'ocpp1.6' };
@@ -181,7 +187,10 @@ describe('OCPP command dispatch - charging profile guards', () => {
     vi.mocked(plannedProfileIdConflict).mockResolvedValue(null);
     vi.mocked(isPlannedTransaction).mockResolvedValue(false);
     vi.mocked(isPlannedConnectorSession).mockResolvedValue(false);
+    vi.mocked(isEvseManagedTransaction).mockResolvedValue(false);
+    vi.mocked(isEvseManagedConnectorSession).mockResolvedValue(false);
     vi.mocked(plannedClearConflict).mockResolvedValue(null);
+    vi.mocked(evseManagedClearConflict).mockResolvedValue(null);
   });
 
   function post(url: string, payload: Record<string, unknown>) {
@@ -281,6 +290,41 @@ describe('OCPP command dispatch - charging profile guards', () => {
     expect(publishOcppCommand).not.toHaveBeenCalled();
   });
 
+  it('refuses a TxProfile for a session load management limits per EVSE', async () => {
+    vi.mocked(isEvseManagedTransaction).mockResolvedValue(true);
+    results.push([station21]);
+    const res = await post(
+      '/ocpp/commands/v21/SetChargingProfile',
+      profile21({ chargingProfilePurpose: 'TxProfile', transactionId: 'tx-7' }),
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'CHARGING_PROFILE_LOAD_MANAGED' });
+    expect(res.json().error).toContain('per EVSE');
+    expect(isEvseManagedTransaction).toHaveBeenCalledWith('CS-1', 'tx-7');
+    expect(publishOcppCommand).not.toHaveBeenCalled();
+  });
+
+  it('refuses a 1.6 TxProfile without a transaction on a connector limited per EVSE', async () => {
+    vi.mocked(isEvseManagedConnectorSession).mockResolvedValue(true);
+    results.push([station16]);
+    const res = await post('/ocpp/commands/v16/SetChargingProfile', profile16());
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe('CHARGING_PROFILE_LOAD_MANAGED');
+    expect(isEvseManagedConnectorSession).toHaveBeenCalledWith('CS-1', 1);
+    expect(publishOcppCommand).not.toHaveBeenCalled();
+  });
+
+  it('sends a TxProfile for a session load management does not limit per EVSE', async () => {
+    results.push([station21]);
+    replies.push({ response: { status: 'Accepted' } });
+    const res = await post(
+      '/ocpp/commands/v21/SetChargingProfile',
+      profile21({ chargingProfilePurpose: 'TxProfile', transactionId: 'tx-7' }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(isEvseManagedTransaction).toHaveBeenCalledWith('CS-1', 'tx-7');
+  });
+
   it('refuses a clear that could remove the plan TxProfile', async () => {
     vi.mocked(plannedClearConflict).mockResolvedValue('tx-3');
     results.push([station21]);
@@ -293,6 +337,22 @@ describe('OCPP command dispatch - charging profile guards', () => {
       code: 'CHARGING_PROFILE_LOAD_MANAGED',
       action: 'ClearChargingProfile',
     });
+    expect(publishOcppCommand).not.toHaveBeenCalled();
+  });
+
+  it('refuses a clear that could remove the EVSE limit of a session limited per EVSE', async () => {
+    vi.mocked(evseManagedClearConflict).mockResolvedValue('tx-4');
+    results.push([station21]);
+    const res = await post('/ocpp/commands/v21/ClearChargingProfile', {
+      stationId: 'CS-1',
+      chargingProfileCriteria: { evseId: 1 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      code: 'CHARGING_PROFILE_LOAD_MANAGED',
+      action: 'ClearChargingProfile',
+    });
+    expect(res.json().error).toContain('tx-4');
     expect(publishOcppCommand).not.toHaveBeenCalled();
   });
 

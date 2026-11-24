@@ -40,6 +40,17 @@ describe('reportLocale', () => {
     expect(reportLocale('zh', 'pdf').date('2026-01-05')).toBe('2026/01/05');
   });
 
+  it('formats a range without the Period prefix', () => {
+    const rl = reportLocale('en', 'pdf');
+    expect(rl.range('2026-11-01', '2026-11-30', rl.labels.common.allTime)).toBe(
+      `${rl.date('2026-11-01')} to ${rl.date('2026-11-30')}`,
+    );
+    expect(rl.range(undefined, undefined, rl.labels.common.allTime)).toBe('All time');
+    expect(rl.period('2026-11-01', undefined, 'x')).toBe(`Period: From ${rl.date('2026-11-01')}`);
+    expect(rl.labels.common.periods.previousMonth).toBe('Previous month');
+    expect(reportLocale('de', 'pdf').labels.common.periods.previousMonth).toBe('Vormonat');
+  });
+
   it('formats a wall-clock date and time without shifting it', () => {
     expect(reportLocale('de', 'pdf').date('2026-01-05 14:30:00.123456')).toBe('05.01.2026, 14:30');
   });

@@ -32,6 +32,8 @@ import { LoadingLogo } from '@/components/loading-logo';
 import { reportTypeFormats, useReportTypes } from '@/hooks/use-report-types';
 import { ButtonSpinner } from '@/components/ui/button-spinner';
 import { ReportTypesLoadError } from '@/components/reports/ReportTypesLoadError';
+import { ReportPeriodField } from '@/components/reports/ReportPeriodField';
+import type { ReportPeriod } from '@evtivity/lib/report-period';
 
 interface Schedule {
   id: number;
@@ -42,7 +44,8 @@ interface Schedule {
   dayOfWeek: number | null;
   dayOfMonth: number | null;
   recipientEmails: string[];
-  filters: Record<string, string>;
+  filters: Record<string, string> | null;
+  reportPeriod: ReportPeriod;
   isEnabled: boolean;
   createdAt: string;
 }
@@ -79,6 +82,7 @@ export function SchedulesTab(): React.JSX.Element {
   const [recipientEmails, setRecipientEmails] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('custom');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const {
@@ -176,6 +180,7 @@ export function SchedulesTab(): React.JSX.Element {
     setRecipientEmails('');
     setDateFrom('');
     setDateTo('');
+    setReportPeriod('custom');
     setHasSubmitted(false);
     createMutation.reset();
     updateMutation.reset();
@@ -202,8 +207,9 @@ export function SchedulesTab(): React.JSX.Element {
     setDayOfWeek(schedule.dayOfWeek ?? 0);
     setDayOfMonth(schedule.dayOfMonth ?? 1);
     setRecipientEmails(schedule.recipientEmails.join(', '));
-    setDateFrom(schedule.filters['dateFrom'] ?? '');
-    setDateTo(schedule.filters['dateTo'] ?? '');
+    setDateFrom(schedule.filters?.['dateFrom'] ?? '');
+    setDateTo(schedule.filters?.['dateTo'] ?? '');
+    setReportPeriod(schedule.reportPeriod);
     setDialogOpen(true);
   }
 
@@ -224,9 +230,16 @@ export function SchedulesTab(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(scheduleErrors).length > 0 || selectedType === '') return;
-    const filters: Record<string, string> = {};
-    if (dateFrom) filters['dateFrom'] = dateFrom;
-    if (dateTo) filters['dateTo'] = dateTo;
+    // An edit keeps the schedule's other filters; only Custom sends dates.
+    const filters: Record<string, string> = Object.fromEntries(
+      Object.entries(editingSchedule?.filters ?? {}).filter(
+        ([key]) => key !== 'dateFrom' && key !== 'dateTo',
+      ),
+    );
+    if (reportPeriod === 'custom') {
+      if (dateFrom) filters['dateFrom'] = dateFrom;
+      if (dateTo) filters['dateTo'] = dateTo;
+    }
 
     const emails = recipientEmails
       .split(',')
@@ -239,6 +252,7 @@ export function SchedulesTab(): React.JSX.Element {
       format: selectedFormat,
       frequency,
       filters,
+      reportPeriod,
       recipientEmails: emails,
     };
 
@@ -352,6 +366,10 @@ export function SchedulesTab(): React.JSX.Element {
                     <div>
                       <span className="text-muted-foreground">{t('reports.frequency')}</span>
                       <p>{t(`reports.frequencies.${schedule.frequency}`, schedule.frequency)}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{t('reports.reportPeriod')}</span>
+                      <p>{t(`reports.periods.${schedule.reportPeriod}`)}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground">{t('reports.recipientEmails')}</span>
@@ -504,28 +522,36 @@ export function SchedulesTab(): React.JSX.Element {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label className="leading-6">{t('reports.dateRange')}</Label>
-                <div className="flex items-center gap-2">
-                  <DateInput
-                    aria-label={t('common.startDate')}
-                    className="min-w-0 flex-1"
-                    value={dateFrom}
-                    onChange={(value) => {
-                      setDateFrom(value);
-                    }}
-                  />
-                  <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
-                  <DateInput
-                    aria-label={t('common.endDate')}
-                    className="min-w-0 flex-1"
-                    value={dateTo}
-                    onChange={(value) => {
-                      setDateTo(value);
-                    }}
-                  />
+              <ReportPeriodField
+                id="schedule-period"
+                value={reportPeriod}
+                onChange={setReportPeriod}
+              />
+
+              {reportPeriod === 'custom' && (
+                <div className="space-y-2">
+                  <Label className="leading-6">{t('reports.dateRange')}</Label>
+                  <div className="flex items-center gap-2">
+                    <DateInput
+                      aria-label={t('common.startDate')}
+                      className="min-w-0 flex-1"
+                      value={dateFrom}
+                      onChange={(value) => {
+                        setDateFrom(value);
+                      }}
+                    />
+                    <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
+                    <DateInput
+                      aria-label={t('common.endDate')}
+                      className="min-w-0 flex-1"
+                      value={dateTo}
+                      onChange={(value) => {
+                        setDateTo(value);
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="schedule-emails" className="leading-6">

@@ -100,10 +100,17 @@ vi.mock('@evtivity/database', async () => ({
   },
   siteLoadManagement: {},
   chargingStations: {},
+  connectors: {},
+  evses: {},
   loadAllocationLog: {},
+  loadAllocationEntries: {},
   isFleetChargingEnabled: () => isFleetChargingEnabledMock() as unknown,
   isFleetEnabled: () => isFleetEnabledMock() as unknown,
   markSitePlanStale: (...args: unknown[]) => markSitePlanStaleMock(...args) as unknown,
+  client: {},
+  clearEvseLimitsRefused: (...args: unknown[]) => clearEvseLimitsRefusedMock(...args) as unknown,
+  toIsoOrNull: (value: Date | string | null) =>
+    value == null ? null : new Date(value).toISOString(),
 }));
 
 vi.mock('../lib/charging-plan-view.js', async () => {
@@ -145,11 +152,21 @@ vi.mock('@evtivity/services/load-management.service', () => ({
     const hierarchy = await svc.buildSiteHierarchy(siteId, status.stations);
     const allocations =
       hierarchy.length > 0 ? svc.computeHierarchicalAllocation(hierarchy, strategy as never) : [];
-    return { status, hierarchy, managed: [], reservedKw: new Map(), allocations };
+    return {
+      status,
+      hierarchy,
+      managed: [],
+      reservedKw: new Map(),
+      allocations,
+      evseLimits: new Map(),
+    };
   }),
+  nodeCapacityKw: (node: { maxContinuousKw: number; safetyMarginKw: number }) =>
+    node.maxContinuousKw - node.safetyMarginKw,
   clearLoadManagementProfiles: vi.fn().mockResolvedValue(true),
   clearPlanProfilesOnDisable: vi.fn().mockResolvedValue(undefined),
   parseAppliedAllocations: vi.fn(() => null),
+  stationConnectedKw: vi.fn(() => 0),
   getSitePowerStatus: vi.fn().mockResolvedValue({
     totalDrawKw: 50,
     stations: [
@@ -191,6 +208,7 @@ vi.mock('@evtivity/services/load-management.service', () => ({
 }));
 
 const siteAuditMock = vi.fn().mockResolvedValue(undefined);
+const clearEvseLimitsRefusedMock = vi.fn().mockResolvedValue(false);
 const markSitePlanStaleMock = vi.fn().mockResolvedValue(true);
 const stationAuditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../lib/load-management-audit.js', () => ({
@@ -203,6 +221,7 @@ import { loadManagementRoutes } from '../routes/load-management.js';
 import {
   clearLoadManagementProfiles,
   clearPlanProfilesOnDisable,
+  computeSiteAllocation,
 } from '@evtivity/services/load-management.service';
 
 const VALID_SITE_ID = 'sit_000000000001';
@@ -332,6 +351,231 @@ describe('Load management routes', () => {
     expect(Array.isArray(body.stations)).toBe(true);
     // NODE_ENV test allows simulated battery and solar readings.
     expect(body.simulatedEnergyAssetsAllowed).toBe(true);
+  });
+
+  describe('per-EVSE balancing', () => {
+    const cappedStation = {
+      id: VALID_STATION_ID,
+      stationId: 'STATION-001',
+      circuitId: 'cir_1',
+      currentDrawKw: 4,
+      phasePowerKw: null,
+      maxPowerKw: 22,
+      loadPriority: 5,
+      isOnline: true,
+      hasActiveSession: true,
+      departureTime: null,
+      minPowerKw: 0,
+      rateUnit: 'A' as const,
+      profileId: 1_000_000_000,
+      balancingMode: 'station' as const,
+      evseLimitsRefusedAt: null,
+      sessions: [
+        {
+          sessionId: 'ses_1',
+          transactionId: 'tx-1',
+          evseDbId: 'evs_1',
+          evseNumber: 1,
+          unitId: null,
+          kind: 'ac' as const,
+          ratingKw: 22,
+          ratingA: 32,
+          tariffId: 'trf_1',
+          tariffMaxCurrentA: 6,
+          phases: null,
+          startedAt: new Date('2026-11-24T10:00:00Z'),
+        },
+      ],
+    };
+    const limit = {
+      sessionId: 'ses_1',
+      transactionId: 'tx-1',
+      evseNumber: 1,
+      unitId: null,
+      kind: 'ac' as const,
+      limitA: 6,
+      limitKw: 4.14,
+      phases: 3,
+      reason: 'tariff_limit' as const,
+      paused: false,
+    };
+    function allocation(enabledStations: boolean) {
+      vi.mocked(computeSiteAllocation).mockResolvedValueOnce({
+        status: { totalDrawKw: 4, stations: [cappedStation] },
+        hierarchy: [
+          {
+            type: 'circuit',
+            id: 'cir_1',
+            name: 'Circuit',
+            maxContinuousKw: 22,
+            safetyMarginKw: 0,
+            unmanagedLoadKw: 0,
+            currentDrawKw: 4,
+            stations: [cappedStation],
+            children: [],
+            phases: 3,
+            breakerRatingAmps: 32,
+            voltageV: 230,
+            oversubscriptionRatio: 1,
+            phaseConnections: null,
+            phaseLoad: null,
+            perPhaseCapacityKw: null,
+          },
+        ],
+        managed: enabledStations ? [cappedStation] : [],
+        reservedKw: new Map(),
+        allocations: [],
+        baseKw: new Map(),
+        creditValidToMs: null,
+        evseLimits: new Map([[VALID_STATION_ID, [limit]]]),
+      });
+    }
+
+    it('GET shows the modes, the EVSE limits and whether tariff limits are enforced', async () => {
+      setupDbResults([
+        {
+          siteId: VALID_SITE_ID,
+          strategy: 'equal_share',
+          isEnabled: true,
+          departureBufferMinutes: 30,
+        },
+      ]);
+      allocation(true);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${VALID_SITE_ID}/load-management`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const station = JSON.parse(res.body).stations[0];
+      expect(station).toMatchObject({
+        balancingMode: 'station',
+        effectiveBalancingMode: 'evse',
+        evseLimitsRefusedAt: null,
+        tariffLimitsNotEnforced: false,
+      });
+      expect(station.evseLimits).toEqual([
+        {
+          evseNumber: 1,
+          unitId: null,
+          kind: 'ac',
+          limitA: 6,
+          limitKw: 4.14,
+          phases: 3,
+          reason: 'tariff_limit',
+          paused: false,
+          sessionId: 'ses_1',
+        },
+      ]);
+    });
+
+    it('GET leaves out session ids without sessions:read and the warning without pricing:read', async () => {
+      requestHasPermissionMock.mockImplementation((permission: string) =>
+        Promise.resolve(permission !== 'sessions:read' && permission !== 'pricing:read'),
+      );
+      try {
+        setupDbResults([
+          {
+            siteId: VALID_SITE_ID,
+            strategy: 'equal_share',
+            isEnabled: true,
+            departureBufferMinutes: 30,
+          },
+        ]);
+        allocation(true);
+        const res = await app.inject({
+          method: 'GET',
+          url: `/sites/${VALID_SITE_ID}/load-management`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const station = JSON.parse(res.body).stations[0];
+        expect(station.evseLimits[0]).not.toHaveProperty('sessionId');
+        expect(station).not.toHaveProperty('tariffLimitsNotEnforced');
+      } finally {
+        requestHasPermissionMock.mockImplementation(() => Promise.resolve(true));
+      }
+    });
+
+    it('GET flags a capped session load management does not enforce and sends no EVSE limit', async () => {
+      setupDbResults([
+        {
+          siteId: VALID_SITE_ID,
+          strategy: 'equal_share',
+          isEnabled: false,
+          departureBufferMinutes: 30,
+        },
+      ]);
+      allocation(false);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${VALID_SITE_ID}/load-management`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const station = JSON.parse(res.body).stations[0];
+      expect(station.tariffLimitsNotEnforced).toBe(true);
+      expect(station.evseLimits).toEqual([]);
+    });
+
+    it('PATCH load-balancing-mode stores the mode, clears a refusal, resends and audits', async () => {
+      clearEvseLimitsRefusedMock.mockResolvedValueOnce(true);
+      setupDbResults(
+        [{ loadBalancingMode: 'evse', evseLimitsRefusedAt: new Date('2026-11-24T09:00:00Z') }],
+        [{ id: VALID_STATION_ID, stationId: 'STATION-001' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}/stations/${VALID_STATION_ID}/load-balancing-mode`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { mode: 'evse' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({
+        id: VALID_STATION_ID,
+        stationId: 'STATION-001',
+        loadBalancingMode: 'evse',
+        evseLimitsRefusedAt: null,
+      });
+      expect(clearEvseLimitsRefusedMock).toHaveBeenCalledWith(expect.anything(), VALID_STATION_ID);
+      expect(stationAuditMock).toHaveBeenCalledWith(expect.anything(), VALID_STATION_ID, {
+        before: { loadBalancingMode: 'evse', evseLimitsRefusedAt: '2026-11-24T09:00:00.000Z' },
+        after: { loadBalancingMode: 'evse', evseLimitsRefusedAt: null },
+        notes: 'load balancing mode set, per-EVSE limit refusal cleared',
+      });
+    });
+
+    it('PATCH load-balancing-mode writes no audit row when nothing changed', async () => {
+      setupDbResults(
+        [{ loadBalancingMode: 'station', evseLimitsRefusedAt: null }],
+        [{ id: VALID_STATION_ID, stationId: 'STATION-001' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}/stations/${VALID_STATION_ID}/load-balancing-mode`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { mode: 'station' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(stationAuditMock).not.toHaveBeenCalled();
+    });
+
+    it('PATCH load-balancing-mode refuses an unknown mode and a station of another site', async () => {
+      const bad = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}/stations/${VALID_STATION_ID}/load-balancing-mode`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { mode: 'unit' },
+      });
+      expect(bad.statusCode).toBe(400);
+      setupDbResults([], []);
+      const missing = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}/stations/${VALID_STATION_ID}/load-balancing-mode`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { mode: 'evse' },
+      });
+      expect(missing.statusCode).toBe(404);
+      expect(JSON.parse(missing.body).code).toBe('STATION_NOT_FOUND');
+    });
   });
 
   it('GET /v1/sites/:id/load-management returns null config when no config exists', async () => {
@@ -623,17 +867,20 @@ describe('Load management routes', () => {
   });
 
   it('GET /v1/sites/:id/load-management/history returns allocation log', async () => {
-    setupDbResults([
-      {
-        id: '1',
-        siteLimitKw: '100',
-        totalDrawKw: '50',
-        availableKw: '90',
-        strategy: 'equal_share',
-        allocations: [{ stationId: 'STATION-001', allocatedKw: 45 }],
-        createdAt: new Date('2025-01-01T00:00:00Z'),
-      },
-    ]);
+    setupDbResults(
+      [
+        {
+          id: 1,
+          siteLimitKw: '100',
+          totalDrawKw: '50',
+          availableKw: '90',
+          strategy: 'equal_share',
+          allocations: null,
+          createdAt: new Date('2025-01-01T00:00:00Z'),
+        },
+      ],
+      [{ logId: 1, stationOcppId: 'STATION-001', stationDbId: 'sta_1', limitKw: '45.000' }],
+    );
     const response = await app.inject({
       method: 'GET',
       url: `/sites/${VALID_SITE_ID}/load-management/history`,
@@ -645,7 +892,9 @@ describe('Load management routes', () => {
     expect(body[0]).toHaveProperty('siteLimitKw', 100);
     expect(body[0]).toHaveProperty('totalDrawKw', 50);
     expect(body[0]).toHaveProperty('strategy', 'equal_share');
-    expect(body[0]).toHaveProperty('allocations');
+    expect(body[0].allocations).toEqual([
+      { stationId: 'STATION-001', stationDbId: 'sta_1', allocatedKw: 45 },
+    ]);
     expect(body[0]).toHaveProperty('createdAt');
   });
 

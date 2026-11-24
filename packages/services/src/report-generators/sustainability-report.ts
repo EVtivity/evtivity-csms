@@ -20,14 +20,13 @@ import type { ReportGeneratorResult } from '../report-registry.js';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, dateCell, fixedCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
+import { reportDay, reportFileName } from './report-dates.js';
 
 // EPA defaults
 const DEFAULT_GRID_EMISSION_FACTOR = 0.386; // kg CO2/kWh (US average)
 const DEFAULT_EV_EFFICIENCY = 3.3; // miles/kWh
 const DEFAULT_GASOLINE_EMISSION_FACTOR = 8.887; // kg CO2/gallon
 const DEFAULT_AVG_MPG = 25.4; // US average fuel economy
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 interface Filters {
   dateFrom?: string | undefined;
@@ -38,11 +37,9 @@ interface Filters {
 }
 
 function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
-  const dateFromRaw = typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined;
-  const dateToRaw = typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined;
   return {
-    dateFrom: dateFromRaw != null && ISO_DATE.test(dateFromRaw) ? dateFromRaw : undefined,
-    dateTo: dateToRaw != null && ISO_DATE.test(dateToRaw) ? dateToRaw : undefined,
+    dateFrom: reportDay(raw['dateFrom']),
+    dateTo: reportDay(raw['dateTo']),
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
     scope,
   };
@@ -270,7 +267,7 @@ export async function generateSustainabilityReport(
     const csv = buildCsv(metricHeaders, csvRows(rows));
     return {
       data: Buffer.from(csv, 'utf-8'),
-      fileName: `sustainability-report-${String(Date.now())}.csv`,
+      fileName: reportFileName('sustainability-report', filters.dateFrom, filters.dateTo, 'csv'),
     };
   } else if (format === 'xlsx') {
     const data = await buildXlsx([
@@ -283,7 +280,10 @@ export async function generateSustainabilityReport(
       { name: l.sheets.bySite, headers: siteHeaders, rows: bySite.map((r) => siteRow(r, cfg)) },
       { name: l.sheets.dailyEnergy, headers: dayHeaders, rows: byDay.map((r) => dayRow(r, cfg)) },
     ]);
-    return { data, fileName: `sustainability-report-${String(Date.now())}.xlsx` };
+    return {
+      data,
+      fileName: reportFileName('sustainability-report', filters.dateFrom, filters.dateTo, 'xlsx'),
+    };
   }
 
   const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
@@ -320,5 +320,8 @@ export async function generateSustainabilityReport(
   );
 
   const data = await pdf.build();
-  return { data, fileName: `sustainability-report-${String(Date.now())}.pdf` };
+  return {
+    data,
+    fileName: reportFileName('sustainability-report', filters.dateFrom, filters.dateTo, 'pdf'),
+  };
 }

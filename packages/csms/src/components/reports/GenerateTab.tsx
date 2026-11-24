@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { GenerateButton } from '@/components/generate-button';
 import { Input } from '@/components/ui/input';
 import { DateInput } from '@/components/ui/date-input';
+import { ReportPeriodField } from '@/components/reports/ReportPeriodField';
+import type { ReportPeriod } from '@evtivity/lib/report-period';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { reportTypeFormats, useReportTypes } from '@/hooks/use-report-types';
@@ -23,6 +25,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
   const [format, setFormat] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('custom');
   const [siteId, setSiteId] = useState('');
   const [stationId, setStationId] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -52,6 +55,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
       reportType: string;
       format: string;
       filters: Record<string, string>;
+      reportPeriod: ReportPeriod;
     }) => api.post<{ id: string; status: string }>('/v1/reports/generate', body),
     onSuccess: () => {
       setName('');
@@ -81,8 +85,10 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
     setHasSubmitted(true);
     if (Object.keys(generateErrors).length > 0 || selectedType === '') return;
     const filters: Record<string, string> = {};
-    if (dateFrom) filters['dateFrom'] = dateFrom;
-    if (dateTo) filters['dateTo'] = dateTo;
+    if (reportPeriod === 'custom') {
+      if (dateFrom) filters['dateFrom'] = dateFrom;
+      if (dateTo) filters['dateTo'] = dateTo;
+    }
     if (siteId) filters['siteId'] = siteId;
     if (stationId) filters['stationId'] = stationId;
     generateMutation.mutate({
@@ -90,6 +96,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
       reportType: selectedType,
       format: selectedFormat,
       filters,
+      reportPeriod,
     });
   }
 
@@ -161,28 +168,32 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label className="leading-6">{t('reports.dateRange')}</Label>
-            <div className="flex items-center gap-2">
-              <DateInput
-                aria-label={t('common.startDate')}
-                className="min-w-0 flex-1"
-                value={dateFrom}
-                onChange={(value) => {
-                  setDateFrom(value);
-                }}
-              />
-              <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
-              <DateInput
-                aria-label={t('common.endDate')}
-                className="min-w-0 flex-1"
-                value={dateTo}
-                onChange={(value) => {
-                  setDateTo(value);
-                }}
-              />
+          <ReportPeriodField id="generate-period" value={reportPeriod} onChange={setReportPeriod} />
+
+          {reportPeriod === 'custom' && (
+            <div className="space-y-2">
+              <Label className="leading-6">{t('reports.dateRange')}</Label>
+              <div className="flex items-center gap-2">
+                <DateInput
+                  aria-label={t('common.startDate')}
+                  className="min-w-0 flex-1"
+                  value={dateFrom}
+                  onChange={(value) => {
+                    setDateFrom(value);
+                  }}
+                />
+                <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
+                <DateInput
+                  aria-label={t('common.endDate')}
+                  className="min-w-0 flex-1"
+                  value={dateTo}
+                  onChange={(value) => {
+                    setDateTo(value);
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2 items-start">
             <div className="space-y-2">

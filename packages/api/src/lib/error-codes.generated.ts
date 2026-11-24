@@ -171,6 +171,7 @@ export const ERROR_CODES = {
   INVOICE_NOT_FOUND: 'INVOICE_NOT_FOUND',
   INVOICE_NOT_ISSUED: 'INVOICE_NOT_ISSUED',
   INVOICE_NOT_VOIDABLE: 'INVOICE_NOT_VOIDABLE',
+  LOAD_ALLOCATION_RANGE_TOO_LONG: 'LOAD_ALLOCATION_RANGE_TOO_LONG',
   LOAD_NOT_FOUND: 'LOAD_NOT_FOUND',
   LOCAL_CA_EXISTS: 'LOCAL_CA_EXISTS',
   LOCAL_CA_NOT_CONFIGURED: 'LOCAL_CA_NOT_CONFIGURED',
@@ -396,6 +397,7 @@ export const ERROR_CODES = {
   SUPPORT_CASE_CHANGED: 'SUPPORT_CASE_CHANGED',
   SUPPORT_CASE_NOT_FOUND: 'SUPPORT_CASE_NOT_FOUND',
   SUPPORT_DISABLED: 'SUPPORT_DISABLED',
+  TARIFF_CURRENT_LIMIT_DC: 'TARIFF_CURRENT_LIMIT_DC',
   TARIFF_DEFAULT_REQUIRED: 'TARIFF_DEFAULT_REQUIRED',
   TARIFF_IN_USE: 'TARIFF_IN_USE',
   TARIFF_NOT_FOUND: 'TARIFF_NOT_FOUND',
@@ -414,6 +416,9 @@ export const ERROR_CODES = {
   TRANSACTION_NOT_FOUND: 'TRANSACTION_NOT_FOUND',
   TRANSFORMER_NOT_FOUND: 'TRANSFORMER_NOT_FOUND',
   UNAUTHORIZED: 'UNAUTHORIZED',
+  UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH: 'UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH',
+  UNIT_LOAD_BUDGET_KIND_MISMATCH: 'UNIT_LOAD_BUDGET_KIND_MISMATCH',
+  UNIT_LOAD_BUDGET_MIXED_UNIT: 'UNIT_LOAD_BUDGET_MIXED_UNIT',
   UNKNOWN_ACTION: 'UNKNOWN_ACTION',
   UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
@@ -597,6 +602,7 @@ export type ErrorCode =
   | 'INVOICE_NOT_FOUND'
   | 'INVOICE_NOT_ISSUED'
   | 'INVOICE_NOT_VOIDABLE'
+  | 'LOAD_ALLOCATION_RANGE_TOO_LONG'
   | 'LOAD_NOT_FOUND'
   | 'LOCAL_CA_EXISTS'
   | 'LOCAL_CA_NOT_CONFIGURED'
@@ -822,6 +828,7 @@ export type ErrorCode =
   | 'SUPPORT_CASE_CHANGED'
   | 'SUPPORT_CASE_NOT_FOUND'
   | 'SUPPORT_DISABLED'
+  | 'TARIFF_CURRENT_LIMIT_DC'
   | 'TARIFF_DEFAULT_REQUIRED'
   | 'TARIFF_IN_USE'
   | 'TARIFF_NOT_FOUND'
@@ -840,6 +847,9 @@ export type ErrorCode =
   | 'TRANSACTION_NOT_FOUND'
   | 'TRANSFORMER_NOT_FOUND'
   | 'UNAUTHORIZED'
+  | 'UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH'
+  | 'UNIT_LOAD_BUDGET_KIND_MISMATCH'
+  | 'UNIT_LOAD_BUDGET_MIXED_UNIT'
   | 'UNKNOWN_ACTION'
   | 'UNSUPPORTED_MEDIA_TYPE'
   | 'USER_NOT_FOUND'
@@ -1056,6 +1066,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVOICE_NOT_ISSUED: 'The invoice must be issued for this action',
   INVOICE_NOT_VOIDABLE:
     'Only a draft invoice can be voided. Correct an issued invoice with a credit note',
+  LOAD_ALLOCATION_RANGE_TOO_LONG: 'The time range is longer than 31 days',
   LOAD_NOT_FOUND: 'Load not found',
   LOCAL_CA_EXISTS: 'A local contract CA already exists',
   LOCAL_CA_NOT_CONFIGURED: 'Create the local contract CA first',
@@ -1319,6 +1330,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'The case status changed since you opened it. Reload the case and try again.',
   SUPPORT_CASE_NOT_FOUND: 'Support case not found',
   SUPPORT_DISABLED: 'Support is disabled',
+  TARIFF_CURRENT_LIMIT_DC: 'A current limit cannot be set on a DC tariff',
   TARIFF_DEFAULT_REQUIRED:
     'A pricing group with tariffs needs one active default tariff without restrictions',
   TARIFF_IN_USE: 'Tariff is referenced by charging sessions and cannot be deleted',
@@ -1340,6 +1352,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TRANSACTION_NOT_FOUND: 'Transaction not found',
   TRANSFORMER_NOT_FOUND: 'Transformer not found',
   UNAUTHORIZED: 'Unauthorized',
+  UNIT_LOAD_BUDGET_EVSE_KIND_MISMATCH:
+    "The EVSE's charging kind does not match the load budget of the unit",
+  UNIT_LOAD_BUDGET_KIND_MISMATCH: 'The budget kind does not match the EVSEs of the unit',
+  UNIT_LOAD_BUDGET_MIXED_UNIT: 'The unit holds AC and DC EVSEs, so it takes no budget',
   UNKNOWN_ACTION: 'Unknown OCPP action',
   UNSUPPORTED_MEDIA_TYPE: 'Unsupported content type',
   USER_NOT_FOUND: 'User not found',

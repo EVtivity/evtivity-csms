@@ -49,6 +49,7 @@ function tariff(id: string, restrictions: Record<string, unknown> | null, isDefa
     idleFeePricePerMinute: null,
     reservationFeePerMinute: null,
     taxRate: null,
+    maxCurrentA: null,
     restrictions,
     priority: restrictions == null ? 0 : 10,
     isDefault,

@@ -29,6 +29,11 @@ import {
 import { useCreatedToast } from '@/components/saved-message';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { TariffScopeFields, type TariffScopeValue } from '@/components/pricing/TariffScopeFields';
+import {
+  TariffCurrentLimitField,
+  tariffCurrentLimitBody,
+  tariffCurrentLimitError,
+} from '@/components/pricing/TariffCurrentLimitField';
 
 interface Tariff {
   id: string;
@@ -63,6 +68,7 @@ export function TariffCreate(): React.JSX.Element {
   const [idleFeePricePerMinute, setIdleFeePricePerMinute] = useState('');
   const [reservationFeePerMinute, setReservationFeePerMinute] = useState('');
   const [taxRate, setTaxRate] = useState('');
+  const [maxCurrent, setMaxCurrent] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   // Restriction state
@@ -106,6 +112,7 @@ export function TariffCreate(): React.JSX.Element {
       restrictions?: TariffRestrictions | null;
       chargingType?: TariffScopeValue['chargingType'];
       siteIds?: string[];
+      maxCurrentA?: number | null;
     }) => api.post<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pricing-groups', id ?? ''] });
@@ -143,6 +150,8 @@ export function TariffCreate(): React.JSX.Element {
     if (scope.siteIds != null && scope.siteIds.length === 0) {
       errors.siteIds = t('pricing.selectSitesRequired');
     }
+    const currentError = scope.chargingType === 'dc' ? null : tariffCurrentLimitError(maxCurrent);
+    if (currentError != null) errors.maxCurrentA = t(currentError);
     return errors;
   }
 
@@ -163,6 +172,7 @@ export function TariffCreate(): React.JSX.Element {
       restrictions?: TariffRestrictions | null;
       chargingType?: TariffScopeValue['chargingType'];
       siteIds?: string[];
+      maxCurrentA?: number | null;
     } = { name, chargingType: scope.chargingType };
     if (scope.siteIds != null) body.siteIds = scope.siteIds;
     if (pricePerKwh.trim() !== '') body.pricePerKwh = pricePerKwh;
@@ -172,6 +182,8 @@ export function TariffCreate(): React.JSX.Element {
     if (reservationFeePerMinute.trim() !== '')
       body.reservationFeePerMinute = reservationFeePerMinute;
     if (taxRate.trim() !== '') body.taxRate = taxRate;
+    const maxCurrentA = tariffCurrentLimitBody(maxCurrent, scope.chargingType);
+    if (maxCurrentA != null) body.maxCurrentA = maxCurrentA;
     body.restrictions = buildRestrictions(restrictionType, {
       startTime,
       endTime,
@@ -328,6 +340,14 @@ export function TariffCreate(): React.JSX.Element {
               siteAvailabilityAllowed={siteAvailabilityAllowed}
               idPrefix="tariff"
               error={hasSubmitted ? errors.siteIds : undefined}
+            />
+
+            <TariffCurrentLimitField
+              value={maxCurrent}
+              onChange={setMaxCurrent}
+              chargingType={scope.chargingType}
+              idPrefix="tariff"
+              showError={hasSubmitted}
             />
 
             <div className="col-span-full border-t pt-4 space-y-4">

@@ -196,3 +196,32 @@ export function readingSummary(sampledValues: unknown): {
   }
   return { powerW: overallValue(power), socPercent: soc };
 }
+
+/**
+ * The per-phase Outlet Current.Import samples of one MeterValue in A (OCPP 1.6
+ * `unit`, 2.1 `unitOfMeasure` with its multiplier). A sample without a phase or
+ * in another unit is left out: it does not tell which lines the EV uses.
+ */
+export function phaseCurrentReadings(sampledValues: unknown): { phase: string; amps: number }[] {
+  if (!Array.isArray(sampledValues)) return [];
+  const out: { phase: string; amps: number }[] = [];
+  for (const sv of sampledValues as Array<Record<string, unknown>>) {
+    if (sv.measurand !== 'Current.Import' || typeof sv.phase !== 'string') continue;
+    const location = typeof sv.location === 'string' ? sv.location : DEFAULT_LOCATION;
+    if (location !== DEFAULT_LOCATION) continue;
+    const unitOfMeasure = sv.unitOfMeasure as Record<string, unknown> | undefined;
+    const unit =
+      unitOfMeasure != null
+        ? typeof unitOfMeasure.unit === 'string'
+          ? unitOfMeasure.unit
+          : null
+        : typeof sv.unit === 'string'
+          ? sv.unit
+          : null;
+    if (unit != null && unit !== 'A') continue;
+    const multiplier = typeof unitOfMeasure?.multiplier === 'number' ? unitOfMeasure.multiplier : 0;
+    const amps = applyMultiplier(Number(sv.value), multiplier);
+    if (Number.isFinite(amps)) out.push({ phase: sv.phase, amps });
+  }
+  return out;
+}

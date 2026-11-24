@@ -253,6 +253,12 @@ vi.mock('../lib/driver-ai-availability.js', () => ({
   readDriverAiAvailability: () => Promise.resolve({ available: false, perMinute: 2 }),
 }));
 
+// The report generators are not loaded: a time zone change moves the schedules
+// (31-reports covers it).
+vi.mock('@evtivity/services/report.service', () => ({
+  rescheduleReportSchedules: vi.fn().mockResolvedValue(0),
+}));
+
 vi.mock('@evtivity/services/station-message.service', () => ({
   requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
 }));

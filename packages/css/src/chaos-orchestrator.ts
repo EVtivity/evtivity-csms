@@ -13,6 +13,13 @@ import {
   depotVehicleKey,
   type DepotVehicle,
 } from './chaos-journey.js';
+import {
+  FleetCharging,
+  fleetOfToken,
+  type CssCommandResult,
+  type FleetToken,
+  type FleetTokenRow,
+} from './chaos-fleet.js';
 import { isOcpp201Action } from './lib/ocpp201.js';
 import { logger } from './lib/logger.js';
 
@@ -523,6 +530,25 @@ interface DepotRow {
   next_departure_at?: Date | string | null;
 }
 
+interface StationRow {
+  station_id: string;
+  ocpp_protocol: string;
+  free_vend?: boolean;
+}
+
+interface LoadedTargets {
+  stations: StationRow[];
+  tokens: DriverToken[];
+  fleetTokens: Map<string, DriverToken[]>;
+  depotStations: Map<string, DepotStation>;
+  fleetPool: FleetToken[];
+}
+
+/** The source of the simulator manager's command results in this process. */
+export interface CommandResultSource {
+  onCommandResult(listener: (result: CssCommandResult) => void): () => void;
+}
+
 /** A depot station: the fleet vehicles that charge there and the site timezone. */
 interface DepotStation {
   timeZone: string;
@@ -570,8 +596,12 @@ export class ChaosOrchestrator {
   private offlineStations: Set<string> = new Set();
   private chargingStations: Set<string> = new Set();
   private chargingTokenByStation: Map<string, string> = new Map();
+  private freeVendStations: Set<string> = new Set();
   private readonly journeys = new ChaosJourneys();
   private readonly depotJourneys = new DepotJourneys();
+  private readonly fleet: FleetCharging;
+  private readonly commandResults: CommandResultSource | null;
+  private stopResults: (() => void) | null = null;
 
   constructor(
     sql: postgres.Sql,
@@ -579,12 +609,16 @@ export class ChaosOrchestrator {
     options?: {
       actionIntervalMs?: number;
       stationLimit?: number;
+      commandResults?: CommandResultSource;
+      random?: () => number;
     },
   ) {
     this.sql = sql;
     this.pubsub = pubsub;
     this.actionIntervalMs = options?.actionIntervalMs ?? 1000;
     this.stationLimit = options?.stationLimit ?? 0;
+    this.commandResults = options?.commandResults ?? null;
+    this.fleet = new FleetCharging(options?.random);
   }
 
   // Loads the current set of action targets from the DB and replaces the
@@ -593,17 +627,14 @@ export class ChaosOrchestrator {
   // or had enabled flipped to false drop out. State for stations that
   // disappeared (offline marker, active-tx markers) is cleared to avoid
   // confusing later dispatch ticks.
-  private async loadStations(): Promise<{
-    stations: Array<{ station_id: string; ocpp_protocol: string }>;
-    tokens: DriverToken[];
-    fleetTokens: Map<string, DriverToken[]>;
-    depotStations: Map<string, DepotStation>;
-  }> {
-    const stationRows = await this.sql<Array<{ station_id: string; ocpp_protocol: string }>>`
-      SELECT cs.station_id, cs.ocpp_protocol
+  private async loadStations(): Promise<LoadedTargets> {
+    // Conformance stations belong to an OCTT run: chaos never drives them.
+    const stationRows = await this.sql<StationRow[]>`
+      SELECT cs.station_id, cs.ocpp_protocol, COALESCE(s.free_vend_enabled, false) AS free_vend
       FROM charging_stations cs
       INNER JOIN css_stations css ON css.station_id = cs.station_id
-      WHERE cs.is_simulator = true AND css.enabled = true
+      LEFT JOIN sites s ON s.id = cs.site_id
+      WHERE cs.is_simulator = true AND css.enabled = true AND cs.is_conformance = false
     `;
     let stations = [...stationRows];
     if (this.stationLimit > 0 && stations.length > this.stationLimit) {
@@ -614,10 +645,17 @@ export class ChaosOrchestrator {
     // and tariff referenced, so the run's cleanup could not delete them. A
     // driver whose every vehicle is a box truck, bus or semi truck charges at
     // its fleet's depot only (below), never in a public car spot.
-    const tokens = (
+    const publicRows = (
       await this.sql<Array<{ id_token: string; token_type: string }>>`
         SELECT t.id_token, t.token_type FROM driver_tokens t
         WHERE t.is_active = true
+          AND t.revoked_at IS NULL
+          AND (t.expires_at IS NULL OR t.expires_at > now())
+          AND t.fleet_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM drivers d
+            WHERE d.id = t.driver_id AND (d.is_active = false OR d.erased_at IS NOT NULL)
+          )
           AND NOT EXISTS (
             SELECT 1 FROM drivers d
             WHERE d.id = t.driver_id AND d.email = ${OCTT_TEST_DRIVER_EMAIL}
@@ -632,6 +670,10 @@ export class ChaosOrchestrator {
           )
       `
     ).map((r) => ({ idToken: r.id_token, tokenType: r.token_type }));
+    // Fleet tokens charge only through the fleet share, so the share holds.
+    const fleetPool = await this.loadFleetPool();
+    const fleetValues = new Set(fleetPool.map((t) => t.idToken));
+    const tokens = publicRows.filter((t) => !fleetValues.has(t.idToken));
     // A depot station is charged by the drivers of the fleets it is assigned
     // to. A depot station is a fleet station on a site of type Depot (its
     // layout settings, bus bays and truck lanes). Any other fleet station
@@ -659,9 +701,68 @@ export class ChaosOrchestrator {
       });
       depotStations.set(r.station_id, depot);
     }
-    return { stations, tokens, fleetTokens, depotStations };
+    return { stations, tokens, fleetTokens, depotStations, fleetPool };
   }
 
+  /**
+   * The tokens of fleets that bill on account: their fleet cards and the
+   * tokens of their members, with the facts `fleetOfToken` decides on. A
+   * failed read is logged and chaos runs without fleet sessions.
+   */
+  private async loadFleetPool(): Promise<FleetToken[]> {
+    try {
+      const settingRows = await this.sql<Array<{ value: unknown }>>`
+        SELECT value FROM settings WHERE key = 'fleet.enabled'
+      `;
+      const fleetsEnabled = settingRows[0] == null || settingRows[0].value === true;
+      if (!fleetsEnabled) return [];
+      const rows = await this.sql<FleetTokenRow[]>`
+        SELECT t.id_token, t.token_type, t.is_active, t.revoked_at, t.expires_at,
+               t.prepaid_balance_cents, t.fleet_id AS card_fleet_id,
+               COALESCE(cf.account_billing_enabled, false) AS card_fleet_bills,
+               mf.fleet_id AS member_fleet_id,
+               t.driver_id, d.is_active AS driver_active, d.erased_at AS driver_erased_at,
+               d.email AS driver_email,
+               (
+                 EXISTS (
+                   SELECT 1 FROM vehicles v
+                   WHERE v.id = t.vehicle_id OR (t.vehicle_id IS NULL AND v.driver_id = t.driver_id)
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM vehicles v
+                   WHERE (v.id = t.vehicle_id OR (t.vehicle_id IS NULL AND v.driver_id = t.driver_id))
+                     AND (v.body_type IS NULL OR v.body_type NOT IN ('box_truck', 'bus', 'semi_truck'))
+                 )
+               ) AS depot_only
+        FROM driver_tokens t
+        LEFT JOIN drivers d ON d.id = t.driver_id
+        LEFT JOIN fleets cf ON cf.id = t.fleet_id
+        LEFT JOIN LATERAL (
+          SELECT fd.fleet_id
+          FROM fleet_drivers fd
+          JOIN fleets f ON f.id = fd.fleet_id
+          WHERE fd.driver_id = t.driver_id
+            AND f.account_billing_enabled = true
+            AND fd.account_billing_opt_out = false
+          ORDER BY fd.created_at, fd.id
+          LIMIT 1
+        ) mf ON true
+        WHERE t.fleet_id IS NOT NULL OR mf.fleet_id IS NOT NULL
+      `;
+      const now = Date.now();
+      const pool: FleetToken[] = [];
+      for (const row of rows) {
+        const fleetId = fleetOfToken(row, fleetsEnabled, now);
+        if (fleetId != null) {
+          pool.push({ idToken: row.id_token, tokenType: row.token_type, fleetId });
+        }
+      }
+      return pool;
+    } catch (err) {
+      logger.error({ err }, 'Load of the fleet tokens failed, chaos runs without fleet sessions');
+      return [];
+    }
+  }
   /**
    * The cards of the depot stations' fleets with their vehicles. A failed read
    * (such as a database without the departures migration) is logged, and chaos
@@ -707,12 +808,12 @@ export class ChaosOrchestrator {
     return this.fleetTokens.get(stationId) ?? this.tokens;
   }
 
-  private applyLoaded(
-    stations: Array<{ station_id: string; ocpp_protocol: string }>,
-    tokens: DriverToken[],
-    fleetTokens: Map<string, DriverToken[]>,
-    depotStations: Map<string, DepotStation> = new Map(),
-  ): void {
+  private applyLoaded(loaded: LoadedTargets): void {
+    const { stations, tokens, fleetTokens, depotStations, fleetPool } = loaded;
+    this.freeVendStations = new Set(
+      stations.filter((s) => s.free_vend === true).map((s) => s.station_id),
+    );
+    this.fleet.setTokens(fleetPool);
     const liveIds = new Set(stations.map((s) => s.station_id));
 
     this.stationIds = stations.map((s) => s.station_id);
@@ -753,11 +854,15 @@ export class ChaosOrchestrator {
     // and migration 0001 -- plus any added at runtime via the dashboard
     // simulator toggle or POST /v1/css/stations. The orchestrator just reads
     // them to populate its in-memory action targets; no INSERT mirroring.
-    const { stations, tokens, fleetTokens, depotStations } = await this.loadStations();
-    this.applyLoaded(stations, tokens, fleetTokens, depotStations);
-
+    const loaded = await this.loadStations();
+    this.applyLoaded(loaded);
+    if (this.commandResults != null) {
+      this.stopResults = this.commandResults.onCommandResult((result) => {
+        this.onCommandResult(result);
+      });
+    }
     console.log(
-      `[chaos] Loaded ${String(stations.length)} stations and ${String(this.tokens.length)} tokens`,
+      `[chaos] Loaded ${String(loaded.stations.length)} stations, ${String(this.tokens.length)} tokens and ${String(this.fleet.size)} fleet tokens`,
     );
 
     // Start action timer
@@ -770,13 +875,7 @@ export class ChaosOrchestrator {
     this.refreshTimer = setInterval(() => {
       void (async (): Promise<void> => {
         try {
-          const loaded = await this.loadStations();
-          this.applyLoaded(
-            loaded.stations,
-            loaded.tokens,
-            loaded.fleetTokens,
-            loaded.depotStations,
-          );
+          this.applyLoaded(await this.loadStations());
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(`[chaos] Refresh failed: ${msg}`);
@@ -798,8 +897,24 @@ export class ChaosOrchestrator {
       clearInterval(this.refreshTimer);
       this.refreshTimer = null;
     }
+    if (this.stopResults != null) {
+      this.stopResults();
+      this.stopResults = null;
+    }
   }
 
+  /** A refused fleet start backs its card off and frees it at its station. */
+  private onCommandResult(result: CssCommandResult): void {
+    const refused = this.fleet.onResult(result, Date.now());
+    if (refused == null) return;
+    logger.info({ idToken: refused }, 'Fleet card refused, chaos backs off from it');
+    for (const [stationId, idToken] of this.chargingTokenByStation) {
+      if (idToken === refused) {
+        this.chargingTokenByStation.delete(stationId);
+        this.chargingStations.delete(stationId);
+      }
+    }
+  }
   // Remove a single station from in-memory caches. Used when a dispatch tick
   // discovers the css_stations row was deleted or disabled between refreshes.
   private dropStation(stationId: string): void {
@@ -944,7 +1059,7 @@ export class ChaosOrchestrator {
     }
     let params: Record<string, unknown>;
     let depotVehicle: DepotVehicle | null = null;
-
+    let fleetStart: FleetToken | null = null;
     if (depotDue) {
       const step = this.depotStepParams(stationId, action.name);
       if (step == null) {
@@ -959,11 +1074,20 @@ export class ChaosOrchestrator {
         ...this.chargingTokenByStation.values(),
         ...this.depotJourneys.heldTokens(),
       ]);
-      const available = pool.filter((t) => !busy.has(t.idToken));
-      if (available.length === 0) {
-        return; // All drivers are charging, skip
+      const fleetToken = this.freeVendStations.has(stationId)
+        ? null
+        : this.fleet.pick(protocol, busy, now);
+      let t: DriverToken;
+      if (fleetToken != null) {
+        t = fleetToken;
+        fleetStart = fleetToken;
+      } else {
+        const available = pool.filter((p) => !busy.has(p.idToken));
+        if (available.length === 0) {
+          return; // All drivers are charging, skip
+        }
+        t = pick(available);
       }
-      const t = pick(available);
       params = { evseId: 1, idToken: t.idToken, tokenType: t.tokenType };
       this.chargingStations.add(stationId);
       this.chargingTokenByStation.set(stationId, t.idToken);
@@ -975,19 +1099,22 @@ export class ChaosOrchestrator {
       }
     }
 
-    console.log(`[chaos] ${stationId} -> ${action.name}`);
-
+    const commandId = randomUUID();
+    console.log(
+      `[chaos] ${stationId} -> ${action.name}${fleetStart != null ? ` (fleet ${fleetStart.fleetId})` : ''}`,
+    );
     try {
       // Publish command directly to Redis css_commands channel
       await this.pubsub.publish(
         'css_commands',
         JSON.stringify({
-          commandId: randomUUID(),
+          commandId,
           stationId,
           action: action.name,
           params,
         }),
       );
+      if (fleetStart != null) this.fleet.trackStart(commandId, fleetStart.idToken, now);
       if (depotDue) this.recordDepotStep(stationId, action.name, params, depotVehicle, now);
       else this.journeys.record(stationId, action.name, now);
     } catch (err) {

@@ -16,6 +16,7 @@ import {
   createCircuit,
   updateCircuit,
   deleteCircuit,
+  readUnitLoadBudgets,
 } from '@evtivity/database';
 import type { CircuitChanges } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -26,7 +27,7 @@ import { authorize } from '../middleware/rbac.js';
 import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { loadTreeContext, writeStationLoadAudit } from '../lib/load-management-audit.js';
-import { stationMaxPowerKw } from '@evtivity/services/load-management.service';
+import { stationConnectedKw } from '@evtivity/services/load-management.service';
 import {
   PANEL_VOLTAGES,
   circuitConductorPhases,
@@ -540,6 +541,8 @@ export function circuitRoutes(app: FastifyInstance): void {
             panelMaxKw: panels.maxContinuousKw,
             panelOversubRatio: panels.oversubscriptionRatio,
             panelSiteId: panels.siteId,
+            panelVoltageV: panels.voltageV,
+            panelPhases: panels.phases,
           })
           .from(circuits)
           .innerJoin(panels, eq(circuits.panelId, panels.id))
@@ -560,14 +563,18 @@ export function circuitRoutes(app: FastifyInstance): void {
 
         // Get all circuits on this panel
         const panelCircuits = await db
-          .select({ id: circuits.id })
+          .select({
+            id: circuits.id,
+            voltageV: circuits.voltageV,
+            phaseConnections: circuits.phaseConnections,
+          })
           .from(circuits)
           .where(eq(circuits.panelId, circuit.panelId));
         const panelCircuitIds = panelCircuits.map((c) => c.id);
 
         // Get all stations on those circuits (including the one being assigned)
         const stationsOnPanel = await db
-          .select({ id: chargingStations.id })
+          .select({ id: chargingStations.id, circuitId: chargingStations.circuitId })
           .from(chargingStations)
           .where(
             panelCircuitIds.length > 0
@@ -586,22 +593,41 @@ export function circuitRoutes(app: FastifyInstance): void {
         }
 
         if (stationDbIds.length > 0) {
-          // Sum the maximum power of every station on this panel by the rule
-          // the allocation uses: the highest connector rating of each EVSE
-          // (the connectors of one EVSE never charge at the same time).
-          const connectorRows = await db
-            .select({
-              stationId: evses.stationId,
-              evseDbId: evses.id,
-              maxPowerKw: connectors.maxPowerKw,
-            })
-            .from(connectors)
-            .innerJoin(evses, eq(connectors.evseId, evses.id))
-            .where(inArray(evses.stationId, stationDbIds));
+          // Each station counts by the allocation's rule (the highest connector
+          // of each EVSE), each Station Unit held to its budget.
+          const [connectorRows, unitBudgets] = await Promise.all([
+            db
+              .select({
+                stationId: evses.stationId,
+                evseDbId: evses.id,
+                unitId: evses.unitId,
+                maxPowerKw: connectors.maxPowerKw,
+              })
+              .from(connectors)
+              .innerJoin(evses, eq(connectors.evseId, evses.id))
+              .where(inArray(evses.stationId, stationDbIds)),
+            readUnitLoadBudgets(stationDbIds),
+          ]);
+
+          const panelVoltageV = circuit.panelVoltageV;
+          const panelPhases = circuit.panelPhases;
+          const circuitById = new Map(panelCircuits.map((c) => [c.id, c]));
+          const stationCircuitId = new Map(stationsOnPanel.map((s) => [s.id, s.circuitId]));
+          stationCircuitId.set(stationId, body.circuitId);
 
           let totalConnectedKw = 0;
-          for (const kw of stationMaxPowerKw(connectorRows).values()) {
-            totalConnectedKw += kw;
+          for (const dbId of stationDbIds) {
+            const rows = connectorRows.filter((r) => r.stationId === dbId);
+            if (rows.length === 0) continue;
+            const stationCircuit = circuitById.get(stationCircuitId.get(dbId) ?? '');
+            totalConnectedKw += stationConnectedKw(
+              rows,
+              unitBudgets.filter((b) => b.stationId === dbId),
+              stationCircuit == null
+                ? undefined
+                : effectiveCircuitVoltageV(stationCircuit.voltageV, panelVoltageV, panelPhases),
+              circuitConductorPhases(stationCircuit?.phaseConnections, panelPhases),
+            );
           }
 
           if (totalConnectedKw > effectiveCapacityKw) {

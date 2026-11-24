@@ -320,5 +320,9 @@
   "v0.1.51": {
     "0488_release_0_1_51": "d34dc2afa88eb99fc0816caf4a45a9c29c39cb082740de26f8702e7ab1919105",
     "0489_release_0_1_51_indexes": "a28a9e2cb28051e6759d4791aca580383a8aa3f21f2f3804a311c73bda9551e7"
+  },
+  "v0.1.52": {
+    "0490_release_0_1_52": "9aa4ba6f9b3ed02a32b3fda6916c77ca50ef0fcfe6740ed30c96ce8432d842ae",
+    "0491_release_0_1_52_validate": "65a3a799d7716cf265e81aa6fe77f4b2737b6d900c87ff5aff6a21e8fda18484"
   }
 }

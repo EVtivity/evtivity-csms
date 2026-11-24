@@ -7,6 +7,13 @@ import {
   useChargingTypeLabel,
   type TariffScopeValue,
 } from '@/components/pricing/TariffScopeFields';
+import {
+  TariffCurrentLimitField,
+  TariffCurrentLimitNotEnforced,
+  TariffCurrentLimitText,
+  tariffCurrentLimitBody,
+  tariffCurrentLimitError,
+} from '@/components/pricing/TariffCurrentLimitField';
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -64,6 +71,8 @@ interface Tariff {
   chargingType?: TariffScopeValue['chargingType'];
   siteIds?: string[] | null;
   otherSiteCount?: number;
+  maxCurrentA?: number | null;
+  currentLimitNotEnforcedSiteIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -89,6 +98,7 @@ export function TariffDetail(): React.JSX.Element {
   const [idleFeePricePerMinute, setIdleFeePricePerMinute] = useState('');
   const [reservationFeePerMinute, setReservationFeePerMinute] = useState('');
   const [taxRate, setTaxRate] = useState('');
+  const [maxCurrent, setMaxCurrent] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -141,6 +151,7 @@ export function TariffDetail(): React.JSX.Element {
       restrictions?: TariffRestrictions | null;
       chargingType?: TariffScopeValue['chargingType'];
       siteIds?: string[] | null;
+      maxCurrentA?: number | null;
     }) => api.patch<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs/${tariffId ?? ''}`, body),
     onSuccess: () => {
       savedToast();
@@ -175,6 +186,7 @@ export function TariffDetail(): React.JSX.Element {
     setIdleFeePricePerMinute(tariff.idleFeePricePerMinute ?? '');
     setReservationFeePerMinute(tariff.reservationFeePerMinute ?? '');
     setTaxRate(tariff.taxRate ?? '');
+    setMaxCurrent(tariff.maxCurrentA != null ? String(tariff.maxCurrentA) : '');
     setIsActive(tariff.isActive);
     setScope({ chargingType: tariff.chargingType ?? 'both', siteIds: tariff.siteIds ?? null });
 
@@ -238,6 +250,8 @@ export function TariffDetail(): React.JSX.Element {
     if (scope.siteIds != null && scope.siteIds.length === 0) {
       errors.siteIds = t('pricing.selectSitesRequired');
     }
+    const currentError = scope.chargingType === 'dc' ? null : tariffCurrentLimitError(maxCurrent);
+    if (currentError != null) errors.maxCurrentA = t(currentError);
     return errors;
   }
 
@@ -270,6 +284,7 @@ export function TariffDetail(): React.JSX.Element {
       // A site-restricted reader sees only part of the sites and cannot save
       // (pricing writes are all-site); the sites are sent only when changed.
       chargingType: scope.chargingType,
+      maxCurrentA: tariffCurrentLimitBody(maxCurrent, scope.chargingType),
       ...(JSON.stringify(scope.siteIds) !== JSON.stringify(tariff?.siteIds ?? null)
         ? { siteIds: scope.siteIds }
         : {}),
@@ -300,6 +315,8 @@ export function TariffDetail(): React.JSX.Element {
           <CopyableId id={tariff.id} />
         </div>
       </div>
+
+      <TariffCurrentLimitNotEnforced siteIds={tariff.currentLimitNotEnforcedSiteIds} />
 
       {deleteMutation.error != null && (
         <p className="text-sm text-destructive">{getErrorMessage(deleteMutation.error, t)}</p>
@@ -482,6 +499,14 @@ export function TariffDetail(): React.JSX.Element {
                 }
                 idPrefix="edit"
                 error={hasSubmitted ? validationErrors.siteIds : undefined}
+              />
+
+              <TariffCurrentLimitField
+                value={maxCurrent}
+                onChange={setMaxCurrent}
+                chargingType={scope.chargingType}
+                idPrefix="edit"
+                showError={hasSubmitted}
               />
 
               <div className="col-span-full border-t pt-4 space-y-4">
@@ -693,6 +718,14 @@ export function TariffDetail(): React.JSX.Element {
                   />
                 </dd>
               </div>
+              {tariff.chargingType !== 'dc' && (
+                <div>
+                  <dt className="text-muted-foreground">{t('pricing.maxCurrent')}</dt>
+                  <dd className="font-medium">
+                    <TariffCurrentLimitText value={tariff.maxCurrentA} />
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt className="text-muted-foreground">
                   {t('pricing.pricePerKwh', { context: taxBasis })}

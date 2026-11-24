@@ -200,6 +200,12 @@ export const chargingStations = pgTable(
     // station; below it the session is stopped (limit 0), lowest priority
     // first. Null: no minimum.
     loadMinPowerKw: numeric('load_min_power_kw'),
+    // 'station': one load management limit for the station; 'evse': a limit per
+    // charging EVSE. Sessions on a tariff with a current limit use 'evse' too.
+    loadBalancingMode: varchar('load_balancing_mode', { length: 8 }).notNull().default('station'),
+    // Set when the station refused a per-EVSE limit: back to one station limit
+    // until cleared. Written only by lib/load-management-state.ts.
+    evseLimitsRefusedAt: timestamp('evse_limits_refused_at', { withTimezone: true }),
     circuitId: text('circuit_id'),
     securityProfile: integer('security_profile').notNull().default(1),
     pendingSecurityProfile: integer('pending_security_profile'),
@@ -252,6 +258,10 @@ export const chargingStations = pgTable(
     check(
       'charging_stations_iccid_source_check',
       sql`${table.iccidSource} IN ('reported', 'entered')`,
+    ),
+    check(
+      'charging_stations_load_balancing_mode_check',
+      sql`${table.loadBalancingMode} IN ('station', 'evse')`,
     ),
     // A pending security profile is always an upgrade.
     check(

@@ -536,7 +536,7 @@
           "datasource": { "type": "loki", "uid": "loki" },
           "targets": [
             {
-              "expr": "{service=\"worker\"} |~ \"Load management cycle failed|Depot charging plan failed|Depot plan profiles not|Load management job failed\"",
+              "expr": "{service=~\"worker|ocpp\"} |~ \"Load management cycle failed|Depot charging plan failed|Depot plan profiles not|Load management job failed|Station refused per-EVSE limits|Recording the reply on the load allocation log failed\"",
               "refId": "A",
               "datasource": { "type": "loki", "uid": "loki" },
               "maxDataPoints": 100

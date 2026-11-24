@@ -20,6 +20,7 @@ import {
   tariffs,
 } from '@evtivity/database';
 import { getUserSiteIds } from './site-access.js';
+import { unenforcedLimitSiteIds } from './tariff-limit-enforcement.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
@@ -150,21 +151,45 @@ export function tariffWithSites<T extends { id: string; siteScope: string }>(
  * `otherSiteCount` counting the rest (site isolation, P11: another site's id
  * never leaks through a company-wide pricing read).
  */
-export async function tariffViews<T extends { id: string; siteScope: string }>(
+export async function tariffViews<
+  T extends { id: string; siteScope: string; maxCurrentA?: number | null },
+>(
   request: FastifyRequest,
   rows: readonly T[],
-): Promise<Array<T & { siteIds: string[] | null; otherSiteCount: number }>> {
+): Promise<
+  Array<
+    T & {
+      siteIds: string[] | null;
+      otherSiteCount: number;
+      currentLimitNotEnforcedSiteIds: string[];
+    }
+  >
+> {
   const siteMap = await loadTariffSiteIds(
     db,
     rows.filter((r) => r.siteScope === 'selected').map((r) => r.id),
   );
   const { userId } = request.user as { userId: string };
   const visible = await getUserSiteIds(userId);
+  const unenforced = await unenforcedLimitSiteIds(
+    rows.filter((r) => r.maxCurrentA != null).map((r) => r.id),
+    visible,
+  );
   return rows.map((r) => {
-    if (r.siteScope !== 'selected') return { ...r, siteIds: null, otherSiteCount: 0 };
+    const currentLimitNotEnforcedSiteIds = unenforced.get(r.id) ?? [];
+    if (r.siteScope !== 'selected') {
+      return { ...r, siteIds: null, otherSiteCount: 0, currentLimitNotEnforcedSiteIds };
+    }
     const all = siteMap.get(r.id) ?? [];
-    if (visible == null) return { ...r, siteIds: all, otherSiteCount: 0 };
+    if (visible == null) {
+      return { ...r, siteIds: all, otherSiteCount: 0, currentLimitNotEnforcedSiteIds };
+    }
     const shown = all.filter((s) => visible.includes(s));
-    return { ...r, siteIds: shown, otherSiteCount: all.length - shown.length };
+    return {
+      ...r,
+      siteIds: shown,
+      otherSiteCount: all.length - shown.length,
+      currentLimitNotEnforcedSiteIds,
+    };
   });
 }

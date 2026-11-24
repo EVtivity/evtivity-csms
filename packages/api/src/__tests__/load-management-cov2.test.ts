@@ -98,8 +98,14 @@ vi.mock('@evtivity/database', () => ({
   },
   siteLoadManagement: {},
   chargingStations: {},
+  connectors: {},
+  evses: {},
   loadAllocationLog: {},
   markSitePlanStale: vi.fn().mockResolvedValue(true),
+  client: {},
+  clearEvseLimitsRefused: vi.fn().mockResolvedValue(false),
+  toIsoOrNull: (value: Date | string | null) =>
+    value == null ? null : new Date(value).toISOString(),
   isFleetChargingEnabled: () => isFleetChargingEnabledMock() as unknown,
   isFleetEnabled: () => isFleetEnabledMock() as unknown,
 }));
@@ -141,10 +147,18 @@ vi.mock('@evtivity/services/load-management.service', () => ({
     const hierarchy = await svc.buildSiteHierarchy(siteId, status.stations);
     const allocations =
       hierarchy.length > 0 ? svc.computeHierarchicalAllocation(hierarchy, strategy as never) : [];
-    return { status, hierarchy, managed: [], reservedKw: new Map(), allocations };
+    return {
+      status,
+      hierarchy,
+      managed: [],
+      reservedKw: new Map(),
+      allocations,
+      evseLimits: new Map(),
+    };
   }),
   clearLoadManagementProfiles: vi.fn().mockResolvedValue(true),
   parseAppliedAllocations: vi.fn(() => null),
+  stationConnectedKw: vi.fn(() => 0),
   // Without a supply credit the capacity is the rating less the margin.
   nodeCapacityKw: vi.fn(
     (n: { maxContinuousKw: number; safetyMarginKw: number; supplyCreditKw?: number }) =>
@@ -359,6 +373,7 @@ describe('Load management routes (hierarchy and site scope)', () => {
       allocations: [{ stationDbId: 'sit_000000000001', allocatedKw: 30 }] as never,
       baseKw: new Map(),
       creditValidToMs: null,
+      evseLimits: new Map(),
     }));
     setupDbResults([{ strategy: 'equal_share', isEnabled: true, departureBufferMinutes: 30 }]);
 

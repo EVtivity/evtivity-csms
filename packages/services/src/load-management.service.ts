@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, gte, sql, asc, desc, inArray } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { eq, and, gte, sql, asc, desc, inArray, isNull } from 'drizzle-orm';
 import {
   db,
   siteLoadManagement,
@@ -13,7 +14,6 @@ import {
   meterValues,
   connectors,
   evses,
-  loadAllocationLog,
   evChargingNeeds,
   stationConfigurations,
   chargingProfiles,
@@ -22,7 +22,11 @@ import {
   siteEnergyAssets,
   energyAssetReadings,
   sites,
+  sessionTariffSegments,
+  stationUnitLoadBudgets,
+  claimAndLogAllocations,
 } from '@evtivity/database';
+import type { LoadAllocationHeader } from '@evtivity/database';
 import type {
   EnergyAssetSupply,
   EnergyAssetTelemetry,
@@ -32,11 +36,12 @@ import type {
   SimulatedBatteryDispatch,
   TransformerKind,
 } from '@evtivity/lib';
-import type { OcppCommand, PubSubClient } from '@evtivity/lib';
+import type { PubSubClient } from '@evtivity/lib';
 import {
   circuitConductorPhases,
   conductorFactor,
   createLogger,
+  evseChargingKind,
   effectiveCircuitVoltageV,
   energyAssetReadingFreshUntilMs,
   energyAssetSupply,
@@ -46,6 +51,31 @@ import {
   simulatedSolarReading,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
+import {
+  computeEvseLimits,
+  effectiveBalancingMode,
+  stationPhaseWeights,
+  stationProfileWatts,
+  unitBudgetKw,
+} from './evse-limits.js';
+import type { EvseLimitResult } from './evse-limits.js';
+import {
+  appliedEvseLimit,
+  buildEvseLimitProfile,
+  evseLimitCommands,
+  evseLimitReleases,
+  orderEvseLimitCommands,
+  parseAppliedEvseLimits,
+} from './evse-limit-profiles.js';
+import type {
+  AppliedEvseLimit,
+  EvseLimitCommand,
+  EvseLimitRelease,
+} from './evse-limit-profiles.js';
+import { phaseCountOf } from '@evtivity/lib/ev-phases';
+import { allocationSendEntries } from './load-allocation-entries.js';
+import type { LoadAllocationReason } from '@evtivity/lib/load-allocation-reasons';
 
 const logger = createLogger('load-management');
 
@@ -53,6 +83,37 @@ export interface PhaseLoad {
   L1: number;
   L2: number;
   L3: number;
+}
+
+export type LoadBalancingMode = 'station' | 'evse';
+
+/** An active session of a station, as the per-EVSE split reads it. */
+export interface EvseSessionInfo {
+  sessionId: string;
+  transactionId: string;
+  evseDbId: string;
+  evseNumber: number;
+  unitId: string | null;
+  kind: 'ac' | 'dc';
+  /** Highest connector rating of the EVSE in kW; null: unrated. */
+  ratingKw: number | null;
+  /** Highest connector current rating of the EVSE in A; null: unrated. */
+  ratingA: number | null;
+  tariffId: string | null;
+  /** The tariff current limit in force, A per phase: the open segment's, else the session's. */
+  tariffMaxCurrentA: number | null;
+  /** The phases the session charges on (L1, L1L2L3, ...); null: not known. */
+  phases: string | null;
+  startedAt: Date;
+}
+
+/** The budget of one Station Unit: AC in A per phase on 1 or 3 phases, DC in kW. */
+export interface UnitBudgetInfo {
+  unitId: string;
+  kind: 'ac' | 'dc';
+  maxCurrentA: number | null;
+  phases: number | null;
+  maxPowerKw: number | null;
 }
 
 export interface StationPowerInfo {
@@ -91,6 +152,20 @@ export interface StationPowerInfo {
   drawMeasured?: boolean;
   /** Local generation the station reported (OCPP 2.1 K27), kW; set by `buildSiteHierarchy`. */
   localGenerationKw?: number;
+  /** The operator's balancing mode; 'evse' splits the station limit per charging EVSE. */
+  balancingMode?: LoadBalancingMode;
+  /** When the station refused a per-EVSE limit; set: one station limit only. */
+  evseLimitsRefusedAt?: Date | null;
+  /** Voltage of the station's circuit (V, phase to neutral on a 3-phase panel); set by `buildSiteHierarchy`. */
+  circuitVoltageV?: number;
+  /** Conductor phases of the station's circuit (1 to 3); set by `buildSiteHierarchy`. */
+  circuitPhases?: number;
+  /** Active sessions of the station, one per charging EVSE. */
+  sessions?: EvseSessionInfo[];
+  /** Budgets of the station's units; a unit without one adds no constraint. */
+  unitBudgets?: UnitBudgetInfo[];
+  /** The station groups its EVSEs in units (physical charger boxes). */
+  usesUnits?: boolean;
 }
 
 export type ChargingRateUnit = 'A' | 'W';
@@ -149,6 +224,10 @@ export interface AllocationResult {
   stationDbId: string;
   allocatedKw: number;
   currentDrawKw: number;
+  /** What set the limit, for the allocation log; absent: not known. */
+  limitedBy?: LoadAllocationReason;
+  /** The station's share of the limit per phase when split per phase (`stationPhaseWeights`). */
+  phaseWeights?: PhaseLoad;
 }
 
 /** What the depot plan fixes for the current slot (departure-aware sites). */
@@ -361,6 +440,153 @@ export function stationMaxPowerKw(
   return result;
 }
 
+/**
+ * Connected power of one station from its connector rows: per unit with a
+ * budget the lower of its EVSEs' summed ratings and the budget
+ * (`unitBudgetKw`), every other EVSE at its highest connector rating. 0 when
+ * an EVSE has no rating, as `stationMaxPowerKw`.
+ */
+export function stationConnectedKw(
+  connectorRows: ReadonlyArray<{
+    evseDbId: string;
+    unitId?: string | null;
+    maxPowerKw: string | null;
+  }>,
+  unitBudgets: readonly UnitBudgetInfo[],
+  circuitVoltageV: number | undefined,
+  conductorPhases: number,
+): number {
+  const evses = new Map<string, { unitId: string | null; kw: number | null }>();
+  for (const row of connectorRows) {
+    const rating = row.maxPowerKw != null ? Number(row.maxPowerKw) : null;
+    const known = rating != null && rating > 0 ? rating : null;
+    const current = evses.get(row.evseDbId);
+    if (current === undefined) {
+      evses.set(row.evseDbId, { unitId: row.unitId ?? null, kw: known });
+    } else if (known != null && (current.kw == null || known > current.kw)) {
+      current.kw = known;
+    }
+  }
+  const budgets = new Map(unitBudgets.map((b) => [b.unitId, b]));
+  const unitTotals = new Map<string, number>();
+  let total = 0;
+  for (const evse of evses.values()) {
+    if (evse.kw == null) return 0;
+    if (evse.unitId != null && budgets.has(evse.unitId)) {
+      unitTotals.set(evse.unitId, (unitTotals.get(evse.unitId) ?? 0) + evse.kw);
+    } else {
+      total += evse.kw;
+    }
+  }
+  for (const [unitId, unitKw] of unitTotals) {
+    const budget = budgets.get(unitId);
+    const capKw = budget == null ? null : unitBudgetKw(budget, circuitVoltageV, conductorPhases);
+    total += capKw == null ? unitKw : Math.min(unitKw, capKw);
+  }
+  return total;
+}
+
+const positiveOrNull = (value: number | string | null | undefined): number | null => {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/**
+ * The active sessions of each station with what the per-EVSE split needs: the
+ * EVSE's number, unit, kind and ratings, the tariff limit in force (the open
+ * tariff segment's, else the session snapshot) and the phases. A session
+ * without an EVSE is left out: it cannot get an EVSE limit.
+ */
+export function evseSessions(
+  connectorRows: ReadonlyArray<{
+    stationId: string;
+    evseDbId: string;
+    evseNumber?: number | null;
+    unitId?: string | null;
+    connectorType?: string | null;
+    maxPowerKw: string | null;
+    maxCurrentAmps?: number | string | null;
+  }>,
+  sessionRows: ReadonlyArray<{
+    stationId: string;
+    sessionId?: string;
+    transactionId?: string;
+    evseDbId?: string | null;
+    startedAt?: Date | null;
+    chargingKind?: string | null;
+    evPhases?: string | null;
+    tariffId?: string | null;
+    tariffMaxCurrentA?: number | string | null;
+    segmentId?: number | null;
+    segmentTariffId?: string | null;
+    segmentMaxCurrentA?: number | string | null;
+  }>,
+): Map<string, EvseSessionInfo[]> {
+  const evseInfo = new Map<
+    string,
+    {
+      number: number;
+      unitId: string | null;
+      connectors: Array<{ connectorType: string | null; maxPowerKw: string | null }>;
+      ratingKw: number | null;
+      ratingA: number | null;
+    }
+  >();
+  for (const row of connectorRows) {
+    const info = evseInfo.get(row.evseDbId) ?? {
+      number: row.evseNumber ?? 0,
+      unitId: row.unitId ?? null,
+      connectors: [],
+      ratingKw: null,
+      ratingA: null,
+    };
+    info.connectors.push({ connectorType: row.connectorType ?? null, maxPowerKw: row.maxPowerKw });
+    const kw = positiveOrNull(row.maxPowerKw);
+    if (kw != null && (info.ratingKw == null || kw > info.ratingKw)) info.ratingKw = kw;
+    const amps = positiveOrNull(row.maxCurrentAmps);
+    if (amps != null && (info.ratingA == null || amps > info.ratingA)) info.ratingA = amps;
+    evseInfo.set(row.evseDbId, info);
+  }
+  const result = new Map<string, EvseSessionInfo[]>();
+  for (const row of sessionRows) {
+    if (row.sessionId == null || row.evseDbId == null || row.transactionId == null) continue;
+    const evse = evseInfo.get(row.evseDbId);
+    const evseKind = evse != null ? evseChargingKind(evse.connectors) : null;
+    const kind: 'ac' | 'dc' =
+      row.chargingKind === 'ac' || row.chargingKind === 'dc'
+        ? row.chargingKind
+        : evseKind === 'dc'
+          ? 'dc'
+          : 'ac';
+    const fromSegment = row.segmentId != null;
+    const list = result.get(row.stationId) ?? [];
+    list.push({
+      sessionId: row.sessionId,
+      transactionId: row.transactionId,
+      evseDbId: row.evseDbId,
+      evseNumber: evse?.number ?? 0,
+      unitId: evse?.unitId ?? null,
+      kind,
+      ratingKw: evse?.ratingKw ?? null,
+      ratingA: evse?.ratingA ?? null,
+      tariffId: (fromSegment ? row.segmentTariffId : row.tariffId) ?? null,
+      tariffMaxCurrentA: positiveOrNull(
+        fromSegment ? row.segmentMaxCurrentA : row.tariffMaxCurrentA,
+      ),
+      phases: row.evPhases ?? null,
+      startedAt: row.startedAt ?? new Date(0),
+    });
+    result.set(row.stationId, list);
+  }
+  for (const list of result.values()) {
+    list.sort(
+      (a, b) => a.startedAt.getTime() - b.startedAt.getTime() || a.evseNumber - b.evseNumber,
+    );
+  }
+  return result;
+}
+
 export async function getSitePowerStatus(siteId: string): Promise<{
   totalDrawKw: number;
   stations: StationPowerInfo[];
@@ -377,6 +603,9 @@ export async function getSitePowerStatus(siteId: string): Promise<{
       loadPriority: chargingStations.loadPriority,
       loadMinPowerKw: chargingStations.loadMinPowerKw,
       circuitId: chargingStations.circuitId,
+      loadBalancingMode: chargingStations.loadBalancingMode,
+      evseLimitsRefusedAt: chargingStations.evseLimitsRefusedAt,
+      usesUnits: chargingStations.usesUnits,
     })
     .from(chargingStations)
     .where(and(eq(chargingStations.siteId, siteId), isOperatorStation()));
@@ -393,71 +622,122 @@ export async function getSitePowerStatus(siteId: string): Promise<{
   // readings are read once and partitioned in JS into overall vs
   // per-phase below; previously this was two separate SELECTs against
   // the same measurand which doubled the meter_values index pressure.
-  const [connectorRows, activeSessions, allPowerValues, chargingNeedsRows, rateUnitRows] =
-    await Promise.all([
-      db
-        .select({
-          stationId: evses.stationId,
-          evseDbId: evses.id,
-          maxPowerKw: connectors.maxPowerKw,
-        })
-        .from(connectors)
-        .innerJoin(evses, eq(connectors.evseId, evses.id))
-        .where(inArray(evses.stationId, stationDbIds)),
-      db
-        .select({
-          stationId: chargingSessions.stationId,
-        })
-        .from(chargingSessions)
-        .where(
-          and(
-            eq(chargingSessions.status, 'active'),
-            inArray(chargingSessions.stationId, stationDbIds),
-          ),
+  const [
+    connectorRows,
+    activeSessions,
+    allPowerValues,
+    chargingNeedsRows,
+    rateUnitRows,
+    unitBudgetRows,
+  ] = await Promise.all([
+    db
+      .select({
+        stationId: evses.stationId,
+        evseDbId: evses.id,
+        evseNumber: evses.evseId,
+        unitId: evses.unitId,
+        connectorType: connectors.connectorType,
+        maxPowerKw: connectors.maxPowerKw,
+        maxCurrentAmps: connectors.maxCurrentAmps,
+      })
+      .from(connectors)
+      .innerJoin(evses, eq(connectors.evseId, evses.id))
+      .where(inArray(evses.stationId, stationDbIds)),
+    db
+      .select({
+        stationId: chargingSessions.stationId,
+        sessionId: chargingSessions.id,
+        transactionId: chargingSessions.transactionId,
+        evseDbId: chargingSessions.evseId,
+        startedAt: chargingSessions.startedAt,
+        chargingKind: chargingSessions.chargingKind,
+        evPhases: chargingSessions.evPhases,
+        tariffId: chargingSessions.tariffId,
+        tariffMaxCurrentA: chargingSessions.tariffMaxCurrentA,
+        segmentId: sessionTariffSegments.id,
+        segmentTariffId: sessionTariffSegments.tariffId,
+        segmentMaxCurrentA: sessionTariffSegments.maxCurrentA,
+      })
+      .from(chargingSessions)
+      .leftJoin(
+        sessionTariffSegments,
+        and(
+          eq(sessionTariffSegments.sessionId, chargingSessions.id),
+          isNull(sessionTariffSegments.endedAt),
         ),
-      db
-        .select({
-          stationId: meterValues.stationId,
-          evseDbId: meterValues.evseId,
-          value: meterValues.value,
-          unit: meterValues.unit,
-          phase: meterValues.phase,
-        })
-        .from(meterValues)
-        .where(
-          and(
-            eq(meterValues.measurand, 'Power.Active.Import'),
-            gte(meterValues.timestamp, since),
-            inArray(meterValues.stationId, stationDbIds),
-          ),
-        )
-        .orderBy(desc(meterValues.timestamp)),
-      db
-        .select({
-          stationId: evChargingNeeds.stationId,
-          departureTime: evChargingNeeds.departureTime,
-        })
-        .from(evChargingNeeds)
-        .where(inArray(evChargingNeeds.stationId, stationDbIds)),
-      db
-        .select({
-          stationId: stationConfigurations.stationId,
-          variable: stationConfigurations.variable,
-          value: stationConfigurations.value,
-        })
-        .from(stationConfigurations)
-        .where(
-          and(
-            inArray(stationConfigurations.stationId, stationDbIds),
-            inArray(stationConfigurations.variable, [
-              ...RATE_UNIT_VARIABLES,
-              MAX_EXTERNAL_CONSTRAINTS_ID_VARIABLE,
-              ...PROFILE_STACK_LEVEL_VARIABLES,
-            ]),
-            eq(stationConfigurations.attributeType, 'Actual'),
-          ),
+      )
+      .where(
+        and(
+          eq(chargingSessions.status, 'active'),
+          inArray(chargingSessions.stationId, stationDbIds),
         ),
-    ]);
+      ),
+    db
+      .select({
+        stationId: meterValues.stationId,
+        evseDbId: meterValues.evseId,
+        value: meterValues.value,
+        unit: meterValues.unit,
+        phase: meterValues.phase,
+      })
+      .from(meterValues)
+      .where(
+        and(
+          eq(meterValues.measurand, 'Power.Active.Import'),
+          gte(meterValues.timestamp, since),
+          inArray(meterValues.stationId, stationDbIds),
+        ),
+      )
+      .orderBy(desc(meterValues.timestamp)),
+    db
+      .select({
+        stationId: evChargingNeeds.stationId,
+        departureTime: evChargingNeeds.departureTime,
+      })
+      .from(evChargingNeeds)
+      .where(inArray(evChargingNeeds.stationId, stationDbIds)),
+    db
+      .select({
+        stationId: stationConfigurations.stationId,
+        variable: stationConfigurations.variable,
+        value: stationConfigurations.value,
+      })
+      .from(stationConfigurations)
+      .where(
+        and(
+          inArray(stationConfigurations.stationId, stationDbIds),
+          inArray(stationConfigurations.variable, [
+            ...RATE_UNIT_VARIABLES,
+            MAX_EXTERNAL_CONSTRAINTS_ID_VARIABLE,
+            ...PROFILE_STACK_LEVEL_VARIABLES,
+          ]),
+          eq(stationConfigurations.attributeType, 'Actual'),
+        ),
+      ),
+    db
+      .select({
+        stationId: stationUnitLoadBudgets.stationId,
+        unitId: stationUnitLoadBudgets.unitId,
+        kind: stationUnitLoadBudgets.kind,
+        maxCurrentA: stationUnitLoadBudgets.maxCurrentA,
+        phases: stationUnitLoadBudgets.phases,
+        maxPowerKw: stationUnitLoadBudgets.maxPowerKw,
+      })
+      .from(stationUnitLoadBudgets)
+      .where(inArray(stationUnitLoadBudgets.stationId, stationDbIds)),
+  ]);
+  const unitBudgetsByStation = new Map<string, UnitBudgetInfo[]>();
+  for (const row of unitBudgetRows) {
+    const list = unitBudgetsByStation.get(row.stationId) ?? [];
+    list.push({
+      unitId: row.unitId,
+      kind: row.kind === 'dc' ? 'dc' : 'ac',
+      maxCurrentA: positiveOrNull(row.maxCurrentA),
+      phases: row.phases,
+      maxPowerKw: positiveOrNull(row.maxPowerKw),
+    });
+    unitBudgetsByStation.set(row.stationId, list);
+  }
   const reportedUnits = new Map<string, string[]>();
   const maxExternalIds = new Map<string, string>();
   const maxStackLevels = new Map<string, number>();
@@ -486,6 +766,7 @@ export async function getSitePowerStatus(siteId: string): Promise<{
   const stationMaxPower = stationMaxPowerKw(connectorRows);
 
   const activeStationIds = new Set(activeSessions.map((s) => s.stationId));
+  const sessionsByStation = evseSessions(connectorRows, activeSessions);
 
   // Most recent power reading per EVSE, summed per station. A reading without
   // an EVSE is the station total and counts only when the station sent no
@@ -567,6 +848,11 @@ export async function getSitePowerStatus(siteId: string): Promise<{
       maxStackLevel: maxStackLevels.get(station.id) ?? null,
       evseDrawKw: Object.fromEntries(evsePower.get(station.id) ?? []),
       drawMeasured: stationPower.has(station.id),
+      balancingMode: station.loadBalancingMode === 'evse' ? 'evse' : 'station',
+      evseLimitsRefusedAt: station.evseLimitsRefusedAt ?? null,
+      sessions: sessionsByStation.get(station.id) ?? [],
+      unitBudgets: unitBudgetsByStation.get(station.id) ?? [],
+      usesUnits: station.usesUnits,
     };
   });
 
@@ -1464,10 +1750,17 @@ export async function buildSiteHierarchyWithAssets(
       circuit.phaseConnections,
       parentPanel?.phases ?? 1,
     );
+    const circuitVoltageV = effectiveCircuitVoltageV(
+      circuit.voltageV,
+      parentPanel?.voltageV ?? 240,
+      parentPanel?.phases ?? 1,
+    );
     for (const station of circuitStations) {
       if (station.supportedRateUnits != null && station.supportedRateUnits.length > 0) {
         station.rateUnit = chargingRateUnitFor(station.supportedRateUnits, conductorPhases);
       }
+      station.circuitVoltageV = circuitVoltageV;
+      station.circuitPhases = conductorPhases;
     }
 
     const node: HierarchyNode = {
@@ -1484,11 +1777,7 @@ export async function buildSiteHierarchyWithAssets(
       breakerRatingAmps: circuit.breakerRatingAmps,
       // A circuit can run below its single-phase panel's voltage (a 120 V
       // branch of a 240 V split-phase panel): limits in A use it.
-      voltageV: effectiveCircuitVoltageV(
-        circuit.voltageV,
-        parentPanel?.voltageV ?? 240,
-        parentPanel?.phases ?? 1,
-      ),
+      voltageV: circuitVoltageV,
       oversubscriptionRatio: 1.0,
       phaseConnections: circuit.phaseConnections,
       phaseLoad: null,
@@ -1704,6 +1993,81 @@ function byPriority(stations: readonly StationPowerInfo[]): StationPowerInfo[] {
     .map((entry) => entry.station);
 }
 
+/**
+ * Power in kW one AC session draws at `amps` per phase on the station's
+ * circuit: the session's own phases on a three-phase circuit (unknown counts
+ * on all of them), else the circuit's conductors. Null without a circuit.
+ */
+export function acSessionKwAt(
+  station: Pick<StationPowerInfo, 'circuitVoltageV' | 'circuitPhases'>,
+  phases: string | null,
+  amps: number,
+): number | null {
+  const voltageV = station.circuitVoltageV;
+  if (voltageV == null || !(voltageV > 0)) return null;
+  const circuitPhases = station.circuitPhases ?? 1;
+  const sessionPhases = phaseCountOf(phases);
+  const factor =
+    circuitPhases >= 3 && sessionPhases != null ? sessionPhases : conductorFactor(circuitPhases);
+  return (amps * voltageV * factor) / 1000;
+}
+
+/**
+ * The most a station's sessions can draw under their tariff current limits and
+ * unit budgets: the sum over its sessions of the EVSE rating (else the station
+ * maximum), held to the tariff limit of an AC session, with the sessions of a
+ * unit with a budget held to that budget together. Undefined while no session
+ * has a limit or a budgeted unit, so such a station allocates as before.
+ */
+export function sessionCapKw(station: StationPowerInfo): number | undefined {
+  const sessions = station.sessions ?? [];
+  const budgets = new Map((station.unitBudgets ?? []).map((b) => [b.unitId, b]));
+  const inBudget = (s: EvseSessionInfo): boolean => s.unitId != null && budgets.has(s.unitId);
+  if (!sessions.some((s) => (s.kind === 'ac' && s.tariffMaxCurrentA != null) || inBudget(s))) {
+    return undefined;
+  }
+  let total = 0;
+  const unitTotals = new Map<string, number>();
+  for (const session of sessions) {
+    const rating =
+      session.ratingKw ?? (station.maxPowerKw > 0 ? station.maxPowerKw : Number.POSITIVE_INFINITY);
+    let kw = rating;
+    if (session.kind === 'ac' && session.tariffMaxCurrentA != null) {
+      const capKw = acSessionKwAt(station, session.phases, session.tariffMaxCurrentA);
+      if (capKw != null) kw = Math.min(kw, capKw);
+    }
+    if (session.unitId != null && budgets.has(session.unitId)) {
+      unitTotals.set(session.unitId, (unitTotals.get(session.unitId) ?? 0) + kw);
+    } else {
+      total += kw;
+    }
+  }
+  for (const [unitId, unitKw] of unitTotals) {
+    const budget = budgets.get(unitId);
+    const capKw =
+      budget == null
+        ? null
+        : unitBudgetKw(budget, station.circuitVoltageV, station.circuitPhases ?? 1);
+    total += capKw == null ? unitKw : Math.min(unitKw, capKw);
+  }
+  return Number.isFinite(total) ? total : undefined;
+}
+
+/** The most a station takes: its maximum power, held to its sessions' tariff limits. */
+export function stationDemandLimitKw(station: StationPowerInfo): number {
+  const cap = sessionCapKw(station);
+  const max = station.maxPowerKw > 0 ? station.maxPowerKw : Number.POSITIVE_INFINITY;
+  const limit = cap != null ? Math.min(max, cap) : max;
+  return Number.isFinite(limit) ? limit : 0;
+}
+
+// The upper bound of a station in the equal share: its demand limit, else
+// (unknown maximum, no capped session) the equal share.
+function stationHiKw(station: StationPowerInfo, unknownCap: number): number {
+  const limit = stationDemandLimitKw(station);
+  return limit > 0 ? limit : unknownCap;
+}
+
 // A station's minimum, never above its known maximum.
 function stationMinKw(station: StationPowerInfo): number {
   const min = Math.max(0, station.minPowerKw);
@@ -1758,13 +2122,38 @@ function admitByMinimum(
   return { admitted, stopped };
 }
 
-function toResult(station: StationPowerInfo, allocatedKw: number): AllocationResult {
+function toResult(
+  station: StationPowerInfo,
+  allocatedKw: number,
+  limitedBy?: LoadAllocationReason,
+): AllocationResult {
   return {
     stationId: station.stationId,
     stationDbId: station.id,
     allocatedKw,
     currentDrawKw: station.currentDrawKw,
+    ...(limitedBy != null ? { limitedBy } : {}),
   };
+}
+
+/**
+ * What holds a station at its demand limit: its own maximum, or its sessions'
+ * tariff current limits, or a unit budget when the budgets hold it lower.
+ */
+export function demandLimitReason(station: StationPowerInfo): LoadAllocationReason {
+  const max = station.maxPowerKw > 0 ? station.maxPowerKw : Number.POSITIVE_INFINITY;
+  const cap = sessionCapKw(station);
+  if (cap == null || cap >= max - EPSILON_KW) return 'station_max';
+  const tariffOnly = sessionCapKw({ ...station, unitBudgets: [] });
+  return tariffOnly != null && tariffOnly <= cap + EPSILON_KW ? 'tariff_limit' : 'unit_budget';
+}
+
+// A station's share of a circuit: held by its demand limit when it got all of
+// it, else by the circuit's capacity.
+function shareReason(station: StationPowerInfo, kw: number, hi: number): LoadAllocationReason {
+  return stationDemandLimitKw(station) > 0 && kw >= hi - EPSILON_KW
+    ? demandLimitReason(station)
+    : 'circuit_limit';
 }
 
 /**
@@ -1783,16 +2172,17 @@ export function computeEqualShareAllocation(
   const available = Math.max(0, availableKw);
   const { admitted, stopped } = admitByMinimum(active, available);
   const unknownCap = admitted.length > 0 ? available / admitted.length : 0;
-  const levels = waterFill(
-    admitted.map((s) => {
-      const lo = stationMinKw(s);
-      return { lo, hi: Math.max(lo, s.maxPowerKw > 0 ? s.maxPowerKw : unknownCap) };
-    }),
-    available,
-  );
+  const bounds = admitted.map((s) => {
+    const lo = stationMinKw(s);
+    return { lo, hi: Math.max(lo, stationHiKw(s, unknownCap)) };
+  });
+  const levels = waterFill(bounds, available);
   return [
-    ...admitted.map((s, i) => toResult(s, levels[i] ?? 0)),
-    ...stopped.map((s) => toResult(s, 0)),
+    ...admitted.map((s, i) => {
+      const kw = levels[i] ?? 0;
+      return toResult(s, kw, shareReason(s, kw, bounds[i]?.hi ?? 0));
+    }),
+    ...stopped.map((s) => toResult(s, 0, 'min_power_stop')),
   ];
 }
 
@@ -1812,6 +2202,7 @@ export function computePriorityAllocation(
   const { admitted, stopped } = admitByMinimum(active, available);
 
   const allocated = new Map(admitted.map((s) => [s.id, stationMinKw(s)]));
+  const hiById = new Map<string, number>();
   let remaining = available - [...allocated.values()].reduce((sum, v) => sum + v, 0);
 
   const priorityGroups = new Map<number, StationPowerInfo[]>();
@@ -1825,20 +2216,24 @@ export function computePriorityAllocation(
     const groupMin = group.reduce((sum, s) => sum + (allocated.get(s.id) ?? 0), 0);
     const budget = Math.max(0, remaining) + groupMin;
     const unknownCap = budget / group.length;
-    const levels = waterFill(
-      group.map((s) => {
-        const lo = stationMinKw(s);
-        return { lo, hi: Math.max(lo, s.maxPowerKw > 0 ? s.maxPowerKw : unknownCap) };
-      }),
-      budget,
-    );
-    group.forEach((s, i) => allocated.set(s.id, levels[i] ?? 0));
+    const bounds = group.map((s) => {
+      const lo = stationMinKw(s);
+      return { lo, hi: Math.max(lo, stationHiKw(s, unknownCap)) };
+    });
+    const levels = waterFill(bounds, budget);
+    group.forEach((s, i) => {
+      allocated.set(s.id, levels[i] ?? 0);
+      hiById.set(s.id, bounds[i]?.hi ?? 0);
+    });
     remaining = budget - levels.reduce((sum, v) => sum + v, 0);
   }
 
   return [
-    ...admitted.map((s) => toResult(s, allocated.get(s.id) ?? 0)),
-    ...stopped.map((s) => toResult(s, 0)),
+    ...admitted.map((s) => {
+      const kw = allocated.get(s.id) ?? 0;
+      return toResult(s, kw, shareReason(s, kw, hiById.get(s.id) ?? 0));
+    }),
+    ...stopped.map((s) => toResult(s, 0, 'min_power_stop')),
   ];
 }
 
@@ -1846,11 +2241,13 @@ export function computePriorityAllocation(
  * Bring the allocations of `entries` down to `targetKw` in total. Above their
  * minimums they shrink proportionally; when the minimums alone exceed the
  * target, the lowest priority stations stop first (allocation 0). With no
- * minimums this is a proportional scale.
+ * minimums this is a proportional scale. A cut station takes `reason`, a
+ * stopped one `min_power_stop`.
  */
 export function reduceAllocations(
   entries: ReadonlyArray<{ station: StationPowerInfo; alloc: AllocationResult }>,
   targetKw: number,
+  reason: LoadAllocationReason = 'circuit_limit',
 ): void {
   const target = Math.max(0, targetKw);
   const live = entries.filter((e) => e.alloc.allocatedKw > 0);
@@ -1868,6 +2265,7 @@ export function reduceAllocations(
     minTotal -= minOf(entry);
     total -= entry.alloc.allocatedKw;
     entry.alloc.allocatedKw = 0;
+    entry.alloc.limitedBy = 'min_power_stop';
     keep.delete(entry);
   }
   if (total <= target + EPSILON_KW) return;
@@ -1878,7 +2276,9 @@ export function reduceAllocations(
   const factor = extra > 0 ? Math.max(0, target - (total - extra)) / extra : 0;
   kept.forEach((e, i) => {
     const min = mins[i] ?? 0;
-    e.alloc.allocatedKw = min + (e.alloc.allocatedKw - min) * factor;
+    const kw = min + (e.alloc.allocatedKw - min) * factor;
+    if (kw < e.alloc.allocatedKw - EPSILON_KW) e.alloc.limitedBy = reason;
+    e.alloc.allocatedKw = kw;
   });
 }
 
@@ -2000,6 +2400,12 @@ export function computeHierarchicalAllocation(
   const effective = new Map<string, StationPowerInfo>();
   const effectiveStation = (station: StationPowerInfo): StationPowerInfo =>
     effective.get(station.id) ?? station;
+  // The phase shares of a station split per phase: only a station alone on a
+  // three-phase circuit, so its circuit's phases are its own.
+  const splitWeights = (circuit: HierarchyNode, station: StationPowerInfo): PhaseLoad | null =>
+    circuit.stations.length === 1 && getCircuitPhases(circuit.phaseConnections).length === 3
+      ? stationPhaseWeights(effectiveStation(station))
+      : null;
 
   // Pass 1: Allocate within each circuit
   function allocateCircuit(circuit: HierarchyNode): void {
@@ -2020,7 +2426,11 @@ export function computeHierarchicalAllocation(
       const kw = Math.max(0, plannedKw.get(station.id) ?? 0);
       return {
         station: raised,
-        alloc: toResult(station, station.maxPowerKw > 0 ? Math.min(kw, station.maxPowerKw) : kw),
+        alloc: toResult(
+          station,
+          station.maxPowerKw > 0 ? Math.min(kw, station.maxPowerKw) : kw,
+          'depot_plan',
+        ),
       };
     });
     // A plan read before a capacity change can ask for more than the circuit holds.
@@ -2059,6 +2469,22 @@ export function computeHierarchicalAllocation(
         allocationMap.set(alloc.stationDbId, alloc);
       }
     }
+    // A station split per phase keeps each phase within a third of the
+    // circuit, its breaker per phase.
+    const [lone] = circuit.stations;
+    const weights = lone != null ? splitWeights(circuit, lone) : null;
+    const loneAlloc = lone != null ? allocationMap.get(lone.id) : undefined;
+    if (lone != null && weights != null && loneAlloc != null) {
+      const top = Math.max(weights.L1, weights.L2, weights.L3);
+      const phaseCapKw = top > 0 ? capacity / 3 / top : capacity;
+      if (loneAlloc.allocatedKw > phaseCapKw + EPSILON_KW) {
+        reduceAllocations(
+          [{ station: effectiveStation(lone), alloc: loneAlloc }],
+          phaseCapKw,
+          'circuit_limit',
+        );
+      }
+    }
   }
 
   // Station allocations below a panel, in kW at the panel voltage: each
@@ -2088,6 +2514,8 @@ export function computeHierarchicalAllocation(
     // A panel or a transformer: its capacity plus any supply credit
     // (`nodeCapacityKw`), less every fixed load below it.
     const panelAvailable = Math.max(0, nodeCapacityKw(panel) - weightedFixedKw(panel, reservedKw));
+    const nodeReason: LoadAllocationReason =
+      panel.type === 'transformer' ? 'transformer_limit' : 'panel_limit';
     // Without lower-voltage circuits the weighted demand is the plain total
     // and one cut fits. With them, a cut changes the mix, so measure again.
     for (let attempt = 0; attempt < 10; attempt++) {
@@ -2095,7 +2523,7 @@ export function computeHierarchicalAllocation(
       if (stationDemand <= panelAvailable + EPSILON_KW || stationDemand <= 0) break;
       const entries = entriesUnder(panel, null);
       const total = entries.reduce((sum, e) => sum + e.alloc.allocatedKw, 0);
-      reduceAllocations(entries, (total * panelAvailable) / stationDemand);
+      reduceAllocations(entries, (total * panelAvailable) / stationDemand, nodeReason);
     }
 
     // For three-phase panels, check per-phase constraints on the scaled
@@ -2121,7 +2549,7 @@ export function computeHierarchicalAllocation(
           if (phaseAllocated[phase] <= perPhaseLimit + 1e-9 || phaseAllocated[phase] <= 0) break;
           const entries = entriesUnder(panel, phase);
           const total = entries.reduce((sum, e) => sum + e.alloc.allocatedKw, 0);
-          reduceAllocations(entries, (total * perPhaseLimit) / phaseAllocated[phase]);
+          reduceAllocations(entries, (total * perPhaseLimit) / phaseAllocated[phase], nodeReason);
         }
       }
     }
@@ -2154,7 +2582,12 @@ export function computeHierarchicalAllocation(
         }
         for (const station of child.stations) {
           const alloc = allocationMap.get(station.id);
-          if (alloc != null) result.push({ station: effectiveStation(station), alloc });
+          if (alloc == null) continue;
+          const effectiveInfo = effectiveStation(station);
+          // A station split per phase that puts nothing on this phase is not cut for it.
+          const weights = phase != null && node.phases === 3 ? splitWeights(child, station) : null;
+          if (weights != null && phase != null && weights[phase] <= 0) continue;
+          result.push({ station: effectiveInfo, alloc });
         }
       } else {
         // A single-phase sub-panel that names its feeding phases loads only those.
@@ -2189,7 +2622,13 @@ export function computeHierarchicalAllocation(
         let circuitTotal = 0;
         for (const station of child.stations) {
           const alloc = allocMap.get(station.id);
-          if (alloc != null) {
+          if (alloc == null) continue;
+          // A station split per phase loads each phase with its own share.
+          const weights = phases.length === 3 ? splitWeights(child, station) : null;
+          if (weights != null) {
+            for (const phase of ALL_PHASES)
+              phaseAllocated[phase] += alloc.allocatedKw * weights[phase];
+          } else {
             circuitTotal += alloc.allocatedKw;
           }
         }
@@ -2439,30 +2878,59 @@ export function buildLoadManagementProfile(
   };
 }
 
-async function dispatchSetChargingProfile(
+/** One SetChargingProfile of a send, built before it is logged and published. */
+export interface PreparedLimitCommand {
+  stationId: string;
+  stationDbId: string;
+  commandId: string;
+  payload: Record<string, unknown>;
+  /** The limit in kW. */
+  kw: number;
+  /** A station limit (or its credit profile), else the TxProfile of one EVSE. */
+  source:
+    | { scope: 'station'; command: LimitCommand; rate: StationRate | undefined }
+    | { scope: 'evse'; command: EvseLimitCommand };
+}
+
+/** The commands of one send, in their groups: cuts go out before raises. */
+export interface AllocationSend {
+  stationCuts: PreparedLimitCommand[];
+  evseCuts: PreparedLimitCommand[];
+  evseRaises: PreparedLimitCommand[];
+  stationRaises: PreparedLimitCommand[];
+  releases: EvseLimitRelease[];
+}
+
+async function publishPreparedCommand(
   pubsub: PubSubClient,
-  stationId: string,
-  allocatedWatts: number,
-  now: Date,
-  rate: StationRate | undefined,
+  command: PreparedLimitCommand,
   log: ServiceLogger,
-  validTo?: Date,
 ): Promise<boolean> {
   // Never queued for an offline station: the limit would be stale on
   // reconnect, and the next cycle sends the current one (the station is
   // reserved while offline). Clears stay queued.
-  const command: OcppCommand = {
-    stationId,
-    action: 'SetChargingProfile',
-    payload: buildLoadManagementProfile(allocatedWatts, now, rate, validTo),
-    noQueue: true,
-  };
-
   try {
-    await publishOcppCommand(pubsub, command);
+    await publishOcppCommand(pubsub, {
+      stationId: command.stationId,
+      action: 'SetChargingProfile',
+      payload: command.payload,
+      commandId: command.commandId,
+      noQueue: true,
+    });
     return true;
   } catch (err: unknown) {
-    log.error({ err, stationId }, 'Failed to dispatch SetChargingProfile');
+    log.error(
+      {
+        err,
+        stationId: command.stationId,
+        ...(command.source.scope === 'evse'
+          ? { evseId: command.source.command.limit.evseNumber }
+          : {}),
+      },
+      command.source.scope === 'evse'
+        ? 'Failed to dispatch the EVSE limit'
+        : 'Failed to dispatch SetChargingProfile',
+    );
     return false;
   }
 }
@@ -2547,33 +3015,6 @@ async function broadcastLoadUpdate(pubsub: PubSubClient, siteId: string): Promis
       'Load update event publish failed, the dashboard refreshes on its next poll',
     );
   }
-}
-
-/**
- * Write the allocation log row. `capacity` gives the site capacity and what was
- * left of it for the stations; without it both default to the allocated total.
- */
-export async function logAllocations(
-  siteId: string,
-  allocations: AllocationResult[],
-  config: { strategy: LoadAllocationStrategy },
-  totalDrawKw: number,
-  capacity?: { siteLimitKw: number; availableKw: number; supplyCreditKw?: number },
-): Promise<void> {
-  const totalAllocatedKw = allocations.reduce((sum, a) => sum + a.allocatedKw, 0);
-  await db.insert(loadAllocationLog).values({
-    siteId,
-    siteLimitKw: String(capacity?.siteLimitKw ?? totalAllocatedKw),
-    totalDrawKw: String(totalDrawKw),
-    availableKw: String(capacity?.availableKw ?? totalAllocatedKw),
-    supplyCreditKw: String(capacity?.supplyCreditKw ?? 0),
-    strategy: config.strategy,
-    allocations: allocations.map((a) => ({
-      stationId: a.stationId,
-      allocatedKw: a.allocatedKw,
-      currentDrawKw: a.currentDrawKw,
-    })),
-  });
 }
 
 /**
@@ -2672,14 +3113,38 @@ export function orderLimitCommands(commands: readonly LimitCommand[]): {
   return { cuts, raises };
 }
 
+async function dispatchEvseLimitRelease(
+  pubsub: PubSubClient,
+  release: EvseLimitRelease,
+  log: ServiceLogger,
+): Promise<boolean> {
+  try {
+    // Not queued: a late clear could remove a TxProfile sent after it.
+    await publishOcppCommand(pubsub, {
+      stationId: release.stationId,
+      action: 'ClearChargingProfile',
+      payload: {
+        chargingProfileId: chargingNeedsProfileId(release.stationId, release.transactionId),
+      },
+      noQueue: true,
+    });
+    return true;
+  } catch (err: unknown) {
+    log.error({ err, stationId: release.stationId }, 'Failed to clear the EVSE limit');
+    return false;
+  }
+}
+
 /**
  * Send each allocation to its station as a SetChargingProfile, then tell the
- * dashboards. Limit cuts go out first and raises only after every cut was
- * published (`orderLimitCommands`; none after a failed cut), so the stations
- * together never hold more than the capacity mid-cycle. A station in
- * `options.credit` gets its credit profile and its limit without readings
- * (`limitCommands`, security case 334). Returns false when a publish failed,
- * so the caller sends again on the next cycle.
+ * dashboards. The order keeps every station within its limit while the limits
+ * change: station limit cuts, EVSE limit cuts, then (only after every cut was
+ * published, `orderLimitCommands`) EVSE limit raises and clears, then station
+ * limit raises. A station in `options.credit` gets its credit profile and its
+ * limit without readings (`limitCommands`, security case 334). Per-EVSE limits
+ * (`options.evse`) go as TxProfiles; `options.evseReleases` clears the
+ * TxProfiles of sessions that no longer get one. Returns false when a publish
+ * failed, so the caller sends again on the next cycle.
  */
 export async function dispatchAllocations(
   siteId: string,
@@ -2688,41 +3153,109 @@ export async function dispatchAllocations(
   now: Date = new Date(),
   rates: ReadonlyMap<string, StationRate> = new Map(),
   previousKw: ReadonlyMap<string, number> = new Map(),
-  options: { credit?: ReadonlyMap<string, CreditLimit>; creditOnly?: boolean } = {},
+  options: AllocationSendOptions = {},
+): Promise<boolean> {
+  return dispatchAllocationSend(
+    siteId,
+    prepareAllocationSend(allocations, now, rates, previousKw, options),
+    log,
+  );
+}
+
+export interface AllocationSendOptions {
+  credit?: ReadonlyMap<string, CreditLimit>;
+  creditOnly?: boolean;
+  evse?: readonly EvseLimitCommand[];
+  evseReleases?: readonly EvseLimitRelease[];
+}
+
+/**
+ * Builds the SetChargingProfile commands of a send, each with its command id,
+ * in the groups `dispatchAllocationSend` publishes them in, so the cycle can
+ * log every limit before any goes out.
+ */
+export function prepareAllocationSend(
+  allocations: readonly AllocationResult[],
+  now: Date,
+  rates: ReadonlyMap<string, StationRate> = new Map(),
+  previousKw: ReadonlyMap<string, number> = new Map(),
+  options: AllocationSendOptions = {},
+): AllocationSend {
+  const station = (command: LimitCommand): PreparedLimitCommand => {
+    const rate = rates.get(command.allocation.stationDbId);
+    return {
+      stationId: command.allocation.stationId,
+      stationDbId: command.allocation.stationDbId,
+      commandId: randomUUID(),
+      payload: buildLoadManagementProfile(
+        stationProfileWatts(command.kw, command.allocation.phaseWeights),
+        now,
+        rate,
+        command.validTo,
+      ),
+      kw: command.kw,
+      source: { scope: 'station', command, rate },
+    };
+  };
+  const evse = (command: EvseLimitCommand): PreparedLimitCommand => ({
+    stationId: command.stationId,
+    stationDbId: command.stationDbId,
+    commandId: randomUUID(),
+    payload: buildEvseLimitProfile(command.stationId, command.limit, command.rateUnit, now),
+    kw: command.limit.limitKw,
+    source: { scope: 'evse', command },
+  });
+  const { cuts, raises } = orderLimitCommands(
+    limitCommands(allocations, previousKw, options.credit, options.creditOnly === true),
+  );
+  const evseOrder = orderEvseLimitCommands(options.evse ?? []);
+  return {
+    stationCuts: cuts.map(station),
+    evseCuts: evseOrder.cuts.map(evse),
+    evseRaises: evseOrder.raises.map(evse),
+    stationRaises: raises.map(station),
+    releases: [...(options.evseReleases ?? [])],
+  };
+}
+
+/**
+ * Publishes a prepared send, then tells the dashboards. The order keeps every
+ * station within its limit while the limits change: station limit cuts, EVSE
+ * limit cuts, then (only after every cut was published) EVSE limit raises and
+ * clears, then station limit raises. Returns false when a publish failed, so
+ * the caller sends again on the next cycle.
+ */
+export async function dispatchAllocationSend(
+  siteId: string,
+  send: AllocationSend,
+  log: ServiceLogger,
 ): Promise<boolean> {
   const pubsub = getPubSub();
 
   // Within each group the publishes run in parallel: each is an independent
   // pub/sub publish, so serializing them adds (N * publish latency) of
   // needless delay at the end of every 10s control cycle.
-  const send = (group: readonly LimitCommand[]): Promise<boolean[]> =>
-    Promise.all(
-      group.map((command) =>
-        dispatchSetChargingProfile(
-          pubsub,
-          command.allocation.stationId,
-          Math.round(command.kw * 1000),
-          now,
-          rates.get(command.allocation.stationDbId),
-          log,
-          command.validTo,
-        ),
-      ),
-    );
-  const { cuts, raises } = orderLimitCommands(
-    limitCommands(allocations, previousKw, options.credit, options.creditOnly === true),
-  );
-  const cutsSent = (await send(cuts)).every(Boolean);
+  const publish = async (group: readonly PreparedLimitCommand[]): Promise<boolean> =>
+    (await Promise.all(group.map((c) => publishPreparedCommand(pubsub, c, log)))).every(Boolean);
+  const stationCutsSent = await publish(send.stationCuts);
+  const evseCutsSent = await publish(send.evseCuts);
+  const cutsSent = stationCutsSent && evseCutsSent;
+  const raiseCount = send.stationRaises.length + send.evseRaises.length + send.releases.length;
   // A cut that was not published leaves its station above its new limit:
   // no raise goes out on top of it. The caller sends everything again on the
   // next cycle.
-  if (!cutsSent && raises.length > 0) {
-    log.warn(
-      { siteId, raiseCount: raises.length },
-      'Load management limit raises held back after a failed cut',
-    );
+  if (!cutsSent && raiseCount > 0) {
+    log.warn({ siteId, raiseCount }, 'Load management limit raises held back after a failed cut');
   }
-  const raisesSent = cutsSent ? (await send(raises)).every(Boolean) : raises.length === 0;
+  let raisesSent = raiseCount === 0;
+  if (cutsSent) {
+    const evseRaisesSent = await publish(send.evseRaises);
+    const releasesSent = (
+      await Promise.all(send.releases.map((r) => dispatchEvseLimitRelease(pubsub, r, log)))
+    ).every(Boolean);
+    const stationRaisesSent = await publish(send.stationRaises);
+    raisesSent = evseRaisesSent && releasesSent && stationRaisesSent;
+  }
 
   await broadcastLoadUpdate(pubsub, siteId);
   return cutsSent && raisesSent;
@@ -2757,6 +3290,10 @@ export interface AppliedAllocation {
    * limit replaces it.
    */
   creditUntil?: string;
+  /** The per-EVSE limits sent to the station's charging EVSEs (TxProfiles). */
+  evses?: AppliedEvseLimit[];
+  /** The station's share of the limit per phase when split per phase. */
+  phaseWeights?: PhaseLoad;
 }
 
 export function parseAppliedAllocations(value: unknown): AppliedAllocation[] | null {
@@ -2776,6 +3313,7 @@ export function parseAppliedAllocations(value: unknown): AppliedAllocation[] | n
     const rejectedUnits = Array.isArray(rawUnits)
       ? (['A', 'W'] as const).filter((u) => (rawUnits as unknown[]).includes(u))
       : [];
+    const evseEntries = parseAppliedEvseLimits(row['evses']);
     result.push({
       stationId: row['stationId'],
       stationDbId: row['stationDbId'],
@@ -2789,9 +3327,24 @@ export function parseAppliedAllocations(value: unknown): AppliedAllocation[] | n
       ...(typeof row['creditUntil'] === 'string' && Number.isFinite(Date.parse(row['creditUntil']))
         ? { creditUntil: row['creditUntil'] }
         : {}),
+      ...(evseEntries.length > 0 ? { evses: evseEntries } : {}),
+      ...parsePhaseWeights(row['phaseWeights']),
     });
   }
   return result;
+}
+
+function parsePhaseWeights(value: unknown): { phaseWeights?: PhaseLoad } {
+  if (value == null || typeof value !== 'object') return {};
+  const w = value as Record<string, unknown>;
+  const read = (key: string): number | null => {
+    const n = w[key];
+    return typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1 ? n : null;
+  };
+  const L1 = read('L1');
+  const L2 = read('L2');
+  const L3 = read('L3');
+  return L1 != null && L2 != null && L3 != null ? { phaseWeights: { L1, L2, L3 } } : {};
 }
 
 function allocationKey(entries: readonly AppliedAllocation[]): string {
@@ -2804,6 +3357,21 @@ function allocationKey(entries: readonly AppliedAllocation[]): string {
         p: a.limitPending === true,
         u: [...(a.rejectedUnits ?? [])].sort().join(','),
         b: a.baseKw != null ? Math.round(a.baseKw * 100) : null,
+        w:
+          a.phaseWeights != null
+            ? [a.phaseWeights.L1, a.phaseWeights.L2, a.phaseWeights.L3].map((x) =>
+                Math.round(x * 1000),
+              )
+            : null,
+        e: [...(a.evses ?? [])]
+          .map((e) => [
+            e.transactionId,
+            Math.round(e.limitKw * 100),
+            e.limitA != null ? Math.round(e.limitA * 10) : null,
+            e.phases,
+            e.rateUnit,
+          ])
+          .sort((x, y) => (String(x[0]) < String(y[0]) ? -1 : 1)),
       }))
       .sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0)),
   );
@@ -3058,6 +3626,12 @@ export async function computeSiteAllocation(
   baseKw: Map<string, number>;
   /** End of the credit limits, ms; null without one. */
   creditValidToMs: number | null;
+  /**
+   * The limit of each charging EVSE of the managed stations limited per EVSE
+   * (`effectiveBalancingMode`), by station database id, split from the
+   * station's allocation.
+   */
+  evseLimits: Map<string, EvseLimitResult[]>;
 }> {
   const status = await getSitePowerStatus(siteId);
   const { roots: hierarchy, energyAssets } = await buildSiteHierarchyWithAssets(
@@ -3100,15 +3674,72 @@ export async function computeSiteAllocation(
   }
   if (energyAssets === 'unknown') allocations = withoutRaises(allocations, previous);
   const split = splitCreditLimits(hierarchy, strategy, reservedKw, allocations, managed);
+  // The depot plan checks its slots per phase evenly, so its stations keep the even spread.
+  const weighted =
+    strategy === 'departure_aware'
+      ? split.allocations
+      : withPhaseWeights(split.allocations, hierarchy);
   return {
     status,
     hierarchy,
     managed,
     reservedKw,
-    allocations: split.allocations,
+    allocations: weighted,
     baseKw: split.baseKw,
     creditValidToMs: split.validToMs,
+    evseLimits: siteEvseLimits(managed, weighted, stationRates(hierarchy), strategy),
   };
+}
+
+/** Marks the allocations of the stations split per phase with their phase shares. */
+export function withPhaseWeights(
+  allocations: readonly AllocationResult[],
+  hierarchy: readonly HierarchyNode[],
+): AllocationResult[] {
+  const weightsById = new Map<string, PhaseLoad>();
+  const visit = (node: HierarchyNode): void => {
+    const [lone] = node.stations;
+    if (
+      node.type === 'circuit' &&
+      lone != null &&
+      node.stations.length === 1 &&
+      getCircuitPhases(node.phaseConnections).length === 3
+    ) {
+      const weights = stationPhaseWeights(lone);
+      if (weights != null) weightsById.set(lone.id, weights);
+    }
+    for (const child of node.children) visit(child);
+  };
+  for (const root of hierarchy) visit(root);
+  return allocations.map((a) => {
+    const weights = weightsById.get(a.stationDbId);
+    return weights != null ? { ...a, phaseWeights: weights } : a;
+  });
+}
+
+/** The per-EVSE limits of the managed stations limited per EVSE this cycle. */
+export function siteEvseLimits(
+  managed: readonly StationPowerInfo[],
+  allocations: readonly AllocationResult[],
+  rates: ReadonlyMap<string, StationRate>,
+  strategy: LoadAllocationStrategy,
+): Map<string, EvseLimitResult[]> {
+  const byStation = new Map(allocations.map((a) => [a.stationDbId, a]));
+  const result = new Map<string, EvseLimitResult[]>();
+  for (const station of managed) {
+    if (!station.isOnline || effectiveBalancingMode(station) !== 'evse') continue;
+    const allocation = byStation.get(station.id);
+    if (allocation == null) continue;
+    const limits = computeEvseLimits(
+      station,
+      allocation.allocatedKw,
+      rates.get(station.id),
+      strategy === 'priority_based' ? 'priority_based' : 'equal_share',
+      allocation.phaseWeights ?? null,
+    );
+    if (limits.length > 0) result.set(station.id, limits);
+  }
+  return result;
 }
 
 /**
@@ -3126,6 +3757,29 @@ export function withoutRaises(
     const held = heldKw.get(a.stationDbId);
     return held != null && a.allocatedKw > held ? { ...a, allocatedKw: held } : a;
   });
+}
+
+/**
+ * The sessions whose TxProfile the depot plan owns (`planOwnedSessionIds`),
+ * so the cycle sends them no EVSE limit (the plan profile has the same id).
+ * Empty when nothing per EVSE is due; null when the plan could not be read:
+ * no EVSE limit goes out this cycle and the station limit holds.
+ */
+async function planOwnedSessions(
+  siteId: string,
+  strategy: LoadAllocationStrategy,
+  due: boolean,
+  log: ServiceLogger,
+): Promise<Set<string> | null> {
+  if (!due) return new Set();
+  try {
+    // Loaded on use: the planner module imports this one.
+    const { planOwnedSessionIds } = await import('./charging-plan.service.js');
+    return await planOwnedSessionIds(siteId, strategy);
+  } catch (err: unknown) {
+    log.warn({ err, siteId }, 'Depot plan not read, no EVSE limit sent this cycle');
+    return null;
+  }
 }
 
 async function departureAwareOrEqualShare(
@@ -3168,11 +3822,20 @@ async function dispatchPlanProfilesAfterLimits(
   reservedKw: Map<string, number>,
   previous: readonly AppliedAllocation[] | null,
   log: ServiceLogger,
+  evseLimits: ReadonlyMap<string, readonly EvseLimitResult[]>,
 ): Promise<void> {
   try {
     // Loaded on use: the planner module imports this one.
     const { dispatchDepotPlanProfiles } = await import('./charging-plan.service.js');
-    await dispatchDepotPlanProfiles({ siteId, hierarchy, stations, reservedKw, previous, log });
+    await dispatchDepotPlanProfiles({
+      siteId,
+      hierarchy,
+      stations,
+      reservedKw,
+      previous,
+      log,
+      evseLimits,
+    });
   } catch (err: unknown) {
     log.warn({ err, siteId }, 'Depot plan profiles not sent, the station limits hold');
   }
@@ -3252,6 +3915,10 @@ async function refreshCreditProfiles(
   hierarchy: HierarchyNode[],
   now: Date,
   log: ServiceLogger,
+  logContext: {
+    header: Omit<LoadAllocationHeader, 'kind'>;
+    stations: ReadonlyMap<string, StationPowerInfo>;
+  },
 ): Promise<void> {
   if (creditValidToMs == null) return;
   const nowMs = now.getTime();
@@ -3273,26 +3940,30 @@ async function refreshCreditProfiles(
       ? entry
       : withCreditUntil(entry, previousById.get(entry.stationDbId)?.creditUntil),
   );
-  const claimed = await db
-    .update(siteLoadManagement)
-    .set({ appliedAllocations: stored })
-    .where(and(eq(siteLoadManagement.siteId, siteId), eq(siteLoadManagement.isEnabled, true)))
-    .returning({ id: siteLoadManagement.id });
-  if (claimed.length === 0) return;
   const rejected = new Map<string, readonly ChargingRateUnit[]>();
   for (const a of applied) {
     if (a.rejectedUnits != null) rejected.set(a.stationDbId, a.rejectedUnits);
   }
   const previousKw = new Map([...previousById.values()].map((a) => [a.stationDbId, a.allocatedKw]));
-  const sent = await dispatchAllocations(
-    siteId,
+  const send = prepareAllocationSend(
     allocations.filter((a) => due.has(a.stationDbId)),
-    log,
     now,
     stationRates(hierarchy, rejected),
     previousKw,
     { credit: creditLimits, creditOnly: true },
   );
+  const claimed = await claimAndLogAllocations({
+    siteId,
+    applied: stored,
+    header: { ...logContext.header, kind: 'credit' },
+    entries: allocationSendEntries(send, {
+      stations: logContext.stations,
+      reservedRetries: new Set(),
+      refresh: true,
+    }),
+  });
+  if (!claimed) return;
+  const sent = await dispatchAllocationSend(siteId, send, log);
   if (!sent) {
     // A failed publish: the next cycle sends everything again.
     await db
@@ -3328,12 +3999,20 @@ export async function runLoadManagementCycle(
   for (const site of enabledSites) {
     try {
       const previous = parseAppliedAllocations(site.appliedAllocations);
-      const { status, hierarchy, managed, reservedKw, allocations, baseKw, creditValidToMs } =
-        await computeSiteAllocation(site.siteId, site.strategy, previous, {
-          replan: true,
-          log,
-          allowSimulatedEnergyAssets: options.allowSimulatedEnergyAssets === true,
-        });
+      const {
+        status,
+        hierarchy,
+        managed,
+        reservedKw,
+        allocations,
+        baseKw,
+        creditValidToMs,
+        evseLimits,
+      } = await computeSiteAllocation(site.siteId, site.strategy, previous, {
+        replan: true,
+        log,
+        allowSimulatedEnergyAssets: options.allowSimulatedEnergyAssets === true,
+      });
 
       const now = new Date();
       const nowMs = now.getTime();
@@ -3345,6 +4024,30 @@ export async function runLoadManagementCycle(
         return until != null && Date.parse(until) > nowMs ? until : undefined;
       };
       const creditValidTo = creditValidToMs != null ? new Date(creditValidToMs) : null;
+      // Per-EVSE limits (TxProfiles) and the clears of the ones no longer due.
+      const previousEvses = new Map(
+        (previous ?? []).filter((a) => a.evses != null).map((a) => [a.stationDbId, a.evses ?? []]),
+      );
+      const planOwned = await planOwnedSessions(
+        site.siteId,
+        site.strategy,
+        evseLimits.size > 0 || previousEvses.size > 0,
+        log,
+      );
+      const evseCommands =
+        planOwned == null
+          ? []
+          : evseLimitCommands(evseLimits, stationById, previousEvses, planOwned);
+      const evseReleases =
+        planOwned == null
+          ? []
+          : evseLimitReleases(previousEvses, evseCommands, stationById, planOwned);
+      const evsesByStation = new Map<string, AppliedEvseLimit[]>();
+      for (const command of evseCommands) {
+        const list = evsesByStation.get(command.stationDbId) ?? [];
+        list.push(appliedEvseLimit(command.limit, command.rateUnit));
+        evsesByStation.set(command.stationDbId, list);
+      }
       // The reply state (unconfirmed limit, rejected units) is carried for
       // every station that keeps an entry.
       const applied: AppliedAllocation[] = [
@@ -3354,6 +4057,7 @@ export async function runLoadManagementCycle(
             base != null && creditValidTo != null
               ? creditValidTo.toISOString()
               : heldCreditUntil(a.stationDbId);
+          const evseEntries = evsesByStation.get(a.stationDbId);
           return {
             stationId: a.stationId,
             stationDbId: a.stationDbId,
@@ -3361,6 +4065,8 @@ export async function runLoadManagementCycle(
             ...replyState(previousById.get(a.stationDbId)),
             ...(base != null ? { baseKw: base } : {}),
             ...(creditUntil != null ? { creditUntil } : {}),
+            ...(evseEntries != null ? { evses: evseEntries } : {}),
+            ...(a.phaseWeights != null ? { phaseWeights: a.phaseWeights } : {}),
           };
         }),
         ...[...reservedKw].map(([stationDbId, allocatedKw]) => {
@@ -3402,6 +4108,11 @@ export async function runLoadManagementCycle(
       const due =
         site.appliedAt == null ||
         now.getTime() - site.appliedAt.getTime() >= LOAD_MANAGEMENT_REFRESH_MS;
+      const header: Omit<LoadAllocationHeader, 'kind'> = {
+        ...summarizeSiteCapacity(hierarchy, reservedKw),
+        totalDrawKw: status.totalDrawKw,
+        strategy: site.strategy,
+      };
       const planProfiles = (): Promise<void> =>
         site.strategy === 'departure_aware'
           ? dispatchPlanProfilesAfterLimits(
@@ -3411,6 +4122,7 @@ export async function runLoadManagementCycle(
               reservedKw,
               previous,
               log,
+              evseLimits,
             )
           : clearPlanProfilesOffPlan(site.siteId, status.stations, log);
       if (!changed && !due && released.length === 0) {
@@ -3424,32 +4136,12 @@ export async function runLoadManagementCycle(
           hierarchy,
           now,
           log,
+          { header, stations: stationById },
         );
         await planProfiles();
         continue;
       }
 
-      // Record the allocations before sending them (eager state), only while
-      // load management is still on: turned off in between, the site's
-      // profiles were cleared and this cycle sends nothing.
-      const claimed = await db
-        .update(siteLoadManagement)
-        .set({ appliedAllocations: applied, appliedAt: now })
-        .where(
-          and(eq(siteLoadManagement.siteId, site.siteId), eq(siteLoadManagement.isEnabled, true)),
-        )
-        .returning({ id: siteLoadManagement.id });
-      if (claimed.length === 0) continue;
-
-      if (changed) {
-        await logAllocations(
-          site.siteId,
-          allocations,
-          { strategy: site.strategy },
-          status.totalDrawKw,
-          summarizeSiteCapacity(hierarchy, reservedKw),
-        );
-      }
       // An online station with an unconfirmed limit is sent its reservation
       // as the limit, in a unit it has not rejected: once it accepts, the
       // next cycle allocates it like the others.
@@ -3469,15 +4161,32 @@ export async function runLoadManagementCycle(
       // The kW each station was last sent (its current limit), so cuts go out
       // before raises.
       const previousKw = new Map((previous ?? []).map((a) => [a.stationDbId, a.allocatedKw]));
-      const sent = await dispatchAllocations(
-        site.siteId,
+      const send = prepareAllocationSend(
         toSend,
-        log,
         now,
         stationRates(hierarchy, rejected),
         previousKw,
-        { credit: creditLimits },
+        { credit: creditLimits, evse: evseCommands, evseReleases },
       );
+
+      // Record the allocations and log every limit before sending them (eager
+      // state, one transaction), only while load management is still on:
+      // turned off in between, the site's profiles were cleared and this cycle
+      // sends nothing. A failed log write fails the site: nothing goes out.
+      const claimed = await claimAndLogAllocations({
+        siteId: site.siteId,
+        applied,
+        appliedAt: now,
+        header: { ...header, kind: changed ? 'change' : 'refresh' },
+        entries: allocationSendEntries(send, {
+          stations: stationById,
+          reservedRetries: new Set(retries.map((r) => r.stationDbId)),
+          refresh: !changed,
+        }),
+      });
+      if (!claimed) continue;
+
+      const sent = await dispatchAllocationSend(site.siteId, send, log);
       const cleared =
         released.length === 0
           ? true

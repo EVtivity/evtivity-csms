@@ -26,6 +26,8 @@ export interface ReportLocale {
   date: (value: string) => string;
   /** ISO weekday name: 1 Monday ... 7 Sunday. */
   weekday: (isoDay: number) => string;
+  /** The date filters as a range without the "Period:" prefix, or the fallback. */
+  range: (from: string | undefined, to: string | undefined, fallback: string) => string;
   /** "Period: ..." for the date filters, or the fallback when none is set. */
   period: (from: string | undefined, to: string | undefined, fallback: string) => string;
   /** A summary line label: "Total Sessions:". */
@@ -90,6 +92,13 @@ export function reportLocale(language: string | null | undefined, format: string
 
   const fill = fillReportLabel;
 
+  const range = (from: string | undefined, to: string | undefined, fallback: string): string => {
+    const c = labels.common;
+    if (from != null && to != null) return fill(c.range, { from: date(from), to: date(to) });
+    if (from != null) return fill(c.since, { from: date(from) });
+    if (to != null) return fill(c.until, { to: date(to) });
+    return fallback;
+  };
   return {
     language: lang,
     labels,
@@ -104,14 +113,9 @@ export function reportLocale(language: string | null | undefined, format: string
     date,
     // 2024-01-01 was a Monday.
     weekday: (isoDay) => weekdayFormat.format(new Date(Date.UTC(2024, 0, isoDay))),
-    period: (from, to, fallback) => {
-      const c = labels.common;
-      let period = fallback;
-      if (from != null && to != null) period = fill(c.range, { from: date(from), to: date(to) });
-      else if (from != null) period = fill(c.since, { from: date(from) });
-      else if (to != null) period = fill(c.until, { to: date(to) });
-      return fill(c.period, { period });
-    },
+    range,
+    period: (from, to, fallback) =>
+      fill(labels.common.period, { period: range(from, to, fallback) }),
     summary: (label) => fill(labels.common.summaryLabel, { label }),
     moneyHeader: (label, currency, qualifier) =>
       qualifier != null ? `${label} (${qualifier}, ${currency})` : `${label} (${currency})`,

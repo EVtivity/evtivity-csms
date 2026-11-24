@@ -11,6 +11,7 @@ import {
   markSitePlanStale,
   operatorStationSql,
 } from '@evtivity/database';
+import { sessionProfileCapKw } from '@evtivity/services/session-profile-cap';
 import type { ChargingNeedsProfilePayload, StoredChargingNeedsProfile } from './charging-needs.js';
 
 interface ChargingNeedsInput {
@@ -90,14 +91,17 @@ export function requestedEnergyWh(needs: Record<string, unknown>): number | null
 }
 
 /**
- * The schedule limit in W: the lower of what the EV accepts, the connector and
- * the site headroom, and, when the EV gave a departure time and an energy
- * amount, the rate that delivers that energy by the departure time.
+ * The schedule limit in W: the lower of what the EV accepts, the connector,
+ * the site headroom and the session cap (its tariff current limit and the
+ * EVSE limit load management holds), and, when the EV gave a departure time
+ * and an energy amount, the rate that delivers that energy by the departure
+ * time.
  */
 export function scheduleLimitW(input: {
   evMaxW: number;
   connectorMaxW: number | null;
   siteAvailableW: number | null;
+  sessionCapW?: number | null;
   energyWh: number | null;
   departureTime: string | null;
   now: Date;
@@ -105,6 +109,7 @@ export function scheduleLimitW(input: {
   let limit = input.evMaxW;
   if (input.connectorMaxW != null) limit = Math.min(limit, input.connectorMaxW);
   if (input.siteAvailableW != null) limit = Math.min(limit, input.siteAvailableW);
+  if (input.sessionCapW != null) limit = Math.min(limit, input.sessionCapW);
   if (input.departureTime != null && input.energyWh != null) {
     const departure = new Date(input.departureTime).getTime();
     if (Number.isFinite(departure)) {
@@ -224,12 +229,16 @@ export async function computeAndSendChargingProfile(
     siteAvailableW = Math.max(0, siteMaxW - Number(drawRows[0]?.current_draw ?? 0));
   }
 
+  // The same profile id as the EVSE limit: never allow more than it, or the tariff limit.
+  const sessionCapKw = await sessionProfileCapKw(stationUuid, transactionId);
+
   const departureTime =
     typeof chargingNeeds.departureTime === 'string' ? chargingNeeds.departureTime : null;
   const limit = scheduleLimitW({
     evMaxW,
     connectorMaxW,
     siteAvailableW,
+    sessionCapW: sessionCapKw == null ? null : Math.floor(sessionCapKw * 1000),
     energyWh: requestedEnergyWh(chargingNeeds),
     departureTime,
     now,

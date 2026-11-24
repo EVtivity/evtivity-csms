@@ -35,6 +35,22 @@ function assertReportFilters(reportType: string, filters: Record<string, unknown
   if (error != null) throw new ValidationError(error);
 }
 
+// A relative period sets the dates itself, so it refuses fixed dates and NEVI.
+function assertReportPeriod(
+  reportType: string,
+  period: ReportPeriod,
+  filters: Record<string, unknown>,
+): void {
+  const error = reportPeriodError(reportType, period, filters);
+  if (error != null) throw new ValidationError(error);
+}
+
+function withoutDates(filters: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(filters).filter(([key]) => key !== 'dateFrom' && key !== 'dateTo'),
+  );
+}
+
 interface NotFoundBody {
   error: string;
   code: 'SITE_NOT_FOUND' | 'STATION_NOT_FOUND';
@@ -97,6 +113,8 @@ import {
   type ReportSiteScope,
 } from '@evtivity/services/report-scope';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { REPORT_PERIODS, type ReportPeriod } from '@evtivity/lib/report-period';
+import { reportFiltersForPeriod, reportPeriodError } from '@evtivity/services/report-period';
 import { ValidationError } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
@@ -152,6 +170,12 @@ const reportQueuedResponse = z
   })
   .loose();
 
+const reportPeriodField = z
+  .enum(REPORT_PERIODS)
+  .describe(
+    'Period each run covers, resolved at run time in the company time zone (system.timezone) with weeks starting on company.weekStart. custom uses filters.dateFrom and filters.dateTo; every other period refuses them. NEVI reports take only custom',
+  );
+
 const scheduleItem = z
   .object({
     id: z.string().describe('Identifier'),
@@ -168,6 +192,7 @@ const scheduleItem = z
       .record(z.string(), z.unknown())
       .nullable()
       .describe('Filter criteria applied each run'),
+    reportPeriod: reportPeriodField,
     recipientEmails: z
       .array(z.string())
       .describe('Email addresses that receive the generated report'),
@@ -192,6 +217,7 @@ const generateBody = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .describe('Key-value filter criteria for the report'),
+  reportPeriod: reportPeriodField.optional(),
 });
 
 const reportListQuery = paginationQuery.extend({
@@ -222,6 +248,7 @@ const createScheduleBody = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .describe('Key-value filter criteria for the report'),
+  reportPeriod: reportPeriodField.optional(),
   recipientEmails: z
     .array(z.email())
     .max(50)
@@ -567,7 +594,9 @@ export function reportRoutes(app: FastifyInstance): void {
       // site or station filter outside them is refused as not found.
       const siteIds = await getUserSiteIds(user.userId);
       if (await refuseReport(request, reply, body.reportType, siteIds)) return;
-      const filters = body.filters ?? {};
+      const period = body.reportPeriod ?? 'custom';
+      assertReportPeriod(body.reportType, period, body.filters ?? {});
+      const filters = await reportFiltersForPeriod(period, body.filters ?? {}, new Date());
       assertReportFilters(body.reportType, filters);
       const scopeError = await filterScopeError(filters, siteIds);
       if (scopeError != null) {
@@ -739,6 +768,8 @@ export function reportRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(user.userId);
       if (await refuseReport(request, reply, body.reportType, siteIds)) return;
       const filters = body.filters ?? {};
+      const reportPeriod = body.reportPeriod ?? 'custom';
+      assertReportPeriod(body.reportType, reportPeriod, filters);
       assertReportFilters(body.reportType, filters);
       const scopeError = await filterScopeError(filters, siteIds);
       if (scopeError != null) {
@@ -762,6 +793,7 @@ export function reportRoutes(app: FastifyInstance): void {
           dayOfWeek: body.dayOfWeek ?? null,
           dayOfMonth: body.dayOfMonth ?? null,
           filters,
+          reportPeriod,
           recipientEmails: body.recipientEmails ?? [],
           createdById: user.userId,
           siteScope: siteIds,
@@ -837,11 +869,17 @@ export function reportRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (body.reportType != null || body.filters != null) {
-        assertReportFilters(
-          body.reportType ?? existing.reportType,
-          body.filters ?? (existing.filters as Record<string, unknown> | null) ?? {},
-        );
+      const storedFilters = (existing.filters as Record<string, unknown> | null) ?? {};
+      const mergedType = body.reportType ?? existing.reportType;
+      const mergedPeriod = body.reportPeriod ?? existing.reportPeriod;
+      // A move to a relative period drops the fixed dates the schedule kept.
+      const switchedToRelative =
+        body.reportPeriod != null && body.reportPeriod !== 'custom' && body.filters == null;
+      const mergedFilters =
+        body.filters ?? (switchedToRelative ? withoutDates(storedFilters) : storedFilters);
+      if (body.reportType != null || body.filters != null || body.reportPeriod != null) {
+        assertReportPeriod(mergedType, mergedPeriod, mergedFilters);
+        assertReportFilters(mergedType, mergedFilters);
       }
 
       // Same site-access guard as create — without it a restricted
@@ -866,15 +904,24 @@ export function reportRoutes(app: FastifyInstance): void {
       if (body.frequency != null) updates['frequency'] = body.frequency;
       if (body.dayOfWeek !== undefined) updates['dayOfWeek'] = body.dayOfWeek ?? null;
       if (body.dayOfMonth !== undefined) updates['dayOfMonth'] = body.dayOfMonth ?? null;
-      if (body.filters != null) updates['filters'] = body.filters;
+      if (body.filters != null || switchedToRelative) updates['filters'] = mergedFilters;
+      if (body.reportPeriod != null) updates['reportPeriod'] = body.reportPeriod;
       if (body.recipientEmails != null) updates['recipientEmails'] = body.recipientEmails;
       if (body.isEnabled != null) updates['isEnabled'] = body.isEnabled;
 
-      if (body.frequency != null) {
+      // A changed occurrence, or a schedule enabled again, runs next on its
+      // own next occurrence instead of the one it kept.
+      const resumed = body.isEnabled === true && !existing.isEnabled;
+      if (
+        body.frequency != null ||
+        body.dayOfWeek !== undefined ||
+        body.dayOfMonth !== undefined ||
+        resumed
+      ) {
         updates['nextRunAt'] = await computeNextRunAtInTz(
-          body.frequency,
-          body.dayOfWeek ?? null,
-          body.dayOfMonth ?? null,
+          body.frequency ?? existing.frequency,
+          body.dayOfWeek !== undefined ? (body.dayOfWeek ?? null) : existing.dayOfWeek,
+          body.dayOfMonth !== undefined ? (body.dayOfMonth ?? null) : existing.dayOfMonth,
         );
       }
 
@@ -1007,7 +1054,13 @@ export function reportRoutes(app: FastifyInstance): void {
 
       if (await refuseReport(request, reply, schedule.reportType, null)) return;
 
-      const filters = schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
+      const storedFilters =
+        schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
+      const filters = await reportFiltersForPeriod(
+        schedule.reportPeriod,
+        storedFilters,
+        new Date(),
+      );
 
       // The report covers the sites both the schedule and the caller cover.
       // Same site-access guard as the create/PATCH paths — even though the

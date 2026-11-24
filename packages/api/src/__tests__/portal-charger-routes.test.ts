@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -290,6 +290,13 @@ vi.mock('@evtivity/services/maintenance-check', () => ({
     code = 'RESERVATION_DURING_MAINTENANCE';
     details = {};
   },
+}));
+
+const { mockLoadManagedStationIds } = vi.hoisted(() => ({
+  mockLoadManagedStationIds: vi.fn((_ids: readonly string[]) => Promise.resolve(new Set<string>())),
+}));
+vi.mock('../lib/charging-profile-id.js', () => ({
+  loadManagedStationIds: mockLoadManagedStationIds,
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -645,6 +652,7 @@ describe('Portal charger routes - handler logic', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
+        maxCurrentA: null,
         restrictions: null,
         priority: 0,
         isDefault: true,
@@ -670,6 +678,90 @@ describe('Portal charger routes - handler logic', () => {
         timezone: 'Europe/Berlin',
         priceChangesDuringSession: true,
         paidTariffAhead: true,
+      });
+    });
+
+    describe('tariff current limit', () => {
+      const limited = {
+        id: 'tar_limited',
+        name: 'Reduced',
+        pricePerKwh: '0.30',
+        pricePerMinute: null,
+        pricePerSession: null,
+        idleFeePricePerMinute: null,
+        reservationFeePerMinute: null,
+        taxRate: null,
+        maxCurrentA: '16.0',
+        restrictions: null,
+        priority: 0,
+        isDefault: true,
+        pricingGroup: { id: 'pgr_1', name: 'Group', source: 'station' },
+        timezone: 'UTC',
+      };
+
+      afterEach(() => {
+        vi.mocked(databaseModule.loadStationEvseKinds).mockResolvedValue(new Map() as never);
+      });
+
+      function stationKinds(kinds: Array<'ac' | 'dc'>): void {
+        vi.mocked(databaseModule.loadStationEvseKinds).mockResolvedValue(
+          new Map(kinds.map((kind, i) => [`evs_${String(i)}`, kind])),
+        );
+      }
+
+      async function getPricing(): Promise<Record<string, unknown>> {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/portal/chargers/CS-001/pricing',
+          headers: { authorization: `Bearer ${driverToken}` },
+        });
+        expect(response.statusCode).toBe(200);
+        return response.json();
+      }
+
+      it('shows the limit of an AC station load management manages', async () => {
+        setupDbResults([{ id: VALID_STATION_ID }]);
+        stationKinds(['ac']);
+        mockLoadManagedStationIds.mockResolvedValueOnce(new Set([VALID_STATION_ID]));
+        vi.mocked(resolveStationPricing).mockResolvedValue(withGroup(limited));
+        expect((await getPricing()).maxCurrentA).toBe(16);
+        expect(mockLoadManagedStationIds).toHaveBeenCalledWith([VALID_STATION_ID]);
+      });
+
+      it('shows no limit while load management does not manage the station', async () => {
+        setupDbResults([{ id: VALID_STATION_ID }]);
+        stationKinds(['ac']);
+        vi.mocked(resolveStationPricing).mockResolvedValue(withGroup(limited));
+        expect((await getPricing()).maxCurrentA).toBeNull();
+      });
+
+      it('shows no limit at a DC station', async () => {
+        setupDbResults([{ id: VALID_STATION_ID }]);
+        stationKinds(['dc']);
+        mockLoadManagedStationIds.mockResolvedValueOnce(new Set([VALID_STATION_ID]));
+        vi.mocked(resolveStationPricing).mockResolvedValue(withGroup(limited));
+        expect((await getPricing()).maxCurrentA).toBeNull();
+      });
+
+      it('gives the AC prices the limit and the DC prices none at a mixed station', async () => {
+        setupDbResults([{ id: VALID_STATION_ID }]);
+        stationKinds(['ac', 'dc']);
+        mockLoadManagedStationIds.mockResolvedValueOnce(new Set([VALID_STATION_ID]));
+        vi.mocked(resolveStationPricing).mockImplementation((query) =>
+          Promise.resolve(
+            withGroup(
+              query.chargingKind === 'dc'
+                ? { ...limited, id: 'tar_dc', pricePerKwh: '0.55', maxCurrentA: null }
+                : limited,
+            ),
+          ),
+        );
+        const body = await getPricing();
+        expect(body.maxCurrentA).toBe(16);
+        expect(body.byChargingKind).toEqual([
+          expect.objectContaining({ chargingKind: 'ac', maxCurrentA: 16 }),
+          expect.objectContaining({ chargingKind: 'dc', maxCurrentA: null }),
+        ]);
       });
     });
   });

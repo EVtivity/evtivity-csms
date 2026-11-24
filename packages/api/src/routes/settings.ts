@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { randomBytes } from 'node:crypto';
+import { COMPANY_WEEK_START_KEY, WEEK_STARTS, isWeekStart } from '@evtivity/lib/report-period';
 import {
   HUBJECT_URL_SETTING_KEYS,
   PRIVATE_HUBJECT_URL_ERROR,
@@ -153,6 +154,7 @@ import {
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+import { rescheduleReportSchedules } from '@evtivity/services/report.service';
 import {
   STORAGE_PROVIDERS,
   parseStorageAllowedPrivateHosts,
@@ -300,6 +302,7 @@ function isCachedSystemSetting(key: string): boolean {
     key === 'company.supportPhone' ||
     key === COMPANY_PRICE_DISPLAY_KEY ||
     key === COMPANY_TAX_BASIS_KEY ||
+    key === COMPANY_WEEK_START_KEY ||
     key === INVOICE_EPC_QR_ENABLED_KEY ||
     key === SYSTEM_TIMEZONE_KEY ||
     key === SYSTEM_DISTANCE_UNIT_KEY ||
@@ -355,6 +358,7 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     return isStationMessageLanguage(value) ? { value } : null;
   }
   if (key === COMPANY_TAX_BASIS_KEY) return isTaxBasis(value) ? { value } : null;
+  if (key === COMPANY_WEEK_START_KEY) return isWeekStart(value) ? { value } : null;
   // The defaults of new drivers (Settings > Company).
   if (key === SYSTEM_TIMEZONE_KEY) {
     return typeof value === 'string' && value !== '' && isValidTimezone(value) ? { value } : null;
@@ -725,6 +729,9 @@ function invalidSettingError(key: string, value?: unknown): { error: string; cod
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
   if (key === EMAIL_WRAPPER_TEMPLATE_KEY) return invalidEmailWrapperError;
   if (key === COMPANY_TAX_BASIS_KEY) return invalidTaxBasisError;
+  if (key === COMPANY_WEEK_START_KEY) {
+    return { error: `${key} must be one of: ${WEEK_STARTS.join(', ')}`, code: 'VALIDATION_ERROR' };
+  }
   if (isChargerPlateColorKey(key)) {
     return { error: `${key} must be empty or a #rrggbb hex color`, code: 'VALIDATION_ERROR' };
   }
@@ -764,6 +771,25 @@ async function repushStationMessagesIfChanged(
   if (!STATION_MESSAGE_RENDER_KEYS.has(key)) return;
   if (JSON.stringify(before) === JSON.stringify(after)) return;
   await requestStationMessageRepush(log);
+}
+
+// Report schedules run at 06:00 company time: a new time zone moves their next run.
+// Fail-open: the next scheduler tick still runs them, a log line says it.
+async function rescheduleReportsIfTimezoneChanged(
+  key: string,
+  before: unknown,
+  after: unknown,
+  actor: ReturnType<typeof getAuditActor>,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  if (key !== SYSTEM_TIMEZONE_KEY) return;
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  try {
+    const moved = await rescheduleReportSchedules(actor);
+    log.info({ moved }, 'Report schedules moved to the new company time zone');
+  } catch (err: unknown) {
+    log.warn({ err }, 'Report schedules not moved to the new company time zone');
+  }
 }
 
 // Keys read through cached getters in @evtivity/database clear their cache on change.
@@ -1375,6 +1401,13 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
+      await rescheduleReportsIfTimezoneChanged(
+        row.key,
+        before?.value,
+        row.value,
+        actor,
+        request.log,
+      );
       await publishOcpiTariffSettingChange(row.key, before?.value, row.value);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -1474,6 +1507,13 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
+      await rescheduleReportsIfTimezoneChanged(
+        row.key,
+        before?.value,
+        row.value,
+        actor,
+        request.log,
+      );
       await publishOcpiTariffSettingChange(row.key, before?.value, row.value);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -1535,6 +1575,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, row.value, undefined, request.log);
+      await rescheduleReportsIfTimezoneChanged(row.key, row.value, undefined, actor, request.log);
       await publishOcpiTariffSettingChange(row.key, row.value, undefined);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },

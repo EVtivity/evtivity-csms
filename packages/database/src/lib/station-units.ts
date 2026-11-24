@@ -10,9 +10,11 @@
 // service in the API audits and announces each change; this module only
 // writes and returns what changed.
 
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { evseChargingKind } from '@evtivity/lib';
 import { db } from '../config.js';
-import { chargingStations, evses, stationUnits } from '../schema/assets.js';
+import { chargingStations, connectors, evses, stationUnits } from '../schema/assets.js';
+import { stationUnitLoadBudgets } from '../schema/load-management.js';
 import { pgErrorCode, PG_UNIQUE_VIOLATION } from './pg-errors.js';
 import { stationUnitsFeatureOnInTx } from './station-units-setting.js';
 
@@ -66,7 +68,8 @@ export type UnitWriteFailure =
   | 'name_in_use'
   | 'limit'
   | 'other_station'
-  | 'units_disabled';
+  | 'units_disabled'
+  | 'budget_kind_mismatch';
 
 /** The unit fields an update can change. */
 export type UnitField = 'name' | 'sortOrder' | 'serialNumber' | 'ipAddress' | 'model' | 'position';
@@ -201,6 +204,38 @@ export interface UnitDetailsInput {
   model?: string | null;
   /** Both coordinates, or null for none. */
   position?: { latitude: string; longitude: string } | null;
+}
+
+/**
+ * Whether one of the EVSEs cannot join the unit because of its load budget:
+ * the budget is AC or DC, and an EVSE of the other kind, or one that holds
+ * both, would break it. A unit without a budget and an EVSE without a typed
+ * connector take anything.
+ */
+async function budgetKindConflict(tx: Tx, unitId: string, evseIds: string[]): Promise<boolean> {
+  if (evseIds.length === 0) return false;
+  const [budget] = await tx
+    .select({ kind: stationUnitLoadBudgets.kind })
+    .from(stationUnitLoadBudgets)
+    .where(eq(stationUnitLoadBudgets.unitId, unitId));
+  if (budget == null) return false;
+  const rows = await tx
+    .select({
+      evseId: connectors.evseId,
+      connectorType: connectors.connectorType,
+      maxPowerKw: connectors.maxPowerKw,
+    })
+    .from(connectors)
+    .where(and(inArray(connectors.evseId, evseIds), isNull(connectors.retiredAt)));
+  const byEvse = new Map<string, { connectorType: string | null; maxPowerKw: string | null }[]>();
+  for (const row of rows) {
+    byEvse.set(row.evseId, [...(byEvse.get(row.evseId) ?? []), row]);
+  }
+  for (const list of byEvse.values()) {
+    const kind = evseChargingKind(list);
+    if (kind != null && kind !== budget.kind) return true;
+  }
+  return false;
 }
 
 /**
@@ -429,6 +464,9 @@ export async function setEvseUnit(
       // A unit of another station answers like an unknown one, so a
       // caller learns nothing about units outside its station.
       if (unit == null || unit.stationId !== stationUuid) return { ok: false, reason: 'not_found' };
+      if (evse.unitId !== unitId && (await budgetKindConflict(tx, unit.id, [evse.id]))) {
+        return { ok: false, reason: 'budget_kind_mismatch' };
+      }
       target = unit;
     }
     const previous =

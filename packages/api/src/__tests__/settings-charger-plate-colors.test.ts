@@ -194,6 +194,12 @@ vi.mock('../lib/payments.js', async (importOriginal) => ({
   clearPaymentCaches: vi.fn(),
 }));
 
+// The report generators are not loaded: a time zone change moves the schedules
+// (31-reports covers it).
+vi.mock('@evtivity/services/report.service', () => ({
+  rescheduleReportSchedules: vi.fn().mockResolvedValue(0),
+}));
+
 vi.mock('@evtivity/services/station-message.service', () => ({
   requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
 }));

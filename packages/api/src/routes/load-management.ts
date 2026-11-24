@@ -3,17 +3,24 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, isNotNull } from 'drizzle-orm';
+import { eq, and, desc, inArray, isNotNull } from 'drizzle-orm';
 import {
   db,
   siteLoadManagement,
   chargingStations,
+  connectors,
+  evses,
   loadAllocationLog,
+  loadAllocationEntries,
   isOperatorStation,
   isFleetChargingEnabled,
   isFleetEnabled,
   markSitePlanStale,
+  client,
+  clearEvseLimitsRefused,
+  toIsoOrNull,
 } from '@evtivity/database';
+import { effectiveBalancingMode } from '@evtivity/services/evse-limits';
 import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { config as apiConfig } from '../lib/config.js';
@@ -25,6 +32,7 @@ import {
   clearLoadManagementProfiles,
   clearPlanProfilesOnDisable,
   parseAppliedAllocations,
+  stationConnectedKw,
   type HierarchyNode,
 } from '@evtivity/services/load-management.service';
 import { getUserSiteIds, isAllSiteUser } from '../lib/site-access.js';
@@ -114,6 +122,14 @@ const patchMinPowerBody = z.object({
     ),
 });
 
+const patchBalancingModeBody = z.object({
+  mode: z
+    .enum(['station', 'evse'])
+    .describe(
+      'station: one limit for the whole station; evse: also a limit per charging EVSE (sessions with a tariff current limit are limited per EVSE in either mode). Setting it lets a station that refused per-EVSE limits take them again.',
+    ),
+});
+
 const historyQuery = z.object({
   limit: z.coerce
     .number()
@@ -195,6 +211,25 @@ const hierarchyNodeSchema = z
   })
   .loose();
 
+const evseLimitItem = z
+  .object({
+    evseNumber: z.number().int().describe('OCPP EVSE number'),
+    unitId: z.string().nullable().describe('Station unit of the EVSE, or null'),
+    kind: z.enum(['ac', 'dc']).describe('Charging kind of the session'),
+    limitA: z.number().nullable().describe('AC limit in A per phase (0.1 A steps); null for DC'),
+    limitKw: z.number().describe('Limit in kW'),
+    phases: z.number().int().nullable().describe('Phases the AC limit counts; null for DC'),
+    reason: z
+      .string()
+      .describe('What set the limit: tariff_limit, connector_max, station_share or ac_min_pause'),
+    paused: z.boolean().describe('True when the AC EVSE is paused at 0 A (below 6 A)'),
+    sessionId: z
+      .string()
+      .optional()
+      .describe('Charging session of the EVSE; only with sessions:read'),
+  })
+  .loose();
+
 const loadStationItem = z
   .object({
     id: z.string().describe('Station identifier'),
@@ -221,6 +256,34 @@ const loadStationItem = z
       ),
     isOnline: z.boolean().describe('Whether the station is online'),
     hasActiveSession: z.boolean().describe('Whether a charging session is active'),
+    balancingMode: z
+      .enum(['station', 'evse'])
+      .describe('The balancing mode the operator chose for the station'),
+    effectiveBalancingMode: z
+      .enum(['station', 'evse'])
+      .describe(
+        'How load management limits the station now: evse when the operator chose it or an AC session has a tariff current limit, station when the station refused per-EVSE limits',
+      ),
+    evseLimitsRefusedAt: z
+      .string()
+      .nullable()
+      .describe(
+        'When the station refused a per-EVSE limit (ISO 8601); it gets one station limit until the balancing mode is set again',
+      ),
+    evseLimits: z
+      .array(evseLimitItem)
+      .describe('The limit of each charging EVSE this cycle (empty in station mode)'),
+    usesUnits: z
+      .boolean()
+      .describe(
+        'True when the station groups its EVSEs in units, whose budgets GET /v1/sites/:id/stations/:stationId/unit-budgets lists',
+      ),
+    tariffLimitsNotEnforced: z
+      .boolean()
+      .optional()
+      .describe(
+        'True when an AC session at the station has a tariff current limit that load management does not enforce (load management off, or the station on no circuit). Only with pricing:read',
+      ),
   })
   .loose();
 
@@ -283,6 +346,18 @@ const loadMinPowerItem = z
   })
   .loose();
 
+const loadBalancingModeItem = z
+  .object({
+    id: z.string().describe('Station identifier'),
+    stationId: z.string().describe('OCPP station ID'),
+    loadBalancingMode: z.enum(['station', 'evse']).describe('The balancing mode now stored'),
+    evseLimitsRefusedAt: z
+      .string()
+      .nullable()
+      .describe('Always null after the change: the station takes per-EVSE limits again'),
+  })
+  .loose();
+
 const historyItem = z
   .object({
     id: z.string().describe('Allocation log entry identifier'),
@@ -292,6 +367,17 @@ const historyItem = z
     strategy: z
       .enum(LOAD_ALLOCATION_STRATEGIES)
       .describe('Strategy used for this allocation cycle'),
+    allocations: z
+      .array(
+        z
+          .object({
+            stationId: z.string().describe('OCPP station identifier'),
+            stationDbId: z.string().nullable().describe('Station database ID'),
+            allocatedKw: z.number().describe('Station limit sent, in kW'),
+          })
+          .loose(),
+      )
+      .describe('The station limits of this allocation, from the allocation log entries'),
     createdAt: z.string().describe('Timestamp of the allocation cycle'),
   })
   .loose();
@@ -311,10 +397,50 @@ function toConfigRecord(
   };
 }
 
+type HierarchyStation = HierarchyNode['stations'][number];
+
+function hierarchyStations(nodes: readonly HierarchyNode[]): HierarchyStation[] {
+  return nodes.flatMap((node) => [...node.stations, ...hierarchyStations(node.children)]);
+}
+
+/** Connected kW of each station of the tree, its Station Units held to their budgets. */
+async function connectedKwByStation(nodes: readonly HierarchyNode[]): Promise<Map<string, number>> {
+  const stations = new Map(hierarchyStations(nodes).map((s) => [s.id, s]));
+  const result = new Map<string, number>();
+  if (stations.size === 0) return result;
+  const rows = await db
+    .select({
+      stationId: evses.stationId,
+      evseDbId: evses.id,
+      unitId: evses.unitId,
+      maxPowerKw: connectors.maxPowerKw,
+    })
+    .from(connectors)
+    .innerJoin(evses, eq(connectors.evseId, evses.id))
+    .where(inArray(evses.stationId, [...stations.keys()]));
+  for (const [id, station] of stations) {
+    const stationRows = rows.filter((r) => r.stationId === id);
+    if (stationRows.length === 0) continue;
+    result.set(
+      id,
+      stationConnectedKw(
+        stationRows,
+        station.unitBudgets ?? [],
+        station.circuitVoltageV,
+        station.circuitPhases ?? 1,
+      ),
+    );
+  }
+  return result;
+}
+
 /**
  * Annotate hierarchy nodes with computed availableKw and utilization.
  */
-function annotateHierarchy(nodes: HierarchyNode[]): unknown[] {
+function annotateHierarchy(
+  nodes: HierarchyNode[],
+  connectedKw: ReadonlyMap<string, number>,
+): unknown[] {
   return nodes.map((node) => {
     // currentDrawKw already holds the unmanaged loads of the node and of every
     // node below it, so they are not subtracted from the capacity again.
@@ -330,12 +456,11 @@ function annotateHierarchy(nodes: HierarchyNode[]): unknown[] {
     const circuitChildren = node.children.filter((c) => c.type === 'circuit');
     const panelChildren = node.children.filter((c) => c.type !== 'circuit');
 
-    // Compute totalConnectedKw: sum of maxPowerKw for all stations on this panel's circuits
     let totalConnectedKw = 0;
     for (const child of node.children) {
       if (child.type === 'circuit') {
         for (const s of child.stations) {
-          totalConnectedKw += s.maxPowerKw;
+          totalConnectedKw += connectedKw.get(s.id) ?? s.maxPowerKw;
         }
       }
     }
@@ -397,7 +522,7 @@ function annotateHierarchy(nodes: HierarchyNode[]): unknown[] {
           unmanagedLoads: [],
         };
       }),
-      childPanels: annotateHierarchy(panelChildren),
+      childPanels: annotateHierarchy(panelChildren, connectedKw),
       unmanagedLoads: [],
     };
   });
@@ -447,12 +572,13 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       const strategy = config?.strategy ?? 'equal_share';
       // The same computation as the control loop, with the power it keeps
       // for offline stations, so the UI shows the limits the stations get.
-      const { status, hierarchy, reservedKw, allocations } = await computeSiteAllocation(
-        id,
-        strategy,
-        parseAppliedAllocations(config?.appliedAllocations),
-        { allowSimulatedEnergyAssets: apiConfig.ENERGY_ASSETS_ALLOW_SIMULATED },
-      );
+      const { status, hierarchy, managed, reservedKw, allocations, evseLimits } =
+        await computeSiteAllocation(
+          id,
+          strategy,
+          parseAppliedAllocations(config?.appliedAllocations),
+          { allowSimulatedEnergyAssets: apiConfig.ENERGY_ASSETS_ALLOW_SIMULATED },
+        );
 
       // Compute current allocations for the UI
       let allocationMap = new Map<string, number>();
@@ -468,6 +594,10 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         }
       }
 
+      const enabled = config != null && config.isEnabled && hierarchy.length > 0;
+      const managedIds = new Set(enabled ? managed.map((s) => s.id) : []);
+      const showSessions = await requestHasPermission(request, 'sessions:read');
+      const showPricing = await requestHasPermission(request, 'pricing:read');
       return {
         config:
           config != null
@@ -477,7 +607,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
                 departureBufferMinutes: config.departureBufferMinutes,
               }
             : null,
-        hierarchy: annotateHierarchy(hierarchy),
+        hierarchy: annotateHierarchy(hierarchy, await connectedKwByStation(hierarchy)),
         stations: status.stations.map((s) => ({
           id: s.id,
           stationId: s.stationId,
@@ -490,6 +620,28 @@ export function loadManagementRoutes(app: FastifyInstance): void {
           rateUnit: s.rateUnit,
           isOnline: s.isOnline,
           hasActiveSession: s.hasActiveSession,
+          balancingMode: s.balancingMode ?? 'station',
+          effectiveBalancingMode: effectiveBalancingMode(s),
+          evseLimitsRefusedAt: toIsoOrNull(s.evseLimitsRefusedAt ?? null),
+          usesUnits: s.usesUnits === true,
+          evseLimits: (enabled ? (evseLimits.get(s.id) ?? []) : []).map((l) => ({
+            evseNumber: l.evseNumber,
+            unitId: l.unitId,
+            kind: l.kind,
+            limitA: l.limitA,
+            limitKw: l.limitKw,
+            phases: l.phases,
+            reason: l.reason,
+            paused: l.paused,
+            ...(showSessions ? { sessionId: l.sessionId } : {}),
+          })),
+          ...(showPricing
+            ? {
+                tariffLimitsNotEnforced:
+                  !managedIds.has(s.id) &&
+                  (s.sessions ?? []).some((x) => x.kind === 'ac' && x.tariffMaxCurrentA != null),
+              }
+            : {}),
         })),
         simulatedEnergyAssetsAllowed: apiConfig.ENERGY_ASSETS_ALLOW_SIMULATED,
       };
@@ -815,6 +967,84 @@ export function loadManagementRoutes(app: FastifyInstance): void {
     },
   );
 
+  // PATCH /sites/:id/stations/:stationId/load-balancing-mode
+  app.patch(
+    '/sites/:id/stations/:stationId/load-balancing-mode',
+    {
+      onRequest: [authorize('loadManagement:write')],
+      onResponse: [replanSiteAfterWrite('load_management_changed', 'id')],
+      schema: {
+        tags: ['Load Management'],
+        summary: 'Choose how load management limits a station: one station limit, or per EVSE',
+        description:
+          'evse sends each charging EVSE its own limit (a TxProfile per transaction) besides the station limit. Sessions with a tariff current limit are limited per EVSE in either mode. Setting the mode clears a stored refusal of per-EVSE limits, and the site sends its limits again on the next cycle.',
+        operationId: 'updateStationLoadBalancingMode',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(siteStationParams),
+        body: zodSchema(patchBalancingModeBody),
+        response: {
+          200: itemResponse(loadBalancingModeItem),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, stationId } = request.params as { id: string; stationId: string };
+      const body = request.body as z.infer<typeof patchBalancingModeBody>;
+
+      const { userId } = request.user as { userId: string };
+      const siteIds = await getUserSiteIds(userId);
+      if (!siteInScope(siteIds, id)) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
+
+      // Bound to the URL site, like the load priority.
+      const [previous] = await db
+        .select({
+          loadBalancingMode: chargingStations.loadBalancingMode,
+          evseLimitsRefusedAt: chargingStations.evseLimitsRefusedAt,
+        })
+        .from(chargingStations)
+        .where(and(eq(chargingStations.id, stationId), eq(chargingStations.siteId, id)));
+      const [updated] = await db
+        .update(chargingStations)
+        .set({ loadBalancingMode: body.mode, updatedAt: new Date() })
+        .where(and(eq(chargingStations.id, stationId), eq(chargingStations.siteId, id)))
+        .returning({ id: chargingStations.id, stationId: chargingStations.stationId });
+
+      if (updated == null || previous == null) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
+
+      const refusalCleared = await clearEvseLimitsRefused(client, updated.id);
+      // The next cycle sends the limits in the mode chosen, not at the refresh interval.
+      await db
+        .update(siteLoadManagement)
+        .set({ appliedAt: null })
+        .where(eq(siteLoadManagement.siteId, id));
+
+      if (previous.loadBalancingMode !== body.mode || refusalCleared) {
+        await writeStationLoadAudit(request, updated.id, {
+          before: {
+            loadBalancingMode: previous.loadBalancingMode,
+            evseLimitsRefusedAt: toIsoOrNull(previous.evseLimitsRefusedAt),
+          },
+          after: { loadBalancingMode: body.mode, evseLimitsRefusedAt: null },
+          notes: refusalCleared
+            ? 'load balancing mode set, per-EVSE limit refusal cleared'
+            : 'load balancing mode changed',
+        });
+      }
+
+      return {
+        id: updated.id,
+        stationId: updated.stationId,
+        loadBalancingMode: body.mode,
+        evseLimitsRefusedAt: null,
+      };
+    },
+  );
+
   // PATCH /sites/:id/stations/:stationId/load-min-power
   app.patch(
     '/sites/:id/stations/:stationId/load-min-power',
@@ -890,6 +1120,8 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Load Management'],
         summary: 'Get load allocation history for a site',
+        description:
+          'The allocation changes of the site, newest first (the periodic resends and credit profile resends are left out), each with its station limits read from the allocation log entries.',
         operationId: 'getSiteLoadManagementHistory',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(historyQuery),
@@ -913,9 +1145,45 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       const rows = await db
         .select()
         .from(loadAllocationLog)
-        .where(eq(loadAllocationLog.siteId, id))
-        .orderBy(desc(loadAllocationLog.createdAt))
+        .where(and(eq(loadAllocationLog.siteId, id), eq(loadAllocationLog.kind, 'change')))
+        .orderBy(desc(loadAllocationLog.createdAt), desc(loadAllocationLog.id))
         .limit(limit);
+      // A header without entries (written by an earlier release's worker) has no per-station detail.
+      const stationRows =
+        rows.length === 0
+          ? []
+          : await db
+              .select({
+                logId: loadAllocationEntries.logId,
+                stationOcppId: loadAllocationEntries.stationOcppId,
+                stationDbId: loadAllocationEntries.stationId,
+                limitKw: loadAllocationEntries.limitKw,
+              })
+              .from(loadAllocationEntries)
+              .where(
+                and(
+                  inArray(
+                    loadAllocationEntries.logId,
+                    rows.map((row) => row.id),
+                  ),
+                  eq(loadAllocationEntries.scope, 'station'),
+                ),
+              )
+              .orderBy(loadAllocationEntries.id);
+      const byLog = new Map<
+        number,
+        { stationId: string; stationDbId: string | null; allocatedKw: number }[]
+      >();
+      for (const entry of stationRows) {
+        byLog.set(entry.logId, [
+          ...(byLog.get(entry.logId) ?? []),
+          {
+            stationId: entry.stationOcppId,
+            stationDbId: entry.stationDbId,
+            allocatedKw: Number(entry.limitKw),
+          },
+        ]);
+      }
 
       return rows.map((row) => ({
         id: row.id,
@@ -923,7 +1191,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         totalDrawKw: Number(row.totalDrawKw),
         availableKw: Number(row.availableKw),
         strategy: row.strategy,
-        allocations: row.allocations,
+        allocations: byLog.get(row.id) ?? [],
         createdAt: row.createdAt.toISOString(),
       }));
     },

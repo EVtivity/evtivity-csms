@@ -15,7 +15,10 @@ import {
   index,
   unique,
   customType,
+  check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { REPORT_PERIODS, type ReportPeriod } from '@evtivity/lib/report-period';
 import { createId } from '../lib/id.js';
 import { chargingStations } from './assets.js';
 import { users } from './identity.js';
@@ -90,6 +93,12 @@ export const reportSchedules = pgTable(
     dayOfWeek: integer('day_of_week'),
     dayOfMonth: integer('day_of_month'),
     filters: jsonb('filters'),
+    // The period each run covers, resolved at run time in the company time
+    // zone; custom runs filters.dateFrom to filters.dateTo.
+    reportPeriod: varchar('report_period', { length: 32 })
+      .$type<ReportPeriod>()
+      .notNull()
+      .default('custom'),
     recipientEmails: jsonb('recipient_emails'),
     isEnabled: boolean('is_enabled').notNull().default(true),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
@@ -104,6 +113,10 @@ export const reportSchedules = pgTable(
   (table) => [
     index('idx_report_schedules_next_run').on(table.nextRunAt, table.isEnabled),
     index('idx_report_schedules_created_by').on(table.createdById),
+    check(
+      'report_schedules_report_period_check',
+      sql`${table.reportPeriod} IN (${sql.raw(REPORT_PERIODS.map((p) => `'${p}'`).join(', '))})`,
+    ),
   ],
 );
 

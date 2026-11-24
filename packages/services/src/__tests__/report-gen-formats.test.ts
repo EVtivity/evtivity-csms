@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   pdfs: [] as PdfCall[],
   spend: new Map<string, { grossCents: number }>(),
   revenueArgs: [] as unknown[],
+  tz: 'UTC',
 }));
 
 vi.mock('@evtivity/database', async () => {
@@ -32,7 +33,7 @@ vi.mock('@evtivity/database', async () => {
   const { sql } = await import('drizzle-orm');
   h.fake = createFakeDb();
   return fakeDatabaseModule(h.fake, {
-    getSystemTimezone: () => Promise.resolve('UTC'),
+    getSystemTimezone: () => Promise.resolve(h.tz),
     getCompanyCurrency: () => Promise.resolve('EUR'),
     isOperatorStation: () => sql`is_operator`,
     inOperatorStation: (col: unknown) => sql`in_operator(${col})`,
@@ -158,6 +159,7 @@ beforeEach(() => {
   h.pdfs.length = 0;
   h.spend.clear();
   h.revenueArgs.length = 0;
+  h.tz = 'UTC';
 });
 
 afterEach(() => {
@@ -218,7 +220,8 @@ describe('sessions report', () => {
       ['sit_1'],
       FULL,
     );
-    expect(fileName).toMatch(/^sessions-report-\d+\.csv$/);
+    // The invalid dateTo is dropped, so the file names only the start day.
+    expect(fileName).toBe('sessions-report-from-2026-11-01.csv');
     const rows = csv(data);
     const header = rows[0]!;
     const col = (name: string) => header.indexOf(name);
@@ -322,15 +325,17 @@ describe('utilization report', () => {
   const station = { stationName: 'CS-1', siteName: 'Depot', sessionHours: 5000, sessionCount: 4 };
 
   it('computes utilization over the date range and writes the CSV sections', async () => {
-    h.fake.queue(selects('value'), [{ value: 'Europe/Berlin' }]);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-20T12:00:00Z'));
+    h.tz = 'Europe/Berlin';
     h.fake.queue(selects('stationCount'), [site, empty]);
     h.fake.queue(selects('sessionCount', 'stationName'), [station]);
     h.fake.queue(selects('dayOfWeek'), [{ hour: 7, dayOfWeek: 1, count: 9 }]);
     const filters = { dateFrom: '2026-11-01', dateTo: '2026-11-10', siteId: 'sit_1' };
-    const { data } = await generateUtilizationReport(filters, 'csv', 'en', ['sit_1']);
-    const until = new Date('2026-11-10');
-    until.setHours(23, 59, 59, 999);
-    const totalHours = (until.getTime() - new Date('2026-11-01').getTime()) / 3600000;
+    const { data, fileName } = await generateUtilizationReport(filters, 'csv', 'en', ['sit_1']);
+    expect(fileName).toBe('utilization-report-2026-11-01-to-2026-11-10.csv');
+    // Berlin midnight of Nov 1 to Berlin midnight after Nov 10: ten whole days.
+    const totalHours = 240;
     const rows = csv(data);
     expect(rows[1]).toEqual([
       'Depot',
@@ -350,9 +355,10 @@ describe('utilization report', () => {
     expect(await sqlParams(hourSql)).toContain('Europe/Berlin');
   });
 
-  it('falls back to the New York timezone and a 30-day window', async () => {
+  it('reads the company time zone and falls back to a 30-day window', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
+    h.tz = 'America/New_York';
     h.fake.queue(selects('stationCount'), [{ siteName: 'A', stationCount: 1, sessionHours: 72 }]);
     const { data } = await generateUtilizationReport({}, 'csv', 'en', null);
     // 72 hours over 30 days on one station.
@@ -360,6 +366,49 @@ describe('utilization report', () => {
     const peak = h.fake.calls.find(selects('dayOfWeek'));
     const hourSql = (opArgs(peak, 'select')![0] as Record<string, unknown>)['hour'];
     expect(await sqlParams(hourSql)).toContain('America/New_York');
+  });
+
+  it('ends a to-date period at now, so the hours still to come do not count', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-11T00:00:00Z'));
+    h.fake.queue(selects('stationCount'), [{ siteName: 'A', stationCount: 1, sessionHours: 48 }]);
+    const { data } = await generateUtilizationReport(
+      { dateFrom: '2026-11-01', dateTo: '2026-11-30' },
+      'csv',
+      'en',
+      null,
+    );
+    // 48 hours over the 240 hours from Nov 1 to now, not over all of November.
+    expect(csv(data)[1]).toEqual(['A', '1', '48', '20']);
+    // The peaks count sessions that started from Nov 1 up to now, not to Dec 1.
+    const where = await whereOf(selects('dayOfWeek'));
+    expect(where.params).toEqual(
+      expect.arrayContaining([new Date('2026-11-01T00:00:00Z'), new Date('2026-11-11T00:00:00Z')]),
+    );
+    expect(where.params).not.toContainEqual(new Date('2026-12-01T00:00:00Z'));
+  });
+
+  it('bounds the sessions by the 30-day window without dates and clips each session to it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-12T00:00:00Z'));
+    await generateUtilizationReport({}, 'csv', 'en', null);
+    const since = '2026-10-13T00:00:00.000Z';
+    const until = '2026-11-12T00:00:00.000Z';
+    for (const key of ['stationCount', 'sessionCount']) {
+      const call = h.fake.calls.find(selects(key));
+      const joins = call!.ops.filter((o) => o.name === 'leftJoin');
+      const join = joins.at(-1)?.args[1];
+      const params = await sqlParams(join);
+      // The session join is bounded on both sides even with no date filter.
+      expect(params).toEqual(expect.arrayContaining([new Date(until), since]));
+      const hours = (opArgs(call, 'select')![0] as Record<string, unknown>)['sessionHours'];
+      const text = await sqlString(hours);
+      expect(text).toContain('least(');
+      expect(text).toContain('greatest(');
+      expect(await sqlParams(hours)).toEqual(expect.arrayContaining([since, until]));
+    }
+    const peak = await whereOf(selects('dayOfWeek'));
+    expect(peak.params).toEqual(expect.arrayContaining([new Date(since), new Date(until)]));
   });
 
   it('writes three XLSX sheets', async () => {
@@ -497,6 +546,30 @@ describe('driver activity report', () => {
     lastSession: '2026-11-05',
   };
 
+  it('bounds the sessions and the spend by company midnights', async () => {
+    h.tz = 'America/New_York';
+    h.fake.queue(selects('driverId'), [driverRow]);
+    const { fileName } = await generateDriverActivityReport(
+      { dateFrom: '2026-11-01', dateTo: '2026-11-30' },
+      'csv',
+      'en',
+      null,
+      FULL,
+    );
+    expect(fileName).toBe('driver-activity-2026-11-01-to-2026-11-30.csv');
+    const where = await whereOf(selects('driverId'));
+    expect(where.params).toEqual(
+      expect.arrayContaining([new Date('2026-11-01T04:00:00Z'), new Date('2026-12-01T05:00:00Z')]),
+    );
+    const args = h.revenueArgs[0] as { where: unknown[] };
+    const texts = await Promise.all(args.where.map((w) => sqlString(w)));
+    const params = (await Promise.all(args.where.map((w) => sqlParams(w)))).flat();
+    expect(params).toEqual(
+      expect.arrayContaining(['2026-11-01T04:00:00.000Z', '2026-12-01T05:00:00.000Z']),
+    );
+    expect(texts.some((t) => t.includes('<='))).toBe(false);
+  });
+
   it('writes each driver with the spend from the revenue rows', async () => {
     h.fake.queue(selects('driverId'), [driverRow, { ...driverRow, driverId: 'drv_2' }]);
     h.spend.set('drv_1', { grossCents: 4250 });
@@ -580,6 +653,23 @@ describe('energy report', () => {
     expect((await whereOf(selects('date'))).params).toContain('sit_1');
   });
 
+  it('starts and ends the report days at company midnight', async () => {
+    h.tz = 'America/New_York';
+    const { fileName } = await generateEnergyReport(
+      { dateFrom: '2026-11-01', dateTo: '2026-11-30' },
+      'pdf',
+      'en',
+      null,
+    );
+    expect(fileName).toBe('energy-report-2026-11-01-to-2026-11-30.pdf');
+    const where = await whereOf(selects('date'));
+    expect(where.params).toEqual(
+      expect.arrayContaining([new Date('2026-11-01T04:00:00Z'), new Date('2026-12-01T05:00:00Z')]),
+    );
+    expect(where.text).toContain('<');
+    expect(where.text).not.toContain('<=');
+  });
+
   it('reads the days without the station join for an all-site report', async () => {
     await generateEnergyReport({}, 'xlsx', 'en', null);
     const day = h.fake.calls.find(selects('date'));
@@ -634,7 +724,9 @@ describe('station health report', () => {
   ];
 
   it('writes the CSV sections with rounded values and the site condition', async () => {
-    h.fake.queue(selects('value'), [{ value: 'Europe/Berlin' }]);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    h.tz = 'Europe/Berlin';
     h.fake.queue('execute:uptime_pct', uptime);
     h.fake.queue('execute:fault_count', [{ station_name: 'CS-1', fault_count: '4' }]);
     h.fake.queue('execute:LIMIT 500', incidents);
@@ -659,21 +751,60 @@ describe('station health report', () => {
     const q = opArgs(call, 'execute')?.[0];
     expect(await sqlString(q)).toContain('cs.site_id =');
     expect(await sqlParams(q)).toEqual(
-      expect.arrayContaining(['2026-11-01T00:00:00.000Z', 'sit_1']),
+      expect.arrayContaining(['2026-10-31T23:00:00.000Z', '2026-11-20T00:00:00.000Z', 'sit_1']),
     );
     const inc = h.fake.find('execute', 'LIMIT 500')[0];
     expect(await sqlParams(opArgs(inc, 'execute')?.[0])).toContain('Europe/Berlin');
   });
 
-  it('defaults to the last 30 days and the New York timezone', async () => {
+  it('defaults to the last 30 days in the company time zone', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-12T00:00:00Z'));
+    h.tz = 'America/New_York';
     await generateStationHealthReport({}, 'csv', 'en', null);
     const inc = h.fake.find('execute', 'LIMIT 500')[0];
     const params = await sqlParams(opArgs(inc, 'execute')?.[0]);
     expect(params).toEqual(
-      expect.arrayContaining(['America/New_York', '2026-10-13T00:00:00.000Z']),
+      expect.arrayContaining([
+        'America/New_York',
+        '2026-10-13T00:00:00.000Z',
+        '2026-11-12T00:00:00.000Z',
+      ]),
     );
+  });
+
+  it('ends at dateTo, and at now for a period that is not over yet', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-12T00:00:00Z'));
+    h.tz = 'America/New_York';
+    const { fileName } = await generateStationHealthReport(
+      { dateFrom: '2026-10-01', dateTo: '2026-10-31' },
+      'csv',
+      'en',
+      null,
+    );
+    expect(fileName).toBe('station-health-2026-10-01-to-2026-10-31.csv');
+    const upParams = await sqlParams(
+      opArgs(h.fake.find('execute', 'uptime_pct')[0], 'execute')?.[0],
+    );
+    // New York midnights: EDT on Oct 1, EST after Nov 1.
+    expect(upParams).toEqual(
+      expect.arrayContaining(['2026-10-01T04:00:00.000Z', '2026-11-01T04:00:00.000Z']),
+    );
+    h.fake.reset();
+    await generateStationHealthReport(
+      { dateFrom: '2026-11-01', dateTo: '2026-11-30' },
+      'csv',
+      'en',
+      null,
+    );
+    const faultParams = await sqlParams(
+      opArgs(h.fake.find('execute', 'fault_count')[0], 'execute')?.[0],
+    );
+    expect(faultParams).toEqual(
+      expect.arrayContaining(['2026-11-01T04:00:00.000Z', '2026-11-12T00:00:00.000Z']),
+    );
+    expect(faultParams).not.toContain('2026-12-01T05:00:00.000Z');
   });
 
   it('writes the fault sheet only when there are faults', async () => {

@@ -9,6 +9,7 @@ import {
   isFlatEnergyReading,
   overallValue,
   powerToW,
+  phaseCurrentReadings,
   readingSummary,
   socPercent,
 } from '../server/meter-units.js';
@@ -299,5 +300,34 @@ describe('readingSummary', () => {
         { measurand: 'Energy.Active.Import.Register', value: 1000 },
       ]),
     ).toEqual({ powerW: null, socPercent: 64 });
+  });
+});
+
+describe('phaseCurrentReadings', () => {
+  it('reads the per-phase Outlet Current.Import samples in A, with the 2.1 multiplier', () => {
+    expect(
+      phaseCurrentReadings([
+        { measurand: 'Current.Import', phase: 'L1', value: 16, unitOfMeasure: { unit: 'A' } },
+        { measurand: 'Current.Import', phase: 'L2-N', value: 5, unitOfMeasure: { multiplier: -1 } },
+        { measurand: 'Current.Import', phase: 'L3', value: '0.4', unit: 'A' },
+      ]),
+    ).toEqual([
+      { phase: 'L1', amps: 16 },
+      { phase: 'L2-N', amps: 0.5 },
+      { phase: 'L3', amps: 0.4 },
+    ]);
+  });
+
+  it('leaves out samples without a phase, at another location, in another unit or measurand', () => {
+    expect(
+      phaseCurrentReadings([
+        { measurand: 'Current.Import', value: 16 },
+        { measurand: 'Current.Import', phase: 'L1', location: 'EV', value: 16 },
+        { measurand: 'Current.Import', phase: 'L1', unit: 'mA', value: 16 },
+        { measurand: 'Power.Active.Import', phase: 'L1', value: 3000 },
+        { measurand: 'Current.Import', phase: 'L1', value: 'x' },
+      ]),
+    ).toEqual([]);
+    expect(phaseCurrentReadings(null)).toEqual([]);
   });
 });

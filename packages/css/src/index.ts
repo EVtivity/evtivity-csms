@@ -73,6 +73,7 @@ async function main(): Promise<void> {
     chaos = new ChaosOrchestrator(sql, pubsub, {
       actionIntervalMs,
       stationLimit,
+      commandResults: manager,
     });
     await chaos.start();
     console.log('[css] ChaosOrchestrator started');

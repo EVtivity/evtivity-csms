@@ -15,7 +15,19 @@
     "minutes": "{value} min",
     "kwh": "{value} kWh",
     "inclTax": "imp. incl.",
-    "exclTax": "sin imp."
+    "exclTax": "sin imp.",
+    "periods": {
+      "previousDay": "Día anterior",
+      "previousWeek": "Semana anterior",
+      "previousMonth": "Mes anterior",
+      "previousQuarter": "Trimestre anterior",
+      "previousYear": "Año anterior",
+      "currentWeekToDate": "Semana hasta hoy",
+      "currentMonthToDate": "Mes hasta hoy",
+      "currentYearToDate": "Año hasta hoy",
+      "last7Days": "Últimos 7 días",
+      "last30Days": "Últimos 30 días"
+    }
   },
   "columns": {
     "date": "Fecha",

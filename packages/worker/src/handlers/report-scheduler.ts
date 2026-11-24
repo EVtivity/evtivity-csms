@@ -19,6 +19,7 @@ import {
   type ReportSiteScope,
 } from '@evtivity/services/report-scope';
 import { writeReportGeneratedAudit } from '@evtivity/services/report-audit';
+import { reportFiltersForPeriod, reportPeriodText } from '@evtivity/services/report-period';
 import { getNotificationSettings, sendEmail, renderTemplate, wrapEmailHtml } from '@evtivity/lib';
 import type { EmailAttachment, RenderedTemplate } from '@evtivity/lib';
 import { isUiLanguage } from '@evtivity/lib/languages';
@@ -64,7 +65,16 @@ async function runOneSchedule(
       return;
     }
 
-    const filters = schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
+    const storedFilters =
+      schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
+    // The run covers the period of its due occurrence, so a late or retried
+    // run covers the same days as an on-time one; a to-date period ends yesterday.
+    const filters = await reportFiltersForPeriod(
+      schedule.reportPeriod,
+      storedFilters,
+      schedule.nextRunAt ?? now,
+      { scheduled: true },
+    );
     // The run covers the schedule's sites narrowed to its creator's current
     // sites; the report row stores that scope.
     const siteScope = await scheduleRunScope(schedule.siteScope, schedule.createdById);
@@ -119,10 +129,20 @@ async function runOneSchedule(
     );
     const companyRows = await client`SELECT value FROM settings WHERE key = 'company.name'`;
     const companyName = (companyRows[0]?.value as string | undefined) ?? 'EVtivity CSMS';
-    const templateVars = {
-      companyName,
-      reportName: schedule.name,
-      generatedAt: new Date().toISOString(),
+    const generatedAt = new Date().toISOString();
+    const varsByLanguage = new Map<string, Record<string, string>>();
+    const templateVarsFor = (language: string): Record<string, string> => {
+      let vars = varsByLanguage.get(language);
+      if (vars == null) {
+        vars = {
+          companyName,
+          reportName: schedule.name,
+          reportPeriod: reportPeriodText(language, schedule.reportPeriod, filters),
+          generatedAt,
+        };
+        varsByLanguage.set(language, vars);
+      }
+      return vars;
     };
     // Each recipient gets the email in their operator account language, like
     // other operator notifications. An address without a user account gets en.
@@ -130,6 +150,7 @@ async function runOneSchedule(
     const renderedByLanguage = new Map<string, RenderedTemplate>();
     for (const recipientEmail of recipientEmails) {
       const language = languageByEmail.get(recipientEmail.toLowerCase()) ?? 'en';
+      const templateVars = templateVarsFor(language);
       let rendered = renderedByLanguage.get(language);
       if (rendered == null) {
         rendered = await renderTemplate(

@@ -22,6 +22,7 @@ const free: TariffPriceSnapshot = {
   idleFeePricePerMinute: null,
   reservationFeePerMinute: null,
   taxRate: '0.19',
+  maxCurrentA: null,
 };
 const paid: TariffPriceSnapshot = { ...free, id: 'trf_peak', pricePerKwh: '0.40' };
 
@@ -78,7 +79,12 @@ describe('sessionStartTariff', () => {
   it('reads the tariff_* columns of a session row', () => {
     expect(sessionStartTariff({ tariff_id: null })).toBeNull();
     expect(
-      sessionStartTariff({ tariff_id: 'trf_1', tariff_price_per_kwh: 0.3, tariff_tax_rate: '0.1' }),
+      sessionStartTariff({
+        tariff_id: 'trf_1',
+        tariff_price_per_kwh: 0.3,
+        tariff_tax_rate: '0.1',
+        tariff_max_current_a: '16.0',
+      }),
     ).toEqual({
       id: 'trf_1',
       pricePerKwh: '0.3',
@@ -87,6 +93,7 @@ describe('sessionStartTariff', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: '0.1',
+      maxCurrentA: '16.0',
     });
   });
 });

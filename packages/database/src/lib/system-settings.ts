@@ -27,6 +27,12 @@ import {
   type PriceDisplay,
   type TaxBasis,
 } from '@evtivity/lib';
+import {
+  COMPANY_WEEK_START_KEY,
+  DEFAULT_WEEK_START,
+  isWeekStart,
+  type WeekStart,
+} from '@evtivity/lib/report-period';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 
@@ -45,6 +51,8 @@ let cachedPriceDisplayAt = 0;
 
 let cachedTaxBasis: TaxBasis | undefined;
 let cachedTaxBasisAt = 0;
+let cachedWeekStart: WeekStart | undefined;
+let cachedWeekStartAt = 0;
 
 let cachedCountry: string | null | undefined;
 let cachedCountryAt = 0;
@@ -177,6 +185,30 @@ export async function getCompanyTaxBasis(): Promise<TaxBasis> {
       'getCompanyTaxBasis failed, using the cached value or default',
     );
     return cachedTaxBasis ?? DEFAULT_TAX_BASIS;
+  }
+}
+
+/**
+ * Cached reader for `company.weekStart` (Settings > Company), the first day of
+ * a report week. Falls back to monday when unset or invalid, and on error.
+ */
+export async function getCompanyWeekStart(): Promise<WeekStart> {
+  const now = Date.now();
+  if (cachedWeekStart !== undefined && now - cachedWeekStartAt < TTL_MS) return cachedWeekStart;
+  try {
+    const [row] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, COMPANY_WEEK_START_KEY));
+    cachedWeekStart = isWeekStart(row?.value) ? row.value : DEFAULT_WEEK_START;
+    cachedWeekStartAt = now;
+    return cachedWeekStart;
+  } catch (err) {
+    logger.warn(
+      { err, key: COMPANY_WEEK_START_KEY },
+      'getCompanyWeekStart failed, using the cached value or default',
+    );
+    return cachedWeekStart ?? DEFAULT_WEEK_START;
   }
 }
 
@@ -406,6 +438,8 @@ export function clearSystemSettingsCache(): void {
   cachedPriceDisplayAt = 0;
   cachedTaxBasis = undefined;
   cachedTaxBasisAt = 0;
+  cachedWeekStart = undefined;
+  cachedWeekStartAt = 0;
   cachedCountry = undefined;
   cachedCountryAt = 0;
   cachedCompanyName = undefined;

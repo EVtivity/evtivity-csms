@@ -1,13 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, gte, lte, eq, count, type AnyColumn, type SQL } from 'drizzle-orm';
+import { sql, and, gte, lt, eq, count, type AnyColumn, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
   chargingStations,
   sites,
-  settings,
+  getSystemTimezone,
   inOperatorStation,
   isOperatorStation,
   operatorStationSql,
@@ -21,6 +21,7 @@ import type { ReportGeneratorResult } from '../report-registry.js';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, pdfRows, percentCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
+import { reportDay, reportDayBounds, reportFileName } from './report-dates.js';
 
 interface Filters {
   dateFrom?: string | undefined;
@@ -28,15 +29,39 @@ interface Filters {
   siteId?: string | undefined;
   /** The report's site scope (report-scope.ts). */
   scope: ReportSiteScope;
+  /** The company time zone the report days start and end in. */
+  timeZone: string;
 }
 
-function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
+function parseFilters(
+  raw: Record<string, unknown>,
+  scope: ReportSiteScope,
+  timeZone: string,
+): Filters {
   return {
-    dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
-    dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
+    dateFrom: reportDay(raw['dateFrom']),
+    dateTo: reportDay(raw['dateTo']),
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
     scope,
+    timeZone,
   };
+}
+
+type UtilizationPeriod = ReturnType<typeof getDateRange>;
+
+/** Sessions that overlap the period, so a session crossing an edge counts its part inside. */
+function overlapsPeriod(period: UtilizationPeriod): SQL[] {
+  return [
+    lt(chargingSessions.startedAt, period.until),
+    sql`coalesce(${chargingSessions.endedAt}, now()) > ${period.since.toISOString()}::timestamptz`,
+  ];
+}
+
+/** Hours of each session inside the period, summed. */
+function sessionHoursInPeriod(period: UtilizationPeriod): SQL<number> {
+  const since = period.since.toISOString();
+  const until = period.until.toISOString();
+  return sql<number>`coalesce(sum(greatest(0, extract(epoch from (least(coalesce(${chargingSessions.endedAt}, now()), ${until}::timestamptz) - greatest(${chargingSessions.startedAt}, ${since}::timestamptz))))) / 3600, 0)`;
 }
 
 /** Conditions on a site id column: the site filter and the report's site scope. */
@@ -48,25 +73,19 @@ function siteConditions(filters: Filters, siteIdColumn: AnyColumn): SQL | undefi
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
-async function getTimezone(): Promise<string> {
-  const [row] = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'system.timezone'));
-  return typeof row?.value === 'string' ? row.value : 'America/New_York';
-}
-
-function getDateRange(filters: Filters): { since: Date; until: Date; totalHours: number } {
-  const until = filters.dateTo
-    ? (() => {
-        const d = new Date(filters.dateTo);
-        d.setHours(23, 59, 59, 999);
-        return d;
-      })()
-    : new Date();
-  const since = filters.dateFrom
-    ? new Date(filters.dateFrom)
-    : new Date(until.getTime() - 30 * 86400000);
+/**
+ * The hours the utilization is measured over. The period never ends after
+ * now, so the hours still to come of a to-date period do not lower it.
+ */
+export function getDateRange(
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  timeZone: string,
+  now: Date = new Date(),
+): { since: Date; until: Date; totalHours: number } {
+  const bounds = reportDayBounds(dateFrom, dateTo, timeZone);
+  const until = bounds.until != null && bounds.until.getTime() < now.getTime() ? bounds.until : now;
+  const since = bounds.from ?? new Date(until.getTime() - 30 * 86400000);
   const totalHours = Math.max((until.getTime() - since.getTime()) / 3600000, 1);
   return { since, until, totalHours };
 }
@@ -94,30 +113,24 @@ interface PeakHour {
 
 async function querySiteUtilization(
   filters: Filters,
-  totalHours: number,
+  period: UtilizationPeriod,
   noSite: string,
 ): Promise<SiteUtilization[]> {
+  const { totalHours } = period;
   // Session hours of the sessions that happened at the site (site_id, kept
   // when a station moves) over the stations the site has now. Conformance
   // test stations and their sessions are left out.
   const sessionJoinConditions = [
     eq(chargingSessions.siteId, sites.id),
     inOperatorStation(chargingSessions.stationId),
+    ...overlapsPeriod(period),
   ];
-  if (filters.dateFrom) {
-    sessionJoinConditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
-  }
-  if (filters.dateTo) {
-    const to = new Date(filters.dateTo);
-    to.setHours(23, 59, 59, 999);
-    sessionJoinConditions.push(lte(chargingSessions.startedAt, to));
-  }
 
   const rows = await db
     .select({
       siteName: sql<string>`coalesce(${sites.name}, ${noSite})`,
       stationCount: sql<number>`(select count(*)::int from ${chargingStations} st where st.site_id = ${sites.id} and ${sql.raw(operatorStationSql('st'))})`,
-      sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
+      sessionHours: sessionHoursInPeriod(period),
     })
     .from(sites)
     .leftJoin(chargingSessions, and(...sessionJoinConditions))
@@ -138,24 +151,20 @@ async function querySiteUtilization(
 
 async function queryStationUtilization(
   filters: Filters,
-  totalHours: number,
+  period: UtilizationPeriod,
   noSite: string,
 ): Promise<StationUtilization[]> {
-  const sessionJoinConditions = [eq(chargingSessions.stationId, chargingStations.id)];
-  if (filters.dateFrom) {
-    sessionJoinConditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
-  }
-  if (filters.dateTo) {
-    const to = new Date(filters.dateTo);
-    to.setHours(23, 59, 59, 999);
-    sessionJoinConditions.push(lte(chargingSessions.startedAt, to));
-  }
+  const { totalHours } = period;
+  const sessionJoinConditions = [
+    eq(chargingSessions.stationId, chargingStations.id),
+    ...overlapsPeriod(period),
+  ];
 
   const rows = await db
     .select({
       stationName: sql<string>`coalesce(${chargingStations.stationId}, ${chargingStations.id}::text)`,
       siteName: sql<string>`coalesce(${sites.name}, ${noSite})`,
-      sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
+      sessionHours: sessionHoursInPeriod(period),
       // count(column): a station without sessions has one joined row of nulls.
       sessionCount: count(chargingSessions.id),
     })
@@ -175,17 +184,18 @@ async function queryStationUtilization(
   }));
 }
 
-async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]> {
-  // Sessions of conformance test stations are never reported.
-  const conditions: SQL[] = [inOperatorStation(chargingSessions.stationId)];
-  if (filters.dateFrom) {
-    conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
-  }
-  if (filters.dateTo) {
-    const to = new Date(filters.dateTo);
-    to.setHours(23, 59, 59, 999);
-    conditions.push(lte(chargingSessions.startedAt, to));
-  }
+async function queryPeakUsage(
+  filters: Filters,
+  period: UtilizationPeriod,
+  tz: string,
+): Promise<PeakHour[]> {
+  // Sessions of conformance test stations are never reported; peaks count the
+  // sessions that started in the period.
+  const conditions: SQL[] = [
+    inOperatorStation(chargingSessions.stationId),
+    gte(chargingSessions.startedAt, period.since),
+    lt(chargingSessions.startedAt, period.until),
+  ];
   // Peak usage honours the site filter and the site scope like the other
   // sheets, by the site each session happened at.
   const atSites = siteConditions(filters, chargingSessions.siteId);
@@ -211,17 +221,17 @@ export async function generateUtilizationReport(
   language: UiLanguage,
   siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters, siteIds);
+  const tz = await getSystemTimezone();
+  const filters = parseFilters(rawFilters, siteIds, tz);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.utilization;
-  const tz = await getTimezone();
-  const { totalHours } = getDateRange(filters);
+  const period = getDateRange(filters.dateFrom, filters.dateTo, tz);
 
   const [bySite, byStation, peakUsage] = await Promise.all([
-    querySiteUtilization(filters, totalHours, common.noSite),
-    queryStationUtilization(filters, totalHours, common.noSite),
-    queryPeakUsage(filters, tz),
+    querySiteUtilization(filters, period, common.noSite),
+    queryStationUtilization(filters, period, common.noSite),
+    queryPeakUsage(filters, period, tz),
   ]);
 
   const siteHeaders = [
@@ -269,7 +279,7 @@ export async function generateUtilizationReport(
     const csv = buildCsv(siteHeaders, csvRows(rows));
     return {
       data: Buffer.from(csv, 'utf-8'),
-      fileName: `utilization-report-${String(Date.now())}.csv`,
+      fileName: reportFileName('utilization-report', filters.dateFrom, filters.dateTo, 'csv'),
     };
   } else if (format === 'xlsx') {
     const data = await buildXlsx([
@@ -277,7 +287,10 @@ export async function generateUtilizationReport(
       { name: l.sheets.byStation, headers: stationHeaders, rows: byStation.map(stationRow) },
       { name: l.sheets.peakHours, headers: peakHeaders, rows: peakRows },
     ]);
-    return { data, fileName: `utilization-report-${String(Date.now())}.xlsx` };
+    return {
+      data,
+      fileName: reportFileName('utilization-report', filters.dateFrom, filters.dateTo, 'xlsx'),
+    };
   }
 
   // PDF
@@ -302,5 +315,8 @@ export async function generateUtilizationReport(
   pdf.addTable([l.columns.day, l.columns.hour, columns.sessions], pdfRows(peakRows, rl));
 
   const data = await pdf.build();
-  return { data, fileName: `utilization-report-${String(Date.now())}.pdf` };
+  return {
+    data,
+    fileName: reportFileName('utilization-report', filters.dateFrom, filters.dateTo, 'pdf'),
+  };
 }

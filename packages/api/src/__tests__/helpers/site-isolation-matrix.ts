@@ -1830,10 +1830,55 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
   s(
+    'PATCH',
+    '/sites/:id/stations/:stationId/load-balancing-mode',
+    'loadManagement:write',
+    (f) => `${sit(f)}/stations/${f.station}/load-balancing-mode`,
+    'STATION_NOT_FOUND',
+    {
+      body: () => ({ mode: 'evse' }),
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/stations/${f.station}/load-balancing-mode`,
+          body: () => ({ mode: 'evse' }),
+          code: 'STATION_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
     'GET',
     '/sites/:id/load-management/history',
     'loadManagement:read',
     (f) => `${sit(f)}/load-management/history`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'GET',
+    '/sites/:id/load-management/allocations',
+    'loadManagement:read',
+    (f) => `${sit(f)}/load-management/allocations`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'GET',
+    '/sites/:id/load-management/allocations/export',
+    'loadManagement:read',
+    (f) => `${sit(f)}/load-management/allocations/export`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'GET',
+    '/sites/:id/load-management/allocations/series',
+    'loadManagement:read',
+    (f) => `${sit(f)}/load-management/allocations/series`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'GET',
+    '/sites/:id/load-management/allocations/sessions',
+    'loadManagement:read',
+    (f) => `${sit(f)}/load-management/allocations/sessions`,
     'SITE_NOT_FOUND',
   ),
 
@@ -2414,6 +2459,60 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
         {
           url: (a, f) => `/sites/${a.site}/transformers/${f.transformer}`,
           code: 'TRANSFORMER_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+
+  // Station Unit budgets: the site check answers first; the matrix fixtures
+  // hold no unit, so the own-site control ends at the unit lookup.
+  s(
+    'GET',
+    '/sites/:id/stations/:stationId/unit-budgets',
+    'loadManagement:read',
+    (f) => `${sit(f)}/stations/${f.station}/unit-budgets`,
+    'SITE_NOT_FOUND',
+    {
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/stations/${f.station}/unit-budgets`,
+          code: 'STATION_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
+    'PUT',
+    '/sites/:id/stations/:stationId/units/:unitId/load-budget',
+    'loadManagement:write',
+    (f) => `${sit(f)}/stations/${f.station}/units/unt_000000000000/load-budget`,
+    'SITE_NOT_FOUND',
+    {
+      body: () => ({ kind: 'ac', maxCurrentA: 32, phases: 3 }),
+      control: ctl(404, 'STATION_UNIT_NOT_FOUND', NO_UNIT),
+      mixed: [
+        {
+          url: (a, f) =>
+            `/sites/${a.site}/stations/${f.station}/units/unt_000000000000/load-budget`,
+          body: () => ({ kind: 'ac', maxCurrentA: 32, phases: 3 }),
+          code: 'STATION_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
+    'DELETE',
+    '/sites/:id/stations/:stationId/units/:unitId/load-budget',
+    'loadManagement:write',
+    (f) => `${sit(f)}/stations/${f.station}/units/unt_000000000000/load-budget`,
+    'SITE_NOT_FOUND',
+    {
+      control: ctl(404, 'STATION_UNIT_NOT_FOUND', NO_UNIT),
+      mixed: [
+        {
+          url: (a, f) =>
+            `/sites/${a.site}/stations/${f.station}/units/unt_000000000000/load-budget`,
+          code: 'STATION_NOT_FOUND',
         },
       ],
     },

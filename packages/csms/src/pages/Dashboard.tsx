@@ -65,7 +65,14 @@ import {
 } from '@evtivity/lib/dashboard-layout';
 import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
-import { formatCalendarDate, formatCents, formatNumber, formatNumberUpTo } from '@/lib/formatting';
+import {
+  formatCalendarDate,
+  formatCents,
+  formatNumber,
+  formatNumberUpTo,
+  uiLocale,
+} from '@/lib/formatting';
+import { formatUnitPrice } from '@evtivity/lib/currency';
 import { parseValue, formatParsedValue } from '@/lib/animated-value';
 
 interface DashboardStats {
@@ -973,6 +980,38 @@ function DashboardBody({
     const summary = fleetSummary.data;
     const fleetState = queryState(fleetSummary);
     const credit = summary?.creditLimit;
+    const energyWh = summary?.energyWh ?? 0;
+    // One line under every card, so the row ends level whichever card carries the credit line.
+    const cardNote = (text: string): React.JSX.Element => (
+      <p className="truncate text-xs text-muted-foreground" title={text}>
+        {text}
+      </p>
+    );
+    const period = t('dashboard.fleet.period', {
+      from: formatCalendarDate(fleetRange.effectiveFrom),
+      to: formatCalendarDate(fleetRange.effectiveTo),
+    });
+    const costPerKwh =
+      summary?.currency != null && energyWh > 0
+        ? t('dashboard.fleet.costPerKwh', {
+            price: formatUnitPrice(
+              (summary.costCents ?? 0) / 100 / (energyWh / 1000),
+              summary.currency,
+              uiLocale(),
+            ),
+          })
+        : t('dashboard.fleet.costPerKwhNone');
+    const creditNote =
+      credit == null
+        ? t('dashboard.fleet.noCreditLimit')
+        : t(
+            fleetPick == null ? 'dashboard.fleet.creditUsedFleet' : 'dashboard.fleet.creditUsedOf',
+            {
+              fleet: credit.fleetName,
+              used: formatMoney(credit.exposureCents, summary?.currency),
+              limit: formatMoney(credit.limitCents, summary?.currency),
+            },
+          );
     return (
       <div className="space-y-4" data-testid="dashboard-fleet-cards">
         {fleetControls()}
@@ -982,12 +1021,14 @@ function DashboardBody({
             value={summary?.sessionCount ?? 0}
             info={t('dashboard.fleet.sessionsInfo')}
             state={fleetState}
+            extra={cardNote(period)}
           />
           <StatCard
             title={t('dashboard.fleet.energy')}
             value={formatEnergy(summary?.energyWh ?? 0)}
             info={t('dashboard.fleet.energyInfo')}
             state={fleetState}
+            extra={cardNote(period)}
           />
           {canSeeMoney && (
             <StatCard
@@ -995,6 +1036,7 @@ function DashboardBody({
               value={formatMoney(summary?.costCents ?? 0, summary?.currency)}
               info={t('dashboard.fleet.costInfo')}
               state={fleetState}
+              extra={cardNote(costPerKwh)}
             />
           )}
           {fleetBilling && (
@@ -1005,22 +1047,7 @@ function DashboardBody({
               }
               info={t('dashboard.fleet.creditUsedInfo')}
               state={fleetState}
-              extra={
-                <p className="text-xs text-muted-foreground">
-                  {credit == null
-                    ? t('dashboard.fleet.noCreditLimit')
-                    : t(
-                        fleetPick == null
-                          ? 'dashboard.fleet.creditUsedFleet'
-                          : 'dashboard.fleet.creditUsedOf',
-                        {
-                          fleet: credit.fleetName,
-                          used: formatMoney(credit.exposureCents, summary?.currency),
-                          limit: formatMoney(credit.limitCents, summary?.currency),
-                        },
-                      )}
-                </p>
-              }
+              extra={cardNote(creditNote)}
             />
           )}
         </StatGrid>

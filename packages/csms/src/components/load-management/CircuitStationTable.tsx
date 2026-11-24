@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
@@ -21,6 +21,7 @@ import {
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { PowerBar } from './PowerBar';
+import { StationUnitBudgetRows, type EvseLimitView } from './StationUnitBudgetRows';
 
 /** A station of the load management reply, as the circuit station rows show it. */
 export interface CircuitStationStatus {
@@ -36,6 +37,18 @@ export interface CircuitStationStatus {
   rateUnit?: 'A' | 'W';
   isOnline: boolean;
   hasActiveSession: boolean;
+  balancingMode?: BalancingMode;
+  /** When the station refused a per-EVSE limit; it gets one station limit until the mode is set again. */
+  evseLimitsRefusedAt?: string | null;
+  /** The station groups its EVSEs in units: a sub-row per unit shows its budget. */
+  usesUnits?: boolean;
+  evseLimits?: EvseLimitView[];
+}
+
+export type BalancingMode = 'station' | 'evse';
+
+function isBalancingMode(value: string): value is BalancingMode {
+  return value === 'station' || value === 'evse';
 }
 
 const PRIORITIES = Array.from({ length: 10 }, (_, i) => i + 1);
@@ -78,6 +91,7 @@ export function CircuitStationTable({
           <TableHead className={HEAD}>{t('loadManagement.priority')}</TableHead>
           <TableHead className={HEAD}>{t('loadManagement.minPower')}</TableHead>
           <TableHead className={HEAD}>{t('loadManagement.limitUnit')}</TableHead>
+          <TableHead className={HEAD}>{t('loadManagement.balancingMode')}</TableHead>
           {canWrite && (
             <TableHead className={HEAD}>
               <span className="sr-only">{t('common.actions')}</span>
@@ -87,16 +101,26 @@ export function CircuitStationTable({
       </TableHeader>
       <TableBody>
         {stations.map((station) => (
-          <CircuitStationRow
-            key={station.id}
-            siteId={siteId}
-            station={station}
-            strategy={strategy}
-            canWrite={canWrite}
-            onRemove={() => {
-              onRemove(station);
-            }}
-          />
+          <Fragment key={station.id}>
+            <CircuitStationRow
+              siteId={siteId}
+              station={station}
+              strategy={strategy}
+              canWrite={canWrite}
+              onRemove={() => {
+                onRemove(station);
+              }}
+            />
+            {station.usesUnits === true && (
+              <StationUnitBudgetRows
+                siteId={siteId}
+                stationId={station.id}
+                evseLimits={station.evseLimits ?? []}
+                colSpan={canWrite ? 9 : 8}
+                canWrite={canWrite}
+              />
+            )}
+          </Fragment>
         ))}
       </TableBody>
     </Table>
@@ -137,7 +161,14 @@ function CircuitStationRow({
 
   const priority = station.loadPriority ?? DEFAULT_PRIORITY;
   const priorityEditable = canWrite && strategy === 'priority_based';
-  const writeError = priorityMutation.error ?? minPowerMutation.error;
+  const balancingMutation = useMutation({
+    mutationFn: (mode: BalancingMode) =>
+      api.patch(`/v1/sites/${siteId}/stations/${station.id}/load-balancing-mode`, { mode }),
+    onSuccess: invalidate,
+  });
+
+  const writeError = priorityMutation.error ?? minPowerMutation.error ?? balancingMutation.error;
+  const balancingMode = station.balancingMode ?? 'station';
 
   return (
     <TableRow data-testid={`circuit-station-${station.stationId}`}>
@@ -229,6 +260,40 @@ function CircuitStationRow({
       </TableCell>
       <TableCell className={CELL} data-testid="circuit-station-rate-unit">
         {station.rateUnit ?? 'W'}
+      </TableCell>
+      <TableCell className={CELL} data-testid="circuit-station-balancing">
+        <div className="flex items-center gap-2">
+          {canWrite ? (
+            <Select
+              aria-label={t('loadManagement.balancingModeFor', { stationId: station.stationId })}
+              value={balancingMode}
+              disabled={balancingMutation.isPending}
+              onChange={(e) => {
+                if (isBalancingMode(e.target.value)) balancingMutation.mutate(e.target.value);
+              }}
+              className="w-60"
+            >
+              <option value="station">{t('loadManagement.balancingModeStation')}</option>
+              <option value="evse">{t('loadManagement.balancingModeEvse')}</option>
+            </Select>
+          ) : (
+            <span>
+              {balancingMode === 'evse'
+                ? t('loadManagement.balancingModeEvse')
+                : t('loadManagement.balancingModeStation')}
+            </span>
+          )}
+          {station.evseLimitsRefusedAt != null && (
+            <Badge
+              variant="warning"
+              className="text-xs px-1.5 py-0"
+              title={t('loadManagement.evseLimitsRefusedNote')}
+              data-testid="circuit-station-evse-refused"
+            >
+              {t('loadManagement.evseLimitsRefused')}
+            </Badge>
+          )}
+        </div>
       </TableCell>
       {canWrite && (
         <TableCell className={CELL}>

@@ -375,6 +375,25 @@ export const loadManagementSupplyCreditKw = new Gauge({
   registers: [register],
 });
 
+export const loadManagementEvseSessionsPaused = new Gauge({
+  name: 'load_management_evse_sessions_paused',
+  help: 'AC sessions held at 0 A in the last send of every site with load management on (below the 6 A floor)',
+  registers: [register],
+});
+
+export const loadManagementStationsEvseRefused = new Gauge({
+  name: 'load_management_stations_evse_refused',
+  help: 'Stations of sites with load management on that refused per-EVSE limits and get one station limit',
+  registers: [register],
+});
+
+export const loadAllocationEntriesLastHour = new Gauge({
+  name: 'load_allocation_entries_last_hour',
+  help: 'Limits load management sent in the last hour by station reply (no_reply: none 2 minutes after the send)',
+  labelNames: ['reply'] as const,
+  registers: [register],
+});
+
 // --- Route-aware charging (from vehicle_departures and site_charging_plans) ---
 
 export const departuresScheduled = new Gauge({

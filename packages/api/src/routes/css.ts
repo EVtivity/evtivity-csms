@@ -436,6 +436,12 @@ const plugInBody = z.object({
         .describe(
           'Vehicle body type; picks the battery size when batteryKwh is not given (bus 400 kWh, semi truck 500, box truck 200, otherwise 60)',
         ),
+      evPhases: z
+        .union([z.literal(1), z.literal(3)])
+        .optional()
+        .describe(
+          'Phases the EV charges on at an AC EVSE (default 3); a single-phase EV draws on L1 only and the station reports numberOfPhasesUsed 1',
+        ),
     })
     .optional()
     .describe('The EV plugged in (simulated vehicle ids)'),

@@ -143,6 +143,7 @@ export {
 } from './lib/session-energy.js';
 export { applySessionMeterSummary } from './lib/session-meter-summary.js';
 export type { SessionMeterSummaryReading } from './lib/session-meter-summary.js';
+export { recordReportedPhaseCount, recordSessionPhases } from './lib/session-phases.js';
 export type {
   RegisterReadingKind,
   RegisterReadingResult,
@@ -357,10 +358,19 @@ export {
   newFirmwareRequestId,
 } from './lib/firmware-campaign-dispatch.js';
 export {
+  clearEvseLimitsRefused,
+  markEvseLimitsRefused,
   markLoadManagementStale,
   recordLoadManagementProfileReply,
 } from './lib/load-management-state.js';
 export type { LoadManagementRateUnit } from './lib/load-management-state.js';
+export { claimAndLogAllocations, recordAllocationEntryReply } from './lib/load-allocation-log.js';
+export type {
+  LoadAllocationEntryInput,
+  LoadAllocationHeader,
+  LoadAllocationLogKind,
+  LoadAllocationReply,
+} from './lib/load-allocation-log.js';
 export {
   createCircuit,
   createPanel,
@@ -369,6 +379,12 @@ export {
   deletePanel,
   deleteTransformer,
   LoadTreeValidationError,
+  circuitPhaseDefault,
+  clearUnitLoadBudget,
+  readUnitLoadBudgets,
+  setUnitLoadBudget,
+  unitChargingKind,
+  unitLoadBudgetView,
   updateCircuit,
   updatePanel,
   updateTransformer,
@@ -384,6 +400,12 @@ export type {
   TransformerChanges,
   TransformerRow,
   TransformerValues,
+  UnitBudgetClearResult,
+  UnitBudgetRefusal,
+  UnitBudgetWriteResult,
+  UnitLoadBudgetInput,
+  UnitLoadBudgetRow,
+  UnitLoadBudgetView,
 } from './lib/load-management-tree.js';
 export {
   createEnergyAsset,
@@ -516,6 +538,7 @@ export {
   getCompanyCurrency,
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
+  getCompanyWeekStart,
   getCompanyCountry,
   getCompanyName,
   getCompanySupportPhone,

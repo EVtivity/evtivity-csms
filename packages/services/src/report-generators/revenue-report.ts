@@ -27,10 +27,9 @@ import {
 } from '../session-revenue.js';
 import { MoneyCell, moneyCell, csvRows, dateCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
+import { reportDay, reportFileName } from './report-dates.js';
 import type { ReportGeneratorResult } from '../report-registry.js';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 interface Filters {
   dateFrom?: string | undefined;
@@ -41,11 +40,9 @@ interface Filters {
 }
 
 function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
-  const dateFromRaw = typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined;
-  const dateToRaw = typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined;
   return {
-    dateFrom: dateFromRaw != null && ISO_DATE.test(dateFromRaw) ? dateFromRaw : undefined,
-    dateTo: dateToRaw != null && ISO_DATE.test(dateToRaw) ? dateToRaw : undefined,
+    dateFrom: reportDay(raw['dateFrom']),
+    dateTo: reportDay(raw['dateTo']),
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
     scope,
   };
@@ -404,7 +401,7 @@ export async function generateRevenueReport(
     const csv = buildCsv(dayHeaders, csvRows(rows));
     return {
       data: Buffer.from(csv, 'utf-8'),
-      fileName: `revenue-report-${String(Date.now())}.csv`,
+      fileName: reportFileName('revenue-report', filters.dateFrom, filters.dateTo, 'csv'),
     };
   } else if (format === 'xlsx') {
     const data = await buildXlsx([
@@ -412,7 +409,10 @@ export async function generateRevenueReport(
       { name: l.sheets.bySite, headers: siteHeaders, rows: siteRows },
       { name: l.sheets.payments, headers: paymentHeaders, rows: paymentRows },
     ]);
-    return { data, fileName: `revenue-report-${String(Date.now())}.xlsx` };
+    return {
+      data,
+      fileName: reportFileName('revenue-report', filters.dateFrom, filters.dateTo, 'xlsx'),
+    };
   }
 
   // PDF
@@ -447,5 +447,8 @@ export async function generateRevenueReport(
   pdf.addTable(paymentHeaders, pdfRows(paymentRows, rl));
 
   const data = await pdf.build();
-  return { data, fileName: `revenue-report-${String(Date.now())}.pdf` };
+  return {
+    data,
+    fileName: reportFileName('revenue-report', filters.dateFrom, filters.dateTo, 'pdf'),
+  };
 }

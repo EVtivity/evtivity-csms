@@ -62,6 +62,15 @@
     "./load-allocation": {
       "import": "./src/load-allocation.ts"
     },
+    "./ev-phases": {
+      "import": "./src/ev-phases.ts"
+    },
+    "./evse-allocation": {
+      "import": "./src/evse-allocation.ts"
+    },
+    "./load-allocation-reasons": {
+      "import": "./src/load-allocation-reasons.ts"
+    },
     "./energy-supply": {
       "import": "./src/energy-supply.ts"
     },
@@ -196,6 +205,9 @@
     },
     "./report-labels": {
       "import": "./src/report-labels.ts"
+    },
+    "./report-period": {
+      "import": "./src/report-period.ts"
     },
     "./pubsub-instance": {
       "import": "./src/pubsub-instance.ts"

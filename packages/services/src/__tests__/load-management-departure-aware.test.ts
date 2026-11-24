@@ -24,6 +24,8 @@ const dbState = vi.hoisted(() => {
     'transformers',
     'siteEnergyAssets',
     'energyAssetReadings',
+    'sessionTariffSegments',
+    'stationUnitLoadBudgets',
     'sites',
   ];
   const tables: Record<string, { __table: string }> = {};
@@ -57,6 +59,7 @@ vi.mock('@evtivity/database', () => ({
   db: dbState.db,
   ...dbState.tables,
   isOperatorStation: vi.fn(() => 'OPERATOR_STATION'),
+  claimAndLogAllocations: vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -68,6 +71,7 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
   desc: vi.fn(),
   isNotNull: vi.fn(),
+  isNull: vi.fn(),
 }));
 
 const planMock = vi.hoisted(() => ({

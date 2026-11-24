@@ -190,6 +190,7 @@ function tariffRow(overrides: Record<string, unknown> = {}) {
     priority: 0,
     isDefault: true,
     chargingType: 'both' as const,
+    maxCurrentA: null,
     siteScope: 'all',
     siteIds: null,
     createdAt: '2024-01-01T00:00:00Z',

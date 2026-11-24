@@ -119,3 +119,33 @@ describe('CompanySettings images', () => {
     expect(screen.queryByText(/settings\.remove/)).toBeNull();
   });
 });
+
+describe('CompanySettings week start', () => {
+  function weekStartSelect(): HTMLSelectElement {
+    return document.getElementById('company-week-start') as HTMLSelectElement;
+  }
+  function weekStartPut(): unknown[] | undefined {
+    return putMock.mock.calls.find((c) => c[0] === '/v1/settings/company.weekStart') as
+      | unknown[]
+      | undefined;
+  }
+
+  it('shows Monday for an unset value and Sunday when stored', () => {
+    renderSettings(SETTINGS);
+    expect(weekStartSelect().value).toBe('monday');
+    cleanup();
+    renderSettings({ ...SETTINGS, 'company.weekStart': 'sunday' });
+    expect(weekStartSelect().value).toBe('sunday');
+    expect(screen.getByText('settings.companyWeekStartHelper')).toBeTruthy();
+  });
+
+  it('saves a changed week start', async () => {
+    putMock.mockResolvedValue({});
+    renderSettings(SETTINGS);
+    fireEvent.change(weekStartSelect(), { target: { value: 'sunday' } });
+    submit();
+    await waitFor(() => {
+      expect(weekStartPut()).toEqual(['/v1/settings/company.weekStart', { value: 'sunday' }]);
+    });
+  });
+});

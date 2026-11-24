@@ -112,6 +112,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'site',
     service: 'database/src/lib/load-management-tree.ts',
   },
+  'DELETE /sites/:id/stations/:stationId/units/:unitId/load-budget': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
   'DELETE /sites/:siteId/unmanaged-loads/:id': { audited: 'site' },
   'DELETE /smart-charging/templates/:id': { audited: 'smart_charging_template' },
   'DELETE /station-message-templates/:state': { audited: 'station_message_template' },
@@ -220,6 +224,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'PATCH /sites/:id': { audited: 'site' },
   'PATCH /sites/:id/electricity-rates/:periodId': { audited: 'site' },
+  'PATCH /sites/:id/stations/:stationId/load-balancing-mode': { audited: 'station' },
   'PATCH /sites/:id/stations/:stationId/load-min-power': { audited: 'station' },
   'PATCH /sites/:id/stations/:stationId/load-priority': { audited: 'station' },
   'PATCH /sites/:siteId/maintenance/events/:id': {
@@ -878,6 +883,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PUT /sites/:id/layout': { audited: 'site' },
   'PUT /sites/:id/load-management': { audited: 'site' },
   'PUT /sites/:id/payment-config': { audited: 'site' },
+  'PUT /sites/:id/stations/:stationId/units/:unitId/load-budget': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
   'PUT /sites/:siteId/energy-assets/:assetId/reading': {
     allow:
       'the latest battery or solar reading an EMS sends every few seconds replaces the earlier one (no history, no audit row); access_logs records each request with its body and the API key, and the asset audit notes a telemetry change',

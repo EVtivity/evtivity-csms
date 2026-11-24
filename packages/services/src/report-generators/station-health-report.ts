@@ -1,8 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, eq, type SQL } from 'drizzle-orm';
-import { db, settings, operatorStationSql } from '@evtivity/database';
+import { sql, type SQL } from 'drizzle-orm';
+import { db, getSystemTimezone, operatorStationSql } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
@@ -12,6 +12,7 @@ import type { ReportGeneratorResult } from '../report-registry.js';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, dateCell, pdfRows, percentCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
+import { reportDay, reportDayBounds, reportFileName } from './report-dates.js';
 
 interface Filters {
   dateFrom?: string | undefined;
@@ -19,14 +20,21 @@ interface Filters {
   siteId?: string | undefined;
   /** The report's site scope (report-scope.ts). */
   scope: ReportSiteScope;
+  /** The company time zone the report days start and end in. */
+  timeZone: string;
 }
 
-function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
+function parseFilters(
+  raw: Record<string, unknown>,
+  scope: ReportSiteScope,
+  timeZone: string,
+): Filters {
   return {
-    dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
-    dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
+    dateFrom: reportDay(raw['dateFrom']),
+    dateTo: reportDay(raw['dateTo']),
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
     scope,
+    timeZone,
   };
 }
 
@@ -43,11 +51,27 @@ function stationSiteCondition(filters: Filters): SQL {
   return inScope != null ? sql`${siteFilter} AND ${inScope}` : siteFilter;
 }
 
-function getDateRange(filters: Filters): { since: Date; sinceIso: string } {
-  const since = filters.dateFrom
-    ? new Date(filters.dateFrom)
-    : new Date(Date.now() - 30 * 86400000);
-  return { since, sinceIso: since.toISOString() };
+export interface HealthPeriod {
+  since: Date;
+  end: Date;
+  sinceIso: string;
+  endIso: string;
+}
+
+/**
+ * The period the station health covers: the report days in the company time
+ * zone, ending at now at the latest, else the last 30 days.
+ */
+export function getDateRange(
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  timeZone: string,
+  now: Date = new Date(),
+): HealthPeriod {
+  const bounds = reportDayBounds(dateFrom, dateTo, timeZone);
+  const end = bounds.until != null && bounds.until.getTime() < now.getTime() ? bounds.until : now;
+  const since = bounds.from ?? new Date(end.getTime() - 30 * 86400000);
+  return { since, end, sinceIso: since.toISOString(), endIso: end.toISOString() };
 }
 
 interface StationUptime {
@@ -71,9 +95,12 @@ interface DowntimeIncident {
   durationMinutes: number;
 }
 
-async function queryStationUptime(filters: Filters): Promise<StationUptime[]> {
-  const { since, sinceIso } = getDateRange(filters);
-  const periodMinutes = Math.floor((Date.now() - since.getTime()) / 60000);
+async function queryStationUptime(
+  filters: Filters,
+  period: HealthPeriod,
+): Promise<StationUptime[]> {
+  const { since, end, sinceIso, endIso } = period;
+  const periodMinutes = Math.floor((end.getTime() - since.getTime()) / 60000);
   const periodMinutesStr = String(periodMinutes);
 
   const siteCondition = stationSiteCondition(filters);
@@ -103,6 +130,7 @@ async function queryStationUptime(filters: Filters): Promise<StationUptime[]> {
       FROM port_status_log psl
       INNER JOIN all_ports ap ON ap.station_id = psl.station_id AND ap.evse_id = psl.evse_id
       WHERE psl.timestamp >= ${sinceIso}::timestamptz
+        AND psl.timestamp < ${endIso}::timestamptz
     ),
     port_transitions AS (
       SELECT
@@ -117,7 +145,7 @@ async function queryStationUptime(filters: Filters): Promise<StationUptime[]> {
       SELECT
         station_id,
         evse_id,
-        SUM(EXTRACT(EPOCH FROM (COALESCE(next_timestamp, now()) - timestamp)) / 60) AS down_minutes
+        SUM(EXTRACT(EPOCH FROM (LEAST(COALESCE(next_timestamp, ${endIso}::timestamptz), ${endIso}::timestamptz) - timestamp)) / 60) AS down_minutes
       FROM port_transitions
       WHERE new_status IN ('faulted', 'unavailable')
       GROUP BY station_id, evse_id
@@ -166,8 +194,11 @@ async function queryStationUptime(filters: Filters): Promise<StationUptime[]> {
   }));
 }
 
-async function queryFaultFrequency(filters: Filters): Promise<FaultFrequency[]> {
-  const { sinceIso } = getDateRange(filters);
+async function queryFaultFrequency(
+  filters: Filters,
+  period: HealthPeriod,
+): Promise<FaultFrequency[]> {
+  const { sinceIso, endIso } = period;
 
   const siteCondition = stationSiteCondition(filters);
 
@@ -179,6 +210,7 @@ async function queryFaultFrequency(filters: Filters): Promise<FaultFrequency[]> 
     INNER JOIN charging_stations cs ON cs.id = psl.station_id
     WHERE psl.new_status = 'faulted'
       AND psl.timestamp >= ${sinceIso}::timestamptz
+      AND psl.timestamp < ${endIso}::timestamptz
       ${siteCondition}
     GROUP BY cs.station_id
     ORDER BY fault_count DESC
@@ -191,33 +223,36 @@ async function queryFaultFrequency(filters: Filters): Promise<FaultFrequency[]> 
   }));
 }
 
-async function queryDowntimeIncidents(filters: Filters): Promise<DowntimeIncident[]> {
-  const { sinceIso } = getDateRange(filters);
-
+async function queryDowntimeIncidents(
+  filters: Filters,
+  period: HealthPeriod,
+): Promise<DowntimeIncident[]> {
+  const { sinceIso, endIso } = period;
   const siteCondition = stationSiteCondition(filters);
-
-  const [tzRow] = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'system.timezone'));
-  const tz = typeof tzRow?.value === 'string' ? tzRow.value : 'America/New_York';
-
+  const tz = filters.timeZone;
+  // An incident lasts until the port's next status of any kind, cut at the period end.
   const rows = await db.execute(sql`
     SELECT
-      cs.station_id AS station_name,
-      psl.evse_id,
-      psl.new_status AS status,
-      (psl.timestamp AT TIME ZONE ${tz})::text AS started_at,
-      EXTRACT(EPOCH FROM (COALESCE(
-        LEAD(psl.timestamp) OVER (PARTITION BY psl.station_id, psl.evse_id ORDER BY psl.timestamp),
-        now()
-      ) - psl.timestamp)) / 60 AS duration_minutes
-    FROM port_status_log psl
-    INNER JOIN charging_stations cs ON cs.id = psl.station_id
-    WHERE psl.new_status IN ('faulted', 'unavailable')
-      AND psl.timestamp >= ${sinceIso}::timestamptz
-      ${siteCondition}
-    ORDER BY psl.timestamp DESC
+      t.station_name,
+      t.evse_id,
+      t.status,
+      (t.timestamp AT TIME ZONE ${tz})::text AS started_at,
+      EXTRACT(EPOCH FROM (LEAST(COALESCE(t.next_timestamp, ${endIso}::timestamptz), ${endIso}::timestamptz) - t.timestamp)) / 60 AS duration_minutes
+    FROM (
+      SELECT
+        cs.station_id AS station_name,
+        psl.evse_id,
+        psl.new_status AS status,
+        psl.timestamp,
+        LEAD(psl.timestamp) OVER (PARTITION BY psl.station_id, psl.evse_id ORDER BY psl.timestamp) AS next_timestamp
+      FROM port_status_log psl
+      INNER JOIN charging_stations cs ON cs.id = psl.station_id
+      WHERE psl.timestamp >= ${sinceIso}::timestamptz
+        ${siteCondition}
+    ) t
+    WHERE t.status IN ('faulted', 'unavailable')
+      AND t.timestamp < ${endIso}::timestamptz
+    ORDER BY t.timestamp DESC
     LIMIT 500
   `);
 
@@ -244,15 +279,17 @@ export async function generateStationHealthReport(
   language: UiLanguage,
   siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters, siteIds);
+  const tz = await getSystemTimezone();
+  const filters = parseFilters(rawFilters, siteIds, tz);
+  const period = getDateRange(filters.dateFrom, filters.dateTo, tz);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.stationHealth;
 
   const [uptime, faults, incidents] = await Promise.all([
-    queryStationUptime(filters),
-    queryFaultFrequency(filters),
-    queryDowntimeIncidents(filters),
+    queryStationUptime(filters, period),
+    queryFaultFrequency(filters, period),
+    queryDowntimeIncidents(filters, period),
   ]);
 
   const avgUptime =
@@ -306,7 +343,7 @@ export async function generateStationHealthReport(
     const csv = buildCsv(uptimeHeaders, csvRows(rows));
     return {
       data: Buffer.from(csv, 'utf-8'),
-      fileName: `station-health-${String(Date.now())}.csv`,
+      fileName: reportFileName('station-health', filters.dateFrom, filters.dateTo, 'csv'),
     };
   } else if (format === 'xlsx') {
     const tables: Array<{ name: string; headers: string[]; rows: unknown[][] }> = [
@@ -324,7 +361,10 @@ export async function generateStationHealthReport(
     });
 
     const data = await buildXlsx(tables);
-    return { data, fileName: `station-health-${String(Date.now())}.xlsx` };
+    return {
+      data,
+      fileName: reportFileName('station-health', filters.dateFrom, filters.dateTo, 'xlsx'),
+    };
   }
 
   const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
@@ -342,5 +382,8 @@ export async function generateStationHealthReport(
   pdf.addTable(incidentHeaders, pdfRows(incidents.slice(0, 200).map(incidentRow), rl));
 
   const data = await pdf.build();
-  return { data, fileName: `station-health-${String(Date.now())}.pdf` };
+  return {
+    data,
+    fileName: reportFileName('station-health', filters.dateFrom, filters.dateTo, 'pdf'),
+  };
 }

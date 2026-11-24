@@ -55,6 +55,7 @@ export interface ResolvedPricingGroup {
  */
 export type GroupTariff = TariffWithRestrictions & {
   name: string;
+  maxCurrentA: string | null;
   chargingType: TariffChargingType;
   siteIds: string[] | null;
 };
@@ -137,6 +138,7 @@ interface PricingRow {
   price_per_session: string | null;
   idle_fee_price_per_minute: string | null;
   reservation_fee_per_minute: string | null;
+  max_current_a: string | null;
   tax_rate: string | null;
   restrictions: TariffRestrictions | null;
   priority: number | null;
@@ -158,6 +160,7 @@ function toGroupTariff(r: {
   price_per_session: string | null;
   idle_fee_price_per_minute: string | null;
   reservation_fee_per_minute: string | null;
+  max_current_a: string | null;
   tax_rate: string | null;
   restrictions: TariffRestrictions | null;
   priority: number | null;
@@ -175,6 +178,7 @@ function toGroupTariff(r: {
     idleFeePricePerMinute: r.idle_fee_price_per_minute,
     reservationFeePerMinute: r.reservation_fee_per_minute,
     taxRate: r.tax_rate,
+    maxCurrentA: r.max_current_a,
     restrictions: r.restrictions ?? null,
     priority: r.priority ?? 0,
     isDefault: r.is_default === true,
@@ -253,7 +257,7 @@ export async function loadStationPricingChain(
            COALESCE(tz.timezone, sys_tz.timezone, ${DEFAULT_TIMEZONE}) AS timezone,
            tz.site_id AS station_site_id,
            t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
-           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate, t.max_current_a,
            t.restrictions, t.priority, t.is_default, t.charging_type, t.site_scope,
            (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids
     FROM chain c
@@ -333,7 +337,7 @@ export async function loadGroupPricingAtStation(
            COALESCE(tz.timezone, sys_tz.timezone, ${DEFAULT_TIMEZONE}) AS timezone,
            tz.site_id AS station_site_id,
            t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
-           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate, t.max_current_a,
            t.restrictions, t.priority, t.is_default, t.charging_type, t.site_scope,
            (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids
     FROM pricing_groups pg
@@ -391,6 +395,7 @@ function toStationTariff(pricing: StationPricing, match: GroupTariff): StationTa
     idleFeePricePerMinute: match.idleFeePricePerMinute,
     reservationFeePerMinute: match.reservationFeePerMinute,
     taxRate: match.taxRate,
+    maxCurrentA: match.maxCurrentA,
     restrictions: match.restrictions,
     priority: match.priority,
     isDefault: match.isDefault,
@@ -497,6 +502,7 @@ export async function resolveGroupTariffs(
       price_per_session: string | null;
       idle_fee_price_per_minute: string | null;
       reservation_fee_per_minute: string | null;
+      max_current_a: string | null;
       tax_rate: string | null;
       restrictions: TariffRestrictions | null;
       priority: number | null;
@@ -507,7 +513,7 @@ export async function resolveGroupTariffs(
     }>
   >`
     SELECT t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
-           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate, t.max_current_a,
            t.restrictions, t.priority, t.is_default, t.charging_type, t.site_scope,
            (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids
     FROM tariffs t
@@ -605,6 +611,7 @@ export async function sessionGroupHasPaidTariff(
       price_per_session: string | null;
       idle_fee_price_per_minute: string | null;
       reservation_fee_per_minute: string | null;
+      max_current_a: string | null;
       tax_rate: string | null;
       charging_type: string | null;
       site_scope: string | null;
@@ -614,7 +621,7 @@ export async function sessionGroupHasPaidTariff(
     }>
   >`
     SELECT t.id, t.price_per_kwh, t.price_per_minute, t.price_per_session,
-           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate, t.max_current_a,
            t.charging_type, t.site_scope,
            (SELECT array_agg(ts.site_id) FROM tariff_sites ts WHERE ts.tariff_id = t.id) AS site_ids,
            cs.charging_kind, cs.site_id
@@ -645,6 +652,7 @@ export async function sessionGroupHasPaidTariff(
       idleFeePricePerMinute: r.idle_fee_price_per_minute,
       reservationFeePerMinute: r.reservation_fee_per_minute,
       taxRate: r.tax_rate,
+      maxCurrentA: r.max_current_a,
     })),
   );
 }

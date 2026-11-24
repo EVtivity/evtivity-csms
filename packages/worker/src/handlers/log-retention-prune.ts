@@ -95,6 +95,12 @@ export const LOG_TABLES: readonly LogTable[] = [
     cutoffColumn: 'timestamp',
   },
   {
+    // Before its header table, so the header prune cascades few rows.
+    table: 'load_allocation_entries',
+    settingKey: 'logs.loadAllocation.retentionDays',
+    cutoffColumn: 'created_at',
+  },
+  {
     table: 'load_allocation_log',
     settingKey: 'logs.loadAllocation.retentionDays',
     // One row per changed allocation of each load-managed site. `created_at`

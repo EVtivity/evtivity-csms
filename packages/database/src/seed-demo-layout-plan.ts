@@ -276,6 +276,12 @@ export interface LayoutDemoStation {
    * only while the station has none (`seedDemoStationUnitsOf`).
    */
   units?: ReadonlyArray<{ name: string; evseIds: readonly number[] }>;
+  /**
+   * The budget each unit gets (A per phase), set through the load management
+   * tree writer only while the unit has none; the station is then limited per
+   * EVSE, set once when its first budget is written.
+   */
+  unitLoadBudget?: { maxCurrentA: number; phases: 1 | 3 };
 }
 
 export interface LayoutDemoPanel {
@@ -1969,6 +1975,8 @@ export const LAYOUT_DEMO: {
           maxPowerKw: 22,
           acSupply: { phases: 3, voltage: 230 },
           units: LINDENHOF_UNITS,
+          // Each box's own 32 A fuse.
+          unitLoadBudget: { maxCurrentA: 32, phases: 3 },
         },
       ],
     },

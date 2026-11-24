@@ -91,6 +91,7 @@ describe('loadSessionPricing', () => {
             idle_minutes: '3.5',
             idle_started_at: '2026-06-04T00:40:00Z',
             reservation_reference_at: new Date('2026-06-03T23:50:00Z'),
+            tariff_max_current_a: '16.0',
           },
         ],
       ],
@@ -109,6 +110,7 @@ describe('loadSessionPricing', () => {
         reservationFeePerMinute: '0.10',
         taxRate: '0.19',
       },
+      tariffMaxCurrentA: '16.0',
       idleStartedAt: new Date('2026-06-04T00:40:00Z'),
       idleMinutes: 3.5,
       reservationReferenceAt: new Date('2026-06-03T23:50:00Z'),
@@ -165,6 +167,7 @@ describe('sessionIdleMinutesAt and reservationHoldingMinutes', () => {
         reservationFeePerMinute: null,
         taxRate: null,
       },
+      tariffMaxCurrentA: null,
       idleStartedAt: null,
       idleMinutes: 0,
       reservationReferenceAt: new Date('2026-06-03T23:50:30Z'),
@@ -467,6 +470,7 @@ describe('segment writes', () => {
     idleFeePricePerMinute: '0.05',
     reservationFeePerMinute: '0.02',
     taxRate: '0.07',
+    maxCurrentA: '16.0',
   };
 
   it('snapshots the tariff and basis on the session and opens the first segment', async () => {
@@ -487,10 +491,13 @@ describe('segment writes', () => {
       '0.05',
       '0.02',
       '0.07',
+      '16.0',
       'trf_2',
       'gross',
       'ses_1',
     ]);
+    expect(calls[0]?.text).toContain('tariff_max_current_a = ?');
+    expect(calls[1]?.text).toContain('tax_rate, max_current_a');
     expect(calls[1]?.text).toContain('INSERT INTO session_tariff_segments');
     // A rerun keeps the open segment (one open segment per session, B1).
     expect(calls[1]?.text).toContain('ON CONFLICT (session_id) WHERE ended_at IS NULL DO NOTHING');
@@ -505,6 +512,7 @@ describe('segment writes', () => {
       '0.05',
       '0.02',
       '0.07',
+      '16.0',
     ]);
   });
 
@@ -845,6 +853,7 @@ describe('repriceSessionForDriver', () => {
     idleFeePricePerMinute: null,
     reservationFeePerMinute: null,
     taxRate: '0.10',
+    maxCurrentA: '10.0',
     pricingGroup: { id: 'pgr_fleet', name: 'Fleet', source: 'fleet' },
   };
   const params = { sessionId: 'ses_1', stationUuid: 'sta_1', driverUuid: 'drv_1', basis: 'net' };
@@ -909,6 +918,7 @@ describe('repriceSessionForDriver', () => {
       null,
       null,
       '0.10',
+      '10.0',
       'trf_fleet',
       'gross',
       'ses_1',

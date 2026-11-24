@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { computeCompositeSchedule, type CompositeInput } from '../composite-schedule.js';
+import { computeCompositeSchedule, limitNow, type CompositeInput } from '../composite-schedule.js';
 
 const now = new Date('2026-10-02T10:00:00.000Z');
 const at = (offsetS: number): string => new Date(now.getTime() + offsetS * 1000).toISOString();
@@ -203,5 +203,66 @@ describe('computeCompositeSchedule edges', () => {
     const own = profile({}, 8);
     expect(computeCompositeSchedule(input([wide, own]))[0]?.limit).toBe(8);
     expect(computeCompositeSchedule(input([own, wide]))[0]?.limit).toBe(8);
+  });
+});
+
+describe('numberPhases of the composite schedule', () => {
+  const withPhases = (
+    fields: Record<string, unknown>,
+    limit: number,
+    phases: number,
+    unit = 'A',
+  ) => {
+    const p = profile(fields, limit, unit);
+    return {
+      ...p,
+      chargingSchedule: [
+        {
+          ...p.chargingSchedule[0],
+          chargingSchedulePeriod: [{ startPeriod: 0, limit, numberPhases: phases }],
+        },
+      ],
+    };
+  };
+
+  it('takes the lowest numberPhases of the applicable profiles', () => {
+    const max = withPhases(
+      { chargingProfilePurpose: 'ChargingStationMaxProfile', _evseId: 0 },
+      32,
+      1,
+    );
+    const tx = withPhases({}, 16, 3);
+    expect(computeCompositeSchedule(input([max, tx]))).toEqual([
+      { startPeriod: 0, limit: 16, numberPhases: 1 },
+    ]);
+  });
+
+  it('never reports more phases than the EVSE has', () => {
+    const tx = withPhases({}, 16, 3);
+    expect(computeCompositeSchedule(input([tx], { numberPhases: 1 }))[0]?.numberPhases).toBe(1);
+  });
+
+  it('converts a W limit to A with the period numberPhases', () => {
+    const tx = withPhases({}, 2300, 1, 'W');
+    expect(computeCompositeSchedule(input([tx]))[0]).toEqual({
+      startPeriod: 0,
+      limit: 10,
+      numberPhases: 1,
+    });
+  });
+
+  it('gives the W limit and its phases now', () => {
+    const tx = withPhases({}, 10, 1);
+    expect(
+      limitNow({
+        profiles: [tx],
+        evseId: 1,
+        now,
+        voltage: 230,
+        phases: 3,
+        transactionId: null,
+        transactionStart: null,
+      }),
+    ).toEqual({ limitW: 2300, numberPhases: 1 });
   });
 });

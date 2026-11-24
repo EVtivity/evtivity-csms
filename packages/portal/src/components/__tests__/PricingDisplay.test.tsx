@@ -272,4 +272,69 @@ describe('PricingDisplay', () => {
     // The rates differ, so each kind carries its own note.
     expect(screen.getAllByText('charger.taxExcluded')).toHaveLength(2);
   });
+
+  describe('tariff current limit', () => {
+    it('shows the limit with the price of an AC station', () => {
+      render(
+        <PricingDisplay
+          pricing={{ ...pricing, maxCurrentA: 16, chargingKind: 'ac' }}
+          priceDisplay="net"
+        />,
+      );
+      expect(screen.getByTestId('pricing-current-limit').textContent).toBe('charger.maxCurrent');
+    });
+
+    it('names AC charging when the prices are not for AC only', () => {
+      render(
+        <PricingDisplay
+          pricing={{ ...pricing, maxCurrentA: 16, chargingKind: null }}
+          priceDisplay="net"
+        />,
+      );
+      expect(screen.getByTestId('pricing-current-limit').textContent).toBe('charger.maxCurrentAc');
+    });
+
+    it('shows the limit at a free charger too', () => {
+      render(
+        <PricingDisplay
+          pricing={{
+            ...pricing,
+            pricePerKwh: '0',
+            pricePerSession: null,
+            taxRate: null,
+            maxCurrentA: 10,
+            chargingKind: 'ac',
+          }}
+          priceDisplay="net"
+        />,
+      );
+      expect(screen.getByText('charger.pricingFree')).toBeDefined();
+      expect(screen.getByTestId('pricing-current-limit')).toBeDefined();
+    });
+
+    it('shows no limit without one', () => {
+      render(<PricingDisplay pricing={{ ...pricing, maxCurrentA: null }} priceDisplay="net" />);
+      expect(screen.queryByTestId('pricing-current-limit')).toBeNull();
+    });
+
+    it('shows the limit under the AC price only when AC and DC prices differ', () => {
+      render(
+        <PricingDisplay
+          pricing={{
+            ...pricing,
+            maxCurrentA: 16,
+            chargingKind: null,
+            byChargingKind: [
+              { ...pricing, chargingKind: 'ac', maxCurrentA: 16 },
+              { ...pricing, chargingKind: 'dc', pricePerKwh: '0.69', maxCurrentA: null },
+            ],
+          }}
+          priceDisplay="net"
+        />,
+      );
+      expect(screen.getByTestId('pricing-current-limit-ac').textContent).toBe('charger.maxCurrent');
+      expect(screen.queryByTestId('pricing-current-limit-dc')).toBeNull();
+      expect(screen.queryByTestId('pricing-current-limit')).toBeNull();
+    });
+  });
 });

@@ -213,6 +213,25 @@ describe('SimulatorManager.handleCommand', () => {
     ]);
   });
 
+  it('hands every command result to the in-process listeners, also without pubsub, until they unsubscribe', async () => {
+    const SimulatorManager = await loadManagerClass();
+    const manager = new SimulatorManager(makeSql({ rows: [], evses: [] }));
+    const seen: unknown[] = [];
+    const unsubscribe = manager.onCommandResult((r) => seen.push(r));
+    const failing = manager.onCommandResult(() => {
+      throw new Error('listener bug');
+    });
+    const command = JSON.stringify({ commandId: 'c2', stationId: 'NOPE', action: 'x', params: {} });
+    await manager.handleCommand(command);
+    expect(seen).toEqual([
+      { commandId: 'c2', success: false, error: 'Simulator not found for station' },
+    ]);
+    unsubscribe();
+    failing();
+    await manager.handleCommand(command);
+    expect(seen).toHaveLength(1);
+  });
+
   it('publishes nothing without a commandId or without pubsub', async () => {
     const SimulatorManager = await loadManagerClass();
     const pubsub = makePubsub();

@@ -6,8 +6,9 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// P3: the panels, circuits and transformers tables (and so the panel
-// transformer link, panels.transformer_id) have one writer,
+// P3: the panels, circuits, transformers and station_unit_load_budgets
+// tables (and so the panel transformer link, panels.transformer_id) have one
+// writer,
 // packages/database/src/lib/load-management-tree.ts (the routes and the seeds
 // call it, and it writes the site audit row). The site_energy_assets and
 // energy_asset_readings tables have one writer,
@@ -31,9 +32,9 @@ const ENERGY_WRITE_PATTERNS: RegExp[] = [
 
 const WRITE_PATTERNS: RegExp[] = [
   // Drizzle `.insert(panels)`, `.update(circuits)`, `.delete(transformers)`.
-  /\.(?:insert|update|delete)\(\s*(?:panels|circuits|transformers)\s*\)/g,
+  /\.(?:insert|update|delete)\(\s*(?:panels|circuits|transformers|stationUnitLoadBudgets)\s*\)/g,
   // Raw SQL INSERT, UPDATE or DELETE of any of the tables.
-  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?(?:panels|circuits|transformers)"?(?![\w.])/g,
+  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?(?:panels|circuits|transformers|station_unit_load_budgets)"?(?![\w.])/g,
 ];
 
 function sourceFiles(dir: string): string[] {
@@ -77,7 +78,7 @@ function findWrites(allowed: RegExp[], patterns: RegExp[]): string[] {
 }
 
 describe('load management tree writer guard', () => {
-  it('writes panels, circuits and transformers only in the load management tree writer', () => {
+  it('writes panels, circuits, transformers and unit budgets only in the load management tree writer', () => {
     expect(findWrites(ALLOWED, WRITE_PATTERNS)).toEqual([]);
   });
 
@@ -119,6 +120,8 @@ describe('load management tree writer guard', () => {
       'await db.insert(transformers).values(row)',
       'await sql`UPDATE panels SET transformer_id = ${id}`',
       'DELETE FROM "transformers" WHERE id = $1',
+      'await db.insert(stationUnitLoadBudgets).values(row)',
+      'DELETE FROM station_unit_load_budgets WHERE unit_id = $1',
     ];
     for (const sample of samples) {
       const hit = WRITE_PATTERNS.some((p) => {

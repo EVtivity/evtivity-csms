@@ -149,6 +149,7 @@ import {
   renderReport,
   reportFileFormat,
   reportFiltersError,
+  warnRefusedDateFilters,
   reportJobId,
   reportRequiredPermissions,
   sweepStaleReports,
@@ -205,6 +206,25 @@ describe('reportFiltersError', () => {
     expect(reportFiltersError('nevi', { quarter: 1, year: 1999 })).toBe(message);
     expect(reportFiltersError('nevi', { quarter: 1, year: 10000 })).toBe(message);
     expect(reportFiltersError('nevi', { quarter: 'x', year: 2026 })).toBe(message);
+  });
+
+  it('refuses dates that are no YYYY-MM-DD day or run backwards', () => {
+    const message = 'dateFrom and dateTo must be YYYY-MM-DD days, dateFrom on or before dateTo';
+    expect(reportFiltersError('energy', { dateFrom: '2026-02-30' })).toBe(message);
+    expect(reportFiltersError('energy', { dateFrom: '2026-03-02', dateTo: '2026-03-01' })).toBe(
+      message,
+    );
+    expect(reportFiltersError('energy', { dateFrom: '2026-03-01T00:00:00Z' })).toBe(message);
+    expect(reportFiltersError('energy', { dateTo: 20260301 })).toBe(message);
+  });
+
+  it('accepts one day, an open side and no dates', () => {
+    expect(
+      reportFiltersError('energy', { dateFrom: '2026-03-01', dateTo: '2026-03-01' }),
+    ).toBeNull();
+    expect(reportFiltersError('energy', { dateFrom: '2026-03-01' })).toBeNull();
+    expect(reportFiltersError('energy', { dateFrom: null, dateTo: '2026-03-01' })).toBeNull();
+    expect(reportFiltersError('energy', {})).toBeNull();
   });
 
   it('accepts a NEVI report with quarter 1-4 and a four-digit year, as numbers or strings', () => {
@@ -681,5 +701,26 @@ describe('operatorReportLanguage', () => {
     expect(await operatorReportLanguage('')).toBe('en');
     setupDbResults([]);
     expect(await operatorReportLanguage('usr_missing')).toBe('en');
+  });
+});
+
+describe('warnRefusedDateFilters', () => {
+  beforeEach(() => {
+    mockLogWarn.mockClear();
+  });
+
+  it('logs a date filter the generators leave out, with the report id', () => {
+    warnRefusedDateFilters('rpt_1', { dateFrom: '2026-01-01T00:00:00Z', dateTo: '2026-01-31' });
+    expect(mockLogWarn).toHaveBeenCalledTimes(1);
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      { reportId: 'rpt_1', field: 'dateFrom', value: '2026-01-01T00:00:00Z' },
+      expect.any(String),
+    );
+  });
+
+  it('logs nothing for days and for missing dates', () => {
+    warnRefusedDateFilters('rpt_1', { dateFrom: '2026-01-01', dateTo: null });
+    warnRefusedDateFilters('rpt_1', {});
+    expect(mockLogWarn).not.toHaveBeenCalled();
   });
 });

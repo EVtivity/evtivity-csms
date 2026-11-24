@@ -17,7 +17,11 @@ import { PanelForm } from './PanelForm';
 import { CircuitForm } from './CircuitForm';
 import { UnmanagedLoadForm } from './UnmanagedLoadForm';
 import { AssignStationDialog } from './AssignStationDialog';
-import { CircuitStationTable, type CircuitStationStatus } from './CircuitStationTable';
+import {
+  CircuitStationTable,
+  type BalancingMode,
+  type CircuitStationStatus,
+} from './CircuitStationTable';
 import { formatNumber } from '@/lib/formatting';
 import { TransformerForm } from './TransformerForm';
 import { getErrorMessage } from '@/lib/error-message';
@@ -107,6 +111,8 @@ interface StationStatus {
   loadMinPowerKw?: number | null;
   rateUnit?: 'A' | 'W';
   limitReserved?: boolean;
+  balancingMode?: BalancingMode;
+  evseLimitsRefusedAt?: string | null;
 }
 
 interface PanelTreeProps {

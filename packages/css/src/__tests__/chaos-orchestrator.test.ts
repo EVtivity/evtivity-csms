@@ -4,7 +4,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import type postgres from 'postgres';
 import { OCTT_TEST_DRIVER_EMAIL, type PubSubClient } from '@evtivity/lib';
-import { ChaosOrchestrator } from '../chaos-orchestrator.js';
+import { ChaosOrchestrator, type CommandResultSource } from '../chaos-orchestrator.js';
+import {
+  FLEET_REFUSAL_BACKOFF_MS,
+  FLEET_SESSION_SHARE,
+  type CssCommandResult,
+  type FleetTokenRow as FleetPoolRow,
+} from '../chaos-fleet.js';
 import {
   JOURNEY_RETRY_MS,
   JOURNEY_WAIT_MS,
@@ -15,6 +21,7 @@ import {
 interface StationRow {
   station_id: string;
   ocpp_protocol: string;
+  free_vend?: boolean;
 }
 
 interface StateRow {
@@ -44,6 +51,12 @@ interface Db {
    */
   fleetTokens?: Array<FleetTokenRow>;
   fleetError?: Error;
+  /** Candidate rows of the fleet pool query (fleet cards and member tokens). */
+  fleetPool?: FleetPoolRow[];
+  /** The stored `fleet.enabled` value; undefined means no row. */
+  fleetEnabled?: unknown;
+  fleetPoolQueries?: number;
+  stationQuery?: string;
   // Per-station state row; undefined means the row was deleted or disabled.
   state: Record<string, StateRow | undefined>;
   stateError?: Error;
@@ -67,6 +80,7 @@ function makeSql(db: Db): postgres.Sql {
   return ((strings: TemplateStringsArray, ...values: unknown[]) => {
     const q = strings.join(' ');
     if (q.includes('FROM charging_stations cs')) {
+      db.stationQuery = q;
       if (db.loadError != null) return Promise.reject(db.loadError);
       return Promise.resolve(db.stations);
     }
@@ -79,6 +93,13 @@ function makeSql(db: Db): postgres.Sql {
           .filter((r) => !depotOnly || r.depot)
           .map(({ depot: _depot, ...row }) => row),
       );
+    }
+    if (q.includes("WHERE key = 'fleet.enabled'")) {
+      return Promise.resolve(db.fleetEnabled === undefined ? [] : [{ value: db.fleetEnabled }]);
+    }
+    if (q.includes('card_fleet_bills')) {
+      db.fleetPoolQueries = (db.fleetPoolQueries ?? 0) + 1;
+      return Promise.resolve(db.fleetPool ?? []);
     }
     if (q.includes('FROM driver_tokens')) {
       db.tokenQueryValues.push(values);
@@ -821,7 +842,7 @@ describe('ChaosOrchestrator lifecycle', () => {
     await o.start();
     expect(internals(o).stationIds).toEqual(['CS-1', 'CS-2']);
     expect(db.tokenQueryValues[0]).toEqual([OCTT_TEST_DRIVER_EMAIL]);
-    expect(logged('[chaos] Loaded 2 stations and 1 tokens')).toBe(true);
+    expect(logged('[chaos] Loaded 2 stations, 1 tokens and 0 fleet tokens')).toBe(true);
     expect(logged('Started action timer (500ms interval, 2 stations)')).toBe(true);
 
     await vi.advanceTimersByTimeAsync(500);
@@ -892,6 +913,246 @@ describe('ChaosOrchestrator lifecycle', () => {
     expect(db.stateQueries).toBe(0);
     await vi.advanceTimersByTimeAsync(1);
     expect(db.stateQueries).toBe(1);
+    o.stop();
+  });
+});
+
+function fleetRow(partial: Partial<FleetPoolRow> = {}): FleetPoolRow {
+  return {
+    id_token: 'NWPOOLCARD01',
+    token_type: 'ISO14443',
+    is_active: true,
+    revoked_at: null,
+    expires_at: null,
+    prepaid_balance_cents: null,
+    card_fleet_id: 'flt_demoacct0001',
+    card_fleet_bills: true,
+    member_fleet_id: null,
+    driver_id: null,
+    driver_active: null,
+    driver_erased_at: null,
+    driver_email: null,
+    depot_only: false,
+    ...partial,
+  };
+}
+
+function fakeResults(): CommandResultSource & { emit(result: CssCommandResult): void } {
+  const listeners = new Set<(result: CssCommandResult) => void>();
+  return {
+    onCommandResult(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    emit(result) {
+      for (const l of listeners) l(result);
+    },
+  };
+}
+
+describe('ChaosOrchestrator fleet sessions', () => {
+  // The fleet chooser draws from its own source: first the share, then the token.
+  function fleetDraws(values: number[]): () => number {
+    const queue = [...values];
+    return () => queue.shift() ?? 0.99;
+  }
+
+  async function fleetLoaded(
+    db: Db,
+    random: () => number,
+    pubsub = makePubsub(),
+    commandResults?: CommandResultSource,
+  ): Promise<ChaosOrchestrator> {
+    const o = new ChaosOrchestrator(makeSql(db), pubsub, {
+      actionIntervalMs: 1000,
+      random,
+      ...(commandResults != null ? { commandResults } : {}),
+    });
+    await o.start();
+    clearInterval((o as unknown as { actionTimer: NodeJS.Timeout }).actionTimer);
+    clearInterval((o as unknown as { refreshTimer: NodeJS.Timeout }).refreshTimer);
+    return o;
+  }
+
+  function plugged(db: Partial<Db> = {}): Db {
+    return makeDb({
+      tokens: [
+        { id_token: 'TOK-A', token_type: 'ISO14443' },
+        { id_token: 'NWPOOLCARD01', token_type: 'ISO14443' },
+      ],
+      fleetPool: [fleetRow()],
+      state: { 'CS-1': { status: 'available', evse_status: 'Preparing', has_tx: false } },
+      ...db,
+    });
+  }
+
+  async function dueStart(o: ChaosOrchestrator, stationId = 'CS-1'): Promise<void> {
+    internals(o).journeys.record(stationId, 'plugIn', 0);
+    vi.setSystemTime(Date.now() + JOURNEY_WAIT_MS.plugged[1] + 1);
+    randomQueue.length = 0;
+    randomQueue.push(0.1, 0.0); // journey tick, first free public token
+    await internals(o).dispatchRandomAction();
+  }
+
+  it('starts a share of the starts with a fleet card and keeps fleet cards out of the public pool', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(plugged(), fleetDraws([FLEET_SESSION_SHARE - 0.01, 0]), pubsub);
+    expect((o as unknown as { tokens: Array<{ idToken: string }> }).tokens).toEqual([
+      { idToken: 'TOK-A', tokenType: 'ISO14443' },
+    ]);
+
+    await dueStart(o);
+
+    expect(published(pubsub)).toEqual([
+      expect.objectContaining({
+        action: 'startCharging',
+        params: { evseId: 1, idToken: 'NWPOOLCARD01', tokenType: 'ISO14443' },
+      }),
+    ]);
+    expect(internals(o).chargingTokenByStation.get('CS-1')).toBe('NWPOOLCARD01');
+    expect(logged('startCharging (fleet flt_demoacct0001)')).toBe(true);
+    o.stop();
+  });
+
+  it('starts with the public pool when the share draw misses', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(plugged(), fleetDraws([FLEET_SESSION_SHARE]), pubsub);
+    await dueStart(o);
+    expect(published(pubsub)[0]?.params).toEqual({
+      evseId: 1,
+      idToken: 'TOK-A',
+      tokenType: 'ISO14443',
+    });
+    o.stop();
+  });
+
+  it('gives about one start in eight a fleet token over many seeded draws', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    let seed = 42;
+    const random = (): number => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31;
+      return seed / 2 ** 31;
+    };
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(plugged(), random, pubsub);
+    const starts = 800;
+    for (let i = 0; i < starts; i++) {
+      internals(o).chargingTokenByStation.clear();
+      internals(o).chargingStations.clear();
+      await dueStart(o);
+    }
+    const fleet = published(pubsub).filter((p) => p.params['idToken'] === 'NWPOOLCARD01').length;
+    expect(fleet / starts).toBeGreaterThan(0.09);
+    expect(fleet / starts).toBeLessThan(0.16);
+    o.stop();
+  });
+
+  it('never starts a fleet session at a free vend station and never drives a conformance station', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const db = plugged({
+      stations: [{ station_id: 'CS-1', ocpp_protocol: 'ocpp2.1', free_vend: true }],
+    });
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(db, fleetDraws([0, 0]), pubsub);
+    await dueStart(o);
+    expect(published(pubsub)[0]?.params['idToken']).toBe('TOK-A');
+    expect(db.stationQuery).toContain('cs.is_conformance = false');
+    o.stop();
+  });
+
+  it('gives a 1.6 station only a fleet card that fits its 20 character idTag', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const db = plugged({
+      stations: [{ station_id: 'CS-1', ocpp_protocol: 'ocpp1.6' }],
+      fleetPool: [fleetRow({ id_token: 'NW-CARD-WITH-A-LONG-VALUE-01' }), fleetRow()],
+    });
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(db, fleetDraws([0, 0]), pubsub);
+    await dueStart(o);
+    expect(published(pubsub)[0]?.params['idToken']).toBe('NWPOOLCARD01');
+    o.stop();
+  });
+
+  it('loads no fleet token while Fleets is off', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(plugged({ fleetEnabled: false }), fleetDraws([0, 0]), pubsub);
+    await dueStart(o);
+    expect(published(pubsub)[0]?.params['idToken']).toBe('TOK-A');
+    o.stop();
+  });
+
+  it('reads no fleet token while Fleets is off', async () => {
+    const db = plugged({ fleetEnabled: false });
+    const o = await fleetLoaded(db, fleetDraws([0, 0]));
+    expect(db.fleetPoolQueries ?? 0).toBe(0);
+    o.stop();
+  });
+
+  it('starts no fleet session on an install without fleets', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(plugged({ fleetPool: [] }), fleetDraws([0, 0]), pubsub);
+    await dueStart(o);
+    expect(published(pubsub)[0]?.params['idToken']).toBe('TOK-A');
+    o.stop();
+  });
+
+  it('backs off a card the CSMS refused, frees it at its station and uses it again after the back-off', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const results = fakeResults();
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(plugged(), () => 0, pubsub, results);
+
+    await dueStart(o);
+    const first = published(pubsub)[0];
+    expect(first?.params['idToken']).toBe('NWPOOLCARD01');
+    results.emit({
+      commandId: first?.commandId ?? '',
+      success: false,
+      error: 'Authorization rejected: NoCredit',
+    });
+    expect(internals(o).chargingTokenByStation.has('CS-1')).toBe(false);
+    expect(internals(o).chargingStations.has('CS-1')).toBe(false);
+
+    await dueStart(o);
+    expect(published(pubsub)[1]?.params['idToken']).toBe('TOK-A');
+
+    internals(o).chargingTokenByStation.clear();
+    internals(o).chargingStations.clear();
+    vi.setSystemTime(Date.now() + FLEET_REFUSAL_BACKOFF_MS);
+    await dueStart(o);
+    expect(published(pubsub)[2]?.params['idToken']).toBe('NWPOOLCARD01');
+    o.stop();
+  });
+
+  it('keeps a card whose start failed for a reason other than its authorization', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const results = fakeResults();
+    const pubsub = makePubsub();
+    const o = await fleetLoaded(plugged(), () => 0, pubsub, results);
+    await dueStart(o);
+    const first = published(pubsub)[0];
+    results.emit({
+      commandId: first?.commandId ?? '',
+      success: false,
+      error: 'Transaction already active on this EVSE',
+    });
+    internals(o).chargingTokenByStation.clear();
+    internals(o).chargingStations.clear();
+    await dueStart(o);
+    expect(published(pubsub)[1]?.params['idToken']).toBe('NWPOOLCARD01');
     o.stop();
   });
 });

@@ -2,13 +2,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, eq, lt, sql } from 'drizzle-orm';
-import { db, reports, users, getSystemTimezone } from '@evtivity/database';
+import {
+  db,
+  reports,
+  reportSchedules,
+  reportScheduleAuditLog,
+  users,
+  getSystemTimezone,
+  writeAudit,
+} from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { isUiLanguage, type UiLanguage } from '@evtivity/lib/languages';
 import { ReportGeneratorRegistry, REPORT_FORMATS } from './report-registry.js';
 import type { ReportColumnAccess, ReportFormat, ReportGeneratorResult } from './report-registry.js';
 import type { ReportSiteScope } from './report-scope.js';
+import type { ReportAuditActor } from './report-audit.js';
 import { generateNeviReport, neviFiltersError } from './report-generators/nevi-report.js';
+import { reportDay } from './report-generators/report-dates.js';
 import { generateRevenueReport } from './report-generators/revenue-report.js';
 import { generateEnergyReport } from './report-generators/energy-report.js';
 import { generateSessionsReport } from './report-generators/sessions-report.js';
@@ -158,7 +168,84 @@ export function reportFiltersError(
   reportType: string,
   filters: Record<string, unknown>,
 ): string | null {
+  const dateFrom = filters['dateFrom'];
+  const dateTo = filters['dateTo'];
+  const fromDay = dateFrom == null ? null : reportDay(dateFrom);
+  const toDay = dateTo == null ? null : reportDay(dateTo);
+  if (
+    fromDay === undefined ||
+    toDay === undefined ||
+    (fromDay != null && toDay != null && fromDay > toDay)
+  ) {
+    return 'dateFrom and dateTo must be YYYY-MM-DD days, dateFrom on or before dateTo';
+  }
   return reportGenerators.get(reportType)?.validateFilters?.(filters) ?? null;
+}
+
+/**
+ * Moves every enabled schedule to its next 06:00 in the company time zone after
+ * the time zone changed, so a run never resolves its days at a time computed in
+ * the old zone. One `updated` audit row per schedule that moved. Call it after
+ * the settings cache is cleared. Returns the number of schedules moved.
+ */
+export async function rescheduleReportSchedules(actor: ReportAuditActor): Promise<number> {
+  const schedules = await db
+    .select({
+      id: reportSchedules.id,
+      frequency: reportSchedules.frequency,
+      dayOfWeek: reportSchedules.dayOfWeek,
+      dayOfMonth: reportSchedules.dayOfMonth,
+      nextRunAt: reportSchedules.nextRunAt,
+    })
+    .from(reportSchedules)
+    .where(eq(reportSchedules.isEnabled, true));
+  let moved = 0;
+  for (const schedule of schedules) {
+    const nextRunAt = await computeNextRunAtInTz(
+      schedule.frequency,
+      schedule.dayOfWeek,
+      schedule.dayOfMonth,
+    );
+    if (schedule.nextRunAt?.getTime() === nextRunAt.getTime()) continue;
+    const [updated] = await db
+      .update(reportSchedules)
+      .set({ nextRunAt, updatedAt: sql`now()` })
+      .where(and(eq(reportSchedules.id, schedule.id), eq(reportSchedules.isEnabled, true)))
+      .returning({ id: reportSchedules.id });
+    if (updated == null) continue;
+    moved++;
+    await writeAudit(
+      { table: reportScheduleAuditLog, idColumn: 'report_schedule_id' },
+      {
+        entityId: String(schedule.id),
+        entityIdSnapshot: String(schedule.id),
+        action: 'updated',
+        ...actor,
+        before: { nextRunAt: schedule.nextRunAt },
+        after: { nextRunAt },
+        notes: 'Next run moved to the new company time zone',
+      },
+      db,
+      log,
+    );
+  }
+  return moved;
+}
+
+/**
+ * Logs a date filter the generators leave out because it is no YYYY-MM-DD
+ * day, so a report that runs over more days than asked for is traceable.
+ */
+export function warnRefusedDateFilters(reportId: string, filters: Record<string, unknown>): void {
+  for (const field of ['dateFrom', 'dateTo'] as const) {
+    const value = filters[field];
+    if (value != null && reportDay(value) === undefined) {
+      log.warn(
+        { reportId, field, value },
+        'Report date filter is no YYYY-MM-DD day, the report runs without it',
+      );
+    }
+  }
 }
 
 /**
@@ -313,6 +400,7 @@ export async function generateReport(reportId: string): Promise<void> {
 
   try {
     const filters = report.filters != null ? (report.filters as Record<string, unknown>) : {};
+    warnRefusedDateFilters(reportId, filters);
     // On-demand reports are in the requesting operator's language; a scheduled
     // report's stored file is in the schedule creator's language.
     const language = await operatorReportLanguage(report.generatedById);

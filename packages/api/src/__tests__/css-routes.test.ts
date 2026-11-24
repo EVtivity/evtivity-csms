@@ -372,7 +372,7 @@ describe('CSS routes', () => {
 
     it('passes the EV battery of a plug-in to the simulator', async () => {
       setupDbResults([{ id: 'id-1', stationId: 'TEST-001', ocppProtocol: 'ocpp2.1' }]);
-      const ev = { batteryKwh: 400, socPercent: 12.5, bodyType: 'bus' };
+      const ev = { batteryKwh: 400, socPercent: 12.5, bodyType: 'bus', evPhases: 1 };
       const response = await app.inject({
         method: 'POST',
         url: '/css/actions/plugIn',
@@ -392,6 +392,7 @@ describe('CSS routes', () => {
       [{ socPercent: -1 }],
       [{ socPercent: 101 }],
       [{ bodyType: 'tractor' }],
+      [{ evPhases: 2 }],
     ])('refuses an EV battery out of range (%j)', async (ev) => {
       setupDbResults([{ id: 'id-1', stationId: 'TEST-001', ocppProtocol: 'ocpp2.1' }]);
       const response = await app.inject({

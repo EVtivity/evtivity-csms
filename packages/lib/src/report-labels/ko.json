@@ -15,7 +15,19 @@
     "minutes": "{value}분",
     "kwh": "{value} kWh",
     "inclTax": "세금 포함",
-    "exclTax": "세금 제외"
+    "exclTax": "세금 제외",
+    "periods": {
+      "previousDay": "전일",
+      "previousWeek": "전주",
+      "previousMonth": "전월",
+      "previousQuarter": "전 분기",
+      "previousYear": "전년",
+      "currentWeekToDate": "이번 주 누계",
+      "currentMonthToDate": "이번 달 누계",
+      "currentYearToDate": "올해 누계",
+      "last7Days": "최근 7일",
+      "last30Days": "최근 30일"
+    }
   },
   "columns": {
     "date": "날짜",

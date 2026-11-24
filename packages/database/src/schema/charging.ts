@@ -117,6 +117,11 @@ export const chargingSessions = pgTable(
     // 0490): the EVSE's kind, or on a mixed EVSE the kind of the connector
     // the station named. Null: not known (Both tariffs only).
     chargingKind: varchar('charging_kind', { length: 2 }),
+    // The tariff current limit snapshot (A per phase), copied with the prices.
+    tariffMaxCurrentA: numeric('tariff_max_current_a', { precision: 5, scale: 1, mode: 'number' }),
+    // The phases the session charges on (L1, L1L2L3, ...); null: not known.
+    // Written only by lib/session-phases.ts.
+    evPhases: varchar('ev_phases', { length: 6 }),
     // Set by the worker's tariff boundary job when it moved the session from a
     // free to a paid tariff segment; the OCPP projection runs the payment gate
     // on the next reading and clears it (migration 0340).
@@ -278,6 +283,10 @@ export const chargingSessions = pgTable(
     check(
       'charging_sessions_charging_kind_check',
       sql`${table.chargingKind} IS NULL OR ${table.chargingKind} IN ('ac', 'dc')`,
+    ),
+    check(
+      'charging_sessions_ev_phases_check',
+      sql`${table.evPhases} IS NULL OR ${table.evPhases} IN ('L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3')`,
     ),
     check(
       'charging_sessions_rebill_status_check',

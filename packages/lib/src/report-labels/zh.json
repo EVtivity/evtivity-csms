@@ -15,7 +15,19 @@
     "minutes": "{value} 分钟",
     "kwh": "{value} kWh",
     "inclTax": "含税",
-    "exclTax": "不含税"
+    "exclTax": "不含税",
+    "periods": {
+      "previousDay": "前一天",
+      "previousWeek": "上周",
+      "previousMonth": "上月",
+      "previousQuarter": "上季度",
+      "previousYear": "去年",
+      "currentWeekToDate": "本周至今",
+      "currentMonthToDate": "本月至今",
+      "currentYearToDate": "今年至今",
+      "last7Days": "最近 7 天",
+      "last30Days": "最近 30 天"
+    }
   },
   "columns": {
     "date": "日期",

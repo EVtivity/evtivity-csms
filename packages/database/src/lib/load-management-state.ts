@@ -140,3 +140,68 @@ export async function recordLoadManagementProfileReply(
   `;
   return result.count > 0;
 }
+
+/**
+ * The station refused (or answered with an error) the per-EVSE limit load
+ * management sent for `transactionId`: from now on it gets one station limit
+ * only (`evse_limits_refused_at`), and its site sends again on the next cycle.
+ * Only when that transaction is in the EVSE limits stored for the station, so
+ * a refused depot plan or ISO 15118 TxProfile never marks it. Writes nothing
+ * when the station is already marked. Returns true when it was marked.
+ */
+export async function markEvseLimitsRefused(
+  sql: postgres.Sql,
+  stationUuid: string,
+  transactionId: string,
+): Promise<boolean> {
+  const rows = await sql<{ marked: number }[]>`
+    WITH marked AS (
+      UPDATE charging_stations cs
+      SET evse_limits_refused_at = now()
+      WHERE cs.id = ${stationUuid}
+        AND cs.evse_limits_refused_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM site_load_management slm,
+            jsonb_array_elements(
+              CASE WHEN jsonb_typeof(slm.applied_allocations) = 'array'
+                THEN slm.applied_allocations ELSE '[]'::jsonb END
+            ) AS a(e),
+            jsonb_array_elements(
+              CASE WHEN jsonb_typeof(a.e -> 'evses') = 'array'
+                THEN a.e -> 'evses' ELSE '[]'::jsonb END
+            ) AS v(x)
+          WHERE slm.site_id = cs.site_id
+            AND slm.is_enabled = true
+            AND a.e ->> 'stationDbId' = cs.id
+            AND v.x ->> 'transactionId' = ${transactionId}
+        )
+      RETURNING cs.site_id
+    ),
+    stale AS (
+      UPDATE site_load_management slm
+      SET applied_at = NULL
+      FROM marked
+      WHERE slm.site_id = marked.site_id AND slm.is_enabled = true
+      RETURNING slm.site_id
+    )
+    SELECT count(*)::int AS marked FROM marked
+  `;
+  return (rows[0]?.marked ?? 0) > 0;
+}
+
+/**
+ * Lets the station take per-EVSE limits again (the operator chose its
+ * balancing mode). Returns true when a refusal was cleared.
+ */
+export async function clearEvseLimitsRefused(
+  sql: postgres.Sql,
+  stationUuid: string,
+): Promise<boolean> {
+  const result = await sql`
+    UPDATE charging_stations
+    SET evse_limits_refused_at = NULL
+    WHERE id = ${stationUuid} AND evse_limits_refused_at IS NOT NULL
+  `;
+  return result.count > 0;
+}

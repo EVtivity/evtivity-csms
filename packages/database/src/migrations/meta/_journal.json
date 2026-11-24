@@ -1723,6 +1723,20 @@
       "when": 1791000052500,
       "tag": "0491_release_0_1_52_validate",
       "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1791000053000,
+      "tag": "0492_release_0_1_53",
+      "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1791000053500,
+      "tag": "0493_release_0_1_53_validate",
+      "breakpoints": true
     }
   ]
 }

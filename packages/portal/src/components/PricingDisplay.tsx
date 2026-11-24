@@ -12,7 +12,7 @@ import {
   type TaxBasis,
 } from '@evtivity/lib/price-display';
 import { isTariffFree } from '@evtivity/lib/payment-helpers';
-import { formatFlatPrice, formatTaxPercent, formatUnitPrice } from '@/lib/utils';
+import { formatFlatPrice, formatNumberUpTo, formatTaxPercent, formatUnitPrice } from '@/lib/utils';
 import type { DriverBilling } from '@/lib/fleet-billing';
 
 export interface TariffRestrictionsLite {
@@ -49,6 +49,10 @@ export interface PricingInfo {
    * differ (AC and DC tariffs), shown side by side. Empty or absent otherwise.
    */
   byChargingKind?: ChargingKindPrice[];
+  /** Max current per phase load management gives an AC session on this tariff; null for none. */
+  maxCurrentA?: number | null;
+  /** The kind the prices are for: null at a station with AC and DC EVSEs. */
+  chargingKind?: 'ac' | 'dc' | null;
   /** Free or paid per EVSE for this driver, as the start decides it. */
   evseFree?: Array<{ evseId: number; free: boolean }>;
 }
@@ -61,6 +65,7 @@ export interface ChargingKindPrice {
   idleFeePricePerMinute: string | null;
   taxRate: string | null;
   restrictions?: TariffRestrictionsLite | null;
+  maxCurrentA?: number | null;
 }
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
@@ -182,6 +187,16 @@ export function PricingDisplay({
       </p>
     ) : null;
 
+  // The prices are not AC-only at a station with AC and DC EVSEs, so the limit names AC.
+  const currentLimitNote =
+    pricing.maxCurrentA != null ? (
+      <p className="text-center text-xs text-muted-foreground" data-testid="pricing-current-limit">
+        {t(pricing.chargingKind === 'ac' ? 'charger.maxCurrent' : 'charger.maxCurrentAc', {
+          amps: formatNumberUpTo(pricing.maxCurrentA, 1),
+        })}
+      </p>
+    ) : null;
+
   if (pricing.isFreeVend === true) {
     return (
       <div className="text-center space-y-1">
@@ -198,6 +213,7 @@ export function PricingDisplay({
     return (
       <div className="space-y-1">
         <p className="text-base text-muted-foreground text-center">{t('charger.pricingFree')}</p>
+        {currentLimitNote}
         {priceChangeNote}
       </div>
     );
@@ -248,6 +264,7 @@ export function PricingDisplay({
       {timezoneLabel != null && (
         <p className="text-center text-xs text-muted-foreground">{timezoneLabel}</p>
       )}
+      {currentLimitNote}
       {priceChangeNote}
       <div id={detailsId} hidden={!expanded} className="space-y-0.5 text-center">
         {view.lines.map((line) => (
@@ -283,6 +300,7 @@ function ChargingKindPrices({
     kind: k.chargingKind,
     label: t(k.chargingKind === 'ac' ? 'charger.chargingKindAc' : 'charger.chargingKindDc'),
     restriction: formatRestrictions(k.restrictions, t),
+    maxCurrentA: k.maxCurrentA ?? null,
     ...priceLines(k, currency, basis, priceDisplay, t),
   }));
   // One tax note when every kind has the same one, else one under each kind.
@@ -305,6 +323,14 @@ function ChargingKindPrices({
           <span key={v.kind} className="text-center">
             <span className="block text-xs text-muted-foreground">{v.label}</span>
             <span className="block text-base font-semibold text-link">{v.main}</span>
+            {v.maxCurrentA != null && (
+              <span
+                className="block text-xs text-muted-foreground"
+                data-testid={`pricing-current-limit-${v.kind}`}
+              >
+                {t('charger.maxCurrent', { amps: formatNumberUpTo(v.maxCurrentA, 1) })}
+              </span>
+            )}
           </span>
         ))}
         {expanded ? (

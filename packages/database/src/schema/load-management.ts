@@ -4,6 +4,8 @@
 import {
   pgTable,
   serial,
+  bigserial,
+  bigint,
   numeric,
   varchar,
   text,
@@ -14,17 +16,20 @@ import {
   jsonb,
   index,
   check,
+  foreignKey,
   pgEnum,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { TRANSFORMER_KINDS } from '@evtivity/lib/load-allocation';
+import { LOAD_ALLOCATION_REASONS } from '@evtivity/lib/load-allocation-reasons';
 import {
   ENERGY_ASSET_GRID_CHARGING,
   ENERGY_ASSET_TELEMETRY,
   ENERGY_ASSET_TYPES,
 } from '@evtivity/lib/energy-supply';
-import { sites, loadAllocationStrategyEnum } from './assets.js';
+import { sites, loadAllocationStrategyEnum, stationUnits, chargingStations } from './assets.js';
+import { chargingSessions } from './charging.js';
 import { createId } from '../lib/id.js';
 
 export const panels = pgTable(
@@ -214,7 +219,11 @@ export const loadAllocationLog = pgTable(
     totalDrawKw: numeric('total_draw_kw').notNull(),
     availableKw: numeric('available_kw').notNull(),
     strategy: varchar('strategy', { length: 50 }).notNull(),
-    allocations: jsonb('allocations').notNull(),
+    // Null on rows from v0.1.53 on: the limits sent are in load_allocation_entries.
+    allocations: jsonb('allocations'),
+    // change: the allocations changed; refresh: the periodic resend; credit:
+    // the credit profiles sent again.
+    kind: varchar('kind', { length: 8 }).notNull().default('change'),
     // Battery and solar supply credited above their connection points in
     // this allocation, kW (0 when none was fresh).
     supplyCreditKw: numeric('supply_credit_kw').notNull().default('0'),
@@ -223,6 +232,67 @@ export const loadAllocationLog = pgTable(
   (table) => [
     index('idx_load_alloc_log_site').on(table.siteId),
     index('idx_load_alloc_log_created').on(table.createdAt),
+    check('load_allocation_log_kind_check', sql`${table.kind} IN ('change', 'refresh', 'credit')`),
+  ],
+);
+
+// One limit load management sent: a station limit (scope station) or the
+// TxProfile of one charging EVSE (scope evse), with the station's reply.
+// `site_id` is the site of the cycle that sent it. Written only by
+// lib/load-allocation-log.ts.
+export const loadAllocationEntries = pgTable(
+  'load_allocation_entries',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    logId: integer('log_id')
+      .notNull()
+      .references(() => loadAllocationLog.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    siteId: text('site_id')
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    stationId: text('station_id').references(() => chargingStations.id, { onDelete: 'set null' }),
+    stationOcppId: varchar('station_ocpp_id', { length: 48 }).notNull(),
+    unitId: text('unit_id'),
+    unitName: varchar('unit_name', { length: 50 }),
+    evseNumber: integer('evse_number'),
+    scope: varchar('scope', { length: 8 }).notNull(),
+    mode: varchar('mode', { length: 8 }).notNull(),
+    limitKw: numeric('limit_kw', { precision: 10, scale: 3 }).notNull(),
+    limitA: numeric('limit_a', { precision: 6, scale: 1 }),
+    phases: smallint('phases'),
+    rateUnit: varchar('rate_unit', { length: 1 }).notNull(),
+    reason: varchar('reason', { length: 20 }).notNull(),
+    sessionId: text('session_id').references(() => chargingSessions.id, { onDelete: 'set null' }),
+    tariffId: text('tariff_id'),
+    tariffMaxCurrentA: numeric('tariff_max_current_a', { precision: 5, scale: 1 }),
+    profileId: bigint('profile_id', { mode: 'number' }).notNull(),
+    stackLevel: smallint('stack_level').notNull(),
+    purpose: varchar('purpose', { length: 40 }).notNull(),
+    commandId: text('command_id'),
+    reply: varchar('reply', { length: 10 }),
+    repliedAt: timestamp('replied_at', { withTimezone: true }),
+    refresh: boolean('refresh').notNull().default(false),
+  },
+  (table) => [
+    index('idx_load_alloc_entries_site_created').on(table.siteId, table.createdAt),
+    index('idx_load_alloc_entries_station_created').on(table.stationId, table.createdAt),
+    index('idx_load_alloc_entries_created').on(table.createdAt),
+    index('idx_load_alloc_entries_command')
+      .on(table.commandId)
+      .where(sql`${table.commandId} IS NOT NULL`),
+    index('idx_load_alloc_entries_log').on(table.logId),
+    check('load_allocation_entries_scope_check', sql`${table.scope} IN ('station', 'evse')`),
+    check('load_allocation_entries_mode_check', sql`${table.mode} IN ('station', 'evse')`),
+    check('load_allocation_entries_rate_unit_check', sql`${table.rateUnit} IN ('A', 'W')`),
+    check(
+      'load_allocation_entries_reason_check',
+      sql`${table.reason} IN (${sql.raw(LOAD_ALLOCATION_REASONS.map((r) => `'${r}'`).join(', '))})`,
+    ),
+    check(
+      'load_allocation_entries_reply_check',
+      sql`${table.reply} IS NULL OR ${table.reply} IN ('accepted', 'rejected', 'not_sent')`,
+    ),
   ],
 );
 
@@ -313,6 +383,35 @@ export const energyAssetReadings = pgTable(
     check(
       'energy_asset_readings_range_check',
       sql`${table.powerKw} BETWEEN -100000 AND 100000 AND (${table.availableKw} IS NULL OR ${table.availableKw} BETWEEN 0 AND 100000) AND (${table.socPercent} IS NULL OR ${table.socPercent} BETWEEN 0 AND 100)`,
+    ),
+  ],
+);
+
+// The most one Station Unit (a physical charger box) takes, shared by its
+// EVSEs: AC in A per phase on 1 or 3 phases, DC in kW. Written only by
+// lib/load-management-tree.ts.
+export const stationUnitLoadBudgets = pgTable(
+  'station_unit_load_budgets',
+  {
+    unitId: text('unit_id').primaryKey(),
+    stationId: text('station_id').notNull(),
+    kind: varchar('kind', { length: 2 }).notNull(),
+    maxCurrentA: numeric('max_current_a', { precision: 5, scale: 1 }),
+    phases: smallint('phases'),
+    maxPowerKw: numeric('max_power_kw', { precision: 8, scale: 2 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_station_unit_load_budgets_station').on(table.stationId),
+    foreignKey({
+      columns: [table.unitId, table.stationId],
+      foreignColumns: [stationUnits.id, stationUnits.stationId],
+      name: 'station_unit_load_budgets_unit_fk',
+    }).onDelete('cascade'),
+    check(
+      'station_unit_load_budgets_shape_check',
+      sql`(${table.kind} = 'ac' AND ${table.maxCurrentA} IS NOT NULL AND ${table.phases} IS NOT NULL AND ${table.maxCurrentA} BETWEEN 6 AND 1000 AND ${table.phases} IN (1, 3) AND ${table.maxPowerKw} IS NULL) OR (${table.kind} = 'dc' AND ${table.maxPowerKw} IS NOT NULL AND ${table.maxPowerKw} > 0 AND ${table.maxPowerKw} <= 5000 AND ${table.maxCurrentA} IS NULL AND ${table.phases} IS NULL)`,
     ),
   ],
 );

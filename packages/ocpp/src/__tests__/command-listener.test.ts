@@ -466,6 +466,7 @@ describe('CommandListener', () => {
         payload: {
           request: { evseId: 1, chargingProfile: {} },
           response: { status: 'Accepted' },
+          commandId: 'cmd-10',
         },
       }),
     );
@@ -1221,7 +1222,11 @@ describe('CommandListener', () => {
     expect(eventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'command.SetChargingProfile',
-        payload: { request: payload, error: 'CALLERROR NotSupported: no smart charging' },
+        payload: {
+          request: payload,
+          error: 'CALLERROR NotSupported: no smart charging',
+          commandId: 'cmd-cp-err',
+        },
       }),
     );
   });
@@ -1246,7 +1251,7 @@ describe('CommandListener', () => {
     expect(eventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'command.SetChargingProfile',
-        payload: expect.objectContaining({ notSent: true }),
+        payload: expect.objectContaining({ notSent: true, commandId: 'cmd-cp-send' }),
       }),
     );
   });
@@ -1270,9 +1275,50 @@ describe('CommandListener', () => {
     expect(eventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'command.SetChargingProfile',
-        payload: expect.objectContaining({ notSent: true }),
+        payload: expect.objectContaining({ notSent: true, commandId: 'cmd-cp-timeout' }),
       }),
     );
+  });
+
+  it('publishes an offline SetChargingProfile as not sent with its command id', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new Error('Station CS-001 is not connected'),
+    );
+    await createAndStart();
+    const payload = { evseId: 0, chargingProfile: { id: 1000000000 } };
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-cp-offline',
+        stationId: 'CS-001',
+        action: 'SetChargingProfile',
+        payload,
+        noQueue: true,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    const events = eventBus.publish.mock.calls
+      .map((c) => c[0] as { eventType: string; payload: Record<string, unknown> })
+      .filter((e) => e.eventType === 'command.SetChargingProfile');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({ notSent: true, commandId: 'cmd-cp-offline' });
+  });
+
+  it('publishes a SetChargingProfile without a command id without the field', async () => {
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        stationId: 'CS-001',
+        action: 'SetChargingProfile',
+        payload: { evseId: 1, chargingProfile: {} },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    const event = eventBus.publish.mock.calls
+      .map((c) => c[0] as { eventType: string; payload: Record<string, unknown> })
+      .find((e) => e.eventType === 'command.SetChargingProfile');
+    expect(event?.payload).not.toHaveProperty('commandId');
   });
 
   it('does not end a firmware update whose command timed out', async () => {

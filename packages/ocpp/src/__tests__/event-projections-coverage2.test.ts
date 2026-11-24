@@ -228,6 +228,7 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
 
 const mockRecordPlanReply = vi.hoisted(() => vi.fn());
 const mockMarkSitePlanStale = vi.hoisted(() => vi.fn());
+const mockRecordAllocationReply = vi.hoisted(() => vi.fn());
 
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
@@ -235,6 +236,8 @@ vi.mock('@evtivity/database', async () => ({
   // The depot plan writes (tested in database charging-plan-state.test.ts).
   recordChargingPlanProfileReply: mockRecordPlanReply,
   markSitePlanStale: mockMarkSitePlanStale,
+  // The allocation log reply write (tested on a real database, integration 190).
+  recordAllocationEntryReply: mockRecordAllocationReply,
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -269,6 +272,12 @@ vi.mock('@evtivity/database', async () => ({
   )),
   // The session meter summary UPDATE (tested on a real database, integration v21 64).
   applySessionMeterSummary: vi.fn().mockResolvedValue(false),
+  // The session phase writes (tested in database session-phases.test.ts).
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-phases.js',
+  )),
+  recordSessionPhases: vi.fn().mockResolvedValue(false),
+  recordReportedPhaseCount: vi.fn().mockResolvedValue(false),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -1564,6 +1573,117 @@ describe('Event projections - coverage round 2', () => {
       const upd = findSql(/UPDATE site_load_management/);
       expect(upd?.strings.join('')).toContain("- 'limitPending'");
       expect(upd?.values).toContain('A');
+    });
+
+    const evseLimitRequest = {
+      evseId: 2,
+      chargingProfile: {
+        id: 1_234_567_890,
+        stackLevel: 1,
+        chargingProfilePurpose: 'TxProfile',
+        chargingProfileKind: 'Absolute',
+        transactionId: 'tx-9',
+        chargingSchedule: [
+          { id: 1, chargingRateUnit: 'A', chargingSchedulePeriod: [{ startPeriod: 0, limit: 6 }] },
+        ],
+      },
+    };
+
+    it('falls back to the station limit when a station refuses its per-EVSE limit', async () => {
+      await setup();
+      setupSqlResults(STA, [{ marked: 1 }]);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: evseLimitRequest,
+      });
+      const mark = findSql(/SET evse_limits_refused_at = now\(\)/);
+      expect(mark?.values).toEqual(['sta_0001', 'tx-9']);
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.objectContaining({ stationId: 'CS-1', transactionId: 'tx-9' }),
+        'Station refused per-EVSE limits, falling back to the station limit',
+      );
+    });
+
+    it('does not log a fallback when the refused TxProfile was no per-EVSE limit', async () => {
+      await setup();
+      setupSqlResults(STA, [{ marked: 0 }]);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        error: 'NotSupported',
+        request: evseLimitRequest,
+      });
+      expect(findSql(/SET evse_limits_refused_at = now\(\)/)).toBeDefined();
+      expect(mockLoggerWarn).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Station refused per-EVSE limits, falling back to the station limit',
+      );
+    });
+
+    it('never marks a refused TxProfile of another stack level', async () => {
+      await setup();
+      setupSqlResults(STA, []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: {
+          ...evseLimitRequest,
+          chargingProfile: { ...evseLimitRequest.chargingProfile, stackLevel: 0 },
+        },
+      });
+      expect(findSql(/evse_limits_refused_at/)).toBeUndefined();
+    });
+
+    it('stores the reply on the allocation log entry of the command', async () => {
+      mockRecordAllocationReply.mockResolvedValue(1);
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: null }], []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Accepted' },
+        request: loadManagementRequest('A'),
+        commandId: 'cmd-a',
+      });
+      setupSqlResults(STA, []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: loadManagementRequest('A'),
+        commandId: 'cmd-r',
+      });
+      setupSqlResults(STA);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        error: 'No response',
+        notSent: true,
+        request: loadManagementRequest('A'),
+        commandId: 'cmd-n',
+      });
+      expect(mockRecordAllocationReply.mock.calls.map((c) => c.slice(1))).toEqual([
+        ['sta_0001', 'cmd-a', 'accepted'],
+        ['sta_0001', 'cmd-r', 'rejected'],
+        ['sta_0001', 'cmd-n', 'not_sent'],
+      ]);
+    });
+
+    it('stores no allocation reply for an event without a command id', async () => {
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: null }], []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Accepted' },
+        request: loadManagementRequest('A'),
+      });
+      expect(mockRecordAllocationReply).not.toHaveBeenCalled();
+    });
+
+    it('keeps handling the reply when the allocation log write fails', async () => {
+      mockRecordAllocationReply.mockRejectedValueOnce(new Error('db down'));
+      await setup();
+      setupSqlResults(STA, []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: loadManagementRequest('W'),
+        commandId: 'cmd-x',
+      });
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.objectContaining({ commandId: 'cmd-x' }),
+        'Recording the reply on the load allocation log failed',
+      );
+      expect(findSql(/UPDATE site_load_management/)).toBeDefined();
     });
 
     it('does not record replies to other profiles', async () => {

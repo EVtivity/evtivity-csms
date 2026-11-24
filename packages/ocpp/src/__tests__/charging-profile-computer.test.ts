@@ -18,6 +18,11 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
     .operatorStationSql,
 }));
 
+const capMock = vi.hoisted(() => ({
+  sessionProfileCapKw: vi.fn((): Promise<number | null> => Promise.resolve(null)),
+}));
+vi.mock('@evtivity/services/session-profile-cap', () => capMock);
+
 import {
   computeAndSendChargingProfile,
   departurePlanSiteId,
@@ -203,6 +208,53 @@ describe('computeAndSendChargingProfile', () => {
     expect(sqlCalls.some((q) => q.includes('ev_charging_schedules'))).toBe(false);
     const storeIndex = sqlCalls.findIndex((q) => q.includes('SET csms_charging_profile'));
     expect(sqlValues[storeIndex]?.[0]).toEqual({ payload: command.payload, renegotiations: 0 });
+  });
+
+  it('never allows more than the EVSE limit or the tariff limit of the session', async () => {
+    capMock.sessionProfileCapKw.mockResolvedValueOnce(4.1404);
+    const sql = createSqlMock([{ max_power_kw: 22 }], []);
+    await computeAndSendChargingProfile(
+      sql as never,
+      pubsub,
+      {
+        stationUuid: 'sta_1',
+        stationOcppId: 'CS-1',
+        evseId: 1,
+        transactionId: 'tx-1',
+        chargingNeeds: { requestedEnergyTransfer: 'AC_three_phase' },
+      },
+      NOW,
+    );
+    expect(capMock.sessionProfileCapKw).toHaveBeenCalledWith('sta_1', 'tx-1');
+    const payload = sentCommand(pubsub).payload as {
+      chargingProfile: { chargingSchedule: Array<{ chargingSchedulePeriod: unknown[] }> };
+    };
+    expect(payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod).toEqual([
+      { startPeriod: 0, limit: 4140 },
+    ]);
+  });
+
+  it('sends 0 W while load management pauses the EVSE', async () => {
+    capMock.sessionProfileCapKw.mockResolvedValueOnce(0);
+    const sql = createSqlMock([{ max_power_kw: 22 }], []);
+    await computeAndSendChargingProfile(
+      sql as never,
+      pubsub,
+      {
+        stationUuid: 'sta_1',
+        stationOcppId: 'CS-1',
+        evseId: 1,
+        transactionId: 'tx-1',
+        chargingNeeds: { requestedEnergyTransfer: 'AC_three_phase' },
+      },
+      NOW,
+    );
+    const payload = sentCommand(pubsub).payload as {
+      chargingProfile: { chargingSchedule: Array<{ chargingSchedulePeriod: unknown[] }> };
+    };
+    expect(payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod).toEqual([
+      { startPeriod: 0, limit: 0 },
+    ]);
   });
 
   it('subtracts the latest draw of other sessions at the same site only', async () => {

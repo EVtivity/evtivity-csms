@@ -35,10 +35,17 @@ import {
   publishOcppCommand,
   resolveElectricityRate,
 } from '@evtivity/lib';
-import type { ElectricityRatePeriod, PubSubClient, ServiceLogger } from '@evtivity/lib';
+import type {
+  ElectricityRatePeriod,
+  LoadAllocationStrategy,
+  PubSubClient,
+  ServiceLogger,
+} from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { isOcpp21 } from '@evtivity/lib/ocpp-version';
+import { AC_MIN_CURRENT_A } from '@evtivity/lib/evse-allocation';
 import { afterSitePlanWrite } from './departure-notice.service.js';
+import type { EvseLimitResult } from './evse-limits.js';
 import {
   buildPlanSlots,
   neededEnergyKwh,
@@ -57,8 +64,10 @@ import {
 } from '@evtivity/lib/charging-plan';
 import {
   ALL_PHASES,
+  acSessionKwAt,
   circuitPhaseShare,
   computeHierarchicalAllocation,
+  stationDemandLimitKw,
   stationRates,
   type ChargingRateUnit,
   type PlannedAllocationInput,
@@ -102,8 +111,6 @@ const UNPLANNED_HOLD_SLOTS = 2;
 const SLOT_MS = PLAN_SLOT_MINUTES * 60_000;
 const HORIZON_MS = PLAN_HORIZON_HOURS * 3_600_000;
 const CUT_TOLERANCE_KW = 0.01;
-/** The lowest current an AC charger offers before the EV pauses (IEC 61851-1). */
-export const AC_MIN_CURRENT_A = 6;
 /** Capacity of a hold node after the hold slots: no limit of its own. */
 const UNLIMITED_KW = 1_000_000;
 
@@ -580,6 +587,20 @@ export function plannedStationCut(
   return false;
 }
 
+/**
+ * The most an AC session may draw under its tariff current limit, kW at its
+ * station's circuit and its phases; null without a limit (or for DC).
+ */
+export function sessionTariffCapKw(
+  station: StationPowerInfo | null | undefined,
+  sessionId: string,
+): number | null {
+  if (station == null) return null;
+  const session = station.sessions?.find((s) => s.sessionId === sessionId);
+  if (session == null || session.kind !== 'ac' || session.tariffMaxCurrentA == null) return null;
+  return acSessionKwAt(station, session.phases, session.tariffMaxCurrentA);
+}
+
 function positiveMin(values: ReadonlyArray<number | null | undefined>): number | null {
   const usable = values.filter((v): v is number => v != null && Number.isFinite(v) && v > 0);
   return usable.length > 0 ? Math.min(...usable) : null;
@@ -788,6 +809,7 @@ export function buildPlanInput(build: PlanBuildInput): PlanBuild {
             d.maxChargePowerKw,
             session.evseMaxKw,
             station != null && station.maxPowerKw > 0 ? station.maxPowerKw : null,
+            sessionTariffCapKw(station, session.id),
           ])
         : requestedStation != null
           ? positiveMin([
@@ -903,7 +925,8 @@ export function unplannedHoldKw(
       candidates.push(station.currentDrawKw);
     }
     let kw = Math.max(0, ...candidates);
-    if (station.maxPowerKw > 0) kw = Math.min(kw, station.maxPowerKw);
+    const limitKw = stationDemandLimitKw(station);
+    if (limitKw > 0) kw = Math.min(kw, limitKw);
     for (const use of path) {
       holdKw.set(use.nodeId, (holdKw.get(use.nodeId) ?? 0) + kw * use.weight);
     }
@@ -1332,6 +1355,8 @@ export interface PlanProfileSendInput {
   sessionPhases?: ReadonlyMap<string, number>;
   /** Stations on OCPP 2.1, which take the preconditioningRequest of a period. */
   ocpp21Stations?: ReadonlySet<string>;
+  /** The most each session may draw (its tariff limit, its own EVSE limit), kW by session id. */
+  sessionCapKw?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -1419,9 +1444,11 @@ export function planProfileSends(input: PlanProfileSendInput): PlanProfileSend[]
     );
     // The limit holds the planned charging power plus the preconditioning load.
     const aux = entry.auxKw?.slice(input.slotIndex) ?? [];
-    const powerKw = entry.powerKw
-      .slice(input.slotIndex)
-      .map((kw, i) => snapToMinimum(kw, entry.minKw) + (aux[i] ?? 0));
+    const capKw = input.sessionCapKw?.get(session.id);
+    const powerKw = entry.powerKw.slice(input.slotIndex).map((kw, i) => {
+      const slotKw = snapToMinimum(kw, entry.minKw) + (aux[i] ?? 0);
+      return capKw != null ? Math.min(slotKw, capKw) : slotKw;
+    });
     const preconditioning =
       input.ocpp21Stations?.has(station.id) === true
         ? entry.preconditioning?.slice(input.slotIndex)
@@ -1606,6 +1633,37 @@ export interface PlanDispatchContext {
   log: ServiceLogger;
   nowMs?: number;
   pubsub?: PubSubClient;
+  /** This cycle's EVSE limits of the stations limited per EVSE, by station database id. */
+  evseLimits?: ReadonlyMap<string, readonly EvseLimitResult[]>;
+}
+
+/**
+ * The most each charging session of the site may draw in its plan profile:
+ * its tariff limit, and on a station limited per EVSE the EVSE limit held by
+ * the session's own maximum (its tariff or its connector rating). A limit set
+ * by the station's share is left out: the plan already splits the station.
+ */
+export function planSessionCapsKw(
+  stations: readonly StationPowerInfo[],
+  evseLimits: ReadonlyMap<string, readonly EvseLimitResult[]> = new Map(),
+): Map<string, number> {
+  const caps = new Map<string, number>();
+  const lower = (sessionId: string, kw: number | null): void => {
+    if (kw == null || !Number.isFinite(kw) || kw < 0) return;
+    const held = caps.get(sessionId);
+    caps.set(sessionId, held != null ? Math.min(held, kw) : kw);
+  };
+  for (const station of stations) {
+    for (const session of station.sessions ?? []) {
+      lower(session.sessionId, sessionTariffCapKw(station, session.sessionId));
+    }
+    for (const limit of evseLimits.get(station.id) ?? []) {
+      if (limit.reason === 'tariff_limit' || limit.reason === 'connector_max') {
+        lower(limit.sessionId, limit.limitKw);
+      }
+    }
+  }
+  return caps;
 }
 
 /** A profile the station may still hold (not cleared, and once sent). */
@@ -1738,6 +1796,27 @@ export async function clearSitePlanProfiles(
 }
 
 /**
+ * The sessions whose TxProfile the depot plan owns: on a departure-aware site
+ * with fleet charging on, every planned session; on any site, a session whose
+ * station may still hold its plan profile (its clear is still due, and a
+ * profile sent with the same id would be cleared with it).
+ */
+export async function planOwnedSessionIds(
+  siteId: string,
+  strategy: LoadAllocationStrategy,
+): Promise<Set<string>> {
+  const stored = await getSitePlan(siteId);
+  const entries = parseStoredEntries(stored?.plan);
+  if (entries.length === 0) return new Set();
+  const planning = strategy === 'departure_aware' && (await isFleetChargingEnabled());
+  return new Set(
+    entries
+      .filter((e) => (planning && e.left !== true) || liveProfile(e.profile))
+      .map((e) => e.sessionId),
+  );
+}
+
+/**
  * Sends the plan profiles of a departure-aware site after its station
  * limits: the station limit stays the ceiling (a station that refuses the
  * profile is held by its limit, the sum of its planned sessions). The sent
@@ -1800,6 +1879,7 @@ export async function dispatchDepotPlanProfiles(ctx: PlanDispatchContext): Promi
     evseMaxTuples: inputs.evses,
     sessionPhases: inputs.phases,
     ocpp21Stations: inputs.ocpp21,
+    sessionCapKw: planSessionCapsKw(ctx.stations, ctx.evseLimits),
     slots,
     slotIndex,
     nowMs,
@@ -1866,7 +1946,7 @@ export async function departureAwareAllocation(
   if (!(await isFleetChargingEnabled())) return null;
   const planned = await departureAwarePlan(ctx);
   // A plan never asks a station for more than it can take (the cycle caps it too).
-  const maxById = new Map(ctx.stations.map((s) => [s.id, s.maxPowerKw]));
+  const maxById = new Map(ctx.stations.map((s) => [s.id, stationDemandLimitKw(s)]));
   const kw = new Map(
     [...planned.plannedKw].map(([id, value]) => {
       const max = maxById.get(id) ?? 0;

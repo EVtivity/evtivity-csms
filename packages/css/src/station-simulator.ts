@@ -38,9 +38,9 @@ import {
   wrapPnc16,
   type Pnc16MessageId,
 } from '@evtivity/lib';
-import { MeterValueGenerator, batteryKwhFor } from './meter-value-generator.js';
+import { MeterValueGenerator, batteryKwhFor, isAcConnector } from './meter-value-generator.js';
 import { OcmfMeterSigner } from './signed-meter-values.js';
-import { computeCompositeSchedule, limitNowW } from './composite-schedule.js';
+import { computeCompositeSchedule, limitNow, limitNowW } from './composite-schedule.js';
 import { CSS_MANUFACTURER_ROOT_CA_PEM, parseFirmwareImage } from './lib/manufacturer-root.js';
 import { PersistedCache } from './lib/persisted-cache.js';
 import { endedTriggerFor2x, faultStopReason, isStopReasonFor } from './lib/stop-reasons.js';
@@ -237,6 +237,9 @@ interface ConnectionCandidate {
 // Attempts per network profile before falling back to the next one.
 const CONNECTION_ATTEMPTS_PER_PROFILE = 3;
 
+// The lowest AC charging current per phase (IEC 61851-1): below it an AC EVSE draws nothing.
+const AC_MIN_CURRENT_A = 6;
+
 interface Reservation {
   id: number;
   evseId: number;
@@ -286,6 +289,8 @@ export interface PluggedInEv {
   socPercent?: number | undefined;
   /** Vehicle body type (`bus`, `semi_truck`, `box_truck`, a car type), which picks the battery size. */
   bodyType?: string | undefined;
+  /** Phases the EV's onboard charger draws on an AC EVSE (default 3); a single-phase EV uses L1. */
+  evPhases?: 1 | 3 | undefined;
 }
 
 /** The outcome of an Autocharge plug-in: the authorize status and the transaction it started. */
@@ -572,6 +577,8 @@ export class StationSimulator {
   private readonly evseWebPaymentLimits = new Map<number, WebPaymentLimits>();
   // E05.FR.03: energy (Wh, transaction total) still allowed after CSMS rejected the idToken
   private readonly evseInvalidIdMaxEnergy = new Map<number, number>();
+  // EVSEs this station suspended because their AC limit fell below AC_MIN_CURRENT_A
+  private readonly evseMinCurrentPaused = new Set<number>();
   // Per-EVSE last reported local cost (for RunningCost event dedup)
   private readonly evseLastLocalCost = new Map<number, number>();
 
@@ -1100,6 +1107,7 @@ export class StationSimulator {
       this.evseLimitReached.delete(evse.evseId);
       this.evseLastDriverLimits.delete(evse.evseId);
       this.evseInvalidIdMaxEnergy.delete(evse.evseId);
+      this.evseMinCurrentPaused.delete(evse.evseId);
       this.evseWebPaymentLimits.delete(evse.evseId);
       this.evseLastLocalCost.delete(evse.evseId);
       this.evseContexts.set(evse.evseId, {
@@ -1708,6 +1716,7 @@ export class StationSimulator {
     this.evseLimitReached.delete(evseId);
     this.evseLastDriverLimits.delete(evseId);
     this.evseInvalidIdMaxEnergy.delete(evseId);
+    this.evseMinCurrentPaused.delete(evseId);
     this.evseLastLocalCost.delete(evseId);
 
     // Consume any reservation on this EVSE
@@ -2011,6 +2020,7 @@ export class StationSimulator {
     this.evseLimitReached.delete(evseId);
     this.evseLastDriverLimits.delete(evseId);
     this.evseInvalidIdMaxEnergy.delete(evseId);
+    this.evseMinCurrentPaused.delete(evseId);
     this.evseLastLocalCost.delete(evseId);
 
     // Update EvseContext
@@ -2225,7 +2235,11 @@ export class StationSimulator {
       throw new Error('Cannot suspend charging while the connector is faulted');
     }
     const target = by === 'EV' ? 'SuspendedEV' : 'SuspendedEVSE';
-    if (this.suspendedState(evseId) === target) return;
+    const minCurrentPaused = this.evseMinCurrentPaused.delete(evseId);
+    if (this.suspendedState(evseId) === target) {
+      if (minCurrentPaused) this.evseIdle.set(evseId, true);
+      return;
+    }
     // State first, so a send that fails offline leaves the meter consistent
     this.evseIdle.set(evseId, true);
     await this.reportChargingState(evseId, ctx.transactionId, target);
@@ -2249,6 +2263,7 @@ export class StationSimulator {
     if (!ctx.cablePlugged) {
       throw new Error('Cannot resume charging without the cable plugged in');
     }
+    this.evseMinCurrentPaused.delete(evseId);
     const meterRunning = this.meterTimers.has(evseId);
     if (this.suspendedState(evseId) == null && meterRunning) return;
     this.evseIdle.set(evseId, false);
@@ -3168,8 +3183,7 @@ export class StationSimulator {
       const gen = this.meterGens.get(evseId);
       if (gen != null) {
         const idle = this.evseIdle.get(evseId) ?? false;
-        const powerLimit = this.powerLimitFor(evseId);
-        gen.tick(idle, powerLimit);
+        this.tickMeter(evseId, gen, idle);
         const measurands = this.getSampledMeasurands();
         sampledValues = gen.generate(measurands, this.is16) as unknown as Array<
           Record<string, unknown>
@@ -3612,6 +3626,11 @@ export class StationSimulator {
 
     if (opts.meterValue != null) {
       payload['meterValue'] = opts.meterValue;
+    }
+
+    const phasesUsed = this.acPhasesInUse(evseId);
+    if (!this.is16 && phasesUsed != null) {
+      payload['numberOfPhasesUsed'] = phasesUsed;
     }
 
     if (opts.costDetails != null) {
@@ -4404,7 +4423,7 @@ export class StationSimulator {
     // suspended. An idle tick here reported 0 W with chargingState Charging
     // (finding JB-1), and a charging tick would add energy between samples.
     if (this.getActiveTransactionSync(firstEvse.evseId) == null) {
-      gen.tick(true, this.powerLimitFor(firstEvse.evseId));
+      this.tickMeter(firstEvse.evseId, gen, true);
     }
 
     const sampledValues = gen
@@ -7651,7 +7670,7 @@ export class StationSimulator {
 
           const tx = await this.getActiveTransaction(targetEvseId);
           const isIdle = tx == null || (this.evseIdle.get(targetEvseId) ?? false);
-          gen.tick(isIdle, this.powerLimitFor(targetEvseId));
+          this.tickMeter(targetEvseId, gen, isIdle);
 
           const measurands = tx != null ? this.getSampledMeasurands() : this.getAlignedMeasurands();
           const sampledValues = gen.generate(
@@ -7697,7 +7716,7 @@ export class StationSimulator {
               let txMeterValue: Array<Record<string, unknown>> | undefined;
               if (txGen != null) {
                 const txIdle = this.evseIdle.get(evse.evseId) ?? false;
-                txGen.tick(txIdle, this.powerLimitFor(evse.evseId));
+                this.tickMeter(evse.evseId, txGen, txIdle);
                 const txMeasurands = this.getSampledMeasurands();
                 const txSampled = txGen.generate(
                   txMeasurands.length > 0
@@ -9307,6 +9326,7 @@ export class StationSimulator {
         this.evseLimitReached.delete(evseId);
         this.evseLastDriverLimits.delete(evseId);
         this.evseInvalidIdMaxEnergy.delete(evseId);
+        this.evseMinCurrentPaused.delete(evseId);
         this.evseLastLocalCost.delete(evseId);
 
         // For E_116: after ending, if cable is still plugged, start a new transaction
@@ -9710,7 +9730,8 @@ export class StationSimulator {
       }
 
       // Advance simulation state
-      gen.tick(idle, this.powerLimitFor(evseId));
+      const draw = this.tickMeter(evseId, gen, idle);
+      this.followMinimumCurrent(evseId, draw.belowMinimum);
       if (!idle && gen.socPercent >= 100 && this.getActiveTransactionSync(evseId) != null) {
         // A full battery: the EV stops drawing power.
         void this.suspendCharging(evseId, 'EV').catch((err: unknown) => {
@@ -10297,6 +10318,24 @@ export class StationSimulator {
    * transaction. Null when no profile limits it.
    */
   private powerLimitFor(evseId: number): number | null {
+    const limit = this.evseLimit(evseId).limitW;
+    const error = this.config.profileFollowError;
+    if (limit != null && error != null && Number.isFinite(error) && error > -1) {
+      return limit * (1 + error);
+    }
+    return limit;
+  }
+
+  /**
+   * The EVSE's limit now (W, before the follow error), the phases it charges on
+   * (the EVSE's, the EV's and the schedule's numberPhases, the lowest) and
+   * whether an AC limit is below AC_MIN_CURRENT_A per phase.
+   */
+  private evseLimit(evseId: number): {
+    limitW: number | null;
+    phases: number;
+    belowMinimum: boolean;
+  } {
     const now = new Date();
     const profiles = this.compositeProfiles();
     const stationWide = (p: Record<string, unknown>): boolean =>
@@ -10310,7 +10349,7 @@ export class StationSimulator {
     const own =
       evse == null
         ? null
-        : limitNowW({
+        : limitNow({
             profiles: evseProfiles,
             evseId,
             now,
@@ -10319,6 +10358,13 @@ export class StationSimulator {
             transactionId: this.getActiveTransactionSync(evseId),
             transactionStart: txStart != null ? new Date(txStart) : null,
           });
+    const ac = evse != null && isAcConnector(evse.connectorType);
+    const evPhases = this.pluggedInEvs.get(evseId)?.evPhases ?? 3;
+    const evsePhases = Math.max(1, evse?.phases ?? 1);
+    const schedulePhases = Math.max(1, Math.min(evsePhases, own?.numberPhases ?? evsePhases));
+    const phases = ac ? Math.min(schedulePhases, evPhases) : evsePhases;
+    // The schedule allows its current on each of its phases; an EV on fewer phases draws less.
+    let limit = own == null ? null : ac ? (own.limitW * phases) / schedulePhases : own.limitW;
     const first = this.config.evses[0];
     const station =
       first == null || stationMax.length === 0
@@ -10332,7 +10378,6 @@ export class StationSimulator {
             transactionId: null,
             transactionStart: null,
           });
-    let limit = own;
     if (station != null) {
       const charging = this.config.evses.filter(
         (e) => this.getActiveTransactionSync(e.evseId) != null,
@@ -10340,11 +10385,59 @@ export class StationSimulator {
       const share = station / Math.max(1, charging);
       limit = limit == null ? share : Math.min(limit, share);
     }
-    const error = this.config.profileFollowError;
-    if (limit != null && error != null && Number.isFinite(error) && error > -1) {
-      return limit * (1 + error);
+    const belowMinimum =
+      ac && limit != null && limit / (evse.voltage * phases) < AC_MIN_CURRENT_A - 1e-9;
+    return { limitW: limit, phases, belowMinimum };
+  }
+
+  /** Phases an AC EVSE charges on now, or null for a DC EVSE. */
+  private acPhasesInUse(evseId: number): number | null {
+    const evse = this.config.evses.find((e) => e.evseId === evseId);
+    if (evse == null || !isAcConnector(evse.connectorType)) return null;
+    return this.evseLimit(evseId).phases;
+  }
+
+  /** Advances the EVSE's meter one tick at its limit; an AC limit below 6 A draws nothing. */
+  private tickMeter(
+    evseId: number,
+    gen: MeterValueGenerator,
+    idle: boolean,
+  ): { belowMinimum: boolean } {
+    const { belowMinimum, phases } = this.evseLimit(evseId);
+    gen.setPhasesInUse(phases);
+    gen.tick(idle, belowMinimum ? 0 : this.powerLimitFor(evseId));
+    return { belowMinimum };
+  }
+
+  /**
+   * Reports SuspendedEVSE once when the AC limit falls below 6 A per phase and
+   * Charging again at 6 A or more. A suspension by the EV, the operator or a
+   * fault is left alone.
+   */
+  private followMinimumCurrent(evseId: number, belowMinimum: boolean): void {
+    const txId = this.getActiveTransactionSync(evseId);
+    if (txId == null) {
+      this.evseMinCurrentPaused.delete(evseId);
+      return;
     }
-    return limit;
+    const paused = this.evseMinCurrentPaused.has(evseId);
+    let state: 'SuspendedEVSE' | 'Charging' | null = null;
+    if (belowMinimum && !paused) {
+      if (this.suspendedState(evseId) != null || (this.evseIdle.get(evseId) ?? false)) return;
+      if (this.evseConnectorStatus.get(evseId) === 'Faulted') return;
+      this.evseMinCurrentPaused.add(evseId);
+      state = 'SuspendedEVSE';
+    } else if (!belowMinimum && paused) {
+      this.evseMinCurrentPaused.delete(evseId);
+      if (this.suspendedState(evseId) === 'SuspendedEVSE') state = 'Charging';
+    }
+    if (state == null) return;
+    void this.reportChargingState(evseId, txId, state).catch((err: unknown) => {
+      logger.warn(
+        { err, stationId: this.config.stationId, evseId, state },
+        'Report of a minimum current change failed',
+      );
+    });
   }
 
   /** Stamps the TxProfiles stored on the EVSE without a transaction (RequestStartTransaction) with it. */

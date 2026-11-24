@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { TariffSitesSummary, useChargingTypeLabel } from './TariffScopeFields';
+import { TariffCurrentLimitText } from './TariffCurrentLimitField';
+import { AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -44,6 +46,8 @@ interface Tariff {
   chargingType?: 'ac' | 'dc' | 'both';
   siteIds?: string[] | null;
   otherSiteCount?: number;
+  maxCurrentA?: number | null;
+  currentLimitNotEnforcedSiteIds?: string[];
   createdAt: string;
 }
 
@@ -105,6 +109,7 @@ export function PricingGroupTariffsTab({
                 <TableHead>{t('pricing.tariffType')}</TableHead>
                 <TableHead>{t('pricing.chargingType')}</TableHead>
                 <TableHead>{t('pricing.siteAvailability')}</TableHead>
+                <TableHead>{t('pricing.maxCurrent')}</TableHead>
                 <TableHead>{t('pricing.perKwh', { context: taxBasis })}</TableHead>
                 <TableHead>{t('pricing.perMin', { context: taxBasis })}</TableHead>
                 <TableHead>{t('pricing.perSession', { context: taxBasis })}</TableHead>
@@ -142,6 +147,24 @@ export function PricingGroupTariffsTab({
                       siteIds={tariff.siteIds}
                       otherSiteCount={tariff.otherSiteCount}
                     />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap" data-testid="tariff-max-current">
+                    {tariff.chargingType === 'dc' ? (
+                      t('common.na')
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5">
+                        <TariffCurrentLimitText value={tariff.maxCurrentA} />
+                        {(tariff.currentLimitNotEnforcedSiteIds?.length ?? 0) > 0 && (
+                          <AlertTriangle
+                            className="h-4 w-4 text-warning-text"
+                            role="img"
+                            aria-label={t('pricing.maxCurrentNotEnforcedTitle')}
+                          >
+                            <title>{t('pricing.maxCurrentNotEnforcedTitle')}</title>
+                          </AlertTriangle>
+                        )}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>{formatDecimal(tariff.pricePerKwh)}</TableCell>
                   <TableCell>{formatDecimal(tariff.pricePerMinute)}</TableCell>

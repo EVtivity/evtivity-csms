@@ -118,6 +118,15 @@ describe('collectFeatureMetrics', () => {
       ['FROM depot_systems\n', [{ enabled: 2, locked: 1 }]],
       ['FROM depot_system_refused_requests r', [{ reason: 'unknown_vehicle', count: 3 }]],
       ["e.severity = 'critical'", [{ critical: 2 }]],
+      ['AS paused', [{ paused: 2, refused: 1 }]],
+      [
+        'FROM load_allocation_entries',
+        [
+          { reply: 'accepted', count: 40 },
+          { reply: 'rejected', count: 3 },
+          { reply: 'no_reply', count: 1 },
+        ],
+      ],
     ]);
 
     await collectFeatureMetrics();
@@ -154,6 +163,15 @@ describe('collectFeatureMetrics', () => {
     expect(await single(m.depotSystemsAuthLocked)).toBe(1);
     expect(await series(m.depotSystemRefusedRequests, 'reason')).toEqual({ unknown_vehicle: 3 });
     expect(await single(m.securityEventsCriticalLastHour)).toBe(2);
+    expect(await single(m.loadManagementEvseSessionsPaused)).toBe(2);
+    expect(await single(m.loadManagementStationsEvseRefused)).toBe(1);
+    expect(await series(m.loadAllocationEntriesLastHour, 'reply')).toEqual({
+      accepted: 40,
+      rejected: 3,
+      not_sent: 0,
+      no_reply: 1,
+      pending: 0,
+    });
     const securitySql = mockExecute.mock.calls
       .map((c) => String(c[0]))
       .find((text) => text.includes("severity = 'critical'"));
@@ -174,6 +192,14 @@ describe('collectFeatureMetrics', () => {
     expect(await single(m.chargingPlanStalenessMaxSeconds)).toBe(0);
     expect(await series(m.departureNoticesLastHour, 'kind')).toEqual({ at_risk: 0, missed: 0 });
     expect(await single(m.securityEventsCriticalLastHour)).toBe(0);
+    expect(await single(m.loadManagementEvseSessionsPaused)).toBe(0);
+    expect(await series(m.loadAllocationEntriesLastHour, 'reply')).toEqual({
+      accepted: 0,
+      rejected: 0,
+      not_sent: 0,
+      no_reply: 0,
+      pending: 0,
+    });
   });
 
   it('keeps the previous values and logs when a query fails', async () => {

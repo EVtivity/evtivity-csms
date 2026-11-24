@@ -6,7 +6,11 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
-const { getMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn() }));
+const { getMock, postMock, patchMock } = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  postMock: vi.fn(),
+  patchMock: vi.fn(),
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -14,7 +18,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/lib/api', () => ({
-  api: { get: getMock, post: postMock, patch: vi.fn(), delete: vi.fn() },
+  api: { get: getMock, post: postMock, patch: patchMock, delete: vi.fn() },
 }));
 
 vi.mock('@/lib/timezone', () => ({
@@ -69,7 +73,35 @@ async function selectWithOptions(id: string, count: number): Promise<HTMLSelectE
 afterEach(() => {
   cleanup();
   postMock.mockReset();
+  patchMock.mockReset();
 });
+
+function dateInputs(): HTMLElement[] {
+  return screen
+    .queryAllByLabelText('common.startDate')
+    .concat(screen.queryAllByLabelText('common.endDate'));
+}
+
+function submitForm(el: HTMLElement): void {
+  const form = el.closest('form');
+  if (form == null) throw new Error('form not found');
+  fireEvent.submit(form);
+}
+
+const SCHEDULE = {
+  id: 7,
+  name: 'Monthly',
+  reportType: 'revenue',
+  format: 'csv',
+  frequency: 'monthly',
+  dayOfWeek: null,
+  dayOfMonth: 1,
+  recipientEmails: ['ops@example.com'],
+  filters: { siteId: 'sit_1', dateFrom: '2026-01-01', dateTo: '2026-01-31' },
+  reportPeriod: 'custom',
+  isEnabled: true,
+  createdAt: '2026-01-01T00:00:00Z',
+};
 
 describe('GenerateTab', () => {
   it('offers the types the server marks generateFromUi, labelled by locale key', async () => {
@@ -122,6 +154,87 @@ describe('SchedulesTab', () => {
     fireEvent.change(typeSelect, { target: { value: 'custom' } });
     const formatSelect = document.getElementById('schedule-format') as HTMLSelectElement;
     expect(options(formatSelect).map((o) => o.value)).toEqual(['pdf']);
+  });
+});
+
+describe('Report period', () => {
+  it('Generate tab hides the dates for a relative period and sends the period with the filters', async () => {
+    postMock.mockResolvedValue({ id: 'r1', status: 'pending' });
+    renderTab(<GenerateTab onGenerated={vi.fn()} />);
+    await selectWithOptions('report-type', 2);
+    const period = document.getElementById('generate-period') as HTMLSelectElement;
+    expect(period.options).toHaveLength(11);
+    expect(period.value).toBe('custom');
+    expect(dateInputs().length).toBeGreaterThan(0);
+    fireEvent.change(period, { target: { value: 'last7Days' } });
+    expect(dateInputs()).toHaveLength(0);
+    fireEvent.change(document.getElementById('report-name') as HTMLInputElement, {
+      target: { value: 'Week' },
+    });
+    submitForm(period);
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/reports/generate',
+        expect.objectContaining({ reportPeriod: 'last7Days', filters: {} }),
+      );
+    });
+  });
+
+  it('Schedules tab defaults to Custom and sends no dates for Previous Month', async () => {
+    postMock.mockResolvedValue({ id: 1 });
+    renderTab(<SchedulesTab />);
+    fireEvent.click(screen.getByText('reports.createSchedule'));
+    await selectWithOptions('schedule-type', 2);
+    const period = document.getElementById('schedule-period') as HTMLSelectElement;
+    expect(period.options).toHaveLength(11);
+    expect(period.value).toBe('custom');
+    expect(dateInputs().length).toBeGreaterThan(0);
+    fireEvent.change(period, { target: { value: 'previousMonth' } });
+    expect(dateInputs()).toHaveLength(0);
+    fireEvent.change(document.getElementById('schedule-name') as HTMLInputElement, {
+      target: { value: 'Monthly' },
+    });
+    fireEvent.change(document.getElementById('schedule-emails') as HTMLInputElement, {
+      target: { value: 'ops@example.com' },
+    });
+    submitForm(period);
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/report-schedules',
+        expect.objectContaining({ reportPeriod: 'previousMonth', filters: {} }),
+      );
+    });
+  });
+
+  it('shows the period on the card and switches an edited custom schedule to Last 7 Days', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === '/v1/reports/types') return Promise.resolve(REPORT_TYPES);
+      if (url === '/v1/report-schedules') return Promise.resolve({ data: [SCHEDULE] });
+      return Promise.resolve({ data: [], total: 0 });
+    });
+    patchMock.mockResolvedValue({});
+    try {
+      renderTab(<SchedulesTab />);
+      await screen.findByText('Monthly');
+      expect(screen.getByText('reports.periods.custom')).toBeTruthy();
+      fireEvent.click(screen.getByText('reports.editSchedule'));
+      const period = document.getElementById('schedule-period') as HTMLSelectElement;
+      expect(period.value).toBe('custom');
+      expect(dateInputs().length).toBeGreaterThan(0);
+      fireEvent.change(period, { target: { value: 'last7Days' } });
+      submitForm(period);
+      await waitFor(() => {
+        expect(patchMock).toHaveBeenCalledWith(
+          '/v1/report-schedules/7',
+          expect.objectContaining({ reportPeriod: 'last7Days', filters: { siteId: 'sit_1' } }),
+        );
+      });
+    } finally {
+      getMock.mockImplementation((url: string) => {
+        if (url === '/v1/reports/types') return Promise.resolve(REPORT_TYPES);
+        return Promise.resolve({ data: [], total: 0 });
+      });
+    }
   });
 });
 

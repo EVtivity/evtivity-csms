@@ -15,7 +15,8 @@ import {
   pad,
 } from './seed-fleet-billing.js';
 import type { DemoLineSession } from './seed-fleet-billing.js';
-
+import { writeAudit } from './lib/audit.js';
+import { tokenAuditLog } from './schema/audit.js';
 // Demo data of member invoices (features/fleet-billing.md, Member invoices):
 // one fleet on account billing whose invoices go to each member driver
 // (account_invoice_recipient = 'member'). Two members: Lena Fischer (German,
@@ -42,6 +43,11 @@ export const MEMBER_INVOICE_DEMO = {
   creditedInvoiceId: 'inv_demomemb0002',
   /** Credit note of creditedInvoiceId. */
   creditNoteId: 'inv_demomemb0003',
+  /** The members' own RFID cards: their sessions bill on account, invoiced to each member. */
+  memberCards: [
+    { id: 'dtk_demomemb001', driverId: 'drv_demomemb0001', idToken: 'CONTOSOLENA01' },
+    { id: 'dtk_demomemb002', driverId: 'drv_demomemb0002', idToken: 'CONTOSOSAM01' },
+  ],
 } as const;
 
 const FLEET_NAME = 'Contoso Engineering';
@@ -184,6 +190,41 @@ export function memberInvoiceDemoSessions(now: Date): MemberDemoSession[] {
 }
 
 /** Seeds the member invoice demo. Returns the number of sessions it inserted. */
+/**
+ * Each member's own RFID card, inserted when missing with its token audit
+ * row; a rerun, or a value another token already holds, adds nothing.
+ */
+async function seedMemberCards(sql: postgres.Sql): Promise<void> {
+  for (const card of MEMBER_INVOICE_DEMO.memberCards) {
+    const inserted = await sql<{ id: string }[]>`
+      INSERT INTO driver_tokens (id, driver_id, id_token, token_type, label, is_active)
+      SELECT ${card.id}, ${card.driverId}, ${card.idToken}, 'ISO14443', ${'Work card'}, true
+      WHERE EXISTS (SELECT 1 FROM drivers WHERE id = ${card.driverId} AND erased_at IS NULL)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `;
+    if (inserted.length === 0) continue;
+    await writeAudit(
+      { table: tokenAuditLog, idColumn: 'token_id' },
+      {
+        entityId: card.id,
+        entityIdSnapshot: card.id,
+        action: 'created',
+        actor: 'system',
+        before: null,
+        after: {
+          idToken: card.idToken,
+          tokenType: 'ISO14443',
+          driverId: card.driverId,
+          label: 'Work card',
+          isActive: true,
+        },
+        notes: 'Demo data: member RFID card',
+      },
+    );
+  }
+}
+
 export async function seedMemberInvoiceDemo(
   sql: postgres.Sql,
   input: MemberInvoiceDemoInput,
@@ -231,7 +272,7 @@ export async function seedMemberInvoiceDemo(
       ON CONFLICT (fleet_id, driver_id) DO NOTHING
     `;
   }
-
+  await seedMemberCards(sql);
   const place = await loadDemoStationPlace(sql, input.stationId);
   const sessions = memberInvoiceDemoSessions(now);
   const lastMonth = monthBounds(now, 1);

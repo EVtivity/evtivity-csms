@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, gte, lte, eq, count, type SQL } from 'drizzle-orm';
+import { sql, and, gte, lt, eq, count, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -19,6 +19,7 @@ import type { ReportGeneratorResult } from '../report-registry.js';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, dateCell, fixedCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
+import { reportDay, reportDayBounds, reportFileName } from './report-dates.js';
 
 interface Filters {
   dateFrom?: string | undefined;
@@ -26,14 +27,21 @@ interface Filters {
   siteId?: string | undefined;
   /** The report's site scope (report-scope.ts). */
   scope: ReportSiteScope;
+  /** The company time zone the report days start and end in. */
+  timeZone: string;
 }
 
-function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
+function parseFilters(
+  raw: Record<string, unknown>,
+  scope: ReportSiteScope,
+  timeZone: string,
+): Filters {
   return {
-    dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
-    dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
+    dateFrom: reportDay(raw['dateFrom']),
+    dateTo: reportDay(raw['dateTo']),
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
     scope,
+    timeZone,
   };
 }
 
@@ -49,14 +57,9 @@ function stationConditions(filters: Filters): SQL[] {
 function buildDateConditions(filters: Filters): SQL[] {
   // Sessions of conformance test stations are never reported.
   const conditions: SQL[] = [inOperatorStation(chargingSessions.stationId)];
-  if (filters.dateFrom) {
-    conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
-  }
-  if (filters.dateTo) {
-    const to = new Date(filters.dateTo);
-    to.setHours(23, 59, 59, 999);
-    conditions.push(lte(chargingSessions.startedAt, to));
-  }
+  const { from, until } = reportDayBounds(filters.dateFrom, filters.dateTo, filters.timeZone);
+  if (from != null) conditions.push(gte(chargingSessions.startedAt, from));
+  if (until != null) conditions.push(lt(chargingSessions.startedAt, until));
   return conditions;
 }
 
@@ -156,11 +159,11 @@ export async function generateEnergyReport(
   language: UiLanguage,
   siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters, siteIds);
+  const tz = await getSystemTimezone();
+  const filters = parseFilters(rawFilters, siteIds, tz);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.energy;
-  const tz = await getSystemTimezone();
 
   const [byDay, byStation, bySite] = await Promise.all([
     queryEnergyByDay(filters, tz),
@@ -209,14 +212,20 @@ export async function generateEnergyReport(
       ...siteRows,
     ];
     const csv = buildCsv(dayHeaders, csvRows(rows));
-    return { data: Buffer.from(csv, 'utf-8'), fileName: `energy-report-${String(Date.now())}.csv` };
+    return {
+      data: Buffer.from(csv, 'utf-8'),
+      fileName: reportFileName('energy-report', filters.dateFrom, filters.dateTo, 'csv'),
+    };
   } else if (format === 'xlsx') {
     const data = await buildXlsx([
       { name: l.sheets.byDay, headers: dayHeaders, rows: dayRows },
       { name: l.sheets.byStation, headers: stationHeaders, rows: stationRows },
       { name: l.sheets.bySite, headers: siteHeaders, rows: siteRows },
     ]);
-    return { data, fileName: `energy-report-${String(Date.now())}.xlsx` };
+    return {
+      data,
+      fileName: reportFileName('energy-report', filters.dateFrom, filters.dateTo, 'xlsx'),
+    };
   }
 
   // PDF
@@ -234,5 +243,8 @@ export async function generateEnergyReport(
   pdf.addTable(siteHeaders, pdfRows(siteRows, rl));
 
   const data = await pdf.build();
-  return { data, fileName: `energy-report-${String(Date.now())}.pdf` };
+  return {
+    data,
+    fileName: reportFileName('energy-report', filters.dateFrom, filters.dateTo, 'pdf'),
+  };
 }

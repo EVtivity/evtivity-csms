@@ -171,7 +171,7 @@ describe('PanelTree stations on a circuit', () => {
   it('shows the priority read only with the reason under another strategy', () => {
     renderTree({ strategy: 'equal_share' });
     const row = within(screen.getByTestId('circuit-station-CS-ON'));
-    expect(row.queryByRole('combobox')).toBeNull();
+    expect(row.queryByRole('combobox', { name: /loadManagement\.priorityFor/ })).toBeNull();
     expect(row.getByText('7')).toBeTruthy();
     expect(row.getAllByText('loadManagement.priorityStrategyOnly').length).toBeGreaterThan(0);
   });

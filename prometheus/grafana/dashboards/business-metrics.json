@@ -1422,9 +1422,170 @@
       }
     },
     {
+      "type": "stat",
+      "title": "Sessions Paused Below 6 A",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 73
+      },
+      "id": 75,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "max(load_management_evse_sessions_paused)",
+          "legendFormat": "Sessions Paused Below 6 A",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "description": "AC sessions held at 0 A in the last send: their EVSE share was below 6 A per phase. Each resumes when 6 A frees up."
+    },
+    {
+      "type": "stat",
+      "title": "Stations Refusing Per-EVSE Limits",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 73
+      },
+      "id": 76,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "max(load_management_stations_evse_refused)",
+          "legendFormat": "Stations Refusing Per-EVSE Limits",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "description": "Stations that refused a per-EVSE limit and now get one station limit; choosing the balancing mode again retries."
+    },
+    {
+      "type": "timeseries",
+      "title": "Station Replies to Limits (last hour)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 73
+      },
+      "id": 77,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "max by (reply) (load_allocation_entries_last_hour)",
+          "legendFormat": "{{reply}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "The limits load management sent in the last hour by the reply each station gave (no_reply: none 2 minutes after the send)."
+    },
+    {
       "type": "row",
       "title": "Route-Aware Charging",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 73 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 81 },
       "id": 60,
       "collapsed": false,
       "panels": []
@@ -1432,7 +1593,7 @@
     {
       "type": "stat",
       "title": "Departures At Risk",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 74 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 82 },
       "id": 61,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1468,7 +1629,7 @@
     {
       "type": "stat",
       "title": "Departures Missed (last hour)",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 74 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 82 },
       "id": 62,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1504,7 +1665,7 @@
     {
       "type": "stat",
       "title": "Stale Charging Plans",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 74 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 82 },
       "id": 63,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1541,7 +1702,7 @@
     {
       "type": "stat",
       "title": "Longest Plan Run (last hour)",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 74 },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 82 },
       "id": 64,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1571,7 +1732,7 @@
     {
       "type": "piechart",
       "title": "Scheduled Departures by Readiness",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 78 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 86 },
       "id": 65,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1592,7 +1753,7 @@
     {
       "type": "bargauge",
       "title": "Departures Completed (24 h) by Outcome",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 78 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 86 },
       "id": 66,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1622,7 +1783,7 @@
     {
       "type": "timeseries",
       "title": "Plan Staleness and At Risk Notices",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 78 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 86 },
       "id": 67,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1659,7 +1820,7 @@
     {
       "type": "row",
       "title": "Batteries and Solar",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 86 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 94 },
       "id": 70,
       "collapsed": false,
       "panels": []
@@ -1667,7 +1828,7 @@
     {
       "type": "stat",
       "title": "Batteries and Solar Arrays",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 87 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 95 },
       "id": 71,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1697,7 +1858,7 @@
     {
       "type": "stat",
       "title": "Stale Readings",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 87 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 95 },
       "id": 72,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1734,7 +1895,7 @@
     {
       "type": "timeseries",
       "title": "Readings Refused per Minute by Status",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 87 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 95 },
       "id": 73,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1767,7 +1928,7 @@
     {
       "type": "bargauge",
       "title": "Stale Readings by Type",
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 91 },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 99 },
       "id": 74,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [

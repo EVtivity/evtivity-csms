@@ -882,6 +882,9 @@ describe('Dashboard fleet items', () => {
     expect(within(cards).getByText('dashboard.fleet.creditUsed')).toBeTruthy();
     // Every fleet: the card names the fleet closest to its limit.
     expect(within(cards).getByText('dashboard.fleet.creditUsedFleet')).toBeTruthy();
+    // Every card carries one line, so the row ends level: the range on sessions and energy.
+    expect(within(cards).getAllByText('dashboard.fleet.period')).toHaveLength(2);
+    expect(within(cards).getByText('dashboard.fleet.costPerKwh')).toBeTruthy();
     expect(await screen.findByText('INV-202610-0001')).toBeTruthy();
     expect(requested.some((p) => p.startsWith('/v1/dashboard/'))).toBe(false);
     expect(requested.some((p) => p.startsWith('/v1/sessions'))).toBe(false);
@@ -889,6 +892,25 @@ describe('Dashboard fleet items', () => {
     // The site snapshot modes are for operators.
     expect(screen.queryByText('dashboard.historical')).toBeNull();
     expect(screen.queryByText('dashboard.totalStations')).toBeNull();
+  });
+
+  it('says no energy was delivered on the fleet cost card instead of a price per kWh', async () => {
+    featureFlagsState.fleetEnabled = true;
+    answers.set(SUMMARY_PATH, () =>
+      Promise.resolve({ ...summary, sessionCount: 0, energyWh: 0, costCents: 0 }),
+    );
+    answers.set(LAYOUT_PATH, () =>
+      Promise.resolve({ layout: defaultDashboardLayout({ fleetUser: true }), customized: false }),
+    );
+    await renderDashboard(
+      'fleet_manager',
+      ['fleets:read', 'sessions:read', 'payments:read', 'fleetCards:read'],
+      false,
+      'fleets',
+    );
+    const cards = await screen.findByTestId('dashboard-fleet-cards');
+    expect(within(cards).getByText('dashboard.fleet.costPerKwhNone')).toBeTruthy();
+    expect(within(cards).queryByText('dashboard.fleet.costPerKwh')).toBeNull();
   });
 
   it('gives an operator no fleet cards and no fleet picker, the fleet charts hidden', async () => {

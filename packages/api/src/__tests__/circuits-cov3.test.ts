@@ -35,6 +35,7 @@ const h = vi.hoisted(() => {
     writeAudit: vi.fn(),
     markSitePlanStale: vi.fn(),
     getUserSiteIds: vi.fn(),
+    readUnitLoadBudgets: vi.fn(),
   };
 });
 
@@ -49,6 +50,7 @@ vi.mock('@evtivity/database', async () => ({
   createCircuit: h.createCircuit,
   updateCircuit: h.updateCircuit,
   deleteCircuit: h.deleteCircuit,
+  readUnitLoadBudgets: h.readUnitLoadBudgets,
   markSitePlanStale: h.markSitePlanStale,
   writeAudit: h.writeAudit,
   siteAuditLog: { name: 'site_audit_log' },
@@ -112,6 +114,7 @@ beforeEach(() => {
   h.getUserSiteIds.mockResolvedValue(null);
   h.markSitePlanStale.mockResolvedValue(undefined);
   h.writeAudit.mockResolvedValue(undefined);
+  h.readUnitLoadBudgets.mockResolvedValue([]);
 });
 
 function results(...r: unknown[][]): void {
@@ -403,6 +406,52 @@ describe('PATCH station circuit', () => {
       code: 'OVERSUBSCRIPTION_EXCEEDED',
       details: { connectedKw: 50, allowedKw: 48 },
     });
+  });
+
+  it('holds each Station Unit to its budget (issue 72)', async () => {
+    const em4Rows = Array.from({ length: 16 }, (_, i) => ({
+      stationId: 'sta_1',
+      evseDbId: `evs_${String(i + 1)}`,
+      unitId: `unt_${String(Math.floor(i / 2) + 1)}`,
+      maxPowerKw: '22',
+    }));
+    const circuitRows = [
+      {
+        id: 'cir_a',
+        panelId: 'pnl_a',
+        panelMaxKw: '220.8',
+        panelOversubRatio: '1',
+        panelSiteId: SITE,
+        panelVoltageV: 230,
+        panelPhases: 3,
+      },
+    ];
+    const panelCircuits = [{ id: 'cir_a', voltageV: null, phaseConnections: null }];
+
+    results([station], circuitRows, panelCircuits, [], em4Rows);
+    const refused = await send('PATCH', url, { circuitId: 'cir_a' });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({
+      code: 'OVERSUBSCRIPTION_EXCEEDED',
+      details: { connectedKw: 352, allowedKw: 220.8 },
+    });
+
+    h.readUnitLoadBudgets.mockResolvedValue(
+      Array.from({ length: 8 }, (_, i) => ({
+        unitId: `unt_${String(i + 1)}`,
+        stationId: 'sta_1',
+        kind: 'ac',
+        maxCurrentA: 32,
+        phases: 3,
+        maxPowerKw: null,
+      })),
+    );
+    results([station], circuitRows, panelCircuits, [], em4Rows, [
+      { id: 'sta_1', stationId: 'CS-1', circuitId: 'cir_a' },
+    ]);
+    const res = await send('PATCH', url, { circuitId: 'cir_a' });
+    expect(res.statusCode).toBe(200);
+    expect(h.readUnitLoadBudgets).toHaveBeenCalledWith(['sta_1']);
   });
 
   it('assigns within the oversubscription with a warning header and audits the change', async () => {

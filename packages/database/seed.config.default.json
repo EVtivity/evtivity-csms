@@ -32,6 +32,7 @@
     "company.currency": "USD",
     "company.priceDisplay": "net",
     "company.taxBasis": "net",
+    "company.weekStart": "monday",
     "company.contactEmail": "contact@evtivity.local",
     "company.supportEmail": "support@evtivity.local",
     "company.supportPhone": "+1 (555) 123-4567",

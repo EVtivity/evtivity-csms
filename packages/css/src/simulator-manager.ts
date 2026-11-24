@@ -21,6 +21,7 @@ import { isTlsReachable } from './tls-probe.js';
 import { config as cssConfig, simulatorServerUrls } from './lib/config.js';
 import { logger } from './lib/logger.js';
 import { isStationStuck, MAX_HEAL_ATTEMPTS, MAX_HEAL_PER_TICK } from './simulator-heal.js';
+import type { CssCommandResult } from './chaos-fleet.js';
 
 // Resolve the SP3 PEM bundle from env: prefer the inlined *_PEM variants
 // (CDK/ECS path) over the file-path variants (Helm path). Memoized so each
@@ -99,6 +100,8 @@ export class SimulatorManager {
   // error?} message to css_command_results so the API can surface
   // simulator-side rejects (e.g. "Cable not plugged in") to the operator.
   private readonly pubsub: PubSubClient | null;
+  // In-process listeners of command results (the chaos orchestrator).
+  private readonly resultListeners = new Set<(result: CssCommandResult) => void>();
   // Injectable for tests; defaults to constructing a real StationSimulator.
   private readonly makeSimulator: (config: StationConfig, sql: postgres.Sql) => StationSimulator;
 
@@ -158,13 +161,29 @@ export class SimulatorManager {
     await this.dispatchAction(sim, cmd.action, cmd.params, cmd.commandId);
   }
 
+  /** Calls the listener with every command result; returns the unsubscribe. */
+  onCommandResult(listener: (result: CssCommandResult) => void): () => void {
+    this.resultListeners.add(listener);
+    return () => {
+      this.resultListeners.delete(listener);
+    };
+  }
+
   private async publishResult(
     commandId: string | undefined,
     success: boolean,
     error?: string,
     data?: Record<string, unknown>,
   ): Promise<void> {
-    if (this.pubsub == null || commandId == null) return;
+    if (commandId == null) return;
+    for (const listener of this.resultListeners) {
+      try {
+        listener({ commandId, success, ...(error != null ? { error } : {}) });
+      } catch (err) {
+        logger.warn({ err, commandId }, 'Command result listener failed');
+      }
+    }
+    if (this.pubsub == null) return;
     try {
       await this.pubsub.publish(
         RESULTS_CHANNEL,

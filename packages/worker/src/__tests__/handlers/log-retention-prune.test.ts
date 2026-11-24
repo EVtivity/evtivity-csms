@@ -102,6 +102,12 @@ const TABLE_DEFAULTS = [
     cutoffColumn: 'timestamp',
   },
   {
+    table: 'load_allocation_entries',
+    settingKey: 'logs.loadAllocation.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'created_at',
+  },
+  {
     table: 'load_allocation_log',
     settingKey: 'logs.loadAllocation.retentionDays',
     defaultDays: 90,
