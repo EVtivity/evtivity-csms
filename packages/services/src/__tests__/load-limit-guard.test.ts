@@ -9,13 +9,24 @@
 // or names a field of the earlier derived model, so no consumer can count a
 // station another way.
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
+
+// The scans run in a child process: coverage instrumentation of the TypeScript
+// compiler makes them several times slower inside the test worker.
+const SCAN = join(ROOT, 'packages/services/src/__tests__/helpers/load-limit-scan.ts');
+function runScan(request: Record<string, unknown>): unknown {
+  const out = execFileSync(
+    process.execPath,
+    ['--import', 'tsx', SCAN, JSON.stringify({ root: ROOT, ...request })],
+    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  return JSON.parse(out) as unknown;
+}
 
 /** The state model, its service rule and its database writer. */
 const RECORD_OWNERS = new Set([
@@ -56,79 +67,25 @@ const REMOVED_NAMES = new Set([
   'sendLostEntry',
 ]);
 
-function sourceFiles(dir: string, out: string[] = []): string[] {
-  for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === 'dist' || name.startsWith('__')) continue;
-    if (name === 'generated' || name === 'e2e') continue;
-    const path = join(dir, name);
-    if (statSync(path).isDirectory()) sourceFiles(path, out);
-    else if (/\.tsx?$/.test(name) && !name.endsWith('.d.ts')) out.push(path);
-  }
-  return out;
-}
-
 interface NameUse {
   name: string;
   line: number;
 }
 
-function namesUsed(path: string): { uses: NameUse[]; raw: NameUse[] } {
-  const text = readFileSync(path, 'utf8');
-  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
-  const found: NameUse[] = [];
-  const raw: NameUse[] = [];
-  const add = (name: string, node: ts.Node): void => {
-    found.push({ name, line: file.getLineAndCharacterOfPosition(node.getStart()).line + 1 });
-  };
-  const visit = (node: ts.Node): void => {
-    // A record field read through its holder: `<entry>.limit.state`, `.limit.commandId`.
-    if (
-      ts.isPropertyAccessExpression(node) &&
-      (node.name.text === 'state' || node.name.text === 'commandId') &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'limit'
-    ) {
-      add(`limit.${node.name.text}`, node.name);
-    }
-    if (ts.isPropertyAccessExpression(node)) add(node.name.text, node.name);
-    else if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression)) {
-      add(node.argumentExpression.text, node.argumentExpression);
-      raw.push({
-        name: node.argumentExpression.text,
-        line: file.getLineAndCharacterOfPosition(node.argumentExpression.getStart()).line + 1,
-      });
-    } else if (ts.isIdentifier(node) && ts.isCallExpression(node.parent)) {
-      if (node.parent.expression === node) add(node.text, node);
-    } else if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) {
-      if (ts.isIdentifier(node.name)) add(node.name.text, node.name);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(file);
-  return { uses: found, raw };
-}
-
-const files = readdirSync(join(ROOT, 'packages'))
-  .map((pkg) => join(ROOT, 'packages', pkg, 'src'))
-  .filter((dir) => {
-    try {
-      return statSync(dir).isDirectory();
-    } catch {
-      // fail-open: a package without a src folder holds no source to scan
-      return false;
-    }
-  })
-  .flatMap((dir) => sourceFiles(dir));
-
-// Parsed once for both checks; a full-source scan gets the 30 s guard limit.
+// Parsed once for both checks: every package's source, the uses of the tracked names.
 let parsed: Array<{ rel: string; uses: NameUse[]; raw: NameUse[] }> | null = null;
 function parsedFiles(): Array<{ rel: string; uses: NameUse[]; raw: NameUse[] }> {
-  parsed ??= files.map((path) => ({ rel: relative(ROOT, path), ...namesUsed(path) }));
+  parsed ??= runScan({
+    scan: 'names',
+    names: [...RECORD_NAMES, ...REMOVED_NAMES],
+    rawNames: [...RAW_ENTRY_NAMES],
+  }) as Array<{ rel: string; uses: NameUse[]; raw: NameUse[] }>;
   return parsed;
 }
 
 describe('load management limit records', () => {
-  it('scans the source of the packages', () => {
+  it('scans the source of the packages', { timeout: 30_000 }, () => {
+    const files = parsedFiles().map((f) => f.rel);
     expect(files.some((f) => f.endsWith('load-limit-entries.ts'))).toBe(true);
     expect(files.length).toBeGreaterThan(500);
   });
