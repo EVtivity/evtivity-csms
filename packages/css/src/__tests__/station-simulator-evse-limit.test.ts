@@ -253,6 +253,110 @@ describe('Single-phase EVs and numberPhases (2.1)', () => {
   });
 });
 
+function withPhaseChoice(
+  profile: Record<string, unknown>,
+  numberPhases: number,
+  phaseToUse: number,
+): Record<string, unknown> {
+  const schedule = (
+    (profile['chargingProfile'] as Record<string, unknown>)['chargingSchedule'] as Array<
+      Record<string, unknown>
+    >
+  )[0]!;
+  schedule['chargingSchedulePeriod'] = [{ startPeriod: 0, limit: 16, numberPhases, phaseToUse }];
+  return profile;
+}
+
+describe('Phase selection (2.1, K01.FR.19, K01.FR.20, K01.FR.46)', () => {
+  it('reports ACPhaseSwitchingSupported, SupplyPhases and PhaseRotation per EVSE', async () => {
+    const h = await liveHarness('ocpp2.1');
+    const value = (key: string): string | undefined =>
+      (h.p['getConfigValue'] as (k: string) => string | undefined).call(h.sim, key);
+    expect(value('SmartChargingCtrlr[1].ACPhaseSwitchingSupported')).toBe('true');
+    expect(value('EVSE[1].SupplyPhases')).toBe('3');
+    expect(value('EVSE[1].PhaseRotation')).toBe('RST');
+  });
+
+  it('moves a single-phase car to the phase the TxProfile names', async () => {
+    const h = await liveHarness('ocpp2.1');
+    const txId = await chargingEv(h, 1);
+    const reply = await h.invoke(
+      'SetChargingProfile',
+      withPhaseChoice(txProfile21(txId, 16), 1, 2),
+    );
+    expect(reply['status']).toBe('Accepted');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(periodicCurrents(h)[0]?.['phase']).toBe('L2');
+    // 16 A on the one phase it uses.
+    expect(limitFor(h)).toBe(3680);
+  });
+
+  it('keeps a three-phase car on three phases when a period names no single phase', async () => {
+    const h = await liveHarness('ocpp2.1');
+    const txId = await chargingEv(h);
+    await h.invoke('SetChargingProfile', txProfile21(txId, 16));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(periodicCurrents(h)[0]?.['phase']).toBeUndefined();
+  });
+
+  it('refuses phaseToUse with numberPhases other than 1', async () => {
+    const h = await liveHarness('ocpp2.1');
+    const txId = await chargingEv(h, 1);
+    const reply = await h.invoke(
+      'SetChargingProfile',
+      withPhaseChoice(txProfile21(txId, 16), 3, 2),
+    );
+    expect(reply).toMatchObject({
+      status: 'Rejected',
+      statusInfo: { reasonCode: 'InvalidSchedule' },
+    });
+  });
+
+  it('refuses phaseToUse on an EVSE without phase switching', async () => {
+    const h = await liveHarness('ocpp2.1', undefined, {
+      configOverrides: { 'SmartChargingCtrlr[1].ACPhaseSwitchingSupported': 'false' },
+    });
+    const txId = await chargingEv(h, 1);
+    const reply = await h.invoke(
+      'SetChargingProfile',
+      withPhaseChoice(txProfile21(txId, 16), 1, 2),
+    );
+    expect(reply).toMatchObject({
+      status: 'Rejected',
+      statusInfo: { reasonCode: 'InvalidSchedule' },
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(periodicCurrents(h)[0]?.['phase']).toBe('L1');
+  });
+});
+
+describe('Single-phase charger (2.1)', () => {
+  const singlePhase = {
+    evses: [
+      {
+        evseId: 1,
+        connectorId: 1,
+        connectorType: 'ac_type2' as const,
+        maxPowerW: 7400,
+        phases: 1,
+        voltage: 230,
+      },
+    ],
+  };
+
+  it('draws a three-phase car on its one phase and reports no phase switching', async () => {
+    const h = await liveHarness('ocpp2.1', undefined, singlePhase);
+    const value = (key: string): string | undefined =>
+      (h.p['getConfigValue'] as (k: string) => string | undefined).call(h.sim, key);
+    expect(value('EVSE[1].SupplyPhases')).toBe('1');
+    expect(value('SmartChargingCtrlr[1].ACPhaseSwitchingSupported')).toBe('false');
+    await chargingEv(h);
+    expect(periodicCurrents(h)[0]?.['phase']).toBe('L1');
+    const updated = h.sent('TransactionEvent').filter((e) => e['eventType'] === 'Updated');
+    expect(updated.at(-1)?.['numberOfPhasesUsed']).toBe(1);
+  });
+});
+
 describe('Single-phase EVs (1.6)', () => {
   it('reports Current.Import on L1 only', async () => {
     const h = await liveHarness('ocpp1.6', (action) =>

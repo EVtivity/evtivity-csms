@@ -147,6 +147,7 @@ export const circuits = pgTable(
     // Voltage of the circuit when it differs from its single-phase panel (a
     // 120 V branch of a 240 V split-phase panel). Null: the panel voltage.
     voltageV: integer('voltage_v'),
+    phaseRotation: varchar('phase_rotation', { length: 3 }),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -156,6 +157,10 @@ export const circuits = pgTable(
     check(
       'circuits_voltage_v_check',
       sql`${table.voltageV} IS NULL OR ${table.voltageV} IN (120, 208, 220, 230, 240, 277, 480)`,
+    ),
+    check(
+      'circuits_phase_rotation_check',
+      sql`${table.phaseRotation} IS NULL OR ${table.phaseRotation} IN ('RST', 'RTS', 'SRT', 'STR', 'TRS', 'TSR')`,
     ),
   ],
 );
@@ -195,6 +200,9 @@ export const siteLoadManagement = pgTable(
     // both so the next cycle sends.
     appliedAllocations: jsonb('applied_allocations'),
     appliedAt: timestamp('applied_at', { withTimezone: true }),
+    recomputeRequestedAt: timestamp('recompute_requested_at', { withTimezone: true }),
+    // Raised by each holder of the site lock; a claim of an older holder writes and sends nothing.
+    cycleFence: bigint('cycle_fence', { mode: 'number' }).notNull().default(0),
     // How long before a departure the planner aims to finish charging, 0 to 180.
     departureBufferMinutes: smallint('departure_buffer_minutes').notNull().default(30),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -333,7 +341,7 @@ export const siteEnergyAssets = pgTable(
     gridCharging: energyAssetGridChargingEnum('grid_charging').notNull().default('possible'),
     reservePercent: integer('reserve_percent').notNull().default(10),
     telemetry: energyAssetTelemetryEnum('telemetry').notNull().default('none'),
-    readingTtlSeconds: integer('reading_ttl_seconds').notNull().default(60),
+    readingTtlSeconds: integer('reading_ttl_seconds').notNull().default(120),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

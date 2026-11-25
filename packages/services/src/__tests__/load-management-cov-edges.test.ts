@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServiceLogger } from '@evtivity/lib';
 import type { FakeDb } from './helpers/fake-db.js';
-import type { HierarchyNode, StationPowerInfo } from '../load-management.service.js';
+import type { HierarchyNode, StationPowerInfo } from '../load-management-model.js';
 
 const h = vi.hoisted(() => ({
   fake: undefined as unknown as FakeDb,
@@ -35,11 +35,27 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   }),
 }));
 
-vi.mock('../charging-plan.service.js', () => ({
+vi.mock('../charging-plan-dispatch.js', () => ({
   clearSitePlanProfiles: h.clearSitePlanProfiles,
 }));
 
-const svc = await import('../load-management.service.js');
+const { stationMaxPowerKw } = await import('../load-management-site-status.js');
+const { localGenerationKw } = await import('../load-management-energy-assets.js');
+const { computePriorityAllocation, weightedFixedKw, computeHierarchicalAllocation } =
+  await import('../load-management-allocation.js');
+const { clearLoadManagementProfiles } = await import('../load-management-send.js');
+const {
+  loadManagementProfileId,
+  loadManagementCreditProfileId,
+  LOAD_MANAGEMENT_PROFILE_ID,
+  LOAD_MANAGEMENT_STACK_LEVEL,
+  isLoadManagementProfile,
+  profileRateUnit,
+  profileLimitKw,
+  limitInUnit,
+} = await import('../load-management-profiles.js');
+const { parseAppliedAllocations } = await import('../load-limit-entries.js');
+const { clearPlanProfilesOnDisable } = await import('../load-management-plan-bridge.js');
 
 type LogFn = (obj: unknown, msg?: string, ...args: unknown[]) => void;
 
@@ -117,7 +133,7 @@ beforeEach(() => {
 
 describe('stationMaxPowerKw', () => {
   it('keeps the highest known rating per EVSE and sums the EVSEs', () => {
-    const out = svc.stationMaxPowerKw([
+    const out = stationMaxPowerKw([
       { stationId: 's1', evseDbId: 'e1', maxPowerKw: '11' },
       { stationId: 's1', evseDbId: 'e1', maxPowerKw: '22' },
       { stationId: 's1', evseDbId: 'e1', maxPowerKw: '7' },
@@ -148,27 +164,27 @@ describe('localGenerationKw entries that do not count', () => {
     const later = entry({ validFrom: new Date(NOW + 60_000).toISOString() });
     const ended = entry({ validTo: new Date(NOW).toISOString() });
     const other = { ...entry({}), chargingProfilePurpose: 'TxProfile' };
-    expect(svc.localGenerationKw([later, ended, other], null, NOW, rate)).toBe(0);
+    expect(localGenerationKw([later, ended, other], null, NOW, rate)).toBe(0);
   });
 
   it('reads one entry given without a list, starting at the stored time', () => {
-    expect(svc.localGenerationKw(entry({}), NOW - 60_000, NOW, rate)).toBe(3);
+    expect(localGenerationKw(entry({}), NOW - 60_000, NOW, rate)).toBe(3);
     // Stored in the future: not active yet.
-    expect(svc.localGenerationKw(entry({}), NOW + 60_000, NOW, rate)).toBe(0);
+    expect(localGenerationKw(entry({}), NOW + 60_000, NOW, rate)).toBe(0);
   });
 
   it('answers unknown for an entry without a schedule or with a unit it cannot read', () => {
-    expect(svc.localGenerationKw([entry({ chargingSchedule: [] })], null, NOW, rate)).toBeNull();
+    expect(localGenerationKw([entry({ chargingSchedule: [] })], null, NOW, rate)).toBeNull();
     const amps = { ...schedule, chargingRateUnit: 'A' };
     expect(
-      svc.localGenerationKw([entry({ chargingSchedule: [amps] })], null, NOW, {
+      localGenerationKw([entry({ chargingSchedule: [amps] })], null, NOW, {
         voltageV: 0,
         phases: 1,
       }),
     ).toBeNull();
     const unitless = { ...schedule, chargingRateUnit: 'kVA' };
     expect(
-      svc.localGenerationKw([entry({ chargingSchedule: [unitless] })], null, NOW, rate),
+      localGenerationKw([entry({ chargingSchedule: [unitless] })], null, NOW, rate),
     ).toBeNull();
   });
 
@@ -177,16 +193,16 @@ describe('localGenerationKw entries that do not count', () => {
       chargingRateUnit: 'W',
       chargingSchedulePeriod: [{ startPeriod: 600, limit: 3000 }],
     };
-    expect(
-      svc.localGenerationKw([entry({ chargingSchedule: [late] })], NOW - 60_000, NOW, rate),
-    ).toBe(0);
+    expect(localGenerationKw([entry({ chargingSchedule: [late] })], NOW - 60_000, NOW, rate)).toBe(
+      0,
+    );
   });
 });
 
 describe('computePriorityAllocation stops', () => {
   it('stops the lowest priority station whose minimum no longer fits', () => {
     const out = byId(
-      svc.computePriorityAllocation(
+      computePriorityAllocation(
         [
           station({ id: 'hi', loadPriority: 9, minPowerKw: 20 }),
           station({ id: 'lo', loadPriority: 1, minPowerKw: 20 }),
@@ -210,14 +226,14 @@ describe('weightedFixedKw', () => {
       unmanagedLoadKw: 2,
       stations: [station({ id: 'a' }), station({ id: 'b' })],
     };
-    expect(svc.weightedFixedKw(panel, new Map([['a', 5]]))).toBe(7);
+    expect(weightedFixedKw(panel, new Map([['a', 5]]))).toBe(7);
   });
 });
 
 describe('computeHierarchicalAllocation with a planned station that shares', () => {
   it('lets a planned station of unknown maximum share on top of its plan', () => {
     const out = byId(
-      svc.computeHierarchicalAllocation(
+      computeHierarchicalAllocation(
         tree([station({ id: 'a', maxPowerKw: 0 }), station({ id: 'b' })], 60),
         'departure_aware',
         new Map(),
@@ -230,7 +246,7 @@ describe('computeHierarchicalAllocation with a planned station that shares', () 
 
   it('leaves a planned station at its maximum out of the share', () => {
     const out = byId(
-      svc.computeHierarchicalAllocation(
+      computeHierarchicalAllocation(
         tree([station({ id: 'a', maxPowerKw: 20 }), station({ id: 'b' })], 60),
         'departure_aware',
         new Map(),
@@ -267,7 +283,7 @@ describe('computeHierarchicalAllocation on an overloaded phase', () => {
         circuit('cir_l2', 'L2', station({ id: 'b', maxPowerKw: 5 })),
       ],
     };
-    const out = byId(svc.computeHierarchicalAllocation([panel], 'equal_share'));
+    const out = byId(computeHierarchicalAllocation([panel], 'equal_share'));
     expect(out.get('a')).toBeCloseTo(10, 9);
     expect(out.get('b')).toBe(5);
   });
@@ -277,7 +293,7 @@ describe('clearLoadManagementProfiles', () => {
   it('clears both profiles by the default id when the MaxExternalConstraintsId read fails', async () => {
     h.fake.fail('select', new Error('db down'));
     const log = makeLogger();
-    expect(await svc.clearLoadManagementProfiles(['CS-1', 'CS-1'], log)).toBe(true);
+    expect(await clearLoadManagementProfiles(['CS-1', 'CS-1'], log)).toBe(true);
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ err: expect.any(Error) }),
       'Reading MaxExternalConstraintsId failed, clearing by the default id',
@@ -285,8 +301,8 @@ describe('clearLoadManagementProfiles', () => {
     const ids = h.published.map(
       (p) => (p.message['payload'] as { chargingProfileId: number }).chargingProfileId,
     );
-    const defaultId = svc.loadManagementProfileId(undefined);
-    expect(ids).toEqual([defaultId, svc.loadManagementCreditProfileId(defaultId)]);
+    const defaultId = loadManagementProfileId(undefined);
+    expect(ids).toEqual([defaultId, loadManagementCreditProfileId(defaultId)]);
     expect(h.published.every((p) => p.message['stationId'] === 'CS-1')).toBe(true);
     expect(h.published.every((p) => p.message['action'] === 'ClearChargingProfile')).toBe(true);
   });
@@ -298,19 +314,19 @@ describe('clearLoadManagementProfiles', () => {
     ]);
     h.publishFails = true;
     const log = makeLogger();
-    expect(await svc.clearLoadManagementProfiles(['CS-1', 'CS-2'], log)).toBe(false);
+    expect(await clearLoadManagementProfiles(['CS-1', 'CS-2'], log)).toBe(false);
     expect(log.error).toHaveBeenCalledTimes(4);
     expect(log.error).toHaveBeenCalledWith(
       expect.objectContaining({
         stationId: 'CS-1',
-        chargingProfileId: svc.loadManagementProfileId('1000000500'),
+        chargingProfileId: loadManagementProfileId('1000000500'),
       }),
       'Failed to dispatch ClearChargingProfile',
     );
   });
 
   it('reads nothing and sends nothing for no stations', async () => {
-    expect(await svc.clearLoadManagementProfiles([], makeLogger())).toBe(true);
+    expect(await clearLoadManagementProfiles([], makeLogger())).toBe(true);
     expect(h.fake.calls).toHaveLength(0);
     expect(h.published).toHaveLength(0);
   });
@@ -318,9 +334,9 @@ describe('clearLoadManagementProfiles', () => {
 
 describe('parseAppliedAllocations', () => {
   it('reads only well formed entries with their optional fields', () => {
-    expect(svc.parseAppliedAllocations(null)).toBeNull();
-    expect(svc.parseAppliedAllocations({})).toBeNull();
-    const out = svc.parseAppliedAllocations([
+    expect(parseAppliedAllocations(null)).toBeNull();
+    expect(parseAppliedAllocations({})).toBeNull();
+    const out = parseAppliedAllocations([
       null,
       'x',
       { stationId: 'CS-1', stationDbId: 'sta_1' },
@@ -329,10 +345,13 @@ describe('parseAppliedAllocations', () => {
         stationDbId: 'sta_2',
         allocatedKw: 11,
         reserved: true,
-        limitPending: true,
         rejectedUnits: ['A', 'kW'],
-        baseKw: 7,
-        creditUntil: '2026-11-12T12:00:00.000Z',
+        allocatedBaseKw: 7,
+        limit: { state: 'refused', commandId: 'c1', sentKw: 11, mightKw: null },
+        credit: {
+          limit: { state: 'accepted', commandId: 'c2', sentKw: 11, mightKw: null },
+          until: '2026-11-12T12:00:00.000Z',
+        },
       },
       {
         stationId: 'CS-3',
@@ -340,8 +359,9 @@ describe('parseAppliedAllocations', () => {
         allocatedKw: 5,
         reserved: 'yes',
         rejectedUnits: 'A',
-        baseKw: Number.NaN,
-        creditUntil: 'not a date',
+        allocatedBaseKw: Number.NaN,
+        limit: { state: 'nonsense' },
+        credit: { limit: {}, until: 'not a date' },
       },
     ]);
     expect(out).toEqual([
@@ -350,65 +370,72 @@ describe('parseAppliedAllocations', () => {
         stationDbId: 'sta_2',
         allocatedKw: 11,
         reserved: true,
-        limitPending: true,
         rejectedUnits: ['A'],
-        baseKw: 7,
-        creditUntil: '2026-11-12T12:00:00.000Z',
+        allocatedBaseKw: 7,
+        limit: { state: 'refused', commandId: 'c1', sentKw: 11, mightKw: null },
+        credit: {
+          limit: { state: 'accepted', commandId: 'c2', sentKw: 11, mightKw: null },
+          until: '2026-11-12T12:00:00.000Z',
+        },
       },
-      { stationId: 'CS-3', stationDbId: 'sta_3', allocatedKw: 5 },
+      // A record that does not parse reads as unknown (may be unlimited).
+      {
+        stationId: 'CS-3',
+        stationDbId: 'sta_3',
+        allocatedKw: 5,
+        limit: { state: 'unknown', mightKw: null },
+      },
     ]);
   });
 });
 
 describe('load management profile readers', () => {
   const p21 = {
-    id: svc.LOAD_MANAGEMENT_PROFILE_ID + 5,
-    stackLevel: svc.LOAD_MANAGEMENT_STACK_LEVEL,
+    id: LOAD_MANAGEMENT_PROFILE_ID + 5,
+    stackLevel: LOAD_MANAGEMENT_STACK_LEVEL,
     chargingProfilePurpose: 'ChargingStationMaxProfile',
     chargingSchedule: [{ chargingRateUnit: 'W', chargingSchedulePeriod: [{ limit: 22000 }] }],
   };
   const p16 = {
-    chargingProfileId: svc.LOAD_MANAGEMENT_PROFILE_ID,
-    stackLevel: svc.LOAD_MANAGEMENT_STACK_LEVEL,
+    chargingProfileId: LOAD_MANAGEMENT_PROFILE_ID,
+    stackLevel: LOAD_MANAGEMENT_STACK_LEVEL,
     chargingProfilePurpose: 'ChargePointMaxProfile',
     chargingSchedule: { chargingRateUnit: 'A', chargingSchedulePeriod: [{ limit: 16 }] },
   };
 
   it('recognizes the 2.1 and 1.6 forms and nothing else', () => {
-    expect(svc.isLoadManagementProfile(p21)).toBe(true);
-    expect(svc.isLoadManagementProfile(p16)).toBe(true);
-    expect(svc.isLoadManagementProfile(null)).toBe(false);
-    expect(svc.isLoadManagementProfile('profile')).toBe(false);
-    expect(svc.isLoadManagementProfile({ ...p21, id: 7 })).toBe(false);
-    expect(svc.isLoadManagementProfile({ ...p21, stackLevel: 9 })).toBe(false);
-    expect(svc.isLoadManagementProfile({ ...p21, chargingProfilePurpose: 'TxProfile' })).toBe(
-      false,
-    );
+    expect(isLoadManagementProfile(p21)).toBe(true);
+    expect(isLoadManagementProfile(p16)).toBe(true);
+    expect(isLoadManagementProfile(null)).toBe(false);
+    expect(isLoadManagementProfile('profile')).toBe(false);
+    expect(isLoadManagementProfile({ ...p21, id: 7 })).toBe(false);
+    expect(isLoadManagementProfile({ ...p21, stackLevel: 9 })).toBe(false);
+    expect(isLoadManagementProfile({ ...p21, chargingProfilePurpose: 'TxProfile' })).toBe(false);
   });
 
   it('reads the rate unit of either schedule form', () => {
-    expect(svc.profileRateUnit(p21)).toBe('W');
-    expect(svc.profileRateUnit(p16)).toBe('A');
-    expect(svc.profileRateUnit(null)).toBeNull();
-    expect(svc.profileRateUnit({ chargingSchedule: [{ chargingRateUnit: 'kW' }] })).toBeNull();
-    expect(svc.profileRateUnit({})).toBeNull();
+    expect(profileRateUnit(p21)).toBe('W');
+    expect(profileRateUnit(p16)).toBe('A');
+    expect(profileRateUnit(null)).toBeNull();
+    expect(profileRateUnit({ chargingSchedule: [{ chargingRateUnit: 'kW' }] })).toBeNull();
+    expect(profileRateUnit({})).toBeNull();
   });
 
   it('reads the first limit in kW, from A only with the circuit', () => {
-    expect(svc.profileLimitKw(p21, undefined)).toBe(22);
+    expect(profileLimitKw(p21, undefined)).toBe(22);
     const rate = { rateUnit: 'A' as const, voltageV: 230, phases: 3 };
-    expect(svc.profileLimitKw(p16, rate)).toBeCloseTo((16 * 230 * 3) / 1000, 9);
-    expect(svc.profileLimitKw(p16, undefined)).toBeNull();
-    expect(svc.profileLimitKw(null, rate)).toBeNull();
+    expect(profileLimitKw(p16, rate)).toBeCloseTo((16 * 230 * 3) / 1000, 9);
+    expect(profileLimitKw(p16, undefined)).toBeNull();
+    expect(profileLimitKw(null, rate)).toBeNull();
     expect(
-      svc.profileLimitKw(
+      profileLimitKw(
         { chargingSchedule: { chargingRateUnit: 'W', chargingSchedulePeriod: [{ limit: -1 }] } },
         rate,
       ),
     ).toBeNull();
-    expect(svc.profileLimitKw({ chargingSchedule: { chargingRateUnit: 'W' } }, rate)).toBeNull();
+    expect(profileLimitKw({ chargingSchedule: { chargingRateUnit: 'W' } }, rate)).toBeNull();
     expect(
-      svc.profileLimitKw(
+      profileLimitKw(
         { chargingSchedule: [{ chargingRateUnit: 'kW', chargingSchedulePeriod: [{ limit: 5 }] }] },
         rate,
       ),
@@ -416,12 +443,12 @@ describe('load management profile readers', () => {
   });
 
   it('expresses a limit in A per phase, rounded down to 0.1 A', () => {
-    expect(svc.limitInUnit(11000, undefined)).toBe(11000);
-    expect(svc.limitInUnit(11000, { rateUnit: 'W', voltageV: 230, phases: 3 })).toBe(11000);
+    expect(limitInUnit(11000, undefined)).toBe(11000);
+    expect(limitInUnit(11000, { rateUnit: 'W', voltageV: 230, phases: 3 })).toBe(11000);
     // 11000 / (230 * 3) = 15.94 A.
-    expect(svc.limitInUnit(11000, { rateUnit: 'A', voltageV: 230, phases: 3 })).toBe(15.9);
+    expect(limitInUnit(11000, { rateUnit: 'A', voltageV: 230, phases: 3 })).toBe(15.9);
     // Two phases: the line-to-line factor sqrt(3).
-    expect(svc.limitInUnit(4000, { rateUnit: 'A', voltageV: 230, phases: 2 })).toBe(10);
+    expect(limitInUnit(4000, { rateUnit: 'A', voltageV: 230, phases: 2 })).toBe(10);
   });
 });
 
@@ -429,7 +456,7 @@ describe('clearPlanProfilesOnDisable', () => {
   it('clears the plan profiles of the site', async () => {
     h.clearSitePlanProfiles.mockResolvedValue(2);
     const log = makeLogger();
-    await svc.clearPlanProfilesOnDisable('sit_1', log);
+    await clearPlanProfilesOnDisable('sit_1', log);
     expect(h.clearSitePlanProfiles).toHaveBeenCalledWith('sit_1', log);
     expect(log.warn).not.toHaveBeenCalled();
   });
@@ -437,7 +464,7 @@ describe('clearPlanProfilesOnDisable', () => {
   it('logs and goes on when the clear fails (fail-open)', async () => {
     h.clearSitePlanProfiles.mockRejectedValue(new Error('redis down'));
     const log = makeLogger();
-    await expect(svc.clearPlanProfilesOnDisable('sit_1', log)).resolves.toBeUndefined();
+    await expect(clearPlanProfilesOnDisable('sit_1', log)).resolves.toBeUndefined();
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ siteId: 'sit_1' }),
       'Depot plan profiles not cleared after load management was turned off',

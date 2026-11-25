@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@evtivity/database', () => ({ client: vi.fn() }));
 
-import { sessionProfileCapKwFrom } from '../session-profile-cap.js';
+import { sessionProfileCapFrom } from '../session-profile-cap.js';
+
 import type { SessionProfileCapInput } from '../session-profile-cap.js';
 
 const threePhase = { voltageV: null, phaseConnections: null, panelVoltageV: 230, panelPhases: 3 };
@@ -44,34 +45,36 @@ const applied = (limitKw: number, transactionId = 'tx-1'): unknown => [
   },
 ];
 
-describe('sessionProfileCapKwFrom', () => {
+describe('sessionProfileCapFrom', () => {
   it('caps an AC session at its tariff limit on its circuit and phases', () => {
-    expect(sessionProfileCapKwFrom(input({ tariffMaxCurrentA: 6 }))).toBeCloseTo(4.14, 9);
-    expect(sessionProfileCapKwFrom(input({ tariffMaxCurrentA: 16, evPhases: 'L1' }))).toBeCloseTo(
-      3.68,
-      9,
-    );
+    expect(sessionProfileCapFrom(input({ tariffMaxCurrentA: 6 })).capKw).toBeCloseTo(4.14, 9);
+    expect(
+      sessionProfileCapFrom(input({ tariffMaxCurrentA: 16, evPhases: 'L1' })).capKw,
+    ).toBeCloseTo(3.68, 9);
   });
 
   it('caps at the EVSE limit load management holds for the transaction', () => {
-    expect(sessionProfileCapKwFrom(input({ appliedAllocations: applied(6.9) }))).toBe(6.9);
+    expect(sessionProfileCapFrom(input({ appliedAllocations: applied(6.9) })).capKw).toBe(6.9);
     expect(
-      sessionProfileCapKwFrom(input({ tariffMaxCurrentA: 6, appliedAllocations: applied(6.9) })),
+      sessionProfileCapFrom(input({ tariffMaxCurrentA: 6, appliedAllocations: applied(6.9) }))
+        .capKw,
     ).toBeCloseTo(4.14, 9);
-    expect(sessionProfileCapKwFrom(input({ appliedAllocations: applied(0) }))).toBe(0);
+    expect(sessionProfileCapFrom(input({ appliedAllocations: applied(0) })).capKw).toBe(0);
   });
 
   it('ignores another transaction, a site with load management off and a DC tariff limit', () => {
-    expect(sessionProfileCapKwFrom(input({ appliedAllocations: applied(6.9, 'tx-2') }))).toBeNull();
     expect(
-      sessionProfileCapKwFrom(
-        input({ loadManagementEnabled: false, appliedAllocations: applied(6.9) }),
-      ),
+      sessionProfileCapFrom(input({ appliedAllocations: applied(6.9, 'tx-2') })).capKw,
     ).toBeNull();
-    expect(sessionProfileCapKwFrom(input({ kind: 'dc', tariffMaxCurrentA: 16 }))).toBeNull();
+    expect(
+      sessionProfileCapFrom(
+        input({ loadManagementEnabled: false, appliedAllocations: applied(6.9) }),
+      ).capKw,
+    ).toBeNull();
+    expect(sessionProfileCapFrom(input({ kind: 'dc', tariffMaxCurrentA: 16 })).capKw).toBeNull();
   });
 
   it('cannot convert a tariff limit without a circuit', () => {
-    expect(sessionProfileCapKwFrom(input({ circuit: null, tariffMaxCurrentA: 16 }))).toBeNull();
+    expect(sessionProfileCapFrom(input({ circuit: null, tariffMaxCurrentA: 16 })).capKw).toBeNull();
   });
 });

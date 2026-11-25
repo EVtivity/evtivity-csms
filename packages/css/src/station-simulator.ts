@@ -3512,8 +3512,29 @@ export class StationSimulator {
       if (unsupported) {
         return { status: 'Rejected', statusInfo: { reasonCode: 'InvalidSchedule' } };
       }
+      const phaseChoice = periods.some((p) => p['phaseToUse'] != null);
+      if (
+        phaseChoice &&
+        (!this.phaseSwitchingSupported(evseId) ||
+          periods.some(
+            (p) =>
+              p['phaseToUse'] != null &&
+              (p['numberPhases'] !== 1 || ![1, 2, 3].includes(p['phaseToUse'] as number)),
+          ))
+      ) {
+        return { status: 'Rejected', statusInfo: { reasonCode: 'InvalidSchedule' } };
+      }
     }
     return null;
+  }
+
+  /** SmartChargingCtrlr.ACPhaseSwitchingSupported of the EVSE (K01.FR.20); never for EVSE 0. */
+  private phaseSwitchingSupported(evseId: number): boolean {
+    if (evseId === 0) return false;
+    const value =
+      this.getConfigValue(`SmartChargingCtrlr[${String(evseId)}].ACPhaseSwitchingSupported`) ??
+      this.getConfigValue('SmartChargingCtrlr.ACPhaseSwitchingSupported');
+    return value === 'true';
   }
 
   /**
@@ -10335,6 +10356,7 @@ export class StationSimulator {
     limitW: number | null;
     phases: number;
     belowMinimum: boolean;
+    phaseToUse: number | null;
   } {
     const now = new Date();
     const profiles = this.compositeProfiles();
@@ -10387,7 +10409,9 @@ export class StationSimulator {
     }
     const belowMinimum =
       ac && limit != null && limit / (evse.voltage * phases) < AC_MIN_CURRENT_A - 1e-9;
-    return { limitW: limit, phases, belowMinimum };
+    // A single-phase car moves to the phase the schedule names (K01.FR.46).
+    const phaseToUse = ac && phases === 1 && evsePhases > 1 ? (own?.phaseToUse ?? null) : null;
+    return { limitW: limit, phases, belowMinimum, phaseToUse };
   }
 
   /** Phases an AC EVSE charges on now, or null for a DC EVSE. */
@@ -10403,8 +10427,8 @@ export class StationSimulator {
     gen: MeterValueGenerator,
     idle: boolean,
   ): { belowMinimum: boolean } {
-    const { belowMinimum, phases } = this.evseLimit(evseId);
-    gen.setPhasesInUse(phases);
+    const { belowMinimum, phases, phaseToUse } = this.evseLimit(evseId);
+    gen.setPhasesInUse(phases, phaseToUse);
     gen.tick(idle, belowMinimum ? 0 : this.powerLimitFor(evseId));
     return { belowMinimum };
   }

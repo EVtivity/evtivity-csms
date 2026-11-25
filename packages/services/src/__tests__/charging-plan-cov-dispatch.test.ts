@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PubSubClient, ServiceLogger } from '@evtivity/lib';
 import type { PlanSessionRow } from '@evtivity/database';
-import type { StationPowerInfo } from '../load-management.service.js';
+import type { StationPowerInfo } from '../load-management-model.js';
 
 const dbMock = vi.hoisted(() => ({
   getSitePlan: vi.fn(),
@@ -41,7 +41,7 @@ vi.mock('@evtivity/database', () => {
 });
 
 const { clearSitePlanProfiles, dispatchDepotPlanProfiles, planOwnedSessionIds } =
-  await import('../charging-plan.service.js');
+  await import('../charging-plan-dispatch.js');
 
 const NOW = Date.UTC(2026, 10, 2, 1, 0, 0);
 const MIN = 60_000;
@@ -332,8 +332,19 @@ describe('dispatchDepotPlanProfiles with the stored plan', () => {
       ...ctx(),
       hierarchy: [circuitTree],
       previous: [
-        { stationId: 'DEPOT-01', stationDbId: 'sta_a', allocatedKw: 11, rejectedUnits: ['W'] },
-        { stationId: 'OTHER', stationDbId: 'sta_x', allocatedKw: 5 },
+        {
+          stationId: 'DEPOT-01',
+          stationDbId: 'sta_a',
+          allocatedKw: 11,
+          rejectedUnits: ['W'],
+          limit: { state: 'unknown', mightKw: null },
+        },
+        {
+          stationId: 'OTHER',
+          stationDbId: 'sta_x',
+          allocatedKw: 5,
+          limit: { state: 'unknown', mightKw: null },
+        },
       ],
     });
     expect(sent).toBe(1);

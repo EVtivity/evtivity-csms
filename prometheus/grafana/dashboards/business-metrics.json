@@ -1585,7 +1585,7 @@
     {
       "type": "row",
       "title": "Route-Aware Charging",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 81 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 89 },
       "id": 60,
       "collapsed": false,
       "panels": []
@@ -1593,7 +1593,7 @@
     {
       "type": "stat",
       "title": "Departures At Risk",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 82 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 90 },
       "id": 61,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1629,7 +1629,7 @@
     {
       "type": "stat",
       "title": "Departures Missed (last hour)",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 82 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 90 },
       "id": 62,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1665,7 +1665,7 @@
     {
       "type": "stat",
       "title": "Stale Charging Plans",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 82 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 90 },
       "id": 63,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1702,7 +1702,7 @@
     {
       "type": "stat",
       "title": "Longest Plan Run (last hour)",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 82 },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 90 },
       "id": 64,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1732,7 +1732,7 @@
     {
       "type": "piechart",
       "title": "Scheduled Departures by Readiness",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 86 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 94 },
       "id": 65,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1753,7 +1753,7 @@
     {
       "type": "bargauge",
       "title": "Departures Completed (24 h) by Outcome",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 86 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 94 },
       "id": 66,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1783,7 +1783,7 @@
     {
       "type": "timeseries",
       "title": "Plan Staleness and At Risk Notices",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 86 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 94 },
       "id": 67,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1820,7 +1820,7 @@
     {
       "type": "row",
       "title": "Batteries and Solar",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 94 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 102 },
       "id": 70,
       "collapsed": false,
       "panels": []
@@ -1828,7 +1828,7 @@
     {
       "type": "stat",
       "title": "Batteries and Solar Arrays",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 95 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 103 },
       "id": 71,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1858,7 +1858,7 @@
     {
       "type": "stat",
       "title": "Stale Readings",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 95 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 103 },
       "id": 72,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1895,7 +1895,7 @@
     {
       "type": "timeseries",
       "title": "Readings Refused per Minute by Status",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 95 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 103 },
       "id": 73,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1928,7 +1928,7 @@
     {
       "type": "bargauge",
       "title": "Stale Readings by Type",
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 99 },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 107 },
       "id": 74,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -1954,6 +1954,40 @@
         "displayMode": "gradient",
         "showUnfilled": true
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed Allocation Log Writes (last hour)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 81 },
+      "id": 78,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(worker_jobs_last_hour{queue=\"load-allocation-log\",status=\"failed\"})",
+          "legendFormat": "failed writes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "description": "Limits the cycle sent without an allocation log row: the log write failed and the limits still went out (worker log: Load allocation log write failed)."
     }
   ]
 }

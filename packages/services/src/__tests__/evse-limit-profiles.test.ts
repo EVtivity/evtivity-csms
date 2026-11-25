@@ -10,11 +10,11 @@ import {
   evseLimitCommands,
   evseLimitRateUnit,
   evseLimitReleases,
-  orderEvseLimitCommands,
   parseAppliedEvseLimits,
 } from '../evse-limit-profiles.js';
+import { cutsBeforeRaises } from '../load-limit-entries.js';
 import type { EvseLimitResult } from '../evse-limits.js';
-import type { StationPowerInfo } from '../load-management.service.js';
+import type { StationPowerInfo } from '../load-management-model.js';
 
 const now = new Date('2026-11-24T10:00:00.400Z');
 
@@ -157,11 +157,18 @@ describe('evseLimitCommands and their order', () => {
       [
         'sta_1',
         [
-          appliedEvseLimit(acLimit({ limitKw: 8 }), 'A'),
-          appliedEvseLimit(
-            acLimit({ sessionId: 'ses_2', transactionId: 'tx-2', limitKw: 10 }),
-            'A',
-          ),
+          // What each TxProfile may hold is its record, not the limit computed.
+          {
+            ...appliedEvseLimit(acLimit({ limitKw: 8 }), 'A'),
+            limit: { state: 'accepted' as const, commandId: 'e1', sentKw: 8, mightKw: null },
+          },
+          {
+            ...appliedEvseLimit(
+              acLimit({ sessionId: 'ses_2', transactionId: 'tx-2', limitKw: 3 }),
+              'A',
+            ),
+            limit: { state: 'lost' as const, mightKw: 10 },
+          },
         ],
       ],
     ]);
@@ -175,7 +182,7 @@ describe('evseLimitCommands and their order', () => {
       ['tx-1', 8, 'W'],
       ['tx-2', 10, 'W'],
     ]);
-    const { cuts, raises } = orderEvseLimitCommands(commands);
+    const { cuts, raises } = cutsBeforeRaises(commands, (c) => c.limit.limitKw);
     expect(cuts.map((c) => c.limit.transactionId)).toEqual(['tx-1']);
     expect(raises.map((c) => c.limit.transactionId)).toEqual(['tx-2']);
   });
@@ -186,7 +193,7 @@ describe('evseLimitCommands and their order', () => {
       new Map([['sta_1', station()]]),
       new Map(),
     );
-    expect(orderEvseLimitCommands(commands).cuts).toHaveLength(1);
+    expect(cutsBeforeRaises(commands, (c) => c.limit.limitKw).cuts).toHaveLength(1);
   });
 });
 
@@ -211,8 +218,9 @@ describe('evseLimitReleases', () => {
   it('clears the TxProfile of a charging session that no longer gets an EVSE limit', () => {
     const previous = new Map([['sta_1', [appliedEvseLimit(acLimit(), 'A')]]]);
     const stations = new Map([['sta_1', station({ sessions })]]);
+    // The station row id lets a held release keep its station's earlier entry.
     expect(evseLimitReleases(previous, [], stations)).toEqual([
-      { stationId: 'CS-1', transactionId: 'tx-1' },
+      { stationId: 'CS-1', stationDbId: 'sta_1', transactionId: 'tx-1' },
     ]);
   });
 

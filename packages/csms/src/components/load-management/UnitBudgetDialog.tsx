@@ -5,11 +5,14 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { hasAtMostDecimals } from '@evtivity/lib/connector-power';
+import { UNIT_BUDGET_MIN_AC_A } from '@evtivity/lib/load-allocation';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -23,7 +26,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import type { UnitBudgetUnit } from './StationUnitBudgetRows';
 
-const CURRENT_MIN_A = 6;
+const CURRENT_MIN_A = UNIT_BUDGET_MIN_AC_A;
 const CURRENT_MAX_A = 1000;
 const POWER_MIN_KW = 0.01;
 const POWER_MAX_KW = 5000;
@@ -142,83 +145,92 @@ export function UnitBudgetDialog({
         }
       }}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" scrollable>
         <DialogHeader>
           <DialogTitle>{t('loadManagement.unitBudgetTitle', { unit: unit.name })}</DialogTitle>
           <DialogDescription>{t('loadManagement.unitBudgetDescription')}</DialogDescription>
         </DialogHeader>
-        <form
-          className="space-y-4"
+        <DialogForm
           onSubmit={(e) => {
             e.preventDefault();
             submit();
           }}
         >
-          <div className="space-y-1.5">
-            <Label htmlFor="unit-budget-kind">{t('loadManagement.unitBudgetKind')}</Label>
-            <Select
-              id="unit-budget-kind"
-              value={kind}
-              disabled={fixedKind != null}
-              onChange={(e) => {
-                setKind(e.target.value === 'dc' ? 'dc' : 'ac');
-                setFieldError(null);
-              }}
-            >
-              <option value="ac">{t('loadManagement.unitBudgetKindAc')}</option>
-              <option value="dc">{t('loadManagement.unitBudgetKindDc')}</option>
-            </Select>
-          </div>
-          {kind === 'ac' ? (
-            <>
-              <div className="space-y-1.5">
-                <Label htmlFor="unit-budget-current">
-                  {t('loadManagement.unitBudgetMaxCurrent')}
-                </Label>
-                <DecimalInput
-                  id="unit-budget-current"
-                  value={current}
-                  onChange={setCurrent}
-                  decimalScale={1}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="unit-budget-phases">{t('loadManagement.unitBudgetPhases')}</Label>
-                <Select
-                  id="unit-budget-phases"
-                  value={phases}
-                  onChange={(e) => {
-                    setPhases(e.target.value);
-                  }}
-                >
-                  {phasesRequired ? (
-                    <option value="">{t('loadManagement.unitBudgetPhasesPick')}</option>
-                  ) : (
-                    <option value="">
-                      {t('loadManagement.unitBudgetPhasesDefault', { phases: defaultPhases })}
-                    </option>
-                  )}
-                  <option value="1">{t('loadManagement.unitBudgetPhasesOne')}</option>
-                  <option value="3">{t('loadManagement.unitBudgetPhasesThree')}</option>
-                </Select>
-              </div>
-            </>
-          ) : (
+          <DialogBody className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="unit-budget-power">{t('loadManagement.unitBudgetMaxPower')}</Label>
-              <DecimalInput
-                id="unit-budget-power"
-                value={power}
-                onChange={setPower}
-                decimalScale={2}
-              />
+              <Label htmlFor="unit-budget-kind">{t('loadManagement.unitBudgetKind')}</Label>
+              <Select
+                id="unit-budget-kind"
+                value={kind}
+                disabled={fixedKind != null}
+                onChange={(e) => {
+                  setKind(e.target.value === 'dc' ? 'dc' : 'ac');
+                  setFieldError(null);
+                }}
+              >
+                <option value="ac">{t('loadManagement.unitBudgetKindAc')}</option>
+                <option value="dc">{t('loadManagement.unitBudgetKindDc')}</option>
+              </Select>
             </div>
-          )}
-          {(fieldError != null || serverError != null) && (
-            <p role="alert" className="text-sm text-destructive">
-              {fieldError ?? getErrorMessage(serverError, t, 'loadManagement.saveFailed')}
-            </p>
-          )}
+            {kind === 'ac' ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="unit-budget-current">
+                    {t('loadManagement.unitBudgetMaxCurrent')}
+                  </Label>
+                  <DecimalInput
+                    id="unit-budget-current"
+                    value={current}
+                    onChange={setCurrent}
+                    decimalScale={1}
+                    aria-describedby="unit-budget-current-hint"
+                  />
+                  <p id="unit-budget-current-hint" className="text-xs text-muted-foreground">
+                    {t('loadManagement.unitBudgetFuseHint')}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="unit-budget-phases">{t('loadManagement.unitBudgetPhases')}</Label>
+                  <Select
+                    id="unit-budget-phases"
+                    value={phases}
+                    onChange={(e) => {
+                      setPhases(e.target.value);
+                    }}
+                  >
+                    {phasesRequired ? (
+                      <option value="">{t('loadManagement.unitBudgetPhasesPick')}</option>
+                    ) : (
+                      <option value="">
+                        {t('loadManagement.unitBudgetPhasesDefault', { phases: defaultPhases })}
+                      </option>
+                    )}
+                    <option value="1">{t('loadManagement.unitBudgetPhasesOne')}</option>
+                    <option value="3">{t('loadManagement.unitBudgetPhasesThree')}</option>
+                  </Select>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="unit-budget-power">{t('loadManagement.unitBudgetMaxPower')}</Label>
+                <DecimalInput
+                  id="unit-budget-power"
+                  value={power}
+                  onChange={setPower}
+                  decimalScale={2}
+                  aria-describedby="unit-budget-power-hint"
+                />
+                <p id="unit-budget-power-hint" className="text-xs text-muted-foreground">
+                  {t('loadManagement.unitBudgetPowerHint')}
+                </p>
+              </div>
+            )}
+            {(fieldError != null || serverError != null) && (
+              <p role="alert" className="text-sm text-destructive">
+                {fieldError ?? getErrorMessage(serverError, t, 'loadManagement.saveFailed')}
+              </p>
+            )}
+          </DialogBody>
           <DialogFooter>
             {unit.budget != null && (
               <div className="sm:mr-auto">
@@ -236,7 +248,7 @@ export function UnitBudgetDialog({
             </Button>
             <SaveButton isPending={save.isPending} disabled={save.isPending || remove.isPending} />
           </DialogFooter>
-        </form>
+        </DialogForm>
       </DialogContent>
     </Dialog>
   );

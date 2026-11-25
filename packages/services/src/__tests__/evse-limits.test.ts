@@ -3,12 +3,19 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  acSessionFloorKw,
   computeEvseLimits,
   effectiveBalancingMode,
+  EVSE_DEMAND_PROBE_MS,
+  EVSE_DEMAND_PROBE_PERIOD_MS,
+  EVSE_DEMAND_SETTLE_MS,
+  measuredDemandCapKw,
+  measuredDemandProbing,
   stationPhaseWeights,
   stationProfileWatts,
 } from '../evse-limits.js';
-import type { EvseSessionInfo, StationPowerInfo, StationRate } from '../load-management.service.js';
+import type { EvseSessionInfo, StationPowerInfo } from '../load-management-model.js';
+import type { StationRate } from '../load-management-profiles.js';
 
 function session(overrides: Partial<EvseSessionInfo> = {}): EvseSessionInfo {
   return {
@@ -203,10 +210,11 @@ describe('computeEvseLimits', () => {
       ],
     });
     const limits = computeEvseLimits(s, kwAt(64), threePhase);
+    // A 32 A box fuse holds a continuous load of 25.6 A (80 percent).
     expect(limits.map((l) => [l.limitA, l.reason])).toEqual([
-      [16, 'unit_budget'],
-      [16, 'unit_budget'],
-      [32, 'connector_max'],
+      [12.8, 'unit_budget'],
+      [12.8, 'unit_budget'],
+      [25.6, 'unit_budget'],
     ]);
   });
 
@@ -219,7 +227,7 @@ describe('computeEvseLimits', () => {
       ],
     });
     const limits = computeEvseLimits(s, kwAt(64), threePhase);
-    expect(limits.map((l) => l.limitA)).toEqual([10, 10]);
+    expect(limits.map((l) => l.limitA)).toEqual([8, 8]);
     expect(limits.every((l) => l.reason === 'unit_budget')).toBe(true);
   });
 
@@ -229,7 +237,7 @@ describe('computeEvseLimits', () => {
       sessions: [session(), session({ sessionId: 'ses_2', transactionId: 'tx-2', evseNumber: 2 })],
     });
     expect(computeEvseLimits(s, kwAt(64), threePhase).map((l) => [l.limitA, l.paused])).toEqual([
-      [10, false],
+      [8, false],
       [0, true],
     ]);
   });
@@ -249,8 +257,8 @@ describe('computeEvseLimits', () => {
     });
     const limits = computeEvseLimits(s, 300, { rateUnit: 'W', voltageV: 230, phases: 3 });
     expect(limits.map((l) => [l.limitKw, l.reason])).toEqual([
-      [50, 'unit_budget'],
-      [50, 'unit_budget'],
+      [40, 'unit_budget'],
+      [40, 'unit_budget'],
     ]);
   });
 
@@ -345,6 +353,135 @@ describe('per-phase split of the station limit (owner decision 3)', () => {
   it('sends the station limit at three times its highest phase', () => {
     expect(stationProfileWatts(11, null)).toBe(11_000);
     expect(stationProfileWatts(11, { L1: 0.5, L2: 0.5, L3: 0 })).toBe(16_500);
+    // Rounded down, never above the allocation, past float noise.
+    expect(stationProfileWatts(3.6799, null)).toBe(3679);
+    expect(stationProfileWatts(3.68, null)).toBe(3680);
     expect(stationProfileWatts(11, { L1: 1 / 3, L2: 1 / 3, L3: 1 / 3 })).toBe(11_000);
+  });
+});
+
+describe('measured-draw cap at a lower supply voltage (review H3)', () => {
+  const start = Date.parse('2026-06-04T10:00:00Z');
+  // Held 6 A x 230 V x 3, drawing 6 A at 220 V and power factor 0.99.
+  const heldKw = (6 * 230 * 3) / 1000;
+  const drawKw = (6 * 220 * 3 * 0.99) / 1000;
+  const capped = session({ startedAt: new Date(start), heldLimitKw: heldKw, drawKw });
+  const at = (minutes: number): number => start + minutes * 60_000;
+
+  it('reads the car at its limit from the measured current and lifts the cap', () => {
+    expect(measuredDemandCapKw({ ...capped, drawA: 6, heldLimitA: 6 }, at(5))).toBeNull();
+    // A car really drawing less in current keeps its cap.
+    expect(
+      measuredDemandCapKw({ ...capped, drawKw: 2, drawA: 2.9, heldLimitA: 6 }, at(5)),
+    ).not.toBeNull();
+  });
+
+  it('lifts the cap in each probe window without measured current', () => {
+    // Between probes the 94.7 percent reading keeps the cap at the held limit.
+    expect(measuredDemandCapKw(capped, at(5))).toBeCloseTo(heldKw, 6);
+    const firstProbe =
+      start + EVSE_DEMAND_SETTLE_MS + EVSE_DEMAND_PROBE_PERIOD_MS - EVSE_DEMAND_PROBE_MS;
+    expect(measuredDemandProbing(start, firstProbe - 1)).toBe(false);
+    expect(measuredDemandProbing(start, firstProbe)).toBe(true);
+    expect(measuredDemandCapKw(capped, firstProbe)).toBeNull();
+    expect(measuredDemandCapKw(capped, firstProbe + EVSE_DEMAND_PROBE_MS - 1)).toBeNull();
+    // The window repeats every period, and ends with it.
+    expect(measuredDemandProbing(start, firstProbe + EVSE_DEMAND_PROBE_MS)).toBe(false);
+    expect(measuredDemandProbing(start, firstProbe + EVSE_DEMAND_PROBE_PERIOD_MS)).toBe(true);
+    expect(measuredDemandProbing(start, start + EVSE_DEMAND_SETTLE_MS - 1)).toBe(false);
+  });
+});
+
+describe('acSessionFloorKw (A3, I3)', () => {
+  const one = (phases: string): EvseSessionInfo => session({ sessionId: phases, phases });
+
+  it('counts 6 A on the busiest phase three times on a three-phase circuit', () => {
+    // A limit spread evenly over three phases: a one-phase car needs 6 A on its phase.
+    expect(acSessionFloorKw(station({ sessions: [one('L1')] }))).toBeCloseTo(kwAt(6), 9);
+    expect(acSessionFloorKw(station({ sessions: [one('L1'), one('L2')] }))).toBeCloseTo(kwAt(6), 9);
+    expect(acSessionFloorKw(station({ sessions: [one('L1'), one('L1')] }))).toBeCloseTo(
+      kwAt(12),
+      9,
+    );
+    expect(acSessionFloorKw(station({ sessions: [session()] }))).toBeCloseTo(kwAt(6), 9);
+  });
+
+  it('counts each session at its own 6 A power when the limit counts in full on every phase', () => {
+    const st = station({ sessions: [one('L1'), session({ sessionId: 's3' })] });
+    expect(acSessionFloorKw(st, true)).toBeCloseTo((6 * 230 * 1 + 6 * 230 * 3) / 1000, 9);
+    // Phases not aligned to the panel: the measured count still holds.
+    const measured = station({
+      sessions: [
+        session({ sessionId: 'a', phases: null, measuredPhases: 'L1' }),
+        session({ sessionId: 'b', phases: null, measuredPhases: 'L2' }),
+      ],
+    });
+    expect(acSessionFloorKw(measured, true)).toBeCloseTo((2 * 6 * 230) / 1000, 9);
+  });
+
+  it('counts 6 A per session on a single-phase circuit, and nothing without an AC session', () => {
+    const single = station({
+      circuitPhases: 1,
+      sessions: [session(), session({ sessionId: 's2' })],
+    });
+    expect(acSessionFloorKw(single)).toBeCloseTo((2 * 6 * 230) / 1000, 9);
+    expect(acSessionFloorKw(station({ sessions: [session({ kind: 'dc' })] }))).toBe(0);
+    expect(acSessionFloorKw(station({ circuitVoltageV: 0, sessions: [session()] }))).toBe(0);
+  });
+});
+
+describe('W stations split per EVSE on a three-phase circuit (A3, I3)', () => {
+  const wRate: StationRate = { rateUnit: 'W', voltageV: 230, phases: 3 };
+  const wStation = (sessions: EvseSessionInfo[]): StationPowerInfo =>
+    station({ rateUnit: 'W', balancingMode: 'evse', sessions });
+
+  it('lets a one-phase session take the whole W limit on its phase', () => {
+    const [limit] = computeEvseLimits(wStation([session({ phases: 'L1' })]), 1.748, wRate);
+    expect(limit?.paused).toBe(false);
+    expect(limit?.limitA).toBeCloseTo(7.6, 9);
+  });
+
+  it('keeps sessions on different phases within the W limit together', () => {
+    const sessions = ['L1', 'L2', 'L3'].map((phases, i) =>
+      session({
+        sessionId: `s${String(i)}`,
+        transactionId: `t${String(i)}`,
+        evseNumber: i + 1,
+        phases,
+      }),
+    );
+    const limits = computeEvseLimits(wStation(sessions), 6.9, wRate);
+    const totalKw = limits.reduce((sum, l) => sum + ((l.limitA ?? 0) * 230) / 1000, 0);
+    expect(totalKw).toBeLessThanOrEqual(6.9 + 1e-9);
+    expect(limits.every((l) => (l.limitA ?? 0) >= 6)).toBe(true);
+  });
+});
+
+describe('W-only stations and unit boxes (A3, I2)', () => {
+  const wRate: StationRate = { rateUnit: 'W', voltageV: 230, phases: 3 };
+  const boxed = (s: EvseSessionInfo): StationPowerInfo =>
+    station({
+      rateUnit: 'W',
+      supportedRateUnits: ['W'],
+      balancingMode: 'evse',
+      unitBudgets: [{ unitId: 'unt_1', kind: 'ac', maxCurrentA: 16, phases: 1, maxPowerKw: null }],
+      sessions: [s],
+    });
+  // A 16 A box carries 12.8 A continuous.
+  const boxA = 16 * 0.8;
+
+  it('keeps a W limit for a session of unknown phases within the box on any one phase', () => {
+    const [limit] = computeEvseLimits(boxed(session({ phases: null })), 22, wRate);
+    expect(((limit?.limitKw ?? 0) * 1000) / 230).toBeLessThanOrEqual(boxA + 1e-9);
+  });
+
+  it('converts the limit of a session measured on one phase at that one phase', () => {
+    const one = session({ phases: null, measuredPhases: 'L1' });
+    const [limit] = computeEvseLimits(boxed(one), 22, wRate);
+    expect(limit?.paused).toBe(false);
+    expect(limit?.limitA).toBeCloseTo(boxA, 9);
+    expect(limit?.phases).toBe(1);
+    expect(limit?.limitKw).toBeCloseTo(((limit?.limitA ?? 0) * 230) / 1000, 9);
+    expect(((limit?.limitKw ?? 0) * 1000) / 230).toBeLessThanOrEqual(boxA + 1e-9);
   });
 });

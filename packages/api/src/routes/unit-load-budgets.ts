@@ -16,6 +16,7 @@ import {
 } from '@evtivity/database';
 import type { UnitLoadBudgetInput } from '@evtivity/database';
 import { hasAtMostDecimals } from '@evtivity/lib';
+import { UNIT_BUDGET_MIN_AC_A } from '@evtivity/lib/load-allocation';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -42,13 +43,17 @@ const unitParams = stationParams.extend({
 const putBudgetBody = z.object({
   kind: z
     .enum(['ac', 'dc'])
-    .describe('ac: a current per phase (maxCurrentA, phases); dc: a power (maxPowerKw)'),
+    .describe(
+      'ac: a fuse rating per phase (maxCurrentA, phases); dc: a power rating (maxPowerKw). Load management holds the unit to 80 percent of the rating',
+    ),
   maxCurrentA: z
     .number()
-    .min(6)
+    .min(UNIT_BUDGET_MIN_AC_A)
     .max(1000)
     .optional()
-    .describe('AC only: the most the unit draws, A per phase (6 to 1000, 0.1 A steps)'),
+    .describe(
+      'AC only: the fuse or breaker rating of the unit, A per phase (7.5 to 1000, 0.1 A steps); the unit draws at most 80 percent of it, which must reach the 6 A an AC session needs',
+    ),
   phases: z
     .union([z.literal(1), z.literal(3)])
     .optional()
@@ -60,16 +65,26 @@ const putBudgetBody = z.object({
     .min(0.01)
     .max(5000)
     .optional()
-    .describe('DC only: the most the unit draws in kW (0.01 to 5000, 0.01 kW steps)'),
+    .describe(
+      'DC only: the power rating of the unit in kW (0.01 to 5000, 0.01 kW steps); the unit draws at most 80 percent of it',
+    ),
 });
 
 const budgetItem = z
   .object({
     unitId: z.string().describe('Station Unit ID'),
-    kind: z.enum(['ac', 'dc']).describe('ac: a current per phase; dc: a power'),
-    maxCurrentA: z.number().nullable().describe('AC: the most the unit draws, A per phase'),
+    kind: z.enum(['ac', 'dc']).describe('ac: a fuse rating per phase; dc: a power rating'),
+    maxCurrentA: z
+      .number()
+      .nullable()
+      .describe(
+        'AC: the fuse rating of the unit, A per phase; the unit draws at most 80 percent of it',
+      ),
     phases: z.number().int().nullable().describe('AC: the phases the budget counts (1 or 3)'),
-    maxPowerKw: z.number().nullable().describe('DC: the most the unit draws in kW'),
+    maxPowerKw: z
+      .number()
+      .nullable()
+      .describe('DC: the power rating of the unit in kW; the unit draws at most 80 percent of it'),
   })
   .loose();
 

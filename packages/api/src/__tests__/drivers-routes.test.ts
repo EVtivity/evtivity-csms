@@ -311,6 +311,7 @@ function makeVehicle(overrides: Record<string, unknown> = {}) {
     autochargeBlockedAt: null,
     batteryCapacityKwh: null,
     maxChargePowerKw: null,
+    acPhases: null,
     preconditioningPowerKw: null,
     preconditioningMinutes: 30,
     createdAt: now,
@@ -1459,6 +1460,34 @@ describe('Driver routes (operator)', () => {
         expect.anything(),
         expect.anything(),
       );
+    });
+
+    it('passes the AC phases, returns them and refuses a phase count other than 1 or 3', async () => {
+      vehicleServiceMock.updateVehicle.mockResolvedValueOnce(makeVehicle({ acPhases: 1 }));
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { acPhases: 1 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ acPhases: 1 });
+      expect(vehicleServiceMock.updateVehicle).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        VALID_VEHICLE_ID,
+        { acPhases: 1 },
+        expect.anything(),
+        expect.anything(),
+      );
+      vehicleServiceMock.updateVehicle.mockClear();
+      const bad = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { acPhases: 2 },
+      });
+      expect(bad.statusCode).toBe(400);
+      expect(vehicleServiceMock.updateVehicle).not.toHaveBeenCalled();
     });
 
     it('passes the preconditioning power and minutes and returns them as numbers', async () => {

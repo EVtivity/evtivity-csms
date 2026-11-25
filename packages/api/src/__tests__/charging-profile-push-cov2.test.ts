@@ -18,6 +18,8 @@ vi.mock('../lib/charging-profile-id.js', async () => {
     ...actual,
     maxExternalConstraintsIds: vi.fn(async () => new Map<string, number>()),
     maxExternalConstraintsIdByIdentity: vi.fn(async () => null),
+    unitBoxDefaultConflict: vi.fn(async () => null),
+    unitBoxDefaultClearConflict: vi.fn(async () => false),
   };
 });
 

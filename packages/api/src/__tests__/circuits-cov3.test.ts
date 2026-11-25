@@ -85,6 +85,7 @@ const circuitRow = {
   maxContinuousKw: '7.68',
   phaseConnections: null as string | null,
   voltageV: null as number | null,
+  phaseRotation: null as string | null,
   sortOrder: 0,
   createdAt: T,
   updatedAt: T,
@@ -183,6 +184,85 @@ describe('POST circuits', () => {
     const res = await send('POST', base, { name: 'C', breakerRatingAmps: 20 });
     expect(res.statusCode).toBe(500);
     expect(res.json<{ code: string }>().code).toBe('CREATE_FAILED');
+  });
+});
+
+describe('circuit phase rotation', () => {
+  const threePhase = { ...panel, phases: 3, voltageV: 230 };
+  const url = `${base}/cir_a`;
+
+  it('stores a rotation on a circuit with three conductor phases', async () => {
+    results([threePhase]);
+    h.createCircuit.mockResolvedValue({ ...circuitRow, phaseRotation: 'TRS' });
+    const res = await send('POST', base, {
+      name: 'C',
+      breakerRatingAmps: 32,
+      phaseRotation: 'TRS',
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json<{ phaseRotation: string }>().phaseRotation).toBe('TRS');
+    expect(h.createCircuit).toHaveBeenCalledWith(
+      SITE,
+      expect.objectContaining({ phaseRotation: 'TRS' }),
+      expect.anything(),
+    );
+  });
+
+  it('refuses a rotation on a circuit with fewer than three phases', async () => {
+    results([threePhase]);
+    const create = await send('POST', base, {
+      name: 'C',
+      breakerRatingAmps: 32,
+      phaseConnections: 'L1L2',
+      phaseRotation: 'RST',
+    });
+    expect(create.statusCode).toBe(400);
+    expect(create.json()).toMatchObject({ code: 'VALIDATION_ERROR', field: 'phaseRotation' });
+    results([panel]);
+    const single = await send('POST', base, {
+      name: 'C',
+      breakerRatingAmps: 32,
+      phaseRotation: 'RST',
+    });
+    expect(single.statusCode).toBe(400);
+    results([threePhase], [circuitRow]);
+    const patch = await send('PATCH', url, { phaseConnections: 'L1', phaseRotation: 'RTS' });
+    expect(patch.statusCode).toBe(400);
+    expect(patch.json()).toMatchObject({ field: 'phaseRotation' });
+    expect(h.createCircuit).not.toHaveBeenCalled();
+    expect(h.updateCircuit).not.toHaveBeenCalled();
+  });
+
+  it('refuses a rotation the enum does not hold', async () => {
+    results([threePhase]);
+    const res = await send('POST', base, {
+      name: 'C',
+      breakerRatingAmps: 32,
+      phaseRotation: 'RRR',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(h.createCircuit).not.toHaveBeenCalled();
+  });
+
+  it('clears a stored rotation when the circuit moves to fewer phases, and on null', async () => {
+    const rotated = { ...circuitRow, phaseRotation: 'SRT' };
+    results([threePhase], [rotated], [{ count: 0 }]);
+    h.updateCircuit.mockResolvedValue({ ...circuitRow, phaseConnections: 'L2' });
+    expect((await send('PATCH', url, { phaseConnections: 'L2' })).statusCode).toBe(200);
+    const moved = h.updateCircuit.mock.calls[0]?.[0] as { set: Record<string, unknown> };
+    expect(moved.set).toMatchObject({ phaseRotation: null });
+
+    results([threePhase], [rotated], [{ count: 0 }]);
+    h.updateCircuit.mockResolvedValue(circuitRow);
+    expect((await send('PATCH', url, { phaseRotation: null })).statusCode).toBe(200);
+    const cleared = h.updateCircuit.mock.calls[1]?.[0] as { set: Record<string, unknown> };
+    expect(cleared.set).toMatchObject({ phaseRotation: null });
+
+    results([threePhase], [rotated], [{ count: 0 }]);
+    h.updateCircuit.mockResolvedValue(rotated);
+    expect((await send('PATCH', url, { name: 'Renamed' })).statusCode).toBe(200);
+    const kept = h.updateCircuit.mock.calls[2]?.[0] as { set: Record<string, unknown> };
+    expect(kept.set).not.toHaveProperty('phaseRotation');
   });
 });
 

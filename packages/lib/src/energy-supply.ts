@@ -29,7 +29,14 @@ export const ENERGY_ASSET_READING_SOURCES = ['api', 'simulated'] as const;
 export type EnergyAssetReadingSource = (typeof ENERGY_ASSET_READING_SOURCES)[number];
 
 /** How long a reading counts as fresh, seconds. */
-export const ENERGY_ASSET_READING_TTL_RANGE = { min: 15, max: 600, default: 60 } as const;
+export const ENERGY_ASSET_READING_TTL_RANGE = { min: 15, max: 600, default: 120 } as const;
+
+/**
+ * A reading lifetime at or below this gives no credit, seconds: the credit
+ * profile ends one station clock margin (60 s) before the reading, and a credit
+ * shorter than one load management cycle (10 s) is not sent.
+ */
+export const ENERGY_ASSET_CREDIT_MIN_TTL_SECONDS = 70;
 
 /** Battery state of charge at or below which it gives no credit, percent. */
 export const ENERGY_ASSET_RESERVE_RANGE = { min: 0, max: 100, default: 10 } as const;

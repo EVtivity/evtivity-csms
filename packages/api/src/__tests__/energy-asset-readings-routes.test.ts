@@ -70,8 +70,11 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-vi.mock('@evtivity/services/load-management.service', () => ({
+vi.mock('@evtivity/services/load-management-site-status', () => ({
   getSitePowerStatus: vi.fn().mockResolvedValue({ totalDrawKw: 0, stations: [] }),
+}));
+
+vi.mock('@evtivity/services/load-management-hierarchy', () => ({
   buildSiteHierarchy: hierarchyMock,
 }));
 

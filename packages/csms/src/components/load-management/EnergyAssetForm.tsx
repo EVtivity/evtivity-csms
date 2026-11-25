@@ -24,6 +24,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import {
   ENERGY_ASSET_RATING_RANGE,
   ENERGY_ASSET_READING_TTL_RANGE,
+  ENERGY_ASSET_CREDIT_MIN_TTL_SECONDS,
   ENERGY_ASSET_RESERVE_RANGE,
 } from '@evtivity/lib/energy-supply';
 import {
@@ -32,6 +33,7 @@ import {
   type EnergyAssetItem,
   type TransformerItem,
   type TreeNode,
+  readingTtlGivesNoCredit,
 } from './load-management-types';
 import { useSavedToast } from '@/components/saved-message';
 import { useSolarCarportRow } from './use-solar-carport-row';
@@ -520,6 +522,13 @@ export function EnergyAssetForm({
                   >
                     {t('loadManagement.readingTtlHelp')}
                   </p>
+                  {readingTtlGivesNoCredit(telemetry, Number(ttl)) && (
+                    <p className="text-xs text-warning-text">
+                      {t('loadManagement.readingTtlNoCredit', {
+                        seconds: ENERGY_ASSET_CREDIT_MIN_TTL_SECONDS,
+                      })}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -27,6 +27,7 @@ import {
   PANEL_VOLTAGES,
   STEP_DOWN_TRANSFORMER_KVA,
   TRANSFORMER_LOADING_LIMIT_RANGE,
+  TRANSFORMER_PHASES,
   TRANSFORMER_POWER_FACTOR_RANGE,
   TRANSFORMER_RATED_KVA_RANGE,
   computeTransformerCapacityKw,
@@ -320,8 +321,11 @@ export function TransformerForm({
                     setPhases(Number(e.target.value));
                   }}
                 >
-                  <option value={1}>1</option>
-                  <option value={3}>3</option>
+                  {TRANSFORMER_PHASES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
                 </Select>
               </div>
               <div className="grid gap-2">

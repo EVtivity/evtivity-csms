@@ -9,6 +9,7 @@ import {
   VEHICLE_BATTERY_CAPACITY_KWH,
   VEHICLE_MAX_CHARGE_POWER_KW,
   VEHICLE_PRECONDITIONING_POWER_KW,
+  acPhasesValue,
   batteryColumn,
   preconditioningMinutesValue,
 } from '../services/vehicle.service.js';
@@ -59,6 +60,22 @@ describe('vehicle preconditioning fields', () => {
     for (const bad of [4, 241, 30.5, Number.NaN]) {
       expect(() => preconditioningMinutesValue(bad)).toThrow(ValidationError);
     }
+  });
+});
+
+describe('vehicle AC phases', () => {
+  it('stores 1 or 3, clears with null and leaves the value when undefined', () => {
+    expect(acPhasesValue(1)).toBe(1);
+    expect(acPhasesValue(3)).toBe(3);
+    expect(acPhasesValue(null)).toBeNull();
+    expect(acPhasesValue(undefined)).toBeUndefined();
+  });
+
+  it('refuses any other phase count with the field named', () => {
+    for (const bad of [0, 2, 4, 1.5, Number.NaN]) {
+      expect(() => acPhasesValue(bad)).toThrow(ValidationError);
+    }
+    expect(() => acPhasesValue(2)).toThrow(/acPhases is 1 or 3/);
   });
 });
 

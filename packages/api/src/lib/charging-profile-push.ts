@@ -7,16 +7,14 @@ import { createLogger, UNCLEARABLE_PROFILE_PURPOSES } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import {
   isReservedProfileId,
-  loadManagedMessage,
-  loadManagedStationIds,
   maxExternalConstraintsIds,
-  mayOverrideLoadManagement,
-  overridesLoadManagement,
-  plannedProfileIdConflict,
-  plannedProfileIdMessage,
   reservedProfileIdMessage,
-  type ProfileIdentity,
 } from './charging-profile-id.js';
+import {
+  loadManagementProfileConflict,
+  templateClearPayload,
+  templateProfilePayload,
+} from './load-management-profile-conflict.js';
 
 /** The CSMS must not name these purposes in a ClearChargingProfile (2.1 K10.FR.06). */
 function isUnclearablePurpose(purpose: string): boolean {
@@ -81,16 +79,10 @@ export async function processChargingProfilePush(
       ocppVersion === '2.1'
         ? await maxExternalConstraintsIds(stations.map((s) => s.id))
         : new Map<string, number>();
-    // A profile that would override the load management limit of a managed
-    // station (charging-profile-id.ts) is not sent to it: the station fails.
-    const identity: ProfileIdentity = {
-      profileId: template.profileId,
-      purpose: template.profilePurpose,
-      stackLevel: template.stackLevel,
-    };
-    const loadManaged = mayOverrideLoadManagement(identity)
-      ? await loadManagedStationIds(stations.map((s) => s.id))
-      : new Set<string>();
+    // A profile that would lift or replace a load management limit of a
+    // managed station (the one rule, charging-profile-id.ts) is not sent to
+    // it: the station fails with the reason.
+    const templatePayload = templateProfilePayload(template);
     for (let i = 0; i < stations.length; i += CONCURRENCY_LIMIT) {
       const batch = stations.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.all(
@@ -114,40 +106,16 @@ export async function processChargingProfilePush(
                 );
               return;
             }
-            if (
-              loadManaged.has(station.id) &&
-              overridesLoadManagement(identity, maxExternalIds.get(station.id))
-            ) {
-              await db
-                .update(chargingProfilePushStations)
-                .set({
-                  status: 'failed',
-                  errorInfo: loadManagedMessage(identity),
-                  updatedAt: new Date(),
-                })
-                .where(
-                  and(
-                    eq(chargingProfilePushStations.pushId, pushId),
-                    eq(chargingProfilePushStations.stationId, station.id),
-                    eq(chargingProfilePushStations.status, 'pending'),
-                  ),
-                );
-              return;
-            }
-            // A profile with a planned session's TxProfile id would replace
-            // the depot plan profile (security review OCPP-L1).
-            const planTransaction = await plannedProfileIdConflict(
+            const conflict = await loadManagementProfileConflict(
               station.stationId,
-              template.profileId,
+              'SetChargingProfile',
+              templatePayload,
+              { maxExternalId: maxExternalIds.get(station.id) ?? null },
             );
-            if (planTransaction != null) {
+            if (conflict != null) {
               await db
                 .update(chargingProfilePushStations)
-                .set({
-                  status: 'failed',
-                  errorInfo: plannedProfileIdMessage(template.profileId, planTransaction),
-                  updatedAt: new Date(),
-                })
+                .set({ status: 'failed', errorInfo: conflict, updatedAt: new Date() })
                 .where(
                   and(
                     eq(chargingProfilePushStations.pushId, pushId),
@@ -358,13 +326,32 @@ export async function processChargingProfileClear(
                 );
               return;
             }
-            const result = await sendOcppCommandAndWait(station.stationId, 'ClearChargingProfile', {
-              chargingProfileCriteria: {
-                chargingProfilePurpose: target.profilePurpose,
-                stackLevel: target.stackLevel,
-                evseId: target.evseId,
-              },
-            });
+            // A clear that could remove a load management limit of a managed
+            // station is not sent to it: the station fails with the reason.
+            const clearPayload = templateClearPayload(target);
+            const conflict = await loadManagementProfileConflict(
+              station.stationId,
+              'ClearChargingProfile',
+              clearPayload,
+            );
+            if (conflict != null) {
+              await db
+                .update(chargingProfilePushStations)
+                .set({ status: 'failed', errorInfo: conflict, updatedAt: new Date() })
+                .where(
+                  and(
+                    eq(chargingProfilePushStations.pushId, pushId),
+                    eq(chargingProfilePushStations.stationId, station.id),
+                    eq(chargingProfilePushStations.status, 'pending'),
+                  ),
+                );
+              return;
+            }
+            const result = await sendOcppCommandAndWait(
+              station.stationId,
+              'ClearChargingProfile',
+              clearPayload,
+            );
 
             if (result.error != null) {
               await db

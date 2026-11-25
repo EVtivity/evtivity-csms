@@ -8,12 +8,14 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { PlanDepartureRow, PlanSessionRow } from '@evtivity/database';
-import type { HierarchyNode, StationPowerInfo } from '../load-management.service.js';
+import type { HierarchyNode, StationPowerInfo } from '../load-management-model.js';
 
 vi.mock('@evtivity/database', () => ({ db: {}, isOperatorStation: vi.fn() }));
 
-const { bindDepartures, buildPlanInput, holdNodeId, readinessWrites, storedPlanEntries } =
-  await import('../charging-plan.service.js');
+const { bindDepartures } = await import('../charging-plan-binding.js');
+const { buildPlanInput, readinessWrites, storedPlanEntries } =
+  await import('../charging-plan-input.js');
+const { holdNodeId } = await import('../charging-plan-nodes.js');
 
 const NOW = Date.UTC(2026, 10, 2, 1, 0, 0);
 const MIN = 60_000;

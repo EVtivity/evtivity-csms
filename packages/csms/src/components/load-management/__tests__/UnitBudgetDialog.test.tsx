@@ -65,6 +65,28 @@ afterEach(() => {
 });
 
 describe('UnitBudgetDialog', () => {
+  it('keeps its buttons in view and scrolls only the fields', () => {
+    renderDialog({
+      ...AC_UNIT,
+      budget: { kind: 'ac', maxCurrentA: 32, phases: 3, maxPowerKw: null },
+    });
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.className).toContain('max-h-[90dvh]');
+    const body = dialog.querySelector('[data-dialog-body]');
+    expect(body).not.toBeNull();
+    expect(body?.contains(screen.getByLabelText('loadManagement.unitBudgetMaxCurrent'))).toBe(true);
+    expect(body?.contains(screen.getByRole('button', { name: /common\.save/ }))).toBe(false);
+  });
+
+  it('describes the value as a fuse rating held to 80 percent', () => {
+    renderDialog(AC_UNIT);
+    const input = screen.getByLabelText('loadManagement.unitBudgetMaxCurrent');
+    expect(input.getAttribute('aria-describedby')).toBe('unit-budget-current-hint');
+    expect(screen.getByText('loadManagement.unitBudgetFuseHint').id).toBe(
+      'unit-budget-current-hint',
+    );
+  });
+
   it('stores an AC budget with the circuit phases and closes', async () => {
     apiMock.put.mockResolvedValue({});
     const { onClose } = renderDialog(AC_UNIT);
@@ -98,7 +120,7 @@ describe('UnitBudgetDialog', () => {
     });
   });
 
-  it.each(['5', '1000.5', ''])('refuses %j A before any request', (value) => {
+  it.each(['5', '7.4', '1000.5', ''])('refuses %j A before any request', (value) => {
     renderDialog(AC_UNIT);
     fireEvent.change(screen.getByLabelText('loadManagement.unitBudgetMaxCurrent'), {
       target: { value },

@@ -806,6 +806,52 @@ groups:
         noDataState: OK
         execErrState: Error
 
+      - uid: feat-load-allocation-log-failed
+        title: Load Allocation Log Write Failed
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'max(worker_jobs_last_hour{queue="load-allocation-log",status="failed"})'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+                  operator:
+                    type: and
+              refId: C
+        for: 0m
+        annotations:
+          summary: 'A load allocation log write failed in the last hour; the limits went out unlogged (worker log: Load allocation log write failed)'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
       - uid: feat-load-management-limits-stale
         title: Load Management Limits Not Sent
         condition: C

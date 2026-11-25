@@ -3,14 +3,17 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sendOcppCommandAndWaitMock, updateSetMock, whereMock, loadManagedMock } = vi.hoisted(
-  () => ({
-    sendOcppCommandAndWaitMock: vi.fn(),
-    updateSetMock: vi.fn(),
-    whereMock: vi.fn(),
-    loadManagedMock: vi.fn(async (): Promise<Set<string>> => new Set()),
-  }),
-);
+const { sendOcppCommandAndWaitMock, updateSetMock, whereMock, conflictMock } = vi.hoisted(() => ({
+  sendOcppCommandAndWaitMock: vi.fn(),
+  updateSetMock: vi.fn(),
+  whereMock: vi.fn(),
+  conflictMock: vi.fn(async (): Promise<string | null> => null),
+}));
+
+vi.mock('../lib/load-management-profile-conflict.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/load-management-profile-conflict.js')>()),
+  loadManagementProfileConflict: conflictMock,
+}));
 
 vi.mock('../lib/charging-profile-id.js', async () => {
   const actual = await vi.importActual<typeof import('../lib/charging-profile-id.js')>(
@@ -20,7 +23,6 @@ vi.mock('../lib/charging-profile-id.js', async () => {
     ...actual,
     maxExternalConstraintsIds: vi.fn(async () => new Map<string, number>()),
     maxExternalConstraintsIdByIdentity: vi.fn(async () => null),
-    loadManagedStationIds: loadManagedMock,
   };
 });
 
@@ -145,12 +147,24 @@ describe('load management owns the station limit', () => {
     evseId: 0,
   };
 
-  it('fails a load managed station without sending a profile that would override its limit', async () => {
-    loadManagedMock.mockResolvedValueOnce(new Set(['sta_1']));
+  it('fails a station the one rule refuses, without sending the profile', async () => {
+    conflictMock.mockResolvedValueOnce('would override the load management limit');
 
     await processChargingProfilePush('cpp_9', stations, stationMax, '2.1');
 
-    expect(loadManagedMock).toHaveBeenCalledWith(['sta_1']);
+    expect(conflictMock).toHaveBeenCalledWith(
+      'CS-16',
+      'SetChargingProfile',
+      {
+        evseId: 0,
+        chargingProfile: {
+          id: stationMax.profileId,
+          chargingProfilePurpose: 'ChargingStationMaxProfile',
+          stackLevel: 1,
+        },
+      },
+      { maxExternalId: null },
+    );
     expect(sendOcppCommandAndWaitMock).not.toHaveBeenCalled();
     expect(updateSetMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -160,16 +174,36 @@ describe('load management owns the station limit', () => {
     );
   });
 
-  it('sends it to a station load management does not manage', async () => {
+  it('sends it to a station the one rule allows', async () => {
     await processChargingProfilePush('cpp_10', stations, stationMax, '2.1');
 
     const actions = sendOcppCommandAndWaitMock.mock.calls.map((c) => c[1] as string);
     expect(actions).toContain('SetChargingProfile');
   });
 
-  it('reads nothing for a profile that cannot override load management', async () => {
-    await processChargingProfilePush('cpp_11', stations, template, '2.1');
+  it('fails a template clear the one rule refuses, without sending it (review 5)', async () => {
+    conflictMock.mockResolvedValueOnce('The clear could remove the load management limit');
 
-    expect(loadManagedMock).not.toHaveBeenCalled();
+    await processChargingProfileClear(
+      'cpp_12',
+      stations,
+      { profilePurpose: 'ChargingStationMaxProfile', stackLevel: 1, evseId: 0 },
+      '2.1',
+    );
+
+    expect(conflictMock).toHaveBeenCalledWith('CS-16', 'ClearChargingProfile', {
+      chargingProfileCriteria: {
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        stackLevel: 1,
+        evseId: 0,
+      },
+    });
+    expect(sendOcppCommandAndWaitMock).not.toHaveBeenCalled();
+    expect(updateSetMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        errorInfo: expect.stringContaining('clear') as unknown,
+      }),
+    );
   });
 });

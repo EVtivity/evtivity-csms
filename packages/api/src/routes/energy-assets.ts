@@ -22,12 +22,12 @@ import {
   ENERGY_ASSET_TYPES,
   energyAssetSupply,
 } from '@evtivity/lib';
+import { buildSiteHierarchy } from '@evtivity/services/load-management-hierarchy';
+import { getSitePowerStatus } from '@evtivity/services/load-management-site-status';
 import {
-  buildSiteHierarchy,
-  getSitePowerStatus,
   type EnergyAssetNodeSupply,
   type HierarchyNode,
-} from '@evtivity/services/load-management.service';
+} from '@evtivity/services/load-management-model';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';

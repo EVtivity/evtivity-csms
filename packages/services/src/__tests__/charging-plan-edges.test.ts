@@ -16,14 +16,13 @@ vi.mock('@evtivity/database', () => ({
 const {
   automaticPreconditioningWindow,
   batteryPreconditioningWindow,
-  bindDepartures,
   plannedSessionDrawKw,
-  plannedStationCut,
   preconditioningAuxKw,
-  storedSlotIndex,
-  storedSlots,
-  withRejectedProfiles,
-} = await import('../charging-plan.service.js');
+} = await import('../charging-plan-input.js');
+const { bindDepartures } = await import('../charging-plan-binding.js');
+const { plannedStationCut, storedSlotIndex } = await import('../charging-plan-stored.js');
+const { storedSlots } = await import('../charging-plan-profile-sends.js');
+const { withRejectedProfiles } = await import('../charging-plan.service.js');
 
 const NOW = Date.UTC(2026, 10, 2, 1, 0, 0);
 const MIN = 60_000;

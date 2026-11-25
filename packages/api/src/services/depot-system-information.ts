@@ -9,6 +9,7 @@
 // connected system stays cheap. Reads only.
 
 import { client, operatorStationSql } from '@evtivity/database';
+import { mightEnforceKw, parseAppliedAllocations } from '@evtivity/services/load-limit-entries';
 import {
   predictSocTimeline,
   type DepotSnapshot,
@@ -248,14 +249,12 @@ function slotsOf(slotStarts: unknown): Array<{ startMs: number; endMs: number }>
   }));
 }
 
-function allocatedKwByStation(allocations: unknown): Map<string, number> {
+/** The highest limit each station might enforce now; a station that may be unlimited is left out. */
+function allowedKwByStation(allocations: unknown, nowMs: number): Map<string, number> {
   const out = new Map<string, number>();
-  if (!Array.isArray(allocations)) return out;
-  for (const a of allocations as unknown[]) {
-    if (a == null || typeof a !== 'object') continue;
-    const r = a as Record<string, unknown>;
-    const kwValue = num(r['allocatedKw'] as number | string | null);
-    if (typeof r['stationDbId'] === 'string' && kwValue != null) out.set(r['stationDbId'], kwValue);
+  for (const entry of parseAppliedAllocations(allocations) ?? []) {
+    const kw = mightEnforceKw(entry, { nowMs });
+    if (kw != null) out.set(entry.stationDbId, kw);
   }
   return out;
 }
@@ -400,10 +399,11 @@ export async function readDepotSnapshot(
       ORDER BY d.departure_at NULLS FIRST, d.id`,
     client<PlanRow[]>`
       SELECT site_id, slot_starts, plan FROM site_charging_plans WHERE site_id = ANY(${siteIds})`,
+    // The limit records the load management cycle keeps per station, only
+    // while the site's load management is on.
     client<AllocationRow[]>`
-      SELECT DISTINCT ON (site_id) site_id, allocations FROM load_allocation_log
-      WHERE site_id = ANY(${siteIds}) AND created_at > ${new Date(now.getTime() - 2 * 60_000)}
-      ORDER BY site_id, created_at DESC`,
+      SELECT site_id, applied_allocations AS allocations FROM site_load_management
+      WHERE site_id = ANY(${siteIds}) AND is_enabled = true`,
     client<ErrorRow[]>`
       SELECT DISTINCT ON (l.station_id, (l.payload->>'connectorId'))
         l.station_id, (l.payload->>'connectorId')::int AS connector_id,
@@ -449,7 +449,7 @@ export async function readDepotSnapshot(
       entryBySession.set(entry.sessionId, { entry, site: p.site_id });
   }
   const allocatedBySite = new Map(
-    allocations.map((a) => [a.site_id, allocatedKwByStation(a.allocations)]),
+    allocations.map((a) => [a.site_id, allowedKwByStation(a.allocations, nowMs)]),
   );
   const errorsByStation = new Map<string, ErrorRow[]>();
   for (const e of errors)

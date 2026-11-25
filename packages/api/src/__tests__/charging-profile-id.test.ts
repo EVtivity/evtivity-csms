@@ -34,8 +34,6 @@ vi.mock('drizzle-orm', () => ({
 
 import {
   PLAN_TX_PROFILE_ID_MIN,
-  assertNotLoadManaged,
-  assertNotPlanProfileId,
   plannedProfileIdConflict,
   isPlannedConnectorSession,
   isPlannedTransaction,
@@ -50,7 +48,13 @@ import {
   mayOverrideLoadManagement,
   overridesLoadManagement,
   profileIdentityFromRequest,
+  clearRemovesLoadManagement,
+  loadManagedClearConflict,
+  evseManagedProfileIdConflict,
+  unitBoxDefaultClearConflict,
+  unitBoxDefaultConflict,
 } from '../lib/charging-profile-id.js';
+import { loadManagementProfileConflict } from '../lib/load-management-profile-conflict.js';
 
 describe('charging profile id against MaxExternalConstraintsId (K01.FR.81)', () => {
   it('reserves ids at or below the station value', () => {
@@ -147,36 +151,54 @@ describe('profiles that would override load management', () => {
     expect(mayOverrideLoadManagement(stationMax(0, 1_500_000_000))).toBe(true);
   });
 
-  it('refuses it with 400 CHARGING_PROFILE_LOAD_MANAGED on a managed station', async () => {
-    selectRows.queue = [[{ id: 'sta_1' }]];
-    await expect(assertNotLoadManaged({ dbId: 'sta_1' }, stationMax(1), null)).rejects.toThrow(
-      expect.objectContaining({
-        statusCode: 400,
-        code: 'CHARGING_PROFILE_LOAD_MANAGED',
-      }) as Error,
+  const setProfile = (profile: ReturnType<typeof stationMax>) => ({
+    evseId: 0,
+    chargingProfile: {
+      id: profile.profileId,
+      chargingProfilePurpose: profile.purpose,
+      stackLevel: profile.stackLevel,
+    },
+  });
+
+  it('refuses it on a managed station (the one rule, loadManagementProfileConflict)', async () => {
+    // The station by its identity, then whether load management manages it.
+    selectRows.queue = [[{ id: 'sta_1' }], [{ id: 'sta_1' }]];
+    const conflict = await loadManagementProfileConflict(
+      'CS-1',
+      'SetChargingProfile',
+      setProfile(stationMax(1)),
+      { maxExternalId: null },
     );
+    expect(conflict).toContain('would override the load management limit');
   });
 
   it('accepts it on a station load management does not manage', async () => {
     selectRows.queue = [[]];
-    await expect(
-      assertNotLoadManaged({ dbId: 'sta_1' }, stationMax(1), null),
-    ).resolves.toBeUndefined();
-  });
-
-  it('looks a station up by its OCPP identity', async () => {
-    selectRows.queue = [[{ id: 'sta_1' }], [{ id: 'sta_1' }]];
-    await expect(assertNotLoadManaged({ identity: 'CS-1' }, stationMax(2), null)).rejects.toThrow(
-      expect.objectContaining({ code: 'CHARGING_PROFILE_LOAD_MANAGED' }) as Error,
-    );
+    expect(
+      await loadManagementProfileConflict('CS-1', 'SetChargingProfile', setProfile(stationMax(1)), {
+        maxExternalId: null,
+      }),
+    ).toBeNull();
   });
 
   it('accepts a stack level 0 station max profile without reading the database', async () => {
     selectRows.queue = [[{ id: 'sta_1' }]];
-    await expect(
-      assertNotLoadManaged({ dbId: 'sta_1' }, stationMax(0), null),
-    ).resolves.toBeUndefined();
+    expect(
+      await loadManagementProfileConflict('CS-1', 'SetChargingProfile', setProfile(stationMax(0)), {
+        maxExternalId: null,
+      }),
+    ).toBeNull();
     expect(selectRows.queue).toHaveLength(1);
+    selectRows.queue = [];
+  });
+
+  it('refuses UsePriorityCharging on a managed station only', async () => {
+    selectRows.queue = [[{ id: 'sta_1' }], [{ id: 'sta_1' }]];
+    expect(await loadManagementProfileConflict('CS-1', 'UsePriorityCharging', {})).toContain(
+      'Priority charging',
+    );
+    selectRows.queue = [[]];
+    expect(await loadManagementProfileConflict('CS-1', 'UsePriorityCharging', {})).toBeNull();
   });
 });
 
@@ -253,7 +275,11 @@ describe('manual TxProfiles on a session the depot plan charges', () => {
     expect(
       txProfileConnectorWithoutTransaction(v16({ chargingProfilePurpose: 'TxDefaultProfile' })),
     ).toBeNull();
-    expect(txProfileConnectorWithoutTransaction(txProfile(undefined))).toBeNull();
+    // The 2.1 form (a fleet reservation, a template) reaches a 1.6 station as a
+    // TxProfile of connector evseId: checked on that connector (final review, Low 1).
+    expect(txProfileConnectorWithoutTransaction(txProfile(undefined))).toBe(1);
+    expect(txProfileConnectorWithoutTransaction(txProfile('tx-1'))).toBeNull();
+    expect(txProfileConnectorWithoutTransaction({ ...txProfile(undefined), evseId: 0 })).toBeNull();
   });
 
   it('finds the planned active session on a connector', async () => {
@@ -365,10 +391,21 @@ describe('manual profiles with the plan TxProfile id (OCPP-L1)', () => {
     selectRows.executed = [planned];
     expect(await plannedProfileIdConflict('DEPOT-01', planId + 1)).toBeNull();
     selectRows.executed = [planned];
-    await expect(assertNotPlanProfileId('DEPOT-01', planId)).rejects.toMatchObject({
-      statusCode: 400,
-      code: 'CHARGING_PROFILE_LOAD_MANAGED',
-    });
+    expect(
+      await loadManagementProfileConflict(
+        'DEPOT-01',
+        'SetChargingProfile',
+        {
+          evseId: 0,
+          chargingProfile: {
+            id: planId,
+            chargingProfilePurpose: 'TxDefaultProfile',
+            stackLevel: 0,
+          },
+        },
+        { maxExternalId: null },
+      ),
+    ).toContain('tx-1');
     selectRows.executed = [];
   });
 
@@ -376,8 +413,137 @@ describe('manual profiles with the plan TxProfile id (OCPP-L1)', () => {
     selectRows.executed = [planned];
     expect(await plannedProfileIdConflict('DEPOT-01', 100)).toBeNull();
     expect(await plannedProfileIdConflict('DEPOT-01', null)).toBeNull();
-    await assertNotPlanProfileId('DEPOT-01', 100);
     expect(selectRows.executed).toHaveLength(1);
     selectRows.executed = [];
+  });
+});
+
+describe('other profile writers on a managed station (safety spec I7)', () => {
+  it('refuses PriorityCharging and LocalGeneration at any stack level', () => {
+    for (const purpose of ['PriorityCharging', 'LocalGeneration']) {
+      const profile = { profileId: 7, purpose, stackLevel: 0 };
+      expect(mayOverrideLoadManagement(profile)).toBe(true);
+      expect(overridesLoadManagement(profile, null)).toBe(true);
+    }
+    // TxDefault and another TxProfile stay below the station limit.
+    for (const purpose of ['TxDefaultProfile', 'TxProfile']) {
+      expect(overridesLoadManagement({ profileId: 7, purpose, stackLevel: 9 }, null)).toBe(false);
+    }
+  });
+
+  const clear = (c: Partial<Parameters<typeof clearRemovesLoadManagement>[0]>) => ({
+    chargingProfileId: null,
+    chargingProfilePurpose: null,
+    stackLevel: null,
+    evseId: null,
+    ...c,
+  });
+
+  it('finds every clear that can match the station limit or the credit profile', () => {
+    for (const criteria of [
+      clear({}),
+      clear({ chargingProfileId: 1_000_000_000 }),
+      clear({ chargingProfileId: 1_000_000_001 }),
+      clear({ chargingProfilePurpose: 'ChargingStationMaxProfile' }),
+      clear({ chargingProfilePurpose: 'ChargePointMaxProfile', stackLevel: 1 }),
+      clear({ stackLevel: 2 }),
+      clear({ evseId: 0 }),
+    ]) {
+      expect(clearRemovesLoadManagement(criteria, null), JSON.stringify(criteria)).toBe(true);
+    }
+    for (const criteria of [
+      clear({ chargingProfileId: 5 }),
+      clear({ chargingProfilePurpose: 'TxDefaultProfile' }),
+      clear({ chargingProfilePurpose: 'ChargingStationMaxProfile', stackLevel: 0 }),
+      clear({ stackLevel: 3 }),
+      clear({ evseId: 1 }),
+    ]) {
+      expect(clearRemovesLoadManagement(criteria, null), JSON.stringify(criteria)).toBe(false);
+    }
+    // The ids follow MaxExternalConstraintsId.
+    expect(
+      clearRemovesLoadManagement(clear({ chargingProfileId: 1_000_000_000 }), 2_000_000_000),
+    ).toBe(false);
+    expect(
+      clearRemovesLoadManagement(clear({ chargingProfileId: 2_000_000_001 }), 2_000_000_000),
+    ).toBe(true);
+  });
+
+  it('refuses such a clear only on a managed station, reading nothing for other clears', async () => {
+    selectRows.queue = [[{ id: 'sta_1' }], [{ id: 'sta_1' }]];
+    expect(await loadManagedClearConflict('CS-1', {})).toBe(true);
+    selectRows.queue = [[{ id: 'sta_1' }], []];
+    expect(await loadManagedClearConflict('CS-1', {})).toBe(false);
+    selectRows.queue = [];
+    expect(await loadManagedClearConflict('CS-1', { chargingProfileId: 5 })).toBe(false);
+    expect(
+      await loadManagedClearConflict('CS-1', {
+        chargingProfileCriteria: { chargingProfilePurpose: 'TxDefaultProfile' },
+      }),
+    ).toBe(false);
+  });
+
+  it('refuses any profile with the TxProfile id of a session limited per EVSE', async () => {
+    const id = chargingNeedsProfileId('CS-1', 'tx-1');
+    expect(await evseManagedProfileIdConflict('CS-1', PLAN_TX_PROFILE_ID_MIN - 1)).toBeNull();
+    selectRows.executed = [[{ transaction_id: 'tx-1' }], [{ id: 'sta_1', mode: 'evse' }]];
+    expect(await evseManagedProfileIdConflict('CS-1', id)).toBe('tx-1');
+    selectRows.executed = [[{ transaction_id: 'tx-1' }], [{ id: 'sta_1', mode: 'station' }], []];
+    expect(await evseManagedProfileIdConflict('CS-1', id)).toBeNull();
+    selectRows.executed = [];
+  });
+});
+
+describe('unit box defaults belong to load management (I7)', () => {
+  const managed = (): void => {
+    // Box EVSEs, then the managed station check (station row, managed ids).
+    selectRows.executed = [[{ evse_id: 3 }, { evse_id: 4 }]];
+    selectRows.queue = [[{ id: 'sta_1' }], [{ id: 'sta_1' }], []];
+  };
+  const set = (purpose: string, stackLevel: number, evseId: number, id = 7) => ({
+    evseId,
+    chargingProfile: { id, chargingProfilePurpose: purpose, stackLevel },
+  });
+
+  it('refuses another TxDefaultProfile at stack level 1 or above on EVSE 0 or a box EVSE', async () => {
+    managed();
+    expect(await unitBoxDefaultConflict('CS-1', set('TxDefaultProfile', 1, 3))).toBe(3);
+    managed();
+    expect(await unitBoxDefaultConflict('CS-1', set('TxDefaultProfile', 2, 0))).toBe(0);
+    managed();
+    expect(await unitBoxDefaultConflict('CS-1', set('TxDefaultProfile', 1, 9))).toBeNull();
+    expect(await unitBoxDefaultConflict('CS-1', set('TxDefaultProfile', 0, 3))).toBeNull();
+    expect(await unitBoxDefaultConflict('CS-1', set('TxProfile', 1, 3))).toBeNull();
+    selectRows.executed = [];
+    selectRows.queue = [];
+  });
+
+  it('refuses any profile with the default id of a box EVSE', async () => {
+    managed();
+    expect(await unitBoxDefaultConflict('CS-1', set('TxProfile', 0, 1, 1_000_000_005))).toBe(4);
+    selectRows.executed = [[]];
+    expect(await unitBoxDefaultConflict('CS-1', set('TxProfile', 0, 1, 1_000_000_005))).toBeNull();
+    selectRows.queue = [];
+  });
+
+  it('refuses a clear that can remove a default', async () => {
+    managed();
+    expect(await unitBoxDefaultClearConflict('CS-1', { chargingProfileId: 1_000_000_004 })).toBe(
+      true,
+    );
+    managed();
+    expect(
+      await unitBoxDefaultClearConflict('CS-1', {
+        chargingProfileCriteria: { chargingProfilePurpose: 'TxDefaultProfile' },
+      }),
+    ).toBe(true);
+    expect(
+      await unitBoxDefaultClearConflict('CS-1', {
+        chargingProfileCriteria: { chargingProfilePurpose: 'TxProfile' },
+      }),
+    ).toBe(false);
+    expect(await unitBoxDefaultClearConflict('CS-1', { chargingProfileId: 12 })).toBe(false);
+    selectRows.executed = [];
+    selectRows.queue = [];
   });
 });

@@ -17,6 +17,7 @@ import {
   PANEL_VOLTAGES,
   TRANSFORMER_KINDS,
   TRANSFORMER_LOADING_LIMIT_RANGE,
+  TRANSFORMER_PHASES,
   TRANSFORMER_POWER_FACTOR_RANGE,
   TRANSFORMER_RATED_KVA_RANGE,
   isPanelVoltageAllowed,
@@ -66,7 +67,9 @@ const ratedKvaField = z
 const phasesField = z
   .number()
   .int()
-  .refine((v) => v === 1 || v === 3, { message: 'Phases must be 1 or 3' })
+  .refine((v) => (TRANSFORMER_PHASES as readonly number[]).includes(v), {
+    message: 'Phases must be 1 or 3',
+  })
   .describe('Number of phases (1 or 3)');
 const secondaryVoltageField = z
   .number()

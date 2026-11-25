@@ -44,6 +44,7 @@ function makeChain() {
     'delete',
     'insert',
     'update',
+    'for',
   ];
   for (const m of methods) {
     chain[m] = vi.fn(() => chain);
@@ -102,6 +103,8 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: {},
   connectors: {},
   evses: {},
+  circuits: {},
+  panels: {},
   loadAllocationLog: {},
   loadAllocationEntries: {},
   isFleetChargingEnabled: () => isFleetChargingEnabledMock() as unknown,
@@ -145,13 +148,16 @@ vi.mock('../lib/site-access.js', () => ({
   invalidateSiteAccessCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/services/load-management.service', () => ({
+vi.mock('@evtivity/services/load-management-site-allocation', () => ({
   computeSiteAllocation: vi.fn(async (siteId: string, strategy: string) => {
-    const svc = await import('@evtivity/services/load-management.service');
-    const status = await svc.getSitePowerStatus(siteId);
-    const hierarchy = await svc.buildSiteHierarchy(siteId, status.stations);
+    const { getSitePowerStatus } = await import('@evtivity/services/load-management-site-status');
+    const { buildSiteHierarchy } = await import('@evtivity/services/load-management-hierarchy');
+    const { computeHierarchicalAllocation } =
+      await import('@evtivity/services/load-management-allocation');
+    const status = await getSitePowerStatus(siteId);
+    const hierarchy = await buildSiteHierarchy(siteId, status.stations);
     const allocations =
-      hierarchy.length > 0 ? svc.computeHierarchicalAllocation(hierarchy, strategy as never) : [];
+      hierarchy.length > 0 ? computeHierarchicalAllocation(hierarchy, strategy as never) : [];
     return {
       status,
       hierarchy,
@@ -159,13 +165,35 @@ vi.mock('@evtivity/services/load-management.service', () => ({
       reservedKw: new Map(),
       allocations,
       evseLimits: new Map(),
+      evseDefaults: new Map(),
+      boxChecks: new Map(),
+      retries: [],
+      storedLimits: new Map(),
+      holdRaises: false,
     };
   }),
+}));
+
+vi.mock('@evtivity/services/load-management-phases', () => ({
   nodeCapacityKw: (node: { maxContinuousKw: number; safetyMarginKw: number }) =>
     node.maxContinuousKw - node.safetyMarginKw,
+}));
+
+vi.mock('@evtivity/services/load-management-send', () => ({
   clearLoadManagementProfiles: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock('@evtivity/services/load-management-plan-bridge', () => ({
   clearPlanProfilesOnDisable: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@evtivity/services/load-limit-entries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/services/load-limit-entries')>()),
+  entriesAfterConfigSave: vi.fn((locked: unknown) => locked),
   parseAppliedAllocations: vi.fn(() => null),
+}));
+
+vi.mock('@evtivity/services/load-management-site-status', () => ({
   stationConnectedKw: vi.fn(() => 0),
   getSitePowerStatus: vi.fn().mockResolvedValue({
     totalDrawKw: 50,
@@ -196,7 +224,13 @@ vi.mock('@evtivity/services/load-management.service', () => ({
       },
     ],
   }),
+}));
+
+vi.mock('@evtivity/services/load-management-hierarchy', () => ({
   buildSiteHierarchy: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('@evtivity/services/load-management-allocation', () => ({
   computeHierarchicalAllocation: vi.fn().mockReturnValue([
     {
       stationDbId: 'sit_000000000001',
@@ -218,11 +252,9 @@ vi.mock('../lib/load-management-audit.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { loadManagementRoutes } from '../routes/load-management.js';
-import {
-  clearLoadManagementProfiles,
-  clearPlanProfilesOnDisable,
-  computeSiteAllocation,
-} from '@evtivity/services/load-management.service';
+import { clearLoadManagementProfiles } from '@evtivity/services/load-management-send';
+import { clearPlanProfilesOnDisable } from '@evtivity/services/load-management-plan-bridge';
+import { computeSiteAllocation } from '@evtivity/services/load-management-site-allocation';
 
 const VALID_SITE_ID = 'sit_000000000001';
 const VALID_STATION_ID = 'sta_000000000001';
@@ -428,6 +460,11 @@ describe('Load management routes', () => {
         baseKw: new Map(),
         creditValidToMs: null,
         evseLimits: new Map([[VALID_STATION_ID, [limit]]]),
+        evseDefaults: new Map(),
+        boxChecks: new Map(),
+        retries: [],
+        storedLimits: new Map(),
+        holdRaises: false,
       });
     }
 
@@ -464,9 +501,71 @@ describe('Load management routes', () => {
           phases: 3,
           reason: 'tariff_limit',
           paused: false,
+          phaseSwitchingSupported: false,
+          phaseToUse: null,
           sessionId: 'ses_1',
         },
       ]);
+    });
+
+    it('GET shows phase switching of the EVSE and the phase its car is sent to', async () => {
+      setupDbResults([
+        {
+          siteId: VALID_SITE_ID,
+          strategy: 'equal_share',
+          isEnabled: true,
+          departureBufferMinutes: 30,
+        },
+      ]);
+      const switching = {
+        ...cappedStation,
+        sessions: cappedStation.sessions.map((x) => ({ ...x, phaseSwitching: true })),
+      };
+      vi.mocked(computeSiteAllocation).mockResolvedValueOnce({
+        status: { totalDrawKw: 4, stations: [switching] },
+        hierarchy: [
+          {
+            type: 'circuit',
+            id: 'cir_1',
+            name: 'Circuit',
+            maxContinuousKw: 22,
+            safetyMarginKw: 0,
+            unmanagedLoadKw: 0,
+            currentDrawKw: 4,
+            stations: [switching],
+            children: [],
+            phases: 3,
+            breakerRatingAmps: 32,
+            voltageV: 230,
+            oversubscriptionRatio: 1,
+            phaseConnections: null,
+            phaseLoad: null,
+            perPhaseCapacityKw: null,
+          },
+        ],
+        managed: [switching],
+        reservedKw: new Map(),
+        allocations: [],
+        baseKw: new Map(),
+        creditValidToMs: null,
+        evseLimits: new Map([[VALID_STATION_ID, [{ ...limit, phases: 1, phaseToUse: 2 }]]]),
+        evseDefaults: new Map(),
+        boxChecks: new Map(),
+        retries: [],
+        storedLimits: new Map(),
+        holdRaises: false,
+      });
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${VALID_SITE_ID}/load-management`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).stations[0].evseLimits[0]).toMatchObject({
+        phases: 1,
+        phaseSwitchingSupported: true,
+        phaseToUse: 2,
+      });
     });
 
     it('GET leaves out session ids without sessions:read and the warning without pricing:read', async () => {
@@ -603,6 +702,7 @@ describe('Load management routes', () => {
           updatedAt: new Date('2026-01-01T00:00:00Z'),
         },
       ],
+      [{ appliedAllocations: null }],
       [
         {
           id: 1,
@@ -650,7 +750,7 @@ describe('Load management routes', () => {
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     };
-    setupDbResults([row], [row]);
+    setupDbResults([row], [{ appliedAllocations: null }], [row]);
     const response = await app.inject({
       method: 'PUT',
       url: `/sites/${VALID_SITE_ID}/load-management`,
@@ -676,6 +776,13 @@ describe('Load management routes', () => {
           ],
           createdAt: new Date('2026-01-01T00:00:00Z'),
           updatedAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ],
+      [
+        {
+          appliedAllocations: [
+            { stationId: 'STATION-OLD', stationDbId: 'sta_old', allocatedKw: 10 },
+          ],
         },
       ],
       [
@@ -709,6 +816,12 @@ describe('Load management routes', () => {
     );
     // The depot plan TxProfiles of the site are cleared too.
     expect(clearPlanProfilesOnDisable).toHaveBeenCalledWith(VALID_SITE_ID, expect.anything());
+    // The records are rewritten from the locked row, every one unknown (the clears remove the limits).
+    const { entriesAfterConfigSave } = await import('@evtivity/services/load-limit-entries');
+    expect(vi.mocked(entriesAfterConfigSave)).toHaveBeenCalledWith(
+      [{ stationId: 'STATION-OLD', stationDbId: 'sta_old', allocatedKw: 10 }],
+      { turnsOff: true },
+    );
     // Load management never manages a conformance test station.
     const { isOperatorStation } = await import('@evtivity/database');
     expect(vi.mocked(isOperatorStation)).toHaveBeenCalled();
@@ -1126,6 +1239,7 @@ describe('Load management routes', () => {
       // A site already on Departure Aware keeps saving its other fields.
       setupDbResults(
         [existingConfig('departure_aware')],
+        [{ appliedAllocations: null }],
         [{ ...existingConfig('departure_aware'), departureBufferMinutes: 60 }],
       );
       const kept = await app.inject({

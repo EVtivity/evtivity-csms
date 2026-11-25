@@ -15,6 +15,7 @@ const h = vi.hoisted(() => {
     const c: Record<string, unknown> = {};
     for (const m of [
       'from',
+      'leftJoin',
       'where',
       'values',
       'onConflictDoUpdate',
@@ -62,7 +63,8 @@ vi.mock('@evtivity/database', () => ({
   cssConfigVariables: {},
   evses: {},
   connectors: {},
-  chargingStations: {},
+  chargingStations: { stationId: 'cs.station_id', siteId: 'cs.site_id' },
+  sites: { id: 'sites.id', country: 'sites.country' },
   vendors: {},
 }));
 
@@ -71,10 +73,16 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn((...conds: unknown[]) => ({ and: conds })),
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  mapConnectorTypeToCss: (t: string) => `css-${t}`,
+vi.mock('@evtivity/lib', async () => ({
+  mapConnectorTypeToCss: (t: string) =>
+    ({ Type1: 'ac_type1', Type2: 'ac_type2', CCS1: 'dc_ccs1', CCS2: 'dc_ccs2' })[t] ?? 'ac_type2',
   randomCssConnectorType: () => 'ac_type2',
   buildCssConfigDefaults: () => [],
+  cssEvseSupply: (
+    await vi.importActual<typeof import('@evtivity/lib/css-evse-supply')>(
+      '@evtivity/lib/css-evse-supply',
+    )
+  ).cssEvseSupply,
 }));
 
 import { mirrorCssConnectors, removeCssConnectors } from '../lib/css-pairing.js';
@@ -94,7 +102,7 @@ beforeEach(() => {
 
 describe('mirrorCssConnectors', () => {
   it('finds the paired simulator by the OCPP identity', async () => {
-    h.setSelect([{ id: 'css_1' }]);
+    h.setSelect([{ id: 'css_1', country: 'DE' }]);
     await mirrorCssConnectors(exec, 'CS-1', [
       { evseId: 2, connectorId: 1, connectorType: 'CCS2', maxPowerKw: 150 },
     ]);
@@ -103,20 +111,36 @@ describe('mirrorCssConnectors', () => {
       cssStationId: 'css_1',
       evseId: 2,
       connectorId: 1,
-      connectorType: 'css-CCS2',
+      connectorType: 'dc_ccs2',
       maxPowerW: 150000,
+      phases: 3,
+      voltage: 230,
     });
     expect(callsOf('insert', 'onConflictDoUpdate')[0]?.[0]).toMatchObject({
-      set: { connectorType: 'css-CCS2', maxPowerW: 150000 },
+      set: { connectorType: 'dc_ccs2', maxPowerW: 150000, phases: 3, voltage: 230 },
+    });
+  });
+
+  it('gives a new North American Type 1 plug one 208 V phase, also on an existing row', async () => {
+    h.setSelect([{ id: 'css_1', country: 'US' }]);
+    await mirrorCssConnectors(exec, 'CS-1', [
+      { evseId: 1, connectorId: 1, connectorType: 'Type1', maxPowerKw: 6.66 },
+    ]);
+    expect(callsOf('insert', 'values')[0]?.[0]).toMatchObject({
+      connectorType: 'ac_type1',
+      phases: 1,
+      voltage: 208,
+    });
+    expect(callsOf('insert', 'onConflictDoUpdate')[0]?.[0]).toMatchObject({
+      set: { connectorType: 'ac_type1', phases: 1, voltage: 208 },
     });
   });
 
   it('keeps the simulator values the operator did not send', async () => {
-    h.setSelect([{ id: 'css_1' }]);
+    h.setSelect([{ id: 'css_1', country: 'US' }]);
     await mirrorCssConnectors(exec, 'CS-1', [{ evseId: 1, connectorId: 1, maxPowerKw: 22 }]);
-    expect(callsOf('insert', 'onConflictDoUpdate')[0]?.[0]).toMatchObject({
-      set: { maxPowerW: 22000 },
-    });
+    const update = callsOf('insert', 'onConflictDoUpdate')[0]?.[0] as { set: object };
+    expect(update.set).toEqual({ maxPowerW: 22000 });
     await mirrorCssConnectors(exec, 'CS-1', [{ evseId: 1, connectorId: 2 }]);
     expect(callsOf('insert', 'onConflictDoNothing')).toHaveLength(1);
   });

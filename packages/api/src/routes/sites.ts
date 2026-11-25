@@ -219,7 +219,7 @@ import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
-import { forgetRememberedEnergyAssets } from '@evtivity/services/load-management.service';
+import { forgetRememberedEnergyAssets } from '@evtivity/services/load-management-energy-assets';
 import { setSiteFreeVend } from '../services/free-vend.service.js';
 import { siteInScope } from '../lib/site-scope.js';
 import {

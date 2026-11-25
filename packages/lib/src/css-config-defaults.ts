@@ -295,6 +295,21 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
       t(`EVSE${evseScope}.AvailabilityState`, 'Available', false),
       t(`EVSE${evseScope}.Power`, String(evse.maxPowerW), true),
     );
+    // SupplyPhases is 0 for DC. A three-phase AC EVSE can move a single-phase
+    // car to the phase the CSMS names (phaseToUse, K01.FR.20).
+    const ac = evse.connectorType === 'ac_type1' || evse.connectorType === 'ac_type2';
+    const acPhases = evse.phases >= 3 ? 3 : 1;
+    base.push(t(`EVSE${evseScope}.SupplyPhases`, ac ? String(acPhases) : '0', true));
+    if (ac) {
+      base.push(
+        t(`EVSE${evseScope}.PhaseRotation`, acPhases === 3 ? 'RST' : 'Rxx', true),
+        t(
+          `SmartChargingCtrlr${evseScope}.ACPhaseSwitchingSupported`,
+          acPhases === 3 ? 'true' : 'false',
+          true,
+        ),
+      );
+    }
   }
 
   return base;

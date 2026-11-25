@@ -410,8 +410,11 @@ describe('Event projections', () => {
 
       await eventBus.emit('station.Connected', makeDomainEvent('station.Connected', 'UNKNOWN', {}));
 
-      // Only the lookup call should have been made
-      expect(sqlCalls.length).toBe(1);
+      // Only the lookup call (the load management resend and recompute are
+      // their own subscription, keyed by the OCPP identity).
+      expect(
+        sqlCalls.filter((c) => !c.strings.join('').includes('site_load_management')).length,
+      ).toBe(1);
     });
 
     it('sends queued commands and refreshes the screen when the station is ready', async () => {

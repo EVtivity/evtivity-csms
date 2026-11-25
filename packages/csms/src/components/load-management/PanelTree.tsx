@@ -59,6 +59,7 @@ interface CircuitStatus {
   availableKw: number;
   phaseConnections?: string | null;
   voltageV?: number | null;
+  phaseRotation?: string | null;
   stations: CircuitStation[];
   unmanagedLoads: UnmanagedLoad[];
 }
@@ -845,6 +846,15 @@ function CircuitNode({
             {circuit.voltageV != null && (
               <Badge variant="outline" className="text-xs px-1.5 py-0">
                 {circuit.voltageV}V
+              </Badge>
+            )}
+            {circuit.phaseRotation != null && (
+              <Badge
+                variant="outline"
+                className="text-xs px-1.5 py-0"
+                title={t('loadManagement.phaseRotation')}
+              >
+                {circuit.phaseRotation}
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">

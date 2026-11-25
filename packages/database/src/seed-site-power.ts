@@ -50,6 +50,7 @@ import {
   saveSiteLayout,
 } from './lib/station-layout.js';
 import { LAYOUT_DEMO } from './seed-demo-layout-plan.js';
+import { EUROPE_DEMO } from './seed-demo-europe.js';
 import {
   MAX_OVERSUBSCRIPTION_RATIO,
   panelOversubscription,
@@ -555,7 +556,8 @@ export async function seedSitePower(
   sql: postgres.Sql,
   ctx: DemoFeatureContext,
 ): Promise<SitePowerSummary[]> {
-  const demoSites = LAYOUT_DEMO.sites.map((s) => s.id);
+  // The layout demo and the European demo site carry their own trees; this plan is North American.
+  const demoSites = [...LAYOUT_DEMO.sites.map((s) => s.id), EUROPE_DEMO.siteId];
   const sites = await sql<Array<{ id: string; name: string }>>`
     SELECT s.id, s.name FROM sites s
     WHERE s.id <> ALL(${demoSites})

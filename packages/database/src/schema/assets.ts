@@ -9,6 +9,7 @@ import {
   serial,
   varchar,
   integer,
+  smallint,
   numeric,
   boolean,
   timestamp,
@@ -206,6 +207,9 @@ export const chargingStations = pgTable(
     // Set when the station refused a per-EVSE limit: back to one station limit
     // until cleared. Written only by lib/load-management-state.ts.
     evseLimitsRefusedAt: timestamp('evse_limits_refused_at', { withTimezone: true }),
+    evseLimitRefusals: smallint('evse_limit_refusals').notNull().default(0),
+    // When the last per-EVSE limit refusal was counted; an older count starts again.
+    evseLimitRefusalAt: timestamp('evse_limit_refusal_at', { withTimezone: true }),
     circuitId: text('circuit_id'),
     securityProfile: integer('security_profile').notNull().default(1),
     pendingSecurityProfile: integer('pending_security_profile'),

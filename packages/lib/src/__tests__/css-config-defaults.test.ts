@@ -200,6 +200,34 @@ describe('buildCssConfigDefaults', () => {
       expect(m.get('EVSE[2].Power')).toBe('50000');
     });
 
+    it('reports the phases of each EVSE and phase switching on three-phase AC only', () => {
+      const m = keyMap(
+        buildCssConfigDefaults(
+          baseInput({
+            evses: [
+              { evseId: 1, connectorId: 1, connectorType: 'ac_type2', maxPowerW: 22000, phases: 3 },
+              { evseId: 2, connectorId: 1, connectorType: 'ac_type1', maxPowerW: 7400, phases: 1 },
+              { evseId: 3, connectorId: 1, connectorType: 'dc_ccs2', maxPowerW: 50000, phases: 3 },
+            ],
+          }),
+        ),
+      );
+      expect(m.get('EVSE[1].SupplyPhases')).toBe('3');
+      expect(m.get('EVSE[1].PhaseRotation')).toBe('RST');
+      expect(m.get('SmartChargingCtrlr[1].ACPhaseSwitchingSupported')).toBe('true');
+      expect(m.get('EVSE[2].SupplyPhases')).toBe('1');
+      expect(m.get('EVSE[2].PhaseRotation')).toBe('Rxx');
+      expect(m.get('SmartChargingCtrlr[2].ACPhaseSwitchingSupported')).toBe('false');
+      expect(m.get('EVSE[3].SupplyPhases')).toBe('0');
+      expect(m.has('EVSE[3].PhaseRotation')).toBe(false);
+      expect(m.has('SmartChargingCtrlr[3].ACPhaseSwitchingSupported')).toBe(false);
+    });
+
+    it('reports no 2.x phase variables to a 1.6 station', () => {
+      const m = keyMap(buildCssConfigDefaults(baseInput({ ocppProtocol: 'ocpp1.6' })));
+      expect([...m.keys()].some((k) => k.includes('ACPhaseSwitchingSupported'))).toBe(false);
+    });
+
     it('keeps Connector.Available global (not per-EVSE) so component-existence probes resolve', () => {
       const m = keyMap(buildCssConfigDefaults(baseInput()));
 

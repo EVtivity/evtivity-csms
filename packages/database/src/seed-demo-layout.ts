@@ -36,9 +36,10 @@ import type postgres from 'postgres';
 import argon2 from 'argon2';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
-import { mapConnectorTypeToCss } from '@evtivity/lib';
+import { mapConnectorTypeToCss, NA_DC_SUPPLY, NA_LEVEL_2_SUPPLY } from '@evtivity/lib';
 import { localDateInZone, scheduleOccurrences } from '@evtivity/lib/departure-schedule';
 import { bayToPosition, sameLayoutSettings } from '@evtivity/lib/site-layout';
+import { ENERGY_ASSET_READING_TTL_RANGE } from '@evtivity/lib/energy-supply';
 import { db } from './config.js';
 import { writeAudit } from './lib/audit.js';
 import {
@@ -73,11 +74,10 @@ import {
   updateCircuit,
   updatePanel,
   updateTransformer,
-  readUnitLoadBudgets,
-  setUnitLoadBudget,
   LoadTreeValidationError,
   type LoadTreeWriteContext,
 } from './lib/load-management-tree.js';
+import { readUnitLoadBudgets, setUnitLoadBudget } from './lib/load-management-unit-budgets.js';
 import {
   createEnergyAsset,
   deleteEnergyAsset,
@@ -364,8 +364,8 @@ async function seedSite(
     const isDc = station.kind === 'dc';
     const model = station.model ?? (isDc ? 'Terra 184' : 'Pulsar Plus');
     const serialNumber = station.serialNumber ?? `SN-LY-00${n}`;
-    const supply =
-      station.acSupply ?? (isDc ? { phases: 3, voltage: 400 } : { phases: 1, voltage: 208 });
+    // The New York sites: DC on 480Y/277 V switchboard breakers, AC on 2-pole 208 V circuits.
+    const supply = station.acSupply ?? (isDc ? NA_DC_SUPPLY : NA_LEVEL_2_SUPPLY);
     const created = await sql`
       INSERT INTO charging_stations (id, station_id, site_id, vendor_id, model, serial_number,
         firmware_version, onboarding_status, availability, is_online, security_profile,
@@ -647,6 +647,9 @@ function assetWiring(
   };
 }
 
+/** The reading lifetime earlier demo seeds stored (the column default before v0.1.53), seconds. */
+const DEMO_ASSET_TTL_BEFORE_S = 60;
+
 /**
  * The power equipment rows of a demo site's plan, through the load
  * management writers (each audited): every transformer and energy asset
@@ -727,6 +730,24 @@ async function seedLayoutEquipment(
           onlyIf: and(
             eq(siteEnergyAssets.name, before.name),
             beforeRating == null ? isNull(ratingColumn) : eq(ratingColumn, beforeRating),
+          ),
+        },
+        treeCtx,
+        assetOptions,
+      );
+    }
+    // Earlier demo seeds stored the old 60 s default, which gives no credit (the
+    // credit ends one clock margin and one cycle before the reading); an asset
+    // still at it takes the current default.
+    if (created == null) {
+      await updateEnergyAsset(
+        {
+          siteId,
+          assetId: id,
+          set: { readingTtlSeconds: ENERGY_ASSET_READING_TTL_RANGE.default },
+          onlyIf: and(
+            eq(siteEnergyAssets.name, a.name),
+            eq(siteEnergyAssets.readingTtlSeconds, DEMO_ASSET_TTL_BEFORE_S),
           ),
         },
         treeCtx,
@@ -1226,7 +1247,7 @@ async function seedUnitLoadBudgets(
   const existing = new Set((await readUnitLoadBudgets([stationId])).map((b) => b.unitId));
   const treeCtx: LoadTreeWriteContext = {
     ...auditActor(ctx),
-    notes: 'Site layout demo: unit load budget',
+    notes: 'Site layout demo: unit fuse rating, held to 80 percent',
   };
   let written = 0;
   for (const unit of units) {

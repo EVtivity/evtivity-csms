@@ -12,6 +12,7 @@ import {
   freeVendRestoreKeys16,
   freeVendRestoreVariables21,
   isOcpp21,
+  NA_LEVEL_2_SUPPLY,
   normalizeIccid,
 } from '@evtivity/lib';
 import type { ConfigTemplateVariable, TaxBasis } from '@evtivity/lib';
@@ -33,8 +34,10 @@ import type { FleetUserDemoCounts } from './seed-fleet-billing.js';
 import { seedLayoutDemo } from './seed-demo-layout.js';
 import { seedSitePower } from './seed-site-power.js';
 import { seedDemoAcRatings } from './seed-demo-ac-ratings.js';
+import { seedDemoCssSupply } from './seed-demo-css-supply.js';
+import { seedEuropeDemo } from './seed-demo-europe.js';
 import { demoAcConnectorKw } from './seed-station-defs.js';
-import { seedDemoVehicleLooks } from './seed-demo-vehicles.js';
+import { seedDemoVehicleAcPhases, seedDemoVehicleLooks } from './seed-demo-vehicles.js';
 import { seedDemoDriverAvatars } from './seed-demo-avatars.js';
 
 // Demo data of four features that are off or empty in a fresh demo: Plug and
@@ -497,7 +500,6 @@ export async function seedFreeVendDemo(
   const ocppWsUrl = process.env['SEED_CSS_TARGET_URL'] ?? 'ws://ocpp:7103';
   const stations: Array<(typeof demo.stations)[number]> = [];
   for (const station of demo.stations) {
-    const ocpp16 = station.ocppProtocol === 'ocpp1.6';
     await sql`
       INSERT INTO charging_stations (id, station_id, site_id, vendor_id, model, serial_number,
         firmware_version, onboarding_status, availability, is_online, security_profile,
@@ -536,7 +538,7 @@ export async function seedFreeVendDemo(
         phases, voltage)
       VALUES (${station.cssEvseId}, ${station.cssStationId}, 1, 1, 'ac_type1',
         ${Math.round(demoAcConnectorKw(32) * 1000)},
-        ${ocpp16 ? 1 : 3}, ${ocpp16 ? 240 : 230})
+        ${NA_LEVEL_2_SUPPLY.phases}, ${NA_LEVEL_2_SUPPLY.voltage})
       ON CONFLICT DO NOTHING
     `;
   }
@@ -1330,10 +1332,16 @@ export interface DemoFeatureCounts {
   powerSites: number;
   /** Base demo AC connectors moved from an earlier seed's rating to what their circuit carries. */
   acRatings: number;
+  /** Stations of the European demo site (seed-demo-europe.ts) this run inserted. */
+  europeStations: number;
+  /** Demo simulator EVSEs moved from an earlier seeded supply (seed-demo-css-supply.ts). */
+  cssSupply: number;
   /** Demo drivers given a generated avatar (seed-demo-avatars.ts). */
   driverAvatars: number;
   /** Demo vehicles given a color and body type (seed-demo-vehicles.ts). */
   vehicleLooks: number;
+  /** Demo vehicles given their AC phases this run. */
+  vehicleAcPhases: number;
   /** What this run did with the demo fleet user (seed-fleet-billing.ts). */
   fleetUser: FleetUserDemoCounts['fleetUser'];
   /** Demo fleet RFID cards this run created (seed-fleet-billing.ts). */
@@ -1376,11 +1384,17 @@ export async function seedDemoFeatures(
   const sims = await seedSimDemo(sql, ctx);
   const terminalPayments = await seedPaymentTerminalDemo(sql, ctx);
   const layout = await seedLayoutDemo(sql, ctx, vendor?.id ?? null);
+  // The European site writes its own 230/400 V tree, so the North American plan skips it.
+  const europeStations = await seedEuropeDemo(sql, ctx, vendor?.id ?? null);
+  // Simulator EVSEs an earlier seed left on a supply their circuit does not have.
+  const cssSupply = await seedDemoCssSupply(sql, ctx);
   // Every other site's transformers, switchboards and panelboards, sized to its stations.
   // AC connectors an earlier seed rated above their circuit, before the power plan reads them.
   const acRatingsCorrected = await seedDemoAcRatings(sql, ctx);
   const power = await seedSitePower(sql, ctx);
   const vehicleLooks = await seedDemoVehicleLooks(sql, ctx.actorUserId);
+  // After the looks, so a vehicle's body type decides whether it is a DC depot vehicle.
+  const vehicleAcPhases = await seedDemoVehicleAcPhases(sql, ctx.actorUserId);
   // The fleet user and fleet cards of the Northwind demo fleet, also on an
   // install seeded before they existed.
   const fleetUsers = await seedFleetUsersDemo(sql);
@@ -1399,8 +1413,11 @@ export async function seedDemoFeatures(
     unitBudgets: layout.unitBudgets,
     powerSites: power.filter((p) => p.treeWritten || p.layoutWritten).length,
     acRatings: acRatingsCorrected,
+    europeStations,
+    cssSupply,
     driverAvatars,
     vehicleLooks: vehicleLooks.vehicles,
+    vehicleAcPhases: vehicleAcPhases.vehicles,
     fleetUser: fleetUsers.fleetUser,
     fleetCards: fleetUsers.fleetCards,
     fleetHistorySessions: fleetHistory.sessions,

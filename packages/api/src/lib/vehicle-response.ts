@@ -102,6 +102,23 @@ export const vehicleBatteryBodyFields = {
     ),
 };
 
+/** The AC phases the vehicle's onboard charger uses, in a vehicle item (operator and portal). */
+export const vehicleAcPhasesItemFields = {
+  acPhases: z
+    .literal([1, 3])
+    .nullable()
+    .describe('AC phases the onboard charger uses (1 or 3); null when not known'),
+};
+
+/** The AC phases in an operator create or update body. Null removes the value. */
+export const vehicleAcPhasesBodyFields = {
+  acPhases: z
+    .literal([1, 3])
+    .nullable()
+    .optional()
+    .describe('AC phases the onboard charger uses (1 or 3). Null removes it (not known).'),
+};
+
 /** What the vehicle draws while it preconditions, in an operator vehicle item (bus depot interface). */
 export const vehiclePreconditioningItemFields = {
   preconditioningPowerKw: z

@@ -26,7 +26,7 @@ vi.mock('react-i18next', () => ({
 
 import { AccountVehicles } from '../AccountVehicles';
 
-function renderVehicles(): void {
+function renderVehicles(acPhases: number | null = null): void {
   getMock.mockImplementation((path: string) => {
     if (path === '/v1/portal/vehicles') {
       return Promise.resolve([
@@ -37,6 +37,7 @@ function renderVehicles(): void {
           year: '2025',
           color: 'green',
           bodyType: 'suv',
+          acPhases,
           vin: null,
           evccid: null,
           autochargeEnabled: false,
@@ -88,5 +89,14 @@ describe('AccountVehicles color and body type', () => {
     expect(addColor.value).toBe('');
     expect(addColor.options[0]?.textContent).toBe('vehicles.color: vehicles.notSet');
     expect(screen.getByLabelText<HTMLSelectElement>('vehicles.bodyType')).toBeTruthy();
+  });
+});
+
+describe('AccountVehicles AC phases', () => {
+  it('never shows the AC phases, which only operators keep', async () => {
+    renderVehicles(3);
+    await screen.findByLabelText<HTMLSelectElement>('vehicles.color: Kia EV9');
+    expect(screen.queryByText('vehicles.acPhases')).toBeNull();
+    expect(screen.queryByText('vehicles.acPhasesThree')).toBeNull();
   });
 });

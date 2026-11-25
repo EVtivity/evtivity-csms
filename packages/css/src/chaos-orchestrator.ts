@@ -26,6 +26,20 @@ import { logger } from './lib/logger.js';
 interface DriverToken {
   idToken: string;
   tokenType: string;
+  /** AC phases of the token's vehicle (the card's own, else the driver's first); null when not known. */
+  evPhases?: 1 | 3 | null;
+}
+
+/** The token a plug-in picked for the start that follows it, with its fleet when a fleet pays. */
+interface PluggedToken {
+  token: DriverToken;
+  fleet: FleetToken | null;
+}
+
+/** A vehicle AC phases value read from the database, null unless 1 or 3. */
+export function evPhasesOf(value: unknown): 1 | 3 | null {
+  const n = Number(value);
+  return n === 1 || n === 3 ? n : null;
 }
 
 function pick<T>(arr: T[]): T {
@@ -596,6 +610,7 @@ export class ChaosOrchestrator {
   private offlineStations: Set<string> = new Set();
   private chargingStations: Set<string> = new Set();
   private chargingTokenByStation: Map<string, string> = new Map();
+  private pluggedTokenByStation: Map<string, PluggedToken> = new Map();
   private freeVendStations: Set<string> = new Set();
   private readonly journeys = new ChaosJourneys();
   private readonly depotJourneys = new DepotJourneys();
@@ -646,8 +661,12 @@ export class ChaosOrchestrator {
     // driver whose every vehicle is a box truck, bus or semi truck charges at
     // its fleet's depot only (below), never in a public car spot.
     const publicRows = (
-      await this.sql<Array<{ id_token: string; token_type: string }>>`
-        SELECT t.id_token, t.token_type FROM driver_tokens t
+      await this.sql<Array<{ id_token: string; token_type: string; ac_phases: number | null }>>`
+        SELECT t.id_token, t.token_type,
+          (SELECT v.ac_phases FROM vehicles v
+           WHERE v.id = t.vehicle_id OR (t.vehicle_id IS NULL AND v.driver_id = t.driver_id)
+           ORDER BY v.created_at, v.id LIMIT 1) AS ac_phases
+        FROM driver_tokens t
         WHERE t.is_active = true
           AND t.revoked_at IS NULL
           AND (t.expires_at IS NULL OR t.expires_at > now())
@@ -669,7 +688,11 @@ export class ChaosOrchestrator {
             )
           )
       `
-    ).map((r) => ({ idToken: r.id_token, tokenType: r.token_type }));
+    ).map((r) => ({
+      idToken: r.id_token,
+      tokenType: r.token_type,
+      evPhases: evPhasesOf(r.ac_phases),
+    }));
     // Fleet tokens charge only through the fleet share, so the share holds.
     const fleetPool = await this.loadFleetPool();
     const fleetValues = new Set(fleetPool.map((t) => t.idToken));
@@ -723,6 +746,9 @@ export class ChaosOrchestrator {
                mf.fleet_id AS member_fleet_id,
                t.driver_id, d.is_active AS driver_active, d.erased_at AS driver_erased_at,
                d.email AS driver_email,
+               (SELECT v.ac_phases FROM vehicles v
+                WHERE v.id = t.vehicle_id OR (t.vehicle_id IS NULL AND v.driver_id = t.driver_id)
+                ORDER BY v.created_at, v.id LIMIT 1) AS ac_phases,
                (
                  EXISTS (
                    SELECT 1 FROM vehicles v
@@ -754,7 +780,12 @@ export class ChaosOrchestrator {
       for (const row of rows) {
         const fleetId = fleetOfToken(row, fleetsEnabled, now);
         if (fleetId != null) {
-          pool.push({ idToken: row.id_token, tokenType: row.token_type, fleetId });
+          pool.push({
+            idToken: row.id_token,
+            tokenType: row.token_type,
+            fleetId,
+            evPhases: evPhasesOf(row.ac_phases),
+          });
         }
       }
       return pool;
@@ -837,6 +868,9 @@ export class ChaosOrchestrator {
     for (const id of [...this.chargingTokenByStation.keys()]) {
       if (!liveIds.has(id)) this.chargingTokenByStation.delete(id);
     }
+    for (const id of [...this.pluggedTokenByStation.keys()]) {
+      if (!liveIds.has(id)) this.pluggedTokenByStation.delete(id);
+    }
     this.journeys.retain(liveIds);
 
     this.tokens = tokens;
@@ -903,6 +937,42 @@ export class ChaosOrchestrator {
     }
   }
 
+  /**
+   * The tokens chaos may not start with now: charging at a station, held by
+   * a vehicle at a depot, or picked by a plug-in at another station.
+   */
+  private busyTokens(stationId: string): Set<string> {
+    const busy = new Set([
+      ...this.chargingTokenByStation.values(),
+      ...this.depotJourneys.heldTokens(),
+    ]);
+    for (const [id, plugged] of this.pluggedTokenByStation) {
+      if (id !== stationId) busy.add(plugged.token.idToken);
+    }
+    return busy;
+  }
+
+  /**
+   * The token of the next start at a station: a fleet token for the fleet
+   * share (never at a free vend site), else a free token of the public pool.
+   * Null when every driver is busy.
+   */
+  private pickStartToken(
+    stationId: string,
+    protocol: OcppProtocol,
+    pool: DriverToken[],
+    now: number,
+  ): PluggedToken | null {
+    const busy = this.busyTokens(stationId);
+    const fleetToken = this.freeVendStations.has(stationId)
+      ? null
+      : this.fleet.pick(protocol, busy, now);
+    if (fleetToken != null) return { token: fleetToken, fleet: fleetToken };
+    const available = pool.filter((p) => !busy.has(p.idToken));
+    if (available.length === 0) return null;
+    return { token: pick(available), fleet: null };
+  }
+
   /** A refused fleet start backs its card off and frees it at its station. */
   private onCommandResult(result: CssCommandResult): void {
     const refused = this.fleet.onResult(result, Date.now());
@@ -923,6 +993,7 @@ export class ChaosOrchestrator {
     this.offlineStations.delete(stationId);
     this.chargingStations.delete(stationId);
     this.chargingTokenByStation.delete(stationId);
+    this.pluggedTokenByStation.delete(stationId);
     this.journeys.drop(stationId);
     this.depotStations.delete(stationId);
     this.depotJourneys.drop(stationId);
@@ -1069,34 +1140,41 @@ export class ChaosOrchestrator {
       params = step.params;
       depotVehicle = step.vehicle;
     } else if (action.name === 'startCharging') {
-      // Pick a token without an active session or a vehicle plugged in at a depot
-      const busy = new Set([
-        ...this.chargingTokenByStation.values(),
-        ...this.depotJourneys.heldTokens(),
-      ]);
-      const fleetToken = this.freeVendStations.has(stationId)
-        ? null
-        : this.fleet.pick(protocol, busy, now);
-      let t: DriverToken;
-      if (fleetToken != null) {
-        t = fleetToken;
-        fleetStart = fleetToken;
-      } else {
-        const available = pool.filter((p) => !busy.has(p.idToken));
-        if (available.length === 0) {
-          return; // All drivers are charging, skip
-        }
-        t = pick(available);
+      // The token the plug-in picked, so the car that plugged in is the one
+      // that charges; else a token without an active session.
+      const plugged = this.pluggedTokenByStation.get(stationId);
+      this.pluggedTokenByStation.delete(stationId);
+      const busy = this.busyTokens(stationId);
+      const chosen =
+        plugged != null && !busy.has(plugged.token.idToken)
+          ? plugged
+          : this.pickStartToken(stationId, protocol, pool, now);
+      if (chosen == null) {
+        return; // All drivers are charging, skip
       }
+      const t = chosen.token;
+      fleetStart = chosen.fleet;
       params = { evseId: 1, idToken: t.idToken, tokenType: t.tokenType };
       this.chargingStations.add(stationId);
       this.chargingTokenByStation.set(stationId, t.idToken);
+    } else if (action.name === 'plugIn') {
+      // The driver who plugs in is picked now, so the EV reports the AC
+      // phases of that driver's vehicle and the start that follows uses
+      // the same driver.
+      params = action.params(pool);
+      const chosen = this.pickStartToken(stationId, protocol, pool, now);
+      if (chosen != null) {
+        this.pluggedTokenByStation.set(stationId, chosen);
+        const evPhases = chosen.token.evPhases ?? null;
+        if (evPhases != null) params = { ...params, ev: { evPhases } };
+      }
     } else {
       params = action.params(pool);
       if (action.name === 'stopCharging' || action.name === 'unplug') {
         this.chargingStations.delete(stationId);
         this.chargingTokenByStation.delete(stationId);
       }
+      if (action.name === 'unplug') this.pluggedTokenByStation.delete(stationId);
     }
 
     const commandId = randomUUID();

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TransformerKind } from '@evtivity/lib/load-allocation';
+import { ENERGY_ASSET_CREDIT_MIN_TTL_SECONDS } from '@evtivity/lib/energy-supply';
 import { ApiError } from '@/lib/api';
 import { formatNumber } from '@/lib/formatting';
 
@@ -145,6 +146,11 @@ export function refusedField(error: unknown): string | null {
   const body = error.body as { code?: unknown; field?: unknown } | null;
   if (body == null || typeof body !== 'object') return null;
   return body.code === 'VALIDATION_ERROR' && typeof body.field === 'string' ? body.field : null;
+}
+
+/** True when readings sent with this lifetime are too short-lived to give any credit. */
+export function readingTtlGivesNoCredit(telemetry: string, readingTtlSeconds: number): boolean {
+  return telemetry !== 'none' && readingTtlSeconds <= ENERGY_ASSET_CREDIT_MIN_TTL_SECONDS;
 }
 
 /** Translation key of a supply state badge. */

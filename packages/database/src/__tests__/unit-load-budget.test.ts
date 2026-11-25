@@ -53,11 +53,8 @@ vi.mock('../config.js', () => {
 
 vi.mock('../lib/audit.js', () => ({ writeAudit: writeAuditMock }));
 
-import {
-  clearUnitLoadBudget,
-  LoadTreeValidationError,
-  setUnitLoadBudget,
-} from '../lib/load-management-tree.js';
+import { clearUnitLoadBudget, setUnitLoadBudget } from '../lib/load-management-unit-budgets.js';
+import { LoadTreeValidationError } from '../lib/load-management-tree.js';
 import { stationUnitLoadBudgets } from '../schema/load-management.js';
 
 const SITE = 'sit_1';
@@ -190,6 +187,16 @@ describe('setUnitLoadBudget', () => {
     await expect(
       setUnitLoadBudget({ ...INPUT, budget: { kind: 'ac', maxCurrentA: 32 } }, CTX),
     ).rejects.toBeInstanceOf(LoadTreeValidationError);
+  });
+
+  it('refuses an AC fuse whose 80 percent stays below 6 A', async () => {
+    state.results = [[{ circuitId: 'cir_1' }], [{ name: 'Box 1' }], [type2('evs_1')]];
+    const refused = setUnitLoadBudget(
+      { ...INPUT, budget: { kind: 'ac', maxCurrentA: 7.4, phases: 3 } },
+      CTX,
+    );
+    await expect(refused).rejects.toBeInstanceOf(LoadTreeValidationError);
+    await expect(refused).rejects.toMatchObject({ field: 'maxCurrentA' });
   });
 
   it('writes no audit row for the same budget', async () => {

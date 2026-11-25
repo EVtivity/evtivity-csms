@@ -35,31 +35,11 @@ import {
   assertNoStationCredentialWrite,
 } from '../lib/station-credential-guard.js';
 import {
-  isLoadManagedStationIdentity,
-  isPlannedConnectorSession,
-  isEvseManagedConnectorSession,
-  isEvseManagedTransaction,
-  evseManagedClearConflict,
-  evseManagedClearMessage,
-  evseManagedConnectorMessage,
-  evseManagedSessionMessage,
-  isPlannedTransaction,
-  plannedClearConflict,
-  plannedClearMessage,
-  plannedConnectorMessage,
-  plannedProfileIdConflict,
-  plannedProfileIdMessage,
   isReservedProfileId,
-  loadManagedMessage,
   maxExternalConstraintsIdByIdentity,
-  mayOverrideLoadManagement,
-  overridesLoadManagement,
-  plannedSessionMessage,
-  profileIdentityFromRequest,
   reservedProfileIdMessage,
-  txProfileConnectorWithoutTransaction,
-  txProfileTransactionId,
 } from '../lib/charging-profile-id.js';
+import { loadManagementProfileConflict } from '../lib/load-management-profile-conflict.js';
 
 // --- v21 type imports ---
 import {
@@ -360,119 +340,31 @@ async function dispatchCommandRaw(
         }
       }
     }
-    // A profile that would lift the load management limit of the station
-    // (2.1 chargingProfile or 1.6 csChargingProfiles).
-    const profile = profileIdentityFromRequest(payload);
-    if (mayOverrideLoadManagement(profile)) {
-      if (ocppVersion !== 'ocpp1.6' && maxExternalId == null) {
-        maxExternalId = await maxExternalConstraintsIdByIdentity(stationId);
-      }
-      if (
-        overridesLoadManagement(profile, maxExternalId) &&
-        (await isLoadManagedStationIdentity(stationId))
-      ) {
-        return {
-          code: 400,
-          body: {
-            error: loadManagedMessage(profile),
-            code: 'CHARGING_PROFILE_LOAD_MANAGED',
-            action,
-          },
-        };
-      }
-    }
-    // Any profile with the TxProfile id of a planned session replaces the plan
-    // profile, whatever its purpose (security review OCPP-L1).
-    const planIdTransaction = await plannedProfileIdConflict(stationId, profile.profileId);
-    if (planIdTransaction != null && profile.profileId != null) {
+    // 1.6 has no MaxExternalConstraintsId; a 2.x value read above is reused.
+    const conflict = await loadManagementProfileConflict(
+      stationId,
+      action,
+      payload,
+      ocppVersion === 'ocpp1.6'
+        ? { maxExternalId: null }
+        : maxExternalId != null
+          ? { maxExternalId }
+          : {},
+    );
+    if (conflict != null) {
       return {
         code: 400,
-        body: {
-          error: plannedProfileIdMessage(profile.profileId, planIdTransaction),
-          code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          action,
-        },
-      };
-    }
-    // A TxProfile for a session the depot plan charges would replace the plan.
-    const plannedTransaction = txProfileTransactionId(payload);
-    if (plannedTransaction != null && (await isPlannedTransaction(stationId, plannedTransaction))) {
-      return {
-        code: 400,
-        body: {
-          error: plannedSessionMessage(plannedTransaction),
-          code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          action,
-        },
-      };
-    }
-    // A TxProfile for a session load management limits per EVSE would lift its limit.
-    if (
-      plannedTransaction != null &&
-      (await isEvseManagedTransaction(stationId, plannedTransaction))
-    ) {
-      return {
-        code: 400,
-        body: {
-          error: evseManagedSessionMessage(plannedTransaction),
-          code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          action,
-        },
-      };
-    }
-    // A 1.6 TxProfile without a transactionId applies to the connector's transaction.
-    const plannedConnector = txProfileConnectorWithoutTransaction(payload);
-    if (
-      plannedConnector != null &&
-      (await isPlannedConnectorSession(stationId, plannedConnector))
-    ) {
-      return {
-        code: 400,
-        body: {
-          error: plannedConnectorMessage(plannedConnector),
-          code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          action,
-        },
-      };
-    }
-    if (
-      plannedConnector != null &&
-      (await isEvseManagedConnectorSession(stationId, plannedConnector))
-    ) {
-      return {
-        code: 400,
-        body: {
-          error: evseManagedConnectorMessage(plannedConnector),
-          code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          action,
-        },
+        body: { error: conflict, code: 'CHARGING_PROFILE_LOAD_MANAGED', action },
       };
     }
   }
 
-  if (action === 'ClearChargingProfile') {
-    // A clear that could remove the plan TxProfile of a planned session.
-    const plannedClear = await plannedClearConflict(stationId, payload);
-    if (plannedClear != null) {
+  if (action === 'ClearChargingProfile' || action === 'UsePriorityCharging') {
+    const conflict = await loadManagementProfileConflict(stationId, action, payload);
+    if (conflict != null) {
       return {
         code: 400,
-        body: {
-          error: plannedClearMessage(plannedClear),
-          code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          action,
-        },
-      };
-    }
-    // A clear that could remove the EVSE limit of a session limited per EVSE.
-    const evseClear = await evseManagedClearConflict(stationId, payload);
-    if (evseClear != null) {
-      return {
-        code: 400,
-        body: {
-          error: evseManagedClearMessage(evseClear),
-          code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          action,
-        },
+        body: { error: conflict, code: 'CHARGING_PROFILE_LOAD_MANAGED', action },
       };
     }
   }

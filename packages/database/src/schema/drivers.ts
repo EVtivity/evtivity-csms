@@ -375,6 +375,8 @@ export const vehicles = pgTable(
     preconditioningPowerKw: numeric('preconditioning_power_kw', { precision: 6, scale: 2 }),
     // Length of an automatic preconditioning window that names no start time.
     preconditioningMinutes: smallint('preconditioning_minutes').notNull().default(30),
+    // AC phases the onboard charger uses (1 or 3). Null: not known.
+    acPhases: smallint('ac_phases'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -416,6 +418,10 @@ export const vehicles = pgTable(
     check(
       'vehicles_preconditioning_minutes_check',
       sql`${table.preconditioningMinutes} BETWEEN 5 AND 240`,
+    ),
+    check(
+      'vehicles_ac_phases_check',
+      sql`${table.acPhases} IS NULL OR ${table.acPhases} IN (1, 3)`,
     ),
   ],
 );

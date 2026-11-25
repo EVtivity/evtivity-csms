@@ -5,13 +5,16 @@ import type { Sql } from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
 import { publishOcppCommand } from '@evtivity/lib';
 import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
+import { getDefaultMaxPowerW, isFleetChargingEnabled, markSitePlanStale } from '@evtivity/database';
+import { sessionProfileCap } from '@evtivity/services/session-profile-cap';
 import {
-  getDefaultMaxPowerW,
-  isFleetChargingEnabled,
-  markSitePlanStale,
-  operatorStationSql,
+  applyStationLimitEvent,
+  markLoadManagementStale,
+  requestLoadManagementRecompute,
 } from '@evtivity/database';
-import { sessionProfileCapKw } from '@evtivity/services/session-profile-cap';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('charging-profile-computer');
 import type { ChargingNeedsProfilePayload, StoredChargingNeedsProfile } from './charging-needs.js';
 
 interface ChargingNeedsInput {
@@ -91,8 +94,8 @@ export function requestedEnergyWh(needs: Record<string, unknown>): number | null
 }
 
 /**
- * The schedule limit in W: the lower of what the EV accepts, the connector,
- * the site headroom and the session cap (its tariff current limit and the
+ * The schedule limit in W: the lower of what the EV accepts, the connector
+ * and the session cap (its tariff current limit and the
  * EVSE limit load management holds), and, when the EV gave a departure time
  * and an energy amount, the rate that delivers that energy by the departure
  * time.
@@ -100,7 +103,6 @@ export function requestedEnergyWh(needs: Record<string, unknown>): number | null
 export function scheduleLimitW(input: {
   evMaxW: number;
   connectorMaxW: number | null;
-  siteAvailableW: number | null;
   sessionCapW?: number | null;
   energyWh: number | null;
   departureTime: string | null;
@@ -108,7 +110,6 @@ export function scheduleLimitW(input: {
 }): number {
   let limit = input.evMaxW;
   if (input.connectorMaxW != null) limit = Math.min(limit, input.connectorMaxW);
-  if (input.siteAvailableW != null) limit = Math.min(limit, input.siteAvailableW);
   if (input.sessionCapW != null) limit = Math.min(limit, input.sessionCapW);
   if (input.departureTime != null && input.energyWh != null) {
     const departure = new Date(input.departureTime).getTime();
@@ -194,98 +195,115 @@ export async function computeAndSendChargingProfile(
     connectorMaxW = Number(connectorRows[0].max_power_kw) * 1000;
   }
 
-  // Site headroom when the site has an enabled power limit: the limit minus
-  // the latest power reading of every other active session at the same site.
-  // Sessions at conformance test stations do not count against the limit.
-  let siteAvailableW: number | null = null;
-  const siteRows = await sql`
-    SELECT spl.max_power_kw, cs.site_id
-    FROM charging_stations cs
-    JOIN site_power_limits spl ON spl.site_id = cs.site_id
-    WHERE cs.id = ${stationUuid} AND spl.is_enabled = true
-    LIMIT 1
-  `;
-  if (siteRows[0]?.max_power_kw != null) {
-    const siteMaxW = Number(siteRows[0].max_power_kw) * 1000;
-    const siteId = siteRows[0].site_id as string;
-    const drawRows = await sql`
-      SELECT COALESCE(SUM(latest.value_w), 0) AS current_draw
-      FROM (
-        SELECT DISTINCT ON (mv.session_id)
-          CASE WHEN mv.unit = 'kW' THEN mv.value * 1000 ELSE mv.value END AS value_w
-        FROM meter_values mv
-        JOIN charging_sessions s ON s.id = mv.session_id
-        JOIN charging_stations st ON st.id = s.station_id
-        WHERE st.site_id = ${siteId}
-          AND s.station_id <> ${stationUuid}
-          AND ${sql.unsafe(operatorStationSql('st'))}
-          AND s.status = 'active'
-          AND mv.measurand = 'Power.Active.Import'
-          AND mv.phase IS NULL
-          AND mv.timestamp > now() - interval '5 minutes'
-        ORDER BY mv.session_id, mv.timestamp DESC
-      ) latest
-    `;
-    siteAvailableW = Math.max(0, siteMaxW - Number(drawRows[0]?.current_draw ?? 0));
-  }
-
   // The same profile id as the EVSE limit: never allow more than it, or the tariff limit.
-  const sessionCapKw = await sessionProfileCapKw(stationUuid, transactionId);
+  const { capKw: sessionCapKw, perEvse } = await sessionProfileCap(stationUuid, transactionId);
 
   const departureTime =
     typeof chargingNeeds.departureTime === 'string' ? chargingNeeds.departureTime : null;
-  const limit = scheduleLimitW({
-    evMaxW,
-    connectorMaxW,
-    siteAvailableW,
-    sessionCapW: sessionCapKw == null ? null : Math.floor(sessionCapKw * 1000),
-    energyWh: requestedEnergyWh(chargingNeeds),
-    departureTime,
-    now,
-  });
-
-  // One period now; maxScheduleTuples (at least 1) bounds the periods.
-  const periods: ChargingSchedulePeriod[] = [{ startPeriod: 0, limit }].slice(
-    0,
-    Math.max(1, maxScheduleTuples ?? DEFAULT_MAX_SCHEDULE_TUPLES),
-  );
+  const limitFor = (capKw: number | null): number =>
+    scheduleLimitW({
+      evMaxW,
+      connectorMaxW,
+      sessionCapW: capKw == null ? null : Math.floor(capKw * 1000),
+      energyWh: requestedEnergyWh(chargingNeeds),
+      departureTime,
+      now,
+    });
 
   const profileId = chargingNeedsProfileId(stationOcppId, transactionId);
-  const chargingSchedule = {
-    id: profileId,
-    // K01.FR.40: an Absolute profile carries startSchedule.
-    startSchedule: now.toISOString(),
-    chargingRateUnit: 'W',
-    chargingSchedulePeriod: periods,
-  };
-
-  // K15.FR.07 / K17.FR.07 / K18.FR.07: a TxProfile for the transaction, with
-  // one chargingSchedule (K15.FR.18).
-  const payload: ChargingNeedsProfilePayload = {
-    evseId,
-    chargingProfile: {
+  const send = async (limit: number): Promise<void> => {
+    // One period now; maxScheduleTuples (at least 1) bounds the periods.
+    const periods: ChargingSchedulePeriod[] = [{ startPeriod: 0, limit }].slice(
+      0,
+      Math.max(1, maxScheduleTuples ?? DEFAULT_MAX_SCHEDULE_TUPLES),
+    );
+    const chargingSchedule = {
       id: profileId,
-      stackLevel: 1,
-      chargingProfilePurpose: 'TxProfile',
-      chargingProfileKind: 'Absolute',
-      transactionId,
-      chargingSchedule: [chargingSchedule],
-    },
+      // K01.FR.40: an Absolute profile carries startSchedule.
+      startSchedule: now.toISOString(),
+      chargingRateUnit: 'W',
+      chargingSchedulePeriod: periods,
+    };
+
+    // K15.FR.07 / K17.FR.07 / K18.FR.07: a TxProfile for the transaction, with
+    // one chargingSchedule (K15.FR.18).
+    const payload: ChargingNeedsProfilePayload = {
+      evseId,
+      chargingProfile: {
+        id: profileId,
+        stackLevel: 1,
+        chargingProfilePurpose: 'TxProfile',
+        chargingProfileKind: 'Absolute',
+        transactionId,
+        chargingSchedule: [chargingSchedule],
+      },
+    };
+
+    // Stored before the send, so the EV schedule the station reports back is
+    // checked against it (K15.FR.11/12) even when the send is slow.
+    const stored: StoredChargingNeedsProfile = { payload, renegotiations: 0 };
+    await sql`
+      UPDATE ev_charging_needs SET csms_charging_profile = ${sql.json(stored as never)}
+      WHERE station_id = ${stationUuid} AND evse_id = ${evseId}
+    `;
+
+    // The TxProfile replaces the EVSE limit of the transaction: its record may
+    // hold this limit until the station answers (an EVSE send transition).
+    const commandId = crypto.randomUUID();
+    try {
+      await applyStationLimitEvent(sql, stationUuid, {
+        type: 'evseSend',
+        transactionId,
+        commandId,
+        kw: limit / 1000,
+      });
+    } catch (err: unknown) {
+      // Unrecorded, the profile could hold more than its EVSE record says: it is not sent.
+      logger.warn(
+        { err, stationId: stationOcppId, transactionId },
+        'Recording the ISO 15118 profile on the EVSE limit failed, profile not sent',
+      );
+      return;
+    }
+    await publishOcppCommand(pubsub, {
+      stationId: stationOcppId,
+      action: 'SetChargingProfile',
+      payload: payload as unknown as Record<string, unknown>,
+      commandId,
+    });
   };
 
-  // Stored before the send, so the EV schedule the station reports back is
-  // checked against it (K15.FR.11/12) even when the send is slow.
-  const stored: StoredChargingNeedsProfile = { payload, renegotiations: 0 };
-  await sql`
-    UPDATE ev_charging_needs SET csms_charging_profile = ${sql.json(stored as never)}
-    WHERE station_id = ${stationUuid} AND evse_id = ${evseId}
-  `;
+  const limit = limitFor(sessionCapKw);
+  await send(limit);
+  // A load management cut that landed after the cap was read: the profile sent
+  // above replaced it, so send the lower limit at once.
+  let after: Awaited<ReturnType<typeof sessionProfileCap>> | null = null;
+  try {
+    after = await sessionProfileCap(stationUuid, transactionId);
+  } catch (err: unknown) {
+    logger.warn(
+      { err, stationId: stationOcppId, transactionId },
+      'Reading the session cap again after the ISO 15118 profile failed, load management resends its limit',
+    );
+  }
+  if (after != null) {
+    const lowered = limitFor(after.capKw);
+    if (lowered < limit) await send(lowered);
+  }
 
-  await publishOcppCommand(pubsub, {
-    stationId: stationOcppId,
-    action: 'SetChargingProfile',
-    payload: payload as unknown as Record<string, unknown>,
-  });
+  // The profile replaced the EVSE limit of the transaction (one profile id):
+  // the next cycle sends that limit again. A failed re-read cannot rule that out.
+  if (perEvse || after == null || after.perEvse) {
+    try {
+      await markLoadManagementStale(sql, stationOcppId);
+      await requestLoadManagementRecompute(sql, { stationOcppId }, 'iso15118_profile');
+    } catch (err: unknown) {
+      logger.warn(
+        { err, stationId: stationOcppId },
+        'Marking load management for a resend after the ISO 15118 profile failed',
+      );
+    }
+  }
 }
 
 /** Renegotiations the CSMS starts for one profile before it gives up. */

@@ -49,6 +49,16 @@ function makeChain() {
   return chain;
 }
 
+const profileRule = vi.hoisted(() => ({
+  conflict: vi.fn(async (): Promise<string | null> => null),
+  hasPermission: vi.fn(async (): Promise<boolean> => true),
+}));
+
+vi.mock('../lib/load-management-profile-conflict.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/load-management-profile-conflict.js')>()),
+  loadManagementProfileConflict: profileRule.conflict,
+}));
+
 vi.mock('../lib/charging-profile-id.js', async () => {
   const actual = await vi.importActual<typeof import('../lib/charging-profile-id.js')>(
     '../lib/charging-profile-id.js',
@@ -139,6 +149,7 @@ vi.mock('../lib/site-access.js', () => ({
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
+  requestHasPermission: profileRule.hasPermission,
   authorize:
     () =>
     async (
@@ -502,6 +513,47 @@ describe('Fleet reservation routes', () => {
       );
       const profiles = mockSendCommand.mock.calls.filter((c) => c[1] === 'SetChargingProfile');
       expect(profiles).toEqual([['CS-001', 'SetChargingProfile', { evseId: 2, chargingProfile }]]);
+    });
+
+    it('refuses a charging profile without smartCharging:write before anything is written', async () => {
+      seed([station('CS-001')]);
+      profileRule.hasPermission.mockResolvedValueOnce(false);
+
+      const res = await post({
+        slots: [{ stationOcppId: 'CS-001' }],
+        expiresAt: EXPIRES,
+        chargingProfile: { id: 1, chargingProfilePurpose: 'TxDefaultProfile' },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: 'INSUFFICIENT_PERMISSIONS' });
+      expect(mockCreateReservation).not.toHaveBeenCalled();
+      expect(mockSendCommand).not.toHaveBeenCalled();
+    });
+
+    it('refuses a charging profile the load management rule refuses, before anything is written', async () => {
+      seed([station('CS-001')]);
+      profileRule.conflict.mockResolvedValueOnce('would override the load management limit');
+      const chargingProfile = {
+        id: 1,
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        stackLevel: 1,
+      };
+
+      const res = await post({
+        slots: [{ stationOcppId: 'CS-001', evseId: 2 }],
+        expiresAt: EXPIRES,
+        chargingProfile,
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'CHARGING_PROFILE_LOAD_MANAGED' });
+      expect(profileRule.conflict).toHaveBeenCalledWith('CS-001', 'SetChargingProfile', {
+        evseId: 2,
+        chargingProfile,
+      });
+      expect(mockCreateReservation).not.toHaveBeenCalled();
+      expect(mockSendCommand).not.toHaveBeenCalled();
     });
 
     it('keeps an accepted slot when SetChargingProfile fails', async () => {

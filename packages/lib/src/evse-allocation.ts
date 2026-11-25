@@ -1,8 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { conductorFactor } from './load-allocation.js';
+
 // IEC 61851-1: the lowest AC charging current a control pilot signals.
 export const AC_MIN_CURRENT_A = 6;
+
+/** The kW of 6 A on `conductorPhases` conductor phases at `voltageV`. */
+export function acMinimumKw(voltageV: number, conductorPhases: number): number {
+  return (AC_MIN_CURRENT_A * voltageV * conductorFactor(conductorPhases)) / 1000;
+}
 
 export type EvseLimitKind = 'ac' | 'dc';
 export type EvseLimitStrategy = 'equal_share' | 'priority_based';
@@ -41,9 +48,10 @@ function progressiveFill(
   demands: readonly EvseDemand[],
   used: Map<string, number>,
   out: Map<string, EvseLimit>,
+  floors: ReadonlyMap<string, number> = new Map(),
 ): void {
   const capacityOf = new Map(constraints.map((c) => [c.id, c.capacity]));
-  const level = new Map(demands.map((d) => [d.key, 0]));
+  const level = new Map(demands.map((d) => [d.key, floors.get(d.key) ?? 0]));
   let active = [...demands];
   while (active.length > 0) {
     let delta = Infinity;
@@ -92,8 +100,9 @@ function progressiveFill(
 
 /**
  * Splits the constraints between the demands by progressive filling (max-min fair), per
- * priority group under `priority_based`. An AC demand that would get less than 6 A is paused
- * at 0 A, lowest priority first, then the later session, and the rest is filled again.
+ * priority group under `priority_based`. Every AC demand first gets 6 A; while those floors do
+ * not fit, one is paused at 0 A, lowest priority first, then the later session. The rest is
+ * filled from the floors, so a DC demand never takes an AC session's floor.
  */
 export function allocateEvseLimits(input: {
   constraints: readonly EvseConstraint[];
@@ -105,16 +114,30 @@ export function allocateEvseLimits(input: {
   for (;;) {
     const out = new Map<string, EvseLimit>();
     const used = new Map<string, number>();
+    const floors = new Map<string, number>();
+    for (const d of remaining) {
+      if (d.kind !== 'ac') continue;
+      const floor = Math.min(AC_MIN_CURRENT_A, d.maxLevel);
+      floors.set(d.key, floor);
+      for (const [cid, w] of Object.entries(d.weights)) {
+        used.set(cid, (used.get(cid) ?? 0) + w * floor);
+      }
+    }
+    const floorsFit = input.constraints.every((c) => (used.get(c.id) ?? 0) <= c.capacity + 1e-6);
     const groups =
       input.strategy === 'priority_based'
         ? [...new Set(remaining.map((d) => d.priority))]
             .sort((a, b) => b - a)
             .map((p) => remaining.filter((d) => d.priority === p))
         : [remaining];
-    for (const group of groups) progressiveFill(input.constraints, group, used, out);
-    const below = remaining.filter(
-      (d) => d.kind === 'ac' && (out.get(d.key)?.level ?? 0) < AC_MIN_CURRENT_A - EPS,
-    );
+    if (floorsFit) {
+      for (const group of groups) progressiveFill(input.constraints, group, used, out, floors);
+    }
+    const below = floorsFit
+      ? remaining.filter(
+          (d) => d.kind === 'ac' && (out.get(d.key)?.level ?? 0) < AC_MIN_CURRENT_A - EPS,
+        )
+      : remaining.filter((d) => d.kind === 'ac');
     const victim = below.sort((a, b) => a.priority - b.priority || b.order - a.order)[0];
     if (victim == null) {
       for (const [k, v] of paused) out.set(k, v);

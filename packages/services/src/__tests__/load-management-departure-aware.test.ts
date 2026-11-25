@@ -60,6 +60,8 @@ vi.mock('@evtivity/database', () => ({
   ...dbState.tables,
   isOperatorStation: vi.fn(() => 'OPERATOR_STATION'),
   claimAndLogAllocations: vi.fn(() => Promise.resolve(true)),
+  client: {},
+  loadManagementFenceHolds: vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -79,15 +81,18 @@ const planMock = vi.hoisted(() => ({
   dispatchDepotPlanProfiles: vi.fn(),
   clearDepotPlanProfiles: vi.fn(),
 }));
-vi.mock('../charging-plan.service.js', () => planMock);
+vi.mock('../charging-plan.service.js', () => ({
+  departureAwareAllocation: planMock.departureAwareAllocation,
+}));
+vi.mock('../charging-plan-dispatch.js', () => ({
+  dispatchDepotPlanProfiles: planMock.dispatchDepotPlanProfiles,
+  clearDepotPlanProfiles: planMock.clearDepotPlanProfiles,
+}));
 
-import {
-  computeHierarchicalAllocation,
-  computeSiteAllocation,
-  runLoadManagementCycle,
-  type HierarchyNode,
-  type StationPowerInfo,
-} from '../load-management.service.js';
+import { computeHierarchicalAllocation } from '../load-management-allocation.js';
+import { computeSiteAllocation } from '../load-management-site-allocation.js';
+import { runLoadManagementCycle } from '../load-management.service.js';
+import { type HierarchyNode, type StationPowerInfo } from '../load-management-model.js';
 
 function station(overrides: Partial<StationPowerInfo> & { id: string }): StationPowerInfo {
   return {
@@ -306,9 +311,17 @@ describe('computeSiteAllocation for a departure-aware site', () => {
     ]);
   });
 
+  // Both stations hold an accepted limit: allocated, not reserved as unknown stations.
+  const held = ['a', 'b'].map((id) => ({
+    stationId: id.toUpperCase(),
+    stationDbId: id,
+    allocatedKw: 30,
+    limit: { state: 'accepted' as const, commandId: `cmd-${id}`, sentKw: 30, mightKw: null },
+  }));
+
   it('shares power equally while fleet charging is off', async () => {
     planMock.departureAwareAllocation.mockResolvedValue(null);
-    const { allocations } = await computeSiteAllocation('sit_1', 'departure_aware', null);
+    const { allocations } = await computeSiteAllocation('sit_1', 'departure_aware', held);
     expect(byId(allocations)).toEqual(
       new Map([
         ['a', 30],
@@ -340,7 +353,7 @@ describe('computeSiteAllocation for a departure-aware site', () => {
   it('falls back to equal share for the cycle when planning fails', async () => {
     planMock.departureAwareAllocation.mockRejectedValue(new Error('planner down'));
     const log = makeLogger();
-    const { allocations } = await computeSiteAllocation('sit_1', 'departure_aware', null, {
+    const { allocations } = await computeSiteAllocation('sit_1', 'departure_aware', held, {
       replan: true,
       log,
     });

@@ -176,7 +176,7 @@ describe('energyAssetSupply', () => {
   });
 
   it('keeps the reading time to live range in one place', () => {
-    expect(ENERGY_ASSET_READING_TTL_RANGE).toEqual({ min: 15, max: 600, default: 60 });
+    expect(ENERGY_ASSET_READING_TTL_RANGE).toEqual({ min: 15, max: 600, default: 120 });
   });
 });
 

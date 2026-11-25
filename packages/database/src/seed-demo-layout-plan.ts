@@ -268,7 +268,10 @@ export interface LayoutDemoStation {
   identityBefore?: { model: string; serialNumber: string; configModels?: string[] };
   /** The OCPP protocol (default ocpp2.1). */
   ocppProtocol?: 'ocpp1.6' | 'ocpp2.1';
-  /** The AC supply of every EVSE in the simulator (default one phase at 208 V, North America). */
+  /**
+   * The AC supply of every EVSE in the simulator: AC default one phase at 208 V, DC default
+   * three phases at 277 V per phase (480Y/277 V), both North American.
+   */
   acSupply?: { phases: number; voltage: number };
   /**
    * The station's units (physical charger boxes, `station_units`), in their
@@ -277,7 +280,8 @@ export interface LayoutDemoStation {
    */
   units?: ReadonlyArray<{ name: string; evseIds: readonly number[] }>;
   /**
-   * The budget each unit gets (A per phase), set through the load management
+   * The fuse rating each unit gets (A per phase; load management holds the
+   * unit to 80 percent of it), set through the load management
    * tree writer only while the unit has none; the station is then limited per
    * EVSE, set once when its first budget is written.
    */

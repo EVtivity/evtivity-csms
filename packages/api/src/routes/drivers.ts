@@ -94,6 +94,8 @@ import {
 import * as vehicleService from '../services/vehicle.service.js';
 import {
   replyVehicleServiceError,
+  vehicleAcPhasesBodyFields,
+  vehicleAcPhasesItemFields,
   vehicleAppearanceBodyFields,
   vehicleAppearanceItemFields,
   vehicleBatteryBodyFields,
@@ -452,6 +454,7 @@ const vehicleItem = z
     licensePlate: z.string().max(20).nullable().describe('Vehicle license plate'),
     ...vehicleAppearanceItemFields,
     ...vehicleBatteryItemFields,
+    ...vehicleAcPhasesItemFields,
     ...vehiclePreconditioningItemFields,
     ...vehicleAutochargeFields,
     autochargeBlockedAt: z.coerce
@@ -497,6 +500,7 @@ const createVehicleBody = z.object({
   licensePlate: z.string().max(20).optional().describe('License plate number'),
   ...vehicleAppearanceBodyFields,
   ...vehicleBatteryBodyFields,
+  ...vehicleAcPhasesBodyFields,
   ...vehiclePreconditioningBodyFields,
   ...vehicleIdFields,
 });
@@ -518,6 +522,7 @@ const updateVehicleBody = z.object({
     .describe('License plate. Null removes it.'),
   ...vehicleAppearanceBodyFields,
   ...vehicleBatteryBodyFields,
+  ...vehicleAcPhasesBodyFields,
   ...vehiclePreconditioningBodyFields,
   ...vehicleIdFields,
 });

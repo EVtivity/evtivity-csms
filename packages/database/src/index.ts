@@ -361,14 +361,33 @@ export {
   clearEvseLimitsRefused,
   markEvseLimitsRefused,
   markLoadManagementStale,
-  recordLoadManagementProfileReply,
+  applyStationLimitEvent,
+  stationEntryAfterEvent,
+  allocationsAfterStationEvent,
+  bootAddsEntry,
+  type StationLimitEvent,
+  recordEvseLimitAccepted,
+  recordPhaseToUseRefused,
+  writeLoadManagementRecords,
 } from './lib/load-management-state.js';
-export type { LoadManagementRateUnit } from './lib/load-management-state.js';
+export {
+  loadManagementCycleStart,
+  markLoadManagementRecomputeRequested,
+  recomputeRequestedSince,
+  requestLoadManagementRecompute,
+} from './lib/load-management-recompute.js';
+export type { LoadManagementRecomputeTarget } from './lib/load-management-recompute.js';
 export { claimAndLogAllocations, recordAllocationEntryReply } from './lib/load-allocation-log.js';
+export {
+  currentLoadManagementFence,
+  loadManagementFenceHolds,
+  runWithLoadManagementFence,
+  takeLoadManagementFence,
+} from './lib/load-management-fence.js';
+export type { LoadManagementFence } from './lib/load-management-fence.js';
 export type {
   LoadAllocationEntryInput,
   LoadAllocationHeader,
-  LoadAllocationLogKind,
   LoadAllocationReply,
 } from './lib/load-allocation-log.js';
 export {
@@ -379,12 +398,6 @@ export {
   deletePanel,
   deleteTransformer,
   LoadTreeValidationError,
-  circuitPhaseDefault,
-  clearUnitLoadBudget,
-  readUnitLoadBudgets,
-  setUnitLoadBudget,
-  unitChargingKind,
-  unitLoadBudgetView,
   updateCircuit,
   updatePanel,
   updateTransformer,
@@ -400,13 +413,23 @@ export type {
   TransformerChanges,
   TransformerRow,
   TransformerValues,
+} from './lib/load-management-tree.js';
+export {
+  circuitPhaseDefault,
+  clearUnitLoadBudget,
+  readUnitLoadBudgets,
+  setUnitLoadBudget,
+  unitChargingKind,
+  unitLoadBudgetView,
+} from './lib/load-management-unit-budgets.js';
+export type {
   UnitBudgetClearResult,
   UnitBudgetRefusal,
   UnitBudgetWriteResult,
   UnitLoadBudgetInput,
   UnitLoadBudgetRow,
   UnitLoadBudgetView,
-} from './lib/load-management-tree.js';
+} from './lib/load-management-unit-budgets.js';
 export {
   createEnergyAsset,
   deleteEnergyAsset,

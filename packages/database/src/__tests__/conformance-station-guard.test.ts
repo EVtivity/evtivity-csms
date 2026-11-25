@@ -86,8 +86,12 @@ const BY_ID_ONLY = new Set([
   'database/src/lib/card-monthly-limit.ts',
   'database/src/lib/fleet-credit-limit.ts',
   'database/src/lib/free-vend-setting.ts',
+  // A recompute request names the station by its id; a station on no circuit matches nothing.
+  'database/src/lib/load-management-recompute.ts',
   'database/src/lib/load-management-state.ts',
   'database/src/lib/load-management-tree.ts',
+  // The station of the URL site a unit budget is written for, by its id.
+  'database/src/lib/load-management-unit-budgets.ts',
   'database/src/lib/ocpp-session-tariff.ts',
   'database/src/lib/payment-terminals.ts',
   'database/src/lib/remote-start-timeout.ts',
@@ -105,6 +109,8 @@ const BY_ID_ONLY = new Set([
   'database/src/lib/tariff-resolution.ts',
   'database/src/lib/vehicle-departures.ts',
   'ocpi/src/routes/cpo/commands.ts',
+  // The departure plan site of a transaction at a station, by the station id.
+  'ocpp/src/services/charging-profile-computer.ts',
   'services/src/ad-hoc-payment.service.ts',
   'services/src/ai-evidence/authorization.ts',
   'services/src/ai-evidence/concurrent-session.ts',
@@ -113,7 +119,11 @@ const BY_ID_ONLY = new Set([
   'services/src/ai-evidence/session.ts',
   'services/src/ai-evidence/state.ts',
   'services/src/ai-evidence/station.ts',
+  // The protocol of the planned stations, by their ids.
+  'services/src/charging-plan-profile-sends.ts',
   'services/src/fleet-invoice.service.ts',
+  // The configuration and unit EVSEs of the stations a cycle sends limits to, by their ids.
+  'services/src/load-management-send.ts',
   'services/src/maintenance-check.ts',
   'services/src/payment-terminal-flow.ts',
   'services/src/reservation-expiry.ts',

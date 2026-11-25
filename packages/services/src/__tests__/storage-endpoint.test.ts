@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import dns from 'node:dns';
-import { createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NodeHttpHandler } from '@smithy/node-http-handler';
@@ -262,20 +262,63 @@ describe('parseStorageAllowedPrivateHosts', () => {
   });
 });
 
-describe('createStorageRequestHandler', () => {
-  const server = createServer((_req, res) => {
-    res.end('ok');
+/** Starts `server` on `host:port`: `in_use` when another socket holds it, `unavailable` without that address. */
+function listenOn(
+  server: Server,
+  host: string,
+  port: number,
+): Promise<'listening' | 'in_use' | 'unavailable'> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: NodeJS.ErrnoException): void => {
+      if (err.code === 'EADDRINUSE') resolve('in_use');
+      else if (err.code === 'EADDRNOTAVAIL') resolve('unavailable');
+      else reject(err);
+    };
+    server.once('error', onError);
+    server.listen(port, host, () => {
+      server.off('error', onError);
+      resolve('listening');
+    });
   });
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve) => {
+    if (!server.listening) {
+      resolve();
+      return;
+    }
+    server.close(() => resolve());
+  });
+}
+
+describe('createStorageRequestHandler', () => {
+  const answer = (_req: unknown, res: { end: (body: string) => void }): void => {
+    res.end('ok');
+  };
+  // Bound to the loopback addresses themselves: a server on every interface can be
+  // shadowed by another process bound to 127.0.0.1 on the same port (macOS), and
+  // the request then reaches that process. ::1 on the same port lets `localhost`
+  // connect whichever address it resolves to.
+  let ipv4 = createServer(answer);
+  let ipv6 = createServer(answer);
   let port = 0;
 
   beforeAll(async () => {
-    // Every interface, so `localhost` connects whether it resolves to 127.0.0.1 or ::1.
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    port = (server.address() as AddressInfo).port;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      ipv4 = createServer(answer);
+      ipv6 = createServer(answer);
+      if ((await listenOn(ipv4, '127.0.0.1', 0)) !== 'listening') continue;
+      port = (ipv4.address() as AddressInfo).port;
+      // A host without IPv6 resolves `localhost` to 127.0.0.1 only.
+      if ((await listenOn(ipv6, '::1', port)) !== 'in_use') return;
+      await closeServer(ipv4);
+    }
+    throw new Error('no loopback port free on both 127.0.0.1 and ::1');
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await Promise.all([closeServer(ipv4), closeServer(ipv6)]);
   });
 
   function get(hostname: string): HttpRequest {

@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { ENERGY_ASSET_CREDIT_MIN_TTL_SECONDS } from '@evtivity/lib/energy-supply';
 import { EnergyAssetForm } from './EnergyAssetForm';
 import {
   flattenPanelNodes,
@@ -30,6 +31,7 @@ import {
   type EnergyAssetItem,
   type TransformerItem,
   type TreeNode,
+  readingTtlGivesNoCredit,
 } from './load-management-types';
 
 interface EnergyAssetsCardProps {
@@ -169,6 +171,13 @@ export function EnergyAssetsCard({
                             {t('loadManagement.supplyStaleBody')}
                           </p>
                         )
+                      )}
+                      {readingTtlGivesNoCredit(asset.telemetry, asset.readingTtlSeconds) && (
+                        <p className="text-xs text-warning-text">
+                          {t('loadManagement.readingTtlNoCredit', {
+                            seconds: ENERGY_ASSET_CREDIT_MIN_TTL_SECONDS,
+                          })}
+                        </p>
                       )}
                     </div>
                   </TableCell>

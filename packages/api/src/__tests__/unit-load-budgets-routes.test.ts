@@ -212,6 +212,8 @@ describe('Station Unit budget routes', () => {
 
   it.each([
     [{ kind: 'ac', maxCurrentA: 5 }],
+    // 80 percent of a 7.4 A fuse is below the 6 A an AC session needs.
+    [{ kind: 'ac', maxCurrentA: 7.4 }],
     [{ kind: 'ac', maxCurrentA: 32, phases: 2 }],
     [{ kind: 'dc', maxPowerKw: 0 }],
     [{ kind: 'dc', maxPowerKw: 5000.01 }],

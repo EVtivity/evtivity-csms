@@ -34,6 +34,8 @@ export interface FleetToken {
   idToken: string;
   tokenType: string;
   fleetId: string;
+  /** AC phases of the token's vehicle; null when not known. */
+  evPhases?: 1 | 3 | null;
 }
 
 /** A candidate row of the fleet pool query: the token, its driver and its fleets. */
@@ -52,6 +54,8 @@ export interface FleetTokenRow {
   driver_erased_at: Date | string | null;
   driver_email: string | null;
   depot_only: boolean;
+  /** AC phases of the token's vehicle (1 or 3), null when not known. */
+  ac_phases?: number | null;
 }
 
 function passed(value: Date | string | null, now: number): boolean {

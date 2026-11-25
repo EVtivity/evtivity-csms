@@ -4,12 +4,8 @@
 import type { LoadAllocationEntryInput } from '@evtivity/database';
 import type { LoadAllocationReason } from '@evtivity/lib/load-allocation-reasons';
 import { effectiveBalancingMode } from './evse-limits.js';
-import type {
-  AllocationSend,
-  ChargingRateUnit,
-  PreparedLimitCommand,
-  StationPowerInfo,
-} from './load-management.service.js';
+import type { AllocationSend, PreparedLimitCommand } from './load-management-send.js';
+import type { ChargingRateUnit, StationPowerInfo } from './load-management-model.js';
 
 interface ProfileFields {
   profileId: number;
@@ -119,6 +115,36 @@ function evseEntry(
   };
 }
 
+/** The TxDefaultProfile of one unit box EVSE: no session, the box budget set it. */
+function evseDefaultEntry(
+  command: PreparedLimitCommand & { source: { scope: 'evseDefault' } },
+  ctx: AllocationEntryContext,
+): LoadAllocationEntryInput {
+  const fields = profileFields(command.payload);
+  const value = command.source.command.value;
+  return {
+    stationId: command.stationDbId,
+    stationOcppId: command.stationId,
+    unitId: value.unitId,
+    evseNumber: value.evseNumber,
+    scope: 'evse',
+    mode: 'evse',
+    limitKw: value.limitKw,
+    limitA: fields.rateUnit === 'A' ? fields.limit : value.limitA,
+    phases: null,
+    rateUnit: fields.rateUnit,
+    reason: 'unit_budget',
+    sessionId: null,
+    tariffId: null,
+    tariffMaxCurrentA: null,
+    profileId: fields.profileId,
+    stackLevel: fields.stackLevel,
+    purpose: fields.purpose,
+    commandId: command.commandId,
+    refresh: ctx.refresh,
+  };
+}
+
 /** One allocation log entry per SetChargingProfile of a send, in send order. */
 export function allocationSendEntries(
   send: AllocationSend,
@@ -128,6 +154,11 @@ export function allocationSendEntries(
     (command) =>
       command.source.scope === 'station'
         ? stationEntry(command as PreparedLimitCommand & { source: { scope: 'station' } }, ctx)
-        : evseEntry(command as PreparedLimitCommand & { source: { scope: 'evse' } }, ctx),
+        : command.source.scope === 'evse'
+          ? evseEntry(command as PreparedLimitCommand & { source: { scope: 'evse' } }, ctx)
+          : evseDefaultEntry(
+              command as PreparedLimitCommand & { source: { scope: 'evseDefault' } },
+              ctx,
+            ),
   );
 }

@@ -23,6 +23,7 @@ import {
   computeMaxContinuousKw,
   effectiveCircuitVoltageV,
 } from '@evtivity/lib/load-allocation';
+import { PHASE_ROTATIONS } from '@evtivity/lib/phase-rotation';
 import { useSavedToast } from '@/components/saved-message';
 import { formatNumber } from '@/lib/formatting';
 
@@ -35,8 +36,16 @@ interface CircuitStatus {
   availableKw: number;
   phaseConnections?: string | null;
   voltageV?: number | null;
+  phaseRotation?: string | null;
   stations: unknown[];
   unmanagedLoads: unknown[];
+}
+
+const ROTATION_LETTER_PHASE: Record<string, string> = { R: 'L1', S: 'L2', T: 'L3' };
+
+/** The panel phase that station phase `index` (0 for L1) is wired to. */
+function panelPhaseOf(rotation: string, index: number): string {
+  return ROTATION_LETTER_PHASE[rotation.charAt(index)] ?? '';
 }
 
 interface CircuitFormProps {
@@ -68,6 +77,7 @@ export function CircuitForm({
   const [breakerRatingAmps, setBreakerRatingAmps] = useState(40);
   const [phaseConnections, setPhaseConnections] = useState<string | null>(null);
   const [voltageV, setVoltageV] = useState<number | null>(null);
+  const [phaseRotation, setPhaseRotation] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -76,11 +86,13 @@ export function CircuitForm({
         setBreakerRatingAmps(circuit.breakerRatingAmps);
         setPhaseConnections(circuit.phaseConnections ?? null);
         setVoltageV(circuit.voltageV ?? null);
+        setPhaseRotation(circuit.phaseRotation ?? null);
       } else {
         setName('');
         setBreakerRatingAmps(40);
         setPhaseConnections(null);
         setVoltageV(null);
+        setPhaseRotation(null);
       }
     }
   }, [open, circuit]);
@@ -91,11 +103,10 @@ export function CircuitForm({
     panelPhases === 3 ? [] : PANEL_VOLTAGES.filter((v) => v < panelVoltageV);
   const usedVoltageV = effectiveCircuitVoltageV(voltageV, panelVoltageV, panelPhases);
 
-  const maxContinuousKw = computeMaxContinuousKw(
-    breakerRatingAmps,
-    usedVoltageV,
-    circuitConductorPhases(phaseConnections, panelPhases),
-  );
+  const conductorPhases = circuitConductorPhases(phaseConnections, panelPhases);
+  const maxContinuousKw = computeMaxContinuousKw(breakerRatingAmps, usedVoltageV, conductorPhases);
+  // A rotation names three phases, so a circuit on fewer has none.
+  const sentPhaseRotation = conductorPhases === 3 ? phaseRotation : null;
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -105,6 +116,7 @@ export function CircuitForm({
       // On edit, null puts the circuit back on the panel voltage.
       const sentVoltageV = usedVoltageV === panelVoltageV ? null : usedVoltageV;
       if (sentVoltageV != null || isEdit) body.voltageV = sentVoltageV;
+      if (sentPhaseRotation != null || isEdit) body.phaseRotation = sentPhaseRotation;
       if (isEdit) {
         return api.patch(`/v1/sites/${siteId}/panels/${panelId}/circuits/${circuit.id}`, body);
       }
@@ -206,6 +218,34 @@ export function CircuitForm({
                 <option value="L2L3">L2+L3</option>
                 <option value="L1L2L3">L1+L2+L3</option>
               </Select>
+            </div>
+          )}
+
+          {conductorPhases === 3 && (
+            <div className="grid gap-2">
+              <Label htmlFor="phase-rotation">{t('loadManagement.phaseRotation')}</Label>
+              <Select
+                id="phase-rotation"
+                value={phaseRotation ?? ''}
+                onChange={(e) => {
+                  setPhaseRotation(e.target.value || null);
+                }}
+              >
+                <option value="">{t('loadManagement.phaseRotationReported')}</option>
+                {PHASE_ROTATIONS.map((rotation) => (
+                  <option key={rotation} value={rotation}>
+                    {t('loadManagement.phaseRotationOption', {
+                      rotation,
+                      l1: panelPhaseOf(rotation, 0),
+                      l2: panelPhaseOf(rotation, 1),
+                      l3: panelPhaseOf(rotation, 2),
+                    })}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('loadManagement.phaseRotationHint')}
+              </p>
             </div>
           )}
 

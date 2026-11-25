@@ -9,6 +9,7 @@ import { db } from '../config.js';
 import { loadAllocationEntries, loadAllocationLog } from '../schema/load-management.js';
 import { siteLoadManagement } from '../schema/load-management.js';
 import { stationUnits } from '../schema/assets.js';
+import { currentLoadManagementFence } from './load-management-fence.js';
 
 export type LoadAllocationLogKind = 'change' | 'refresh' | 'credit';
 export type LoadAllocationReply = 'accepted' | 'rejected' | 'not_sent';
@@ -53,96 +54,131 @@ function decimal(value: number | null, digits: number): string | null {
 
 /**
  * Stores the allocations the cycle is about to send and logs every limit of
- * the send, in one transaction: the guarded claim of `site_load_management`
- * (load management still on), then the header row and its entries. Returns
- * false when the site was turned off (nothing is written). A send without
- * entries writes no log row. `appliedAt` left out keeps the stored time (a
- * credit profile resend). A failed insert rolls the claim back, so no command
- * goes out unlogged.
+ * the send. The claim locks the `site_load_management` row (load management
+ * still on) and builds the stored allocations from it (`mergeLocked`), so a
+ * station reply stored after the cycle read the row is kept. The log is not
+ * critical: its header and entries go in a savepoint, and a failed write (or
+ * an entry with an unknown reason) goes to `onLogFailure` while the claim
+ * commits, so the limits still go out. Returns false when the site was turned
+ * off (nothing is written). A send without entries writes no log row.
+ * `appliedAt` left out keeps the stored time (a credit profile resend); null
+ * clears it, so a send whose raises are still to go out is sent again by the
+ * next cycle unless the raise claim completes it.
  */
 export async function claimAndLogAllocations(input: {
   siteId: string;
   applied: unknown;
-  appliedAt?: Date;
+  mergeLocked?: (locked: unknown) => unknown;
+  appliedAt?: Date | null;
   header: LoadAllocationHeader;
   entries: readonly LoadAllocationEntryInput[];
+  onLogFailure?: (err: unknown) => void;
 }): Promise<boolean> {
-  for (const entry of input.entries) {
+  // A cycle whose lock lease was lost, or that a newer lock holder replaced,
+  // claims nothing, so its older allocation never goes out after the new one.
+  const fence = currentLoadManagementFence(input.siteId);
+  if (fence?.signal?.aborted === true) return false;
+  return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ appliedAllocations: siteLoadManagement.appliedAllocations })
+      .from(siteLoadManagement)
+      .where(
+        and(
+          eq(siteLoadManagement.siteId, input.siteId),
+          eq(siteLoadManagement.isEnabled, true),
+          ...(fence != null ? [eq(siteLoadManagement.cycleFence, fence.fence)] : []),
+        ),
+      )
+      .for('update');
+    if (locked == null) return false;
+    const applied =
+      input.mergeLocked != null ? input.mergeLocked(locked.appliedAllocations) : input.applied;
+    await tx
+      .update(siteLoadManagement)
+      .set({
+        appliedAllocations: applied,
+        ...(input.appliedAt !== undefined ? { appliedAt: input.appliedAt } : {}),
+      })
+      .where(eq(siteLoadManagement.siteId, input.siteId));
+    if (input.entries.length === 0) return true;
+    try {
+      await tx.transaction(async (logTx) => {
+        await insertAllocationLog(logTx, input.siteId, input.header, input.entries);
+      });
+    } catch (err: unknown) {
+      input.onLogFailure?.(err);
+    }
+    return true;
+  });
+}
+
+type LogTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function insertAllocationLog(
+  tx: LogTransaction,
+  siteId: string,
+  header: LoadAllocationHeader,
+  entries: readonly LoadAllocationEntryInput[],
+): Promise<void> {
+  for (const entry of entries) {
     if (!isLoadAllocationReason(entry.reason)) {
       throw new Error(`Unknown load allocation reason: ${String(entry.reason)}`);
     }
   }
-  return db.transaction(async (tx) => {
-    const claimed = await tx
-      .update(siteLoadManagement)
-      .set({
-        appliedAllocations: input.applied,
-        ...(input.appliedAt != null ? { appliedAt: input.appliedAt } : {}),
-      })
-      .where(
-        and(eq(siteLoadManagement.siteId, input.siteId), eq(siteLoadManagement.isEnabled, true)),
-      )
-      .returning({ id: siteLoadManagement.id });
-    if (claimed.length === 0) return false;
-    if (input.entries.length === 0) return true;
+  const unitIds = [
+    ...new Set(entries.map((e) => e.unitId).filter((id): id is string => id != null)),
+  ];
+  const unitNames = new Map<string, string>();
+  if (unitIds.length > 0) {
+    const rows = await tx
+      .select({ id: stationUnits.id, name: stationUnits.name })
+      .from(stationUnits)
+      .where(inArray(stationUnits.id, unitIds));
+    for (const row of rows) unitNames.set(row.id, row.name);
+  }
 
-    const unitIds = [
-      ...new Set(input.entries.map((e) => e.unitId).filter((id): id is string => id != null)),
-    ];
-    const unitNames = new Map<string, string>();
-    if (unitIds.length > 0) {
-      const rows = await tx
-        .select({ id: stationUnits.id, name: stationUnits.name })
-        .from(stationUnits)
-        .where(inArray(stationUnits.id, unitIds));
-      for (const row of rows) unitNames.set(row.id, row.name);
-    }
-
-    const [log] = await tx
-      .insert(loadAllocationLog)
-      .values({
-        siteId: input.siteId,
-        kind: input.header.kind,
-        siteLimitKw: String(input.header.siteLimitKw),
-        totalDrawKw: String(input.header.totalDrawKw),
-        availableKw: String(input.header.availableKw),
-        supplyCreditKw: String(input.header.supplyCreditKw),
-        strategy: input.header.strategy,
-      })
-      .returning({ id: loadAllocationLog.id, createdAt: loadAllocationLog.createdAt });
-    if (log == null) throw new Error('Load allocation log insert returned no row');
-
-    for (let i = 0; i < input.entries.length; i += INSERT_CHUNK) {
-      await tx.insert(loadAllocationEntries).values(
-        input.entries.slice(i, i + INSERT_CHUNK).map((e) => ({
-          logId: log.id,
-          createdAt: log.createdAt,
-          siteId: input.siteId,
-          stationId: e.stationId,
-          stationOcppId: e.stationOcppId,
-          unitId: e.unitId,
-          unitName: e.unitId != null ? (unitNames.get(e.unitId) ?? null) : null,
-          evseNumber: e.evseNumber,
-          scope: e.scope,
-          mode: e.mode,
-          limitKw: decimal(e.limitKw, 3) ?? '0',
-          limitA: decimal(e.limitA, 1),
-          phases: e.phases,
-          rateUnit: e.rateUnit,
-          reason: e.reason,
-          sessionId: e.sessionId,
-          tariffId: e.tariffId,
-          tariffMaxCurrentA: decimal(e.tariffMaxCurrentA, 1),
-          profileId: e.profileId,
-          stackLevel: e.stackLevel,
-          purpose: e.purpose,
-          commandId: e.commandId,
-          refresh: e.refresh,
-        })),
-      );
-    }
-    return true;
-  });
+  const [log] = await tx
+    .insert(loadAllocationLog)
+    .values({
+      siteId,
+      kind: header.kind,
+      siteLimitKw: String(header.siteLimitKw),
+      totalDrawKw: String(header.totalDrawKw),
+      availableKw: String(header.availableKw),
+      supplyCreditKw: String(header.supplyCreditKw),
+      strategy: header.strategy,
+    })
+    .returning({ id: loadAllocationLog.id, createdAt: loadAllocationLog.createdAt });
+  if (log == null) throw new Error('Load allocation log insert returned no row');
+  for (let i = 0; i < entries.length; i += INSERT_CHUNK) {
+    await tx.insert(loadAllocationEntries).values(
+      entries.slice(i, i + INSERT_CHUNK).map((e) => ({
+        logId: log.id,
+        createdAt: log.createdAt,
+        siteId,
+        stationId: e.stationId,
+        stationOcppId: e.stationOcppId,
+        unitId: e.unitId,
+        unitName: e.unitId != null ? (unitNames.get(e.unitId) ?? null) : null,
+        evseNumber: e.evseNumber,
+        scope: e.scope,
+        mode: e.mode,
+        limitKw: decimal(e.limitKw, 3) ?? '0',
+        limitA: decimal(e.limitA, 1),
+        phases: e.phases,
+        rateUnit: e.rateUnit,
+        reason: e.reason,
+        sessionId: e.sessionId,
+        tariffId: e.tariffId,
+        tariffMaxCurrentA: decimal(e.tariffMaxCurrentA, 1),
+        profileId: e.profileId,
+        stackLevel: e.stackLevel,
+        purpose: e.purpose,
+        commandId: e.commandId,
+        refresh: e.refresh,
+      })),
+    );
+  }
 }
 
 /**

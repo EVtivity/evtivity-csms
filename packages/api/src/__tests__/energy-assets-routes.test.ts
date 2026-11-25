@@ -71,8 +71,11 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-vi.mock('@evtivity/services/load-management.service', () => ({
+vi.mock('@evtivity/services/load-management-site-status', () => ({
   getSitePowerStatus: vi.fn().mockResolvedValue({ totalDrawKw: 0, stations: [] }),
+}));
+
+vi.mock('@evtivity/services/load-management-hierarchy', () => ({
   buildSiteHierarchy: hierarchyMock,
 }));
 
@@ -279,7 +282,7 @@ describe('energy asset routes', () => {
         inverterKw: '90',
         telemetry: 'none',
         reservePercent: 10,
-        readingTtlSeconds: 60,
+        readingTtlSeconds: 120,
       }),
       caller,
       { allowSimulated: true },

@@ -32,7 +32,7 @@ import {
   markSitePlanStale,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
-import { recordReportedPhaseCount } from '@evtivity/database';
+import { recordReportedPhaseCount, requestLoadManagementRecompute } from '@evtivity/database';
 import {
   isStartableOcpiToken,
   OCPI_START_CONTEXT_MINUTES,
@@ -1131,6 +1131,21 @@ export class TransactionProjector {
   }
 
   /**
+   * Asks for a load management recompute of the station's site. Never throws
+   * (the periodic cycle covers a lost request).
+   */
+  private async requestRecompute(stationOcppId: string, trigger: string): Promise<void> {
+    try {
+      await requestLoadManagementRecompute(this.deps.sql, { stationOcppId }, trigger);
+    } catch (err) {
+      this.deps.logger.warn(
+        { err, stationId: stationOcppId, trigger },
+        'Asking for a load management recompute failed, the periodic cycle covers it',
+      );
+    }
+  }
+
+  /**
    * Tells a departure-aware site's depot plan to replan on the next load
    * management cycle: a session started or ended there, or got its vehicle.
    * Never throws (a missed mark is healed by the next slot boundary).
@@ -1633,6 +1648,10 @@ export class TransactionProjector {
     // The session has its tariff snapshot and reservation: the 2.1 handler
     // can answer the Started event with the running cost (OCTT TC_E_109).
     this.state.projectionQueue.signal(sessionPricedKey(stationId, transactionId));
+    // The cycle reads only the stored session: ask for it now, not after the
+    // gate and the notices, so a start gets its limit soon. The request at
+    // the end of the projection queues the follow-up that sees the gate.
+    await this.requestRecompute(stationId, 'session_started');
 
     const siteId = await this.deps.lookups.resolveSiteId(stationUuid);
     await this.deps.notify.notifyChange('session.started', stationUuid, siteId, sessionId);

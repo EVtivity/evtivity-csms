@@ -45,6 +45,12 @@ import {
   type VehicleBattery,
 } from '@/components/VehicleBatteryFields';
 import {
+  VehicleAcPhasesField,
+  acPhasesOf,
+  vehicleAcPhasesLabel,
+  type VehicleAcPhases,
+} from '@/components/VehicleAcPhasesField';
+import {
   VehiclePreconditioningFields,
   formatPreconditioningPower,
   preconditioningInputValues,
@@ -66,6 +72,7 @@ interface Vehicle {
   bodyType: string | null;
   batteryCapacityKwh: number | null;
   maxChargePowerKw: number | null;
+  acPhases?: number | null;
   preconditioningPowerKw?: number | null;
   preconditioningMinutes?: number;
   evccid: string | null;
@@ -117,6 +124,7 @@ export function VehicleDetail(): React.JSX.Element {
     batteryCapacityKwh: '',
     maxChargePowerKw: '',
   });
+  const [acPhases, setAcPhases] = useState<VehicleAcPhases | null>(null);
   const [preconditioning, setPreconditioning] = useState<VehiclePreconditioning>(
     preconditioningInputValues(),
   );
@@ -189,6 +197,7 @@ export function VehicleDetail(): React.JSX.Element {
       bodyType?: string | null;
       batteryCapacityKwh?: number | null;
       maxChargePowerKw?: number | null;
+      acPhases?: VehicleAcPhases | null;
       preconditioningPowerKw?: number | null;
       preconditioningMinutes?: number;
     }) => api.patch<Vehicle>(`/v1/drivers/${id ?? ''}/vehicles/${vehicleId ?? ''}`, body),
@@ -223,6 +232,7 @@ export function VehicleDetail(): React.JSX.Element {
       batteryCapacityKwh: batteryInputValue(vehicle.batteryCapacityKwh),
       maxChargePowerKw: batteryInputValue(vehicle.maxChargePowerKw),
     });
+    setAcPhases(acPhasesOf(vehicle.acPhases));
     setPreconditioning(preconditioningInputValues(vehicle));
     setEvccid(vehicle.evccid != null ? formatVehicleId(vehicle.evccid) : '');
     setHasSubmitted(false);
@@ -285,6 +295,7 @@ export function VehicleDetail(): React.JSX.Element {
       ...(maxPowerValue !== (vehicle?.maxChargePowerKw ?? null)
         ? { maxChargePowerKw: maxPowerValue }
         : {}),
+      ...(acPhases !== acPhasesOf(vehicle?.acPhases) ? { acPhases } : {}),
       ...(preconditioningPowerValue !== (vehicle?.preconditioningPowerKw ?? null)
         ? { preconditioningPowerKw: preconditioningPowerValue }
         : {}),
@@ -430,6 +441,7 @@ export function VehicleDetail(): React.JSX.Element {
                     onChange={setBattery}
                     errors={hasSubmitted ? vehicleBatteryErrors(battery, t) : undefined}
                   />
+                  <VehicleAcPhasesField idPrefix="edit" value={acPhases} onChange={setAcPhases} />
                   <VehiclePreconditioningFields
                     idPrefix="edit"
                     value={preconditioning}
@@ -519,6 +531,10 @@ export function VehicleDetail(): React.JSX.Element {
                   <dd className="font-medium">
                     {formatBatteryValue(vehicle.maxChargePowerKw, 'kW') ?? 'n/a'}
                   </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.acPhases')}</dt>
+                  <dd className="font-medium">{vehicleAcPhasesLabel(vehicle.acPhases, t)}</dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">{t('vehicles.preconditioningPowerKw')}</dt>

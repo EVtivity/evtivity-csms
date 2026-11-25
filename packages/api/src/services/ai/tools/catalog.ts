@@ -4593,6 +4593,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'bodyType',
       'batteryCapacityKwh',
       'maxChargePowerKw',
+      'acPhases',
       'preconditioningPowerKw',
       'preconditioningMinutes',
     ],
@@ -4653,6 +4654,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           minimum: 1,
           maximum: 3750,
         },
+        acPhases: {
+          description: 'AC phases the onboard charger uses (1 or 3). Null removes it (not known).',
+          type: ['number', 'null'],
+          enum: [1, 3, null],
+        },
         preconditioningPowerKw: {
           description:
             'Power in kW the vehicle draws while it preconditions (0.5 to 500). Null removes it.',
@@ -4678,6 +4684,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'bodyType',
         'batteryCapacityKwh',
         'maxChargePowerKw',
+        'acPhases',
         'preconditioningPowerKw',
         'preconditioningMinutes',
       ],
@@ -4751,6 +4758,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           minimum: 1,
           maximum: 3750,
         },
+        acPhases: {
+          description: 'AC phases the onboard charger uses (1 or 3). Null removes it (not known).',
+          nullable: true,
+          type: 'number',
+          enum: [1, 3, null],
+        },
         preconditioningPowerKw: {
           description:
             'Power in kW the vehicle draws while it preconditions (0.5 to 500). Null removes it.',
@@ -4771,6 +4784,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'acPhases',
       'at',
       'autochargeBlockedAt',
       'batteryCapacityKwh',
@@ -8718,6 +8732,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'acPhases',
       'at',
       'autochargeBlockedAt',
       'batteryCapacityKwh',
@@ -10546,6 +10561,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'maxPowerKw',
       'name',
       'phaseConnections',
+      'phaseRotation',
+      'phaseToUse',
       'phases',
       'rateUnit',
       'reason',
@@ -13329,6 +13346,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'name',
       'panelId',
       'phaseConnections',
+      'phaseRotation',
       'sortOrder',
       'stationCount',
       'updatedAt',
@@ -14305,6 +14323,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'acPhases',
       'at',
       'autochargeBlockedAt',
       'batteryCapacityKwh',
@@ -30111,7 +30130,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     pathTemplate: '/v1/sites/{siteId}/panels/{panelId}/circuits/{circuitId}',
     pathParams: ['siteId', 'panelId', 'circuitId'],
     queryParams: [],
-    bodyParams: ['name', 'sortOrder'],
+    bodyParams: ['name', 'phaseRotation', 'sortOrder'],
     parameters: {
       type: 'object',
       properties: {
@@ -30119,9 +30138,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         panelId: { type: 'string', description: 'Panel ID' },
         circuitId: { type: 'string', description: 'Circuit ID' },
         name: { type: ['string', 'null'] },
+        phaseRotation: {
+          description:
+            'How the stations of this three-phase circuit are wired to the panel phases (RST: station L1 on panel L1, L2 on L2, L3 on L3; TRS: station L1 on L3, L2 on L1, L3 on L2; and so on), over what the stations report. Only on a circuit with three conductor phases. Null uses the rotation the stations report',
+          type: ['string', 'null'],
+          enum: ['RST', 'RTS', 'SRT', 'STR', 'TRS', 'TSR', null],
+        },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
-      required: ['siteId', 'panelId', 'circuitId', 'name', 'sortOrder'],
+      required: ['siteId', 'panelId', 'circuitId', 'name', 'phaseRotation', 'sortOrder'],
       additionalProperties: false,
     },
     strict: true,
@@ -30132,6 +30157,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         panelId: { type: 'string', description: 'Panel ID' },
         circuitId: { type: 'string', description: 'Circuit ID' },
         name: { type: 'string', minLength: 1, maxLength: 255 },
+        phaseRotation: {
+          description:
+            'How the stations of this three-phase circuit are wired to the panel phases (RST: station L1 on panel L1, L2 on L2, L3 on L3; TRS: station L1 on L3, L2 on L1, L3 on L2; and so on), over what the stations report. Only on a circuit with three conductor phases. Null uses the rotation the stations report',
+          nullable: true,
+          type: 'string',
+          enum: ['RST', 'RTS', 'SRT', 'STR', 'TRS', 'TSR', null],
+        },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
       required: ['siteId', 'panelId', 'circuitId'],
@@ -30145,6 +30177,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'name',
       'panelId',
       'phaseConnections',
+      'phaseRotation',
       'sortOrder',
       'stationCount',
       'updatedAt',
@@ -30849,6 +30882,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'bodyType',
       'batteryCapacityKwh',
       'maxChargePowerKw',
+      'acPhases',
       'preconditioningPowerKw',
       'preconditioningMinutes',
     ],
@@ -30910,6 +30944,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           minimum: 1,
           maximum: 3750,
         },
+        acPhases: {
+          description: 'AC phases the onboard charger uses (1 or 3). Null removes it (not known).',
+          type: ['number', 'null'],
+          enum: [1, 3, null],
+        },
         preconditioningPowerKw: {
           description:
             'Power in kW the vehicle draws while it preconditions (0.5 to 500). Null removes it.',
@@ -30936,6 +30975,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'bodyType',
         'batteryCapacityKwh',
         'maxChargePowerKw',
+        'acPhases',
         'preconditioningPowerKw',
         'preconditioningMinutes',
       ],
@@ -31010,6 +31050,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           minimum: 1,
           maximum: 3750,
         },
+        acPhases: {
+          description: 'AC phases the onboard charger uses (1 or 3). Null removes it (not known).',
+          nullable: true,
+          type: 'number',
+          enum: [1, 3, null],
+        },
         preconditioningPowerKw: {
           description:
             'Power in kW the vehicle draws while it preconditions (0.5 to 500). Null removes it.',
@@ -31030,6 +31076,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       additionalProperties: false,
     },
     responseFields: [
+      'acPhases',
       'at',
       'autochargeBlockedAt',
       'batteryCapacityKwh',

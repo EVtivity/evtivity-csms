@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
 import { isDcConnector } from '@evtivity/lib/connector-power';
+import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
 import { planProfileHash } from '@evtivity/services/charging-plan-profile-hash';
 
 // SQL mock: records every tagged-template call (strings + interpolated values)
@@ -743,9 +744,13 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults([]);
       await emit('ocpp.BootNotification', 'CS-X', {});
-      // The station lookup, then only the load management resend mark (its
-      // own subscription, keyed by the OCPP identity, matches no row).
-      expect(sqlCalls.length).toBe(2);
+      // Only station lookups, plus the load management resend mark and
+      // recompute (their own subscriptions, keyed by the OCPP identity).
+      expect(
+        sqlCalls
+          .filter((c) => !c.strings.join('').includes('site_load_management'))
+          .every((c) => c.strings.join('').includes('SELECT')),
+      ).toBe(true);
       expect(sqlCalls[1]?.strings.join('')).toContain('UPDATE site_load_management');
     });
 
@@ -1538,41 +1543,168 @@ describe('Event projections - coverage round 2', () => {
 
     it('records a rejected load management limit (the station becomes a fixed load)', async () => {
       await setup();
-      setupSqlResults(STA, []);
+      setupSqlResults(
+        STA,
+        [
+          {
+            site_id: 'sit_1',
+            applied_allocations: [
+              {
+                stationDbId: 'sta_0001',
+                allocatedKw: 7,
+                limit: { state: 'awaiting', commandId: 'cmd-1', sentKw: 7, mightKw: 9 },
+              },
+            ],
+            station_id: 'CS-1',
+            on_circuit: true,
+          },
+        ],
+        [],
+      );
       await emit('command.SetChargingProfile', 'CS-1', {
         response: { status: 'Rejected' },
         request: loadManagementRequest('W'),
+        commandId: 'cmd-1',
       });
+      expect(findSql(/FOR UPDATE OF slm/)?.values).toContain('sta_0001');
       const upd = findSql(/UPDATE site_load_management/);
-      expect(upd?.strings.join('')).toContain("'limitPending', true");
-      expect(upd?.values).toContain('sta_0001');
-      expect(upd?.values).toContain('W');
+      expect(upd?.strings.join('')).toContain('applied_at = NULL');
+      expect(upd?.values[0]).toEqual([
+        {
+          stationDbId: 'sta_0001',
+          allocatedKw: 7,
+          rejectedUnits: ['W'],
+          limit: { state: 'refused', commandId: 'cmd-1', sentKw: 7, mightKw: null },
+        },
+      ]);
       expect(findSql(/INSERT INTO charging_profiles/)).toBeUndefined();
     });
 
     it('records an error reply to the load management limit like a rejection', async () => {
       await setup();
-      setupSqlResults(STA, []);
+      setupSqlResults(
+        STA,
+        [
+          {
+            site_id: 'sit_1',
+            applied_allocations: [
+              {
+                stationDbId: 'sta_0001',
+                allocatedKw: 7,
+                limit: { state: 'awaiting', commandId: 'cmd-1', sentKw: 7, mightKw: 9 },
+              },
+            ],
+            station_id: 'CS-1',
+            on_circuit: true,
+          },
+        ],
+        [],
+      );
       await emit('command.SetChargingProfile', 'CS-1', {
         error: 'NotSupported',
         request: loadManagementRequest('A'),
+        commandId: 'cmd-1',
       });
       const upd = findSql(/UPDATE site_load_management/);
-      expect(upd?.strings.join('')).toContain("'limitPending', true");
-      expect(upd?.values).toContain('A');
+      expect((upd?.values[0] as Array<Record<string, unknown>>)[0]).toMatchObject({
+        rejectedUnits: ['A'],
+        limit: { state: 'refused' },
+      });
     });
 
-    it('clears the unconfirmed state after an accepted load management limit', async () => {
+    it('accepts the load management limit of the command the record waits on', async () => {
       await setup();
-      setupSqlResults(STA, [], [], [{ site_id: null }], []);
+      setupSqlResults(
+        STA,
+        [],
+        [],
+        [{ site_id: null }],
+        [
+          {
+            site_id: 'sit_1',
+            applied_allocations: [
+              {
+                stationDbId: 'sta_0001',
+                allocatedKw: 7,
+                limit: { state: 'awaiting', commandId: 'cmd-1', sentKw: 7, mightKw: 9 },
+              },
+            ],
+            station_id: 'CS-1',
+            on_circuit: true,
+          },
+        ],
+        [],
+      );
       await emit('command.SetChargingProfile', 'CS-1', {
         response: { status: 'Accepted' },
         request: loadManagementRequest('A'),
+        commandId: 'cmd-1',
       });
       expect(findSql(/INSERT INTO charging_profiles/)).toBeDefined();
-      const upd = findSql(/UPDATE site_load_management/);
-      expect(upd?.strings.join('')).toContain("- 'limitPending'");
-      expect(upd?.values).toContain('A');
+      const upd = findSql(/UPDATE site_load_management SET applied_allocations/);
+      expect(upd?.values[0]).toEqual([
+        {
+          stationDbId: 'sta_0001',
+          allocatedKw: 7,
+          limit: { state: 'accepted', commandId: 'cmd-1', sentKw: 7, mightKw: 7 },
+          acceptedUnits: ['A'],
+        },
+      ]);
+    });
+
+    it('routes the reply to a unit box TxDefaultProfile to the default of its EVSE', async () => {
+      await setup();
+      const awaiting = { state: 'awaiting', commandId: 'cmd-d', sentKw: 2.9, mightKw: 1 };
+      setupSqlResults(
+        STA,
+        [],
+        [],
+        [{ site_id: null }],
+        [
+          {
+            site_id: 'sit_1',
+            applied_allocations: [
+              {
+                stationDbId: 'sta_0001',
+                allocatedKw: 7,
+                limit: { state: 'accepted', commandId: 'cmd-1', sentKw: 7, mightKw: 7 },
+                evseDefaults: [{ evseNumber: 3, limit: awaiting }],
+              },
+            ],
+            station_id: 'CS-1',
+            on_circuit: true,
+          },
+        ],
+        [],
+      );
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Accepted' },
+        request: {
+          evseId: 3,
+          chargingProfile: {
+            id: 1_000_000_004,
+            stackLevel: 1,
+            chargingProfilePurpose: 'TxDefaultProfile',
+            chargingProfileKind: 'Absolute',
+            chargingSchedule: [{ id: 1, chargingRateUnit: 'A', chargingSchedulePeriod: [] }],
+          },
+        },
+        commandId: 'cmd-d',
+      });
+      const upd = findSql(/UPDATE site_load_management SET applied_allocations/);
+      expect(upd?.values[0]).toEqual([
+        {
+          stationDbId: 'sta_0001',
+          allocatedKw: 7,
+          limit: { state: 'accepted', commandId: 'cmd-1', sentKw: 7, mightKw: 7 },
+          evseDefaults: [
+            {
+              evseNumber: 3,
+              limit: { state: 'accepted', commandId: 'cmd-d', sentKw: 2.9, mightKw: 2.9 },
+            },
+          ],
+        },
+      ]);
     });
 
     const evseLimitRequest = {
@@ -1591,13 +1723,14 @@ describe('Event projections - coverage round 2', () => {
 
     it('falls back to the station limit when a station refuses its per-EVSE limit', async () => {
       await setup();
-      setupSqlResults(STA, [{ marked: 1 }]);
+      // The EVSE record lock (no row), then the refusal count.
+      setupSqlResults(STA, [], [{ marked: 1 }]);
       await emit('command.SetChargingProfile', 'CS-1', {
         response: { status: 'Rejected' },
         request: evseLimitRequest,
       });
-      const mark = findSql(/SET evse_limits_refused_at = now\(\)/);
-      expect(mark?.values).toEqual(['sta_0001', 'tx-9']);
+      const mark = findSql(/SET evse_limit_refusals = CASE/);
+      expect(mark?.values).toEqual(expect.arrayContaining(['sta_0001', 'tx-9']));
       expect(mockLoggerWarn).toHaveBeenCalledWith(
         expect.objectContaining({ stationId: 'CS-1', transactionId: 'tx-9' }),
         'Station refused per-EVSE limits, falling back to the station limit',
@@ -1606,12 +1739,12 @@ describe('Event projections - coverage round 2', () => {
 
     it('does not log a fallback when the refused TxProfile was no per-EVSE limit', async () => {
       await setup();
-      setupSqlResults(STA, [{ marked: 0 }]);
+      setupSqlResults(STA, [], [{ marked: 0 }]);
       await emit('command.SetChargingProfile', 'CS-1', {
         error: 'NotSupported',
         request: evseLimitRequest,
       });
-      expect(findSql(/SET evse_limits_refused_at = now\(\)/)).toBeDefined();
+      expect(findSql(/SET evse_limit_refusals = CASE/)).toBeDefined();
       expect(mockLoggerWarn).not.toHaveBeenCalledWith(
         expect.anything(),
         'Station refused per-EVSE limits, falling back to the station limit',
@@ -1673,7 +1806,24 @@ describe('Event projections - coverage round 2', () => {
     it('keeps handling the reply when the allocation log write fails', async () => {
       mockRecordAllocationReply.mockRejectedValueOnce(new Error('db down'));
       await setup();
-      setupSqlResults(STA, []);
+      setupSqlResults(
+        STA,
+        [
+          {
+            site_id: 'sit_1',
+            applied_allocations: [
+              {
+                stationDbId: 'sta_0001',
+                allocatedKw: 7,
+                limit: { state: 'awaiting', commandId: 'cmd-x', sentKw: 7, mightKw: 9 },
+              },
+            ],
+            station_id: 'CS-1',
+            on_circuit: true,
+          },
+        ],
+        [],
+      );
       await emit('command.SetChargingProfile', 'CS-1', {
         response: { status: 'Rejected' },
         request: loadManagementRequest('W'),
@@ -1708,14 +1858,113 @@ describe('Event projections - coverage round 2', () => {
   describe('load management resend marks', () => {
     it('a clear that can remove the load management profile marks its site for a resend', async () => {
       await setup();
-      setupSqlResults(STA, [], [{ site_id: 'sit_1' }], []);
+      setupSqlResults(
+        STA,
+        // The station reported no MaxExternalConstraintsId: its limit has the base id.
+        [],
+        [],
+        [{ site_id: 'sit_1' }],
+        [
+          {
+            site_id: 'sit_1',
+            applied_allocations: [
+              {
+                stationDbId: 'sta_0001',
+                allocatedKw: 7,
+                limit: { state: 'awaiting', commandId: 'cmd-1', sentKw: 7, mightKw: 9 },
+              },
+            ],
+            station_id: 'CS-1',
+            on_circuit: true,
+          },
+        ],
+        [],
+      );
       await emit('command.ClearChargingProfile', 'CS-1', {
         request: { chargingProfileId: 1_000_000_000 },
         response: { status: 'Accepted' },
       });
+      // The station may hold no limit now: unknown, and the site sends at once.
       const upd = findSql(/UPDATE site_load_management/);
-      expect(upd?.strings.join('')).toContain('SET applied_at = NULL');
-      expect(upd?.values).toContain('CS-1');
+      expect(upd?.strings.join('')).toContain('applied_at = NULL');
+      expect((upd?.values[0] as Array<Record<string, unknown>>)[0]?.['limit']).toEqual({
+        state: 'unknown',
+        mightKw: null,
+      });
+    });
+
+    it('a clear of an EVSE limit TxProfile id marks nothing (review 8)', async () => {
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: 'sit_1' }]);
+      await emit('command.ClearChargingProfile', 'CS-1', {
+        request: { chargingProfileId: chargingNeedsProfileId('CS-1', 'tx-1') },
+        response: { status: 'Accepted' },
+      });
+      expect(findSql(/UPDATE site_load_management/)).toBeUndefined();
+    });
+
+    it('reads the station id before the delete and fails closed when it cannot (final review, Low 2)', async () => {
+      const managed = [
+        {
+          site_id: 'sit_1',
+          applied_allocations: [
+            {
+              stationDbId: 'sta_0001',
+              allocatedKw: 7,
+              limit: { state: 'accepted', commandId: 'cmd-1', sentKw: 7, mightKw: 7 },
+            },
+          ],
+          station_id: 'CS-1',
+          on_circuit: true,
+        },
+      ];
+      // A known MaxExternalConstraintsId of 0: an id above the base is not the station's.
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: 'sit_1' }], managed, []);
+      await emit('command.ClearChargingProfile', 'CS-1', {
+        request: { chargingProfileId: 1_000_000_005 },
+        response: { status: 'Accepted' },
+      });
+      expect(findSql(/UPDATE site_load_management/)).toBeUndefined();
+      const lookup = findSql(/MaxExternalConstraintsId/);
+      expect(lookup?.strings.join('')).toContain("component = 'SmartChargingCtrlr'");
+      expect(lookup?.strings.join('')).toContain("attribute_type = 'Actual'");
+      const lookupAt = sqlCalls.findIndex((c) =>
+        /MaxExternalConstraintsId/.test(c.strings.join('')),
+      );
+      const deleteAt = sqlCalls.findIndex((c) =>
+        /DELETE FROM charging_profiles/.test(c.strings.join('')),
+      );
+      expect(lookupAt).toBeLessThan(deleteAt);
+    });
+
+    it('treats any id from the load management id up as the station limit when the id read fails (final review, Low 2)', async () => {
+      const managed = [
+        {
+          site_id: 'sit_1',
+          applied_allocations: [
+            {
+              stationDbId: 'sta_0001',
+              allocatedKw: 7,
+              limit: { state: 'accepted', commandId: 'cmd-1', sentKw: 7, mightKw: 7 },
+            },
+          ],
+          station_id: 'CS-1',
+          on_circuit: true,
+        },
+      ];
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: 'sit_1' }], managed, []);
+      sqlErrors.set(1, new Error('connection lost'));
+      await emit('command.ClearChargingProfile', 'CS-1', {
+        request: { chargingProfileId: 1_000_000_005 },
+        response: { status: 'Accepted' },
+      });
+      const upd = findSql(/UPDATE site_load_management/);
+      expect((upd?.values[0] as Array<Record<string, unknown>>)[0]?.['limit']).toEqual({
+        state: 'unknown',
+        mightKw: null,
+      });
     });
 
     it('a clear of another profile marks nothing', async () => {

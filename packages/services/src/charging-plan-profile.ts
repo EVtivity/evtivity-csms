@@ -9,7 +9,7 @@
 
 import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
 import type { PlanSlot } from '@evtivity/lib/charging-plan';
-import { limitInUnit, type StationRate } from './load-management.service.js';
+import { limitInUnit, type StationRate } from './load-management-profiles.js';
 
 export { planProfileHash } from './charging-plan-profile-hash.js';
 

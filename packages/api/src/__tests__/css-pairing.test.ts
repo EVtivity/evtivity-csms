@@ -30,7 +30,7 @@ const h = vi.hoisted(() => {
 
   function makeSelectChain(): Record<string, unknown> {
     const chain: Record<string, unknown> = {};
-    for (const m of ['from', 'where', 'innerJoin', 'limit', 'orderBy']) {
+    for (const m of ['from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy']) {
       chain[m] = vi.fn(() => chain);
     }
     let awaited = false;
@@ -105,7 +105,13 @@ vi.mock('@evtivity/database', () => ({
   cssConfigVariables: { tableName: 'cssConfigVariables' },
   evses: { id: 'id', stationId: 'evses.stationId', evseId: 'evseId', tableName: 'evses' },
   connectors: { evseId: 'evseId', tableName: 'connectors' },
-  chargingStations: { id: 'cs.id', stationId: 'cs.stationId', tableName: 'chargingStations' },
+  chargingStations: {
+    id: 'cs.id',
+    stationId: 'cs.stationId',
+    siteId: 'cs.siteId',
+    tableName: 'chargingStations',
+  },
+  sites: { id: 'sites.id', country: 'sites.country', tableName: 'sites' },
   vendors: { id: 'id', name: 'name', tableName: 'vendors' },
 }));
 
@@ -114,10 +120,15 @@ vi.mock('drizzle-orm', () => ({
   eq: eqMock,
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async () => ({
   mapConnectorTypeToCss: h.mapConnectorTypeToCssMock,
   randomCssConnectorType: h.randomCssConnectorTypeMock,
   buildCssConfigDefaults: h.buildCssConfigDefaultsMock,
+  cssEvseSupply: (
+    await vi.importActual<typeof import('@evtivity/lib/css-evse-supply')>(
+      '@evtivity/lib/css-evse-supply',
+    )
+  ).cssEvseSupply,
 }));
 
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
@@ -260,6 +271,39 @@ describe('enableCssPair', () => {
         maxPowerW: 22000,
       }),
     ]);
+  });
+
+  it('gives each mirrored EVSE the supply of its plug at the site country', async () => {
+    h.mapConnectorTypeToCssMock.mockImplementation((t: string) =>
+      t === 'Type1' ? 'ac_type1' : t === 'Type2' ? 'ac_type2' : 'dc_ccs1',
+    );
+    h.state.selectResults = [
+      [],
+      [{ model: 'M1', serialNumber: 'SN1', firmwareVersion: '2.0', vendorId: null, country: 'US' }],
+      [
+        { evseId: 1, connectorId: 1, connectorType: 'Type1', maxPowerKw: '6.66' },
+        { evseId: 2, connectorId: 1, connectorType: 'CCS1', maxPowerKw: '150' },
+      ],
+    ];
+    await enableCssPair(baseOpts);
+    expect(findInsert('cssEvses')?.values).toEqual([
+      expect.objectContaining({ evseId: 1, phases: 1, voltage: 208 }),
+      expect.objectContaining({ evseId: 2, phases: 3, voltage: 277 }),
+    ]);
+
+    vi.clearAllMocks();
+    h.state.selectIdx = 0;
+    h.state.insertRecords.length = 0;
+    h.state.selectResults = [
+      [],
+      [{ model: 'M1', serialNumber: 'SN1', firmwareVersion: '2.0', vendorId: null, country: 'DE' }],
+      [{ evseId: 1, connectorId: 1, connectorType: 'Type2', maxPowerKw: '22' }],
+    ];
+    await enableCssPair(baseOpts);
+    expect(findInsert('cssEvses')?.values).toEqual([
+      expect.objectContaining({ evseId: 1, phases: 3, voltage: 230 }),
+    ]);
+    h.mapConnectorTypeToCssMock.mockImplementation((t: string) => `css-${t}`);
   });
 
   it('falls back to default device metadata when the parent station is missing', async () => {

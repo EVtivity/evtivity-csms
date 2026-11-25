@@ -3,7 +3,9 @@
 
 import { client } from '@evtivity/database';
 import { circuitConductorPhases, effectiveCircuitVoltageV, evseChargingKind } from '@evtivity/lib';
-import { acSessionKwAt, parseAppliedAllocations } from './load-management.service.js';
+import { EVSE_LIMITS_REFUSAL_RETRY_MS } from '@evtivity/lib/load-allocation';
+import { acSessionKwAt } from './load-management-allocation.js';
+import { parseAppliedAllocations } from './load-limit-entries.js';
 
 /** What the cap of one session's TxProfile is read from. */
 export interface SessionProfileCapInput {
@@ -21,14 +23,33 @@ export interface SessionProfileCapInput {
   } | null;
   loadManagementEnabled: boolean;
   appliedAllocations: unknown;
+  /** The station is on a circuit of its site (load management manages it). */
+  managed?: boolean;
+  /** The operator balancing mode of the station. */
+  balancingMode?: string | null;
+  /** The station refused per-EVSE limits within the retry period. */
+  evseLimitsRefused?: boolean;
+}
+
+/** The cap of a session's TxProfile and whether load management limits it per EVSE. */
+export interface SessionProfileCap {
+  capKw: number | null;
+  /** Load management sends this session an EVSE limit with the same profile id. */
+  perEvse: boolean;
 }
 
 /**
- * The most another TxProfile of the session may allow, kW: the tariff current
- * limit of an AC session at its circuit and phases, and the EVSE limit load
- * management holds for the transaction. Null when neither applies.
+ * The most another TxProfile of the session may allow, kW (`capKw`): the
+ * tariff current limit of an AC session at its circuit and phases, and the
+ * EVSE limit load management holds for the transaction; null when neither
+ * applies. Also whether load management limits the station
+ * per EVSE (operator mode, an AC tariff current limit, or EVSE limits already
+ * held, and no recent refusal). Then the TxProfile replaces the EVSE limit of
+ * the transaction (one profile id): it is held to that limit, and to 0 while
+ * load management has sent the session none yet, so it never allows more than
+ * the station's share (finding H4).
  */
-export function sessionProfileCapKwFrom(input: SessionProfileCapInput): number | null {
+export function sessionProfileCapFrom(input: SessionProfileCapInput): SessionProfileCap {
   const caps: number[] = [];
   if (input.kind !== 'dc' && input.tariffMaxCurrentA != null && input.circuit != null) {
     const kw = acSessionKwAt(
@@ -48,14 +69,25 @@ export function sessionProfileCapKwFrom(input: SessionProfileCapInput): number |
     );
     if (kw != null) caps.push(kw);
   }
+  let perEvse = false;
   if (input.loadManagementEnabled) {
     const station = (parseAppliedAllocations(input.appliedAllocations) ?? []).find(
       (a) => a.stationDbId === input.stationDbId,
     );
     const evse = station?.evses?.find((e) => e.transactionId === input.transactionId);
-    if (evse != null && Number.isFinite(evse.limitKw)) caps.push(Math.max(0, evse.limitKw));
+    perEvse =
+      input.managed === true &&
+      input.evseLimitsRefused !== true &&
+      (input.balancingMode === 'evse' ||
+        (station?.evses?.length ?? 0) > 0 ||
+        (input.kind !== 'dc' && input.tariffMaxCurrentA != null));
+    if (evse != null && Number.isFinite(evse.limitKw)) {
+      caps.push(Math.max(0, evse.limitKw));
+    } else if (perEvse) {
+      caps.push(0);
+    }
   }
-  return caps.length > 0 ? Math.min(...caps) : null;
+  return { capKw: caps.length > 0 ? Math.min(...caps) : null, perEvse };
 }
 
 const positive = (value: unknown): number | null => {
@@ -64,17 +96,21 @@ const positive = (value: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-/** Reads `sessionProfileCapKwFrom` for the active session of a transaction at a station. */
-export async function sessionProfileCapKw(
+/** Reads `sessionProfileCapFrom` for the active session of a transaction at a station. */
+export async function sessionProfileCap(
   stationUuid: string,
   transactionId: string,
-): Promise<number | null> {
+): Promise<SessionProfileCap> {
   const rows = await client`
     SELECT s.charging_kind, s.ev_phases, s.tariff_max_current_a, s.evse_id,
       seg.id AS segment_id, seg.max_current_a AS segment_max_current_a,
       c.voltage_v AS circuit_voltage_v, c.phase_connections,
       p.voltage_v AS panel_voltage_v, p.phases AS panel_phases,
-      slm.is_enabled, slm.applied_allocations
+      slm.is_enabled, slm.applied_allocations,
+      st.circuit_id AS station_circuit_id, st.load_balancing_mode,
+      (st.evse_limits_refused_at IS NOT NULL
+        AND st.evse_limits_refused_at > now() - make_interval(secs => ${EVSE_LIMITS_REFUSAL_RETRY_MS / 1000}))
+        AS evse_limits_refused
     FROM charging_sessions s
     JOIN charging_stations st ON st.id = s.station_id
     LEFT JOIN session_tariff_segments seg ON seg.session_id = s.id AND seg.ended_at IS NULL
@@ -86,7 +122,7 @@ export async function sessionProfileCapKw(
     LIMIT 1
   `;
   const row = rows[0];
-  if (row == null) return null;
+  if (row == null) return { capKw: null, perEvse: false };
   const storedKind = row.charging_kind as string | null;
   let kind: 'ac' | 'dc' | null = storedKind === 'ac' || storedKind === 'dc' ? storedKind : null;
   if (kind == null && row.evse_id != null) {
@@ -101,7 +137,7 @@ export async function sessionProfileCapKw(
     );
     kind = evseKind === 'dc' ? 'dc' : 'ac';
   }
-  return sessionProfileCapKwFrom({
+  return sessionProfileCapFrom({
     transactionId,
     stationDbId: stationUuid,
     kind,
@@ -120,5 +156,8 @@ export async function sessionProfileCapKw(
           },
     loadManagementEnabled: row.is_enabled === true,
     appliedAllocations: row.applied_allocations,
+    managed: row.station_circuit_id != null,
+    balancingMode: (row.load_balancing_mode as string | null) ?? null,
+    evseLimitsRefused: row.evse_limits_refused === true,
   });
 }

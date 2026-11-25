@@ -14,6 +14,8 @@ export const LOAD_ALLOCATION_REASONS = [
   'station_max',
   'connector_max',
   'reserved',
+  'idle_allowance',
+  'measured_draw',
 ] as const;
 
 export type LoadAllocationReason = (typeof LOAD_ALLOCATION_REASONS)[number];

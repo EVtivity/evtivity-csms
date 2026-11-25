@@ -47,9 +47,14 @@ import {
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
   alertStationWatchersIfAvailable,
+  applyStationLimitEvent,
   markLoadManagementStale,
   markEvseLimitsRefused,
-  recordLoadManagementProfileReply,
+  recordEvseLimitAccepted,
+  type StationLimitEvent,
+  recordPhaseToUseRefused,
+  clearEvseLimitsRefused,
+  requestLoadManagementRecompute,
   getSimGeneralSettings,
   markSitePlanStale,
   recordChargingPlanProfileReply,
@@ -115,10 +120,13 @@ import {
 import {
   LOAD_MANAGEMENT_PROFILE_ID,
   LOAD_MANAGEMENT_STACK_LEVEL,
-  LOAD_MANAGEMENT_CREDIT_STACK_LEVEL,
+  clearRemovesDefaultProfiles,
+  clearRemovesLoadManagementProfile,
   isLoadManagementProfile,
+  isLoadManagementCreditProfile,
+  loadManagementProfileId,
   profileRateUnit,
-} from '@evtivity/services/load-management.service';
+} from '@evtivity/services/load-management-profiles';
 import { dispatchOcppNotification } from './notification-dispatcher.js';
 import {
   projectReservationStatusUpdate,
@@ -951,6 +959,13 @@ export function registerProjections(
   safeSubscribe('ocpp.BootNotification', async (event: DomainEvent) => {
     try {
       await markLoadManagementStale(sql, event.aggregateId);
+      const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+      if (stationUuid != null) {
+        // It may have lost its limits: unknown, reserved at what it may draw until it accepts one.
+        await applyStationLimitEvent(sql, stationUuid, { type: 'boot' });
+        // A reboot ends a refusal of per-EVSE limits: the station tries them again.
+        await clearEvseLimitsRefused(sql, stationUuid);
+      }
     } catch (err) {
       // fail-open: the cycle sends the limit again at the refresh interval.
       logger.warn(
@@ -958,6 +973,7 @@ export function registerProjections(
         'Marking load management for a resend after a boot failed',
       );
     }
+    await recomputeLoadManagement(event.aggregateId, 'station_boot');
   });
 
   // Retried on a lost connection: the UPDATE and the registry refresh are idempotent.
@@ -1731,7 +1747,7 @@ export function registerProjections(
       if (appliesToSession && phases != null) {
         const phasesStationUuid = stationUuid;
         try {
-          await attempt.memo('mv:phases', () =>
+          const phasesChanged = await attempt.memo('mv:phases', () =>
             recordSessionPhases(sql, {
               stationUuid: phasesStationUuid,
               sessionId,
@@ -1739,6 +1755,7 @@ export function registerProjections(
               phases,
             }),
           );
+          if (phasesChanged) await recomputeLoadManagement(stationId, 'ev_phases_changed');
         } catch (err: unknown) {
           logger.warn({ err, stationId, sessionId }, 'Recording the session phases failed');
         }
@@ -2934,6 +2951,19 @@ export function registerProjections(
 
   // ---- Command Tracking Projections ----
 
+  // Asks the worker to compute the station's site again soon (debounced per
+  // site). Fail-open: the periodic cycle still runs every 10 seconds.
+  async function recomputeLoadManagement(stationOcppId: string, trigger: string): Promise<void> {
+    try {
+      await requestLoadManagementRecompute(sql, { stationOcppId }, trigger);
+    } catch (err) {
+      logger.warn(
+        { err, stationId: stationOcppId, trigger },
+        'Asking for a load management recompute failed, the periodic cycle covers it',
+      );
+    }
+  }
+
   // The station's reply on the allocation log entry of the command (fail-open:
   // the entry then shows no reply).
   async function recordAllocationReply(
@@ -2956,6 +2986,81 @@ export function registerProjections(
   // The station's answer to its load management profile (the profile the
   // load management cycle sends: the API refuses it from every other path).
   // Fail-open: the cycle keeps sending, and the stored copy is written.
+  // A per-EVSE limit the station accepted: its refusals start again from zero.
+  async function recordEvseLimitAcceptance(event: DomainEvent, stationUuid: string): Promise<void> {
+    if (evseLimitTransactionId(event) == null) return;
+    try {
+      await recordEvseLimitAccepted(sql, stationUuid);
+    } catch (err) {
+      logger.warn(
+        { err, stationId: event.aggregateId },
+        'Recording the acceptance of the per-EVSE limit failed',
+      );
+    }
+  }
+
+  // Moves the limit record of the station or of the TxProfile's transaction
+  // (`applyStationLimitEvent`). Fail-open: the next cycle sends again.
+  async function applyLimitEvent(
+    event: DomainEvent,
+    stationUuid: string,
+    limitEvent: StationLimitEvent,
+    message: string,
+  ): Promise<boolean> {
+    try {
+      return await applyStationLimitEvent(sql, stationUuid, limitEvent);
+    } catch (err) {
+      logger.warn({ err, stationId: event.aggregateId }, message);
+      return false;
+    }
+  }
+
+  function eventCommandId(event: DomainEvent): string | null {
+    const commandId = event.payload.commandId;
+    return typeof commandId === 'string' && commandId !== '' ? commandId : null;
+  }
+
+  // A limit the station never decided on (send failure, offline, no answer):
+  // its record is lost at the higher of what it held and what was sent.
+  async function recordLoadManagementSendLost(
+    event: DomainEvent,
+    stationUuid: string,
+  ): Promise<void> {
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const profile = request.chargingProfile ?? request.csChargingProfiles;
+    const commandId = eventCommandId(event);
+    if (commandId == null) return;
+    const transactionId = evseLimitTransactionId(event);
+    const credit = isLoadManagementCreditProfile(profile);
+    const evseDefault = evseDefaultNumber(event);
+    if (
+      transactionId == null &&
+      evseDefault == null &&
+      !credit &&
+      !isLoadManagementProfile(profile)
+    ) {
+      return;
+    }
+    const changed = await applyLimitEvent(
+      event,
+      stationUuid,
+      {
+        type: 'notSent',
+        commandId,
+        transactionId,
+        credit,
+        ...(evseDefault != null ? { evseDefault } : {}),
+      },
+      'Recording the lost load management limit failed',
+    );
+    if (changed) {
+      logger.warn(
+        { stationId: event.aggregateId, error: event.payload.error },
+        'Load management limit not confirmed by the station, counted at what it may hold',
+      );
+    }
+  }
+
   async function recordLoadManagementReply(
     event: DomainEvent,
     stationUuid: string,
@@ -2963,21 +3068,58 @@ export function registerProjections(
   ): Promise<void> {
     const request = (event.payload.request ?? {}) as Record<string, unknown>;
     const profile = request.chargingProfile ?? request.csChargingProfiles;
+    const transactionId = evseLimitTransactionId(event);
+    if (transactionId != null) {
+      const reasonCode = (
+        event.payload.response as { statusInfo?: { reasonCode?: unknown } } | undefined
+      )?.statusInfo?.reasonCode;
+      await applyLimitEvent(
+        event,
+        stationUuid,
+        !accepted && reasonCode === 'TxNotFound'
+          ? { type: 'evseGone', transactionId }
+          : { type: 'evseReply', accepted, commandId: eventCommandId(event), transactionId },
+        'Recording the reply to the per-EVSE limit failed',
+      );
+      return;
+    }
+    const evseDefault = evseDefaultNumber(event);
+    if (evseDefault != null) {
+      await applyLimitEvent(
+        event,
+        stationUuid,
+        {
+          type: 'defaultReply',
+          accepted,
+          commandId: eventCommandId(event),
+          evseNumber: evseDefault,
+        },
+        'Recording the reply to the EVSE default limit failed',
+      );
+      return;
+    }
+    if (isLoadManagementCreditProfile(profile)) {
+      await applyLimitEvent(
+        event,
+        stationUuid,
+        { type: 'creditReply', accepted, commandId: eventCommandId(event) },
+        'Recording the reply to the credit profile failed',
+      );
+      return;
+    }
     if (!isLoadManagementProfile(profile)) return;
     const unit = profileRateUnit(profile);
     if (unit == null) return;
-    try {
-      const changed = await recordLoadManagementProfileReply(sql, stationUuid, { accepted, unit });
-      if (!accepted && changed) {
-        logger.warn(
-          { stationId: event.aggregateId, unit, response: event.payload.response },
-          'Station did not accept its load management limit, treating it as a fixed load',
-        );
-      }
-    } catch (err) {
+    const changed = await applyLimitEvent(
+      event,
+      stationUuid,
+      { type: 'reply', accepted, commandId: eventCommandId(event), unit },
+      'Recording the reply to the load management limit failed',
+    );
+    if (!accepted && changed) {
       logger.warn(
-        { err, stationId: event.aggregateId },
-        'Recording the reply to the load management limit failed',
+        { stationId: event.aggregateId, unit, response: event.payload.response },
+        'Station did not accept its load management limit, treating it as a fixed load',
       );
     }
   }
@@ -2986,16 +3128,16 @@ export function registerProjections(
   // stack level): the station falls back to one station limit, which the
   // tariff caps still lower. Only a transaction load management sent a limit
   // for marks it (`markEvseLimitsRefused`). Fail-open: the station limit holds.
-  async function recordEvseLimitRefusal(event: DomainEvent, stationUuid: string): Promise<void> {
+  function evseLimitTransactionId(event: DomainEvent): string | null {
     const request = (event.payload.request ?? {}) as Record<string, unknown>;
     const raw = request.chargingProfile ?? request.csChargingProfiles;
-    if (raw == null || typeof raw !== 'object') return;
+    if (raw == null || typeof raw !== 'object') return null;
     const profile = raw as Record<string, unknown>;
     if (
       profile['chargingProfilePurpose'] !== 'TxProfile' ||
       profile['stackLevel'] !== LOAD_MANAGEMENT_STACK_LEVEL
     ) {
-      return;
+      return null;
     }
     const rawTransaction = profile['transactionId'];
     const transactionId =
@@ -3004,9 +3146,72 @@ export function registerProjections(
         : typeof rawTransaction === 'number'
           ? String(rawTransaction)
           : null;
-    if (transactionId == null || transactionId === '') return;
+    return transactionId == null || transactionId === '' ? null : transactionId;
+  }
+
+  // The EVSE of a TxDefaultProfile at the load management stack level (a unit
+  // box default); the record writer matches it by EVSE and command id.
+  function evseDefaultNumber(event: DomainEvent): number | null {
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const raw = request.chargingProfile ?? request.csChargingProfiles;
+    if (raw == null || typeof raw !== 'object') return null;
+    const profile = raw as Record<string, unknown>;
+    if (
+      profile['chargingProfilePurpose'] !== 'TxDefaultProfile' ||
+      profile['stackLevel'] !== LOAD_MANAGEMENT_STACK_LEVEL
+    ) {
+      return null;
+    }
+    const evse = request.evseId ?? request.connectorId;
+    return typeof evse === 'number' && Number.isInteger(evse) && evse >= 1 ? evse : null;
+  }
+
+  // True when the request's TxProfile names a phase for the car (phaseToUse).
+  function evseLimitNamesPhase(event: DomainEvent): boolean {
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const raw = request.chargingProfile ?? request.csChargingProfiles;
+    if (raw == null || typeof raw !== 'object') return false;
+    const schedules = (raw as Record<string, unknown>)['chargingSchedule'];
+    const list = Array.isArray(schedules) ? (schedules as unknown[]) : [schedules];
+    return list.some((schedule) => {
+      const periods =
+        schedule != null && typeof schedule === 'object'
+          ? (schedule as Record<string, unknown>)['chargingSchedulePeriod']
+          : null;
+      return (
+        Array.isArray(periods) &&
+        periods.some(
+          (p) =>
+            p != null &&
+            typeof p === 'object' &&
+            typeof (p as Record<string, unknown>)['phaseToUse'] === 'number',
+        )
+      );
+    });
+  }
+
+  async function recordEvseLimitRefusal(event: DomainEvent, stationUuid: string): Promise<void> {
+    const transactionId = evseLimitTransactionId(event);
+    if (transactionId == null) return;
+    const response = event.payload.response as
+      | { statusInfo?: { reasonCode?: unknown } }
+      | undefined;
+    const reasonCode =
+      typeof response?.statusInfo?.reasonCode === 'string' ? response.statusInfo.reasonCode : null;
     try {
-      if (await markEvseLimitsRefused(sql, stationUuid, transactionId)) {
+      // A refused phase choice: the session keeps the phase it charges on and
+      // gets its limit again without one; only a refusal of that counts.
+      if (
+        evseLimitNamesPhase(event) &&
+        (await recordPhaseToUseRefused(sql, stationUuid, transactionId))
+      ) {
+        logger.warn(
+          { stationId: event.aggregateId, transactionId },
+          'Station refused the phase chosen for a single-phase car, keeping its own phase',
+        );
+        return;
+      }
+      if (await markEvseLimitsRefused(sql, stationUuid, transactionId, reasonCode)) {
         logger.warn(
           {
             stationId: event.aggregateId,
@@ -3087,7 +3292,9 @@ export function registerProjections(
     // No answer, or a send failure: the station never decided on the profile.
     if (event.payload.notSent === true) {
       await recordAllocationReply(event, stationUuid, 'not_sent');
+      await recordLoadManagementSendLost(event, stationUuid);
       await recordPlanProfileReply(event, stationUuid, 'not_sent');
+      await recomputeLoadManagement(event.aggregateId, 'limit_not_sent');
       return;
     }
     if (!accepted) {
@@ -3097,6 +3304,7 @@ export function registerProjections(
       await recordLoadManagementReply(event, stationUuid, false);
       await recordEvseLimitRefusal(event, stationUuid);
       await recordPlanProfileReply(event, stationUuid, 'rejected');
+      await recomputeLoadManagement(event.aggregateId, 'limit_rejected');
       return;
     }
 
@@ -3135,6 +3343,7 @@ export function registerProjections(
     await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
     await recordAllocationReply(event, stationUuid, 'accepted');
     await recordLoadManagementReply(event, stationUuid, true);
+    await recordEvseLimitAcceptance(event, stationUuid);
     await recordPlanProfileReply(event, stationUuid, 'accepted');
   });
 
@@ -3150,6 +3359,31 @@ export function registerProjections(
     const request = (event.payload.request ?? {}) as Record<string, unknown>;
     const criteria = chargingProfileClearCriteria(request);
     const filter = chargingProfileClearFilter(criteria);
+    // A clear by id matches only the station's own load management and credit
+    // profile ids, never an EVSE limit TxProfile id (review 8). Read before the
+    // delete; when the read fails, any id from the load management id up counts.
+    let stationProfileId = LOAD_MANAGEMENT_PROFILE_ID;
+    let profileIdUnknown = false;
+    if (criteria.chargingProfileId != null) {
+      try {
+        const rows = await sql<{ value: string | null }[]>`
+          SELECT value FROM station_configurations
+          WHERE station_id = ${stationUuid}
+            AND component = 'SmartChargingCtrlr'
+            AND variable = 'MaxExternalConstraintsId'
+            AND attribute_type = 'Actual'
+            AND instance IS NULL AND variable_instance IS NULL
+            AND evse_id IS NULL AND connector_id IS NULL
+        `;
+        stationProfileId = loadManagementProfileId(rows[0]?.value ?? null);
+      } catch (err: unknown) {
+        profileIdUnknown = true;
+        logger.warn(
+          { err, stationId: event.aggregateId },
+          'Reading MaxExternalConstraintsId failed, a clear of any load management id counts',
+        );
+      }
+    }
     await sql`
       DELETE FROM charging_profiles
       WHERE station_id = ${stationUuid}
@@ -3164,25 +3398,35 @@ export function registerProjections(
     // may have removed the limit: the next load management cycle sends it
     // again instead of waiting for the refresh interval.
     const mayRemoveLoadManagement =
-      (criteria.chargingProfileId == null ||
-        criteria.chargingProfileId >= LOAD_MANAGEMENT_PROFILE_ID) &&
-      (criteria.chargingProfilePurpose == null ||
-        criteria.chargingProfilePurpose === 'ChargingStationMaxProfile' ||
-        criteria.chargingProfilePurpose === 'ChargePointMaxProfile') &&
-      (criteria.stackLevel == null ||
-        criteria.stackLevel === LOAD_MANAGEMENT_STACK_LEVEL ||
-        criteria.stackLevel === LOAD_MANAGEMENT_CREDIT_STACK_LEVEL) &&
-      (criteria.evseId == null || criteria.evseId === 0);
+      clearRemovesLoadManagementProfile(criteria, stationProfileId) ||
+      (profileIdUnknown &&
+        criteria.chargingProfileId != null &&
+        criteria.chargingProfileId >= LOAD_MANAGEMENT_PROFILE_ID);
     if (mayRemoveLoadManagement) {
-      try {
-        await markLoadManagementStale(sql, event.aggregateId);
-      } catch (err) {
-        // fail-open: the cycle sends the limit again at the refresh interval.
-        logger.warn(
-          { err, stationId: event.aggregateId },
-          'Marking load management for a resend after a clear failed',
-        );
-      }
+      // The station may hold no limit now: unknown, reserved until it accepts one.
+      const changed = await applyLimitEvent(
+        event,
+        stationUuid,
+        { type: 'cleared' },
+        'Marking load management for a resend after a clear failed',
+      );
+      if (changed) await recomputeLoadManagement(event.aggregateId, 'limit_cleared');
+    }
+    // A clear that can match a unit box default: that default may be gone.
+    const defaults = profileIdUnknown
+      ? criteria.chargingProfileId != null &&
+        criteria.chargingProfileId > LOAD_MANAGEMENT_PROFILE_ID
+        ? 'all'
+        : clearRemovesDefaultProfiles(criteria, stationProfileId)
+      : clearRemovesDefaultProfiles(criteria, stationProfileId);
+    if (defaults === 'all' || defaults.length > 0) {
+      const changed = await applyLimitEvent(
+        event,
+        stationUuid,
+        { type: 'defaultsCleared', evseNumbers: defaults },
+        'Marking load management for a resend after a default clear failed',
+      );
+      if (changed) await recomputeLoadManagement(event.aggregateId, 'limit_cleared');
     }
   });
 
@@ -3734,6 +3978,44 @@ export function registerProjections(
       INSERT INTO der_control_reports (station_id, request_id, tbc, der_control)
       VALUES (${stationUuid}, ${requestId}, ${tbc}, ${derControl != null ? sql.json(asJson(derControl)) : null})
     `;
+  });
+
+  // ---- Load management recompute triggers (last, after the state projections) ----
+
+  // A station that reconnected without a boot may have lost a limit sent while
+  // it was away: send its limits again, and compute the site again at once.
+  safeSubscribe('station.Connected', async (event: DomainEvent) => {
+    try {
+      await markLoadManagementStale(sql, event.aggregateId);
+    } catch (err) {
+      // fail-open: the cycle sends the limit again at the refresh interval.
+      logger.warn(
+        { err, stationId: event.aggregateId },
+        'Marking load management for a resend after a reconnect failed',
+      );
+    }
+    await recomputeLoadManagement(event.aggregateId, 'station_connected');
+  });
+
+  safeSubscribe('station.Disconnected', async (event: DomainEvent) => {
+    await recomputeLoadManagement(event.aggregateId, 'station_disconnected');
+  });
+
+  // A connector that starts, pauses or stops charging, or is freed, changes
+  // what its site needs; the cycle is debounced per site.
+  safeSubscribe('ocpp.StatusNotification', async (event: DomainEvent) => {
+    await recomputeLoadManagement(event.aggregateId, 'status_changed');
+  });
+
+  // Started and Ended of both versions (1.6 Start and StopTransaction map to them).
+  safeSubscribe('ocpp.TransactionEvent', async (event: DomainEvent) => {
+    const eventType = event.payload.eventType;
+    const stationId = event.payload.stationId;
+    if ((eventType !== 'Started' && eventType !== 'Ended') || typeof stationId !== 'string') return;
+    await recomputeLoadManagement(
+      stationId,
+      eventType === 'Started' ? 'session_started' : 'session_ended',
+    );
   });
 }
 

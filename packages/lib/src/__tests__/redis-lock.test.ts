@@ -98,4 +98,65 @@ describe('withLock', () => {
       withLock(redis, 'k', () => Promise.resolve(), { acquireTimeoutMs: 1, retryMs: 5 }),
     ).rejects.toThrow(/Timed out acquiring lock/);
   });
+  describe('lease signal', () => {
+    function renewingRedis(renew: () => Promise<unknown>): Redis {
+      return {
+        set: vi.fn(() => Promise.resolve('OK')),
+        eval: vi.fn((script: string) =>
+          script.includes('pexpire') ? renew() : Promise.resolve(1),
+        ),
+      } as unknown as Redis;
+    }
+
+    async function signalAfter(redis: Redis, waitMs: number): Promise<AbortSignal> {
+      let seen: AbortSignal | undefined;
+      await withLock(
+        redis,
+        'k',
+        async (signal) => {
+          seen = signal;
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        },
+        { ttlMs: 30, renewMs: 10 },
+      );
+      if (seen == null) throw new Error('fn did not run');
+      return seen;
+    }
+
+    it('stays live while every renewal succeeds', async () => {
+      const signal = await signalAfter(
+        renewingRedis(() => Promise.resolve(1)),
+        60,
+      );
+      expect(signal.aborted).toBe(false);
+    });
+
+    it('aborts when a renewal finds the lock held by another token or gone', async () => {
+      const signal = await signalAfter(
+        renewingRedis(() => Promise.resolve(0)),
+        40,
+      );
+      expect(signal.aborted).toBe(true);
+    });
+
+    it('aborts once no renewal succeeded for a whole lease', async () => {
+      const signal = await signalAfter(
+        renewingRedis(() => Promise.reject(new Error('redis down'))),
+        80,
+      );
+      expect(signal.aborted).toBe(true);
+    });
+
+    it('keeps the signal live through a renewal error shorter than a lease', async () => {
+      let calls = 0;
+      const signal = await signalAfter(
+        renewingRedis(() => {
+          calls += 1;
+          return calls === 1 ? Promise.reject(new Error('blip')) : Promise.resolve(1);
+        }),
+        60,
+      );
+      expect(signal.aborted).toBe(false);
+    });
+  });
 });

@@ -65,11 +65,17 @@
     "./ev-phases": {
       "import": "./src/ev-phases.ts"
     },
+    "./phase-rotation": {
+      "import": "./src/phase-rotation.ts"
+    },
     "./evse-allocation": {
       "import": "./src/evse-allocation.ts"
     },
     "./load-allocation-reasons": {
       "import": "./src/load-allocation-reasons.ts"
+    },
+    "./load-limit-state": {
+      "import": "./src/load-limit-state.ts"
     },
     "./energy-supply": {
       "import": "./src/energy-supply.ts"
@@ -160,6 +166,9 @@
     },
     "./ocpp-version": {
       "import": "./src/ocpp-version.ts"
+    },
+    "./css-evse-supply": {
+      "import": "./src/css-evse-supply.ts"
     },
     "./toast-durations": {
       "import": "./src/toast-durations.ts"

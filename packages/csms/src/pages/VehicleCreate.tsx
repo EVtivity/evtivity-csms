@@ -25,6 +25,7 @@ import {
   vehicleBatteryErrors,
   type VehicleBattery,
 } from '@/components/VehicleBatteryFields';
+import { VehicleAcPhasesField, type VehicleAcPhases } from '@/components/VehicleAcPhasesField';
 import { useCreatedToast } from '@/components/saved-message';
 import {
   VehiclePreconditioningFields,
@@ -75,6 +76,7 @@ export function VehicleCreate(): React.JSX.Element {
     batteryCapacityKwh: '',
     maxChargePowerKw: '',
   });
+  const [acPhases, setAcPhases] = useState<VehicleAcPhases | null>(null);
   const [preconditioning, setPreconditioning] = useState<VehiclePreconditioning>(
     preconditioningInputValues(),
   );
@@ -106,6 +108,7 @@ export function VehicleCreate(): React.JSX.Element {
       bodyType?: string;
       batteryCapacityKwh?: number;
       maxChargePowerKw?: number;
+      acPhases?: VehicleAcPhases;
       preconditioningPowerKw?: number;
       preconditioningMinutes?: number;
     }) => api.post<Vehicle>(`/v1/drivers/${id ?? ''}/vehicles`, body),
@@ -151,6 +154,7 @@ export function VehicleCreate(): React.JSX.Element {
       bodyType?: string;
       batteryCapacityKwh?: number;
       maxChargePowerKw?: number;
+      acPhases?: VehicleAcPhases;
       preconditioningPowerKw?: number;
       preconditioningMinutes?: number;
     } = { make, model };
@@ -164,6 +168,7 @@ export function VehicleCreate(): React.JSX.Element {
     if (capacity != null) body.batteryCapacityKwh = capacity;
     const maxPower = batteryBodyValue(battery.maxChargePowerKw);
     if (maxPower != null) body.maxChargePowerKw = maxPower;
+    if (acPhases != null) body.acPhases = acPhases;
     const preconditioningPower = preconditioningPowerBody(preconditioning);
     if (preconditioningPower != null) body.preconditioningPowerKw = preconditioningPower;
     body.preconditioningMinutes = preconditioningMinutesBody(preconditioning);
@@ -270,6 +275,7 @@ export function VehicleCreate(): React.JSX.Element {
                 onChange={setBattery}
                 errors={hasSubmitted ? vehicleBatteryErrors(battery, t) : undefined}
               />
+              <VehicleAcPhasesField idPrefix="vehicle" value={acPhases} onChange={setAcPhases} />
               <VehiclePreconditioningFields
                 idPrefix="vehicle"
                 value={preconditioning}

@@ -106,15 +106,20 @@ export class MeterValueGenerator {
   private capacityKwh = DEFAULT_BATTERY_KWH;
   private tickCount = 0;
   private phasesInUse: number;
+  private singlePhase: 'L1' | 'L2' | 'L3' = 'L1';
 
   constructor(private readonly profile: ChargingProfile = DEFAULT_PROFILE) {
     this.voltage = profile.voltage;
     this.phasesInUse = profile.phases;
   }
 
-  /** Phases an AC EV draws on (at most the EVSE's): fewer phases draw less power. */
-  setPhasesInUse(phases: number): void {
+  /**
+   * Phases an AC EV draws on (at most the EVSE's): fewer phases draw less
+   * power. A single-phase EV draws on `phaseToUse` (1 to 3), else on L1.
+   */
+  setPhasesInUse(phases: number, phaseToUse: number | null = null): void {
     this.phasesInUse = Math.max(1, Math.min(this.profile.phases, Math.floor(phases)));
+    this.singlePhase = phaseToUse === 2 ? 'L2' : phaseToUse === 3 ? 'L3' : 'L1';
   }
 
   /** Call once per meter interval to advance simulation state */
@@ -252,8 +257,8 @@ export class MeterValueGenerator {
       const raw = this.getValue(m);
       if (raw == null) continue;
       const unit = MEASURAND_UNITS[m] ?? '';
-      // A single-phase EV on a multi-phase EVSE draws its current on L1 only.
-      const phase = m === 'Current.Import' && this.onePhaseOfMany() ? 'L1' : undefined;
+      // Current drawn on one phase only is reported with that phase.
+      const phase = m === 'Current.Import' && this.onePhase() ? this.singlePhase : undefined;
       if (isOcpp16) {
         // Omit unit if not in the 1.6 unit enum (field is optional)
         const sv: SampledValue = { value: String(raw), measurand: m };
@@ -269,10 +274,9 @@ export class MeterValueGenerator {
     return result;
   }
 
-  private onePhaseOfMany(): boolean {
-    return (
-      isAcConnector(this.profile.connectorType) && this.phasesInUse === 1 && this.profile.phases > 1
-    );
+  /** An AC EV on one phase: a single-phase EV, or any EV on a single-phase EVSE. */
+  private onePhase(): boolean {
+    return isAcConnector(this.profile.connectorType) && this.phasesInUse === 1;
   }
 
   private getValue(measurand: string): number | null {

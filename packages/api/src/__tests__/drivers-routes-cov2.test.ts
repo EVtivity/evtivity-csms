@@ -749,6 +749,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         autochargeBlockedAt: null,
         batteryCapacityKwh: null,
         maxChargePowerKw: null,
+        acPhases: null,
         preconditioningPowerKw: null,
         preconditioningMinutes: 30,
         createdAt: now,

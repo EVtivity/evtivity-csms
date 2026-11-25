@@ -1248,6 +1248,49 @@
         }
       },
       "description": "feat-load-management-limits-rejected: for 5m"
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed Allocation Log Writes (alert > 0, warning)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 85 },
+      "id": 417,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(worker_jobs_last_hour{queue=\"load-allocation-log\",status=\"failed\"})",
+          "legendFormat": "failed writes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true,
+            "thresholdsStyle": { "mode": "line+area" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.5 }
+            ]
+          },
+          "color": { "mode": "thresholds" },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "description": "feat-load-allocation-log-failed: failed writes in the last hour"
     }
   ]
 }

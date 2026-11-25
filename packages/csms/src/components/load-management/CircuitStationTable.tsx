@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { PowerBar } from './PowerBar';
 import { StationUnitBudgetRows, type EvseLimitView } from './StationUnitBudgetRows';
+import { StationEvseLimitsRow } from './StationEvseLimitsRow';
 
 /** A station of the load management reply, as the circuit station rows show it. */
 export interface CircuitStationStatus {
@@ -111,13 +112,19 @@ export function CircuitStationTable({
                 onRemove(station);
               }}
             />
-            {station.usesUnits === true && (
+            {station.usesUnits === true ? (
               <StationUnitBudgetRows
                 siteId={siteId}
                 stationId={station.id}
                 evseLimits={station.evseLimits ?? []}
                 colSpan={canWrite ? 9 : 8}
                 canWrite={canWrite}
+              />
+            ) : (
+              <StationEvseLimitsRow
+                stationId={station.id}
+                evseLimits={station.evseLimits ?? []}
+                colSpan={canWrite ? 9 : 8}
               />
             )}
           </Fragment>

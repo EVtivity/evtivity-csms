@@ -151,7 +151,9 @@ async function start(): Promise<void> {
   const octtLockRedis = createBullMQConnection(REDIS_URL);
   const aiWorkerLockRedis = createBullMQConnection(REDIS_URL);
   const cronWorker = createCronWorker(createBullMQConnection(REDIS_URL), cronLockRedis);
+  const loadManagementLockRedis = createBullMQConnection(REDIS_URL);
   const loadWorker = createLoadManagementWorker(createBullMQConnection(REDIS_URL), loadQueue, {
+    lockRedis: loadManagementLockRedis,
     allowSimulatedEnergyAssets: config.ENERGY_ASSETS_ALLOW_SIMULATED,
   });
   const guestWorker = createGuestSessionWorker(createBullMQConnection(REDIS_URL));
@@ -370,6 +372,7 @@ async function start(): Promise<void> {
       stationMessageLockRedis,
       octtLockRedis,
       aiWorkerLockRedis,
+      loadManagementLockRedis,
     ]) {
       try {
         await lockRedis.quit();

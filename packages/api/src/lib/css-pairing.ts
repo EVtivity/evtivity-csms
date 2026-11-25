@@ -9,6 +9,7 @@ import {
   evses,
   connectors,
   chargingStations,
+  sites,
   vendors,
 } from '@evtivity/database';
 import { and, eq } from 'drizzle-orm';
@@ -16,6 +17,7 @@ import {
   mapConnectorTypeToCss,
   randomCssConnectorType,
   buildCssConfigDefaults,
+  cssEvseSupply,
 } from '@evtivity/lib';
 import type { CssConnectorType } from '@evtivity/lib';
 import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
@@ -75,9 +77,14 @@ export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<v
       serialNumber: chargingStations.serialNumber,
       firmwareVersion: chargingStations.firmwareVersion,
       vendorId: chargingStations.vendorId,
+      country: sites.country,
     })
     .from(chargingStations)
+    .leftJoin(sites, eq(sites.id, chargingStations.siteId))
     .where(eq(chargingStations.stationId, opts.stationId));
+  // The supply each simulated EVSE charges on follows its plug and the site's country.
+  const supplyOf = (connectorType: CssConnectorType) =>
+    cssEvseSupply(connectorType, parent?.country);
 
   let vendorName = 'EVtivity';
   if (parent?.vendorId != null) {
@@ -125,23 +132,25 @@ export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<v
 
     let pairedEvses: PairCssEvse[];
     if (existingEvses.length > 0) {
-      pairedEvses = existingEvses.map((e) => ({
-        evseId: e.evseId,
-        connectorId: e.connectorId,
-        connectorType: mapConnectorTypeToCss(e.connectorType),
-        maxPowerW: e.maxPowerKw != null ? Math.round(Number(e.maxPowerKw) * 1000) : 22000,
-        phases: 3,
-        voltage: 230,
-      }));
+      pairedEvses = existingEvses.map((e) => {
+        const connectorType = mapConnectorTypeToCss(e.connectorType);
+        return {
+          evseId: e.evseId,
+          connectorId: e.connectorId,
+          connectorType,
+          maxPowerW: e.maxPowerKw != null ? Math.round(Number(e.maxPowerKw) * 1000) : 22000,
+          ...supplyOf(connectorType),
+        };
+      });
     } else {
+      const connectorType = randomCssConnectorType();
       pairedEvses = [
         {
           evseId: 1,
           connectorId: 1,
-          connectorType: randomCssConnectorType(),
+          connectorType,
           maxPowerW: 22000,
-          phases: 3,
-          voltage: 230,
+          ...supplyOf(connectorType),
         },
       ];
     }
@@ -245,22 +254,29 @@ export async function mirrorCssConnectors(
 ): Promise<void> {
   if (rows.length === 0) return;
   const [css] = await exec
-    .select({ id: cssStations.id })
+    .select({ id: cssStations.id, country: sites.country })
     .from(cssStations)
+    .leftJoin(chargingStations, eq(chargingStations.stationId, cssStations.stationId))
+    .leftJoin(sites, eq(sites.id, chargingStations.siteId))
     .where(eq(cssStations.stationId, stationId));
   if (css == null) return;
   for (const row of rows) {
     const connectorType =
       row.connectorType != null ? mapConnectorTypeToCss(row.connectorType) : undefined;
     const maxPowerW = row.maxPowerKw != null ? Math.round(row.maxPowerKw * 1000) : undefined;
+    // A new plug type brings the supply it charges on at the station's site.
     const set = {
-      ...(connectorType != null ? { connectorType } : {}),
+      ...(connectorType != null
+        ? { connectorType, ...cssEvseSupply(connectorType, css.country) }
+        : {}),
       ...(maxPowerW != null ? { maxPowerW } : {}),
     };
     const insert = exec.insert(cssEvses).values({
       cssStationId: css.id,
       evseId: row.evseId,
       connectorId: row.connectorId,
+      // A new row without a sent type takes the column's default plug, Type 2.
+      ...cssEvseSupply(connectorType ?? 'ac_type2', css.country),
       ...set,
     });
     await (Object.keys(set).length > 0

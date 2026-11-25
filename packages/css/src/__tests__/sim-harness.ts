@@ -217,7 +217,11 @@ export function silenceConsole(): void {
 
 // A station whose css_transactions reads follow its in-memory transactions,
 // as the real table would after createTransaction / completeTransaction.
-export async function liveHarness(protocol: Protocol, respond?: CallResponder): Promise<Harness> {
+export async function liveHarness(
+  protocol: Protocol,
+  respond?: CallResponder,
+  config?: Partial<StationConfig>,
+): Promise<Harness> {
   let ref: Harness | null = null;
   const sql = stubSql((q, values) => {
     if (ref == null || !q.includes('SELECT transaction_id, meter_start_wh, id_token')) {
@@ -231,7 +235,13 @@ export async function liveHarness(protocol: Protocol, respond?: CallResponder): 
     );
     return [{ transaction_id: txId, meter_start_wh: 0, id_token: ctx?.authorizedToken ?? '' }];
   });
-  const h = await makeHarness({ protocol, sql, boot: true, ...(respond ? { respond } : {}) });
+  const h = await makeHarness({
+    protocol,
+    sql,
+    boot: true,
+    ...(respond ? { respond } : {}),
+    ...(config ? { config } : {}),
+  });
   ref = h;
   h.sendCall.mockClear();
   return h;

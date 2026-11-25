@@ -44,20 +44,22 @@ vi.mock('@evtivity/database', () => {
 
 import {
   PLAN_PROFILE_RETRY_MS,
-  clearSitePlanProfiles,
-  dispatchDepotPlanProfiles,
   measuredPhases,
   phasesOfEnergyTransfer,
   planProfileRate,
   planProfileSends,
-  planSessionCapsKw,
   readPlanProfileInputs,
   storedSlots,
-  withRejectedProfiles,
   type PlanProfileSendInput,
-  type StoredPlanEntry,
-} from '../charging-plan.service.js';
-import type { HierarchyNode, StationPowerInfo } from '../load-management.service.js';
+} from '../charging-plan-profile-sends.js';
+import {
+  clearSitePlanProfiles,
+  dispatchDepotPlanProfiles,
+  planSessionCapsKw,
+} from '../charging-plan-dispatch.js';
+import { withRejectedProfiles } from '../charging-plan.service.js';
+import { type StoredPlanEntry } from '../charging-plan-stored.js';
+import type { HierarchyNode, StationPowerInfo } from '../load-management-model.js';
 import type { PlanSessionRow } from '@evtivity/database';
 
 const NOW = Date.UTC(2026, 10, 2, 1, 0, 0);

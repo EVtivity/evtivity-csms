@@ -104,6 +104,124 @@ export function demoVehicleLook(
 }
 
 /**
+ * Models whose onboard charger takes three-phase AC where three-phase supply
+ * is the norm (11 kW or 22 kW on 3 x 230/400 V, manufacturer specifications
+ * for the European market). In North America every passenger EV charges on
+ * one phase: Level 2 is a single-phase 208 V or 240 V circuit (SAE J1772, NEC
+ * 625), so a North American car of any model is single-phase.
+ */
+export const DEMO_THREE_PHASE_MODELS: ReadonlySet<string> = new Set([
+  'Model 3',
+  'Model S',
+  'Model X',
+  'Model Y',
+  'Ioniq 5',
+  'Ioniq 6',
+  'Kona Electric',
+  'EV6',
+  'EV9',
+  'Niro EV',
+  'i4',
+  'i7',
+  'iX',
+  'EQS',
+  'EQE',
+  'EQB',
+  'ID.4',
+  'ID.Buzz',
+  'Mustang Mach-E',
+  'Ariya',
+  'E-Transit',
+  'eSprinter',
+]);
+
+/** Body types that charge on DC at a depot: their AC phases stay unknown. */
+const DC_DEPOT_BODY_TYPES: ReadonlySet<string> = new Set(['box_truck', 'bus', 'semi_truck']);
+
+/**
+ * The AC phases of a demo vehicle: one phase in North America, three phases
+ * in Europe for a model with a three-phase onboard charger, else one. Null
+ * for a depot bus or truck (DC only in the demo).
+ */
+export function demoVehicleAcPhases(
+  model: string | null,
+  bodyType: string | null,
+  europe: boolean,
+): 1 | 3 | null {
+  if (bodyType != null && DC_DEPOT_BODY_TYPES.has(bodyType)) return null;
+  if (model != null && DEMO_MODEL_BODY_TYPES[model] != null) {
+    const type = DEMO_MODEL_BODY_TYPES[model];
+    if (DC_DEPOT_BODY_TYPES.has(type)) return null;
+  }
+  if (!europe) return 1;
+  return model != null && DEMO_THREE_PHASE_MODELS.has(model) ? 3 : 1;
+}
+
+/** The note of the seed's own AC phases audit rows. */
+export const DEMO_AC_PHASES_NOTE = 'Demo data: vehicle AC phases';
+
+/**
+ * Gives every demo driver's vehicle without AC phases its demo value (the
+ * driver's region: a Europe time zone is Europe, any other North America).
+ * Written only while the vehicle has none and no person ever changed its AC
+ * phases (an audit row other than the seed's whose acPhases differ before and
+ * after), so a driver's or an operator's value, a deliberate null included,
+ * stays; audited like the vehicle writer (`updated`).
+ */
+export async function seedDemoVehicleAcPhases(
+  sql: postgres.Sql,
+  actorUserId: string | null,
+): Promise<{ vehicles: number; singlePhase: number; threePhase: number }> {
+  const rows = await sql<
+    Array<{ id: string; model: string | null; body_type: string | null; timezone: string | null }>
+  >`
+    SELECT v.id, v.model, v.body_type, d.timezone
+    FROM vehicles v JOIN drivers d ON d.id = v.driver_id
+    WHERE v.ac_phases IS NULL
+      AND d.erased_at IS NULL AND d.email IS NOT NULL
+      AND ${sql.unsafe(DEMO_DRIVER_EMAIL_SQL.replaceAll('email', 'd.email'))}
+      AND NOT EXISTS (
+        SELECT 1 FROM vehicle_audit_log a
+        WHERE a.vehicle_id = v.id
+          AND a.notes IS DISTINCT FROM ${DEMO_AC_PHASES_NOTE}
+          AND jsonb_typeof(a.before) = 'object'
+          AND jsonb_typeof(a.after) = 'object'
+          AND (a.before -> 'acPhases') IS DISTINCT FROM (a.after -> 'acPhases')
+      )
+    ORDER BY v.id
+  `;
+  let singlePhase = 0;
+  let threePhase = 0;
+  for (const row of rows) {
+    const europe = (row.timezone ?? '').startsWith('Europe/');
+    const acPhases = demoVehicleAcPhases(row.model, row.body_type, europe);
+    if (acPhases == null) continue;
+    const updated = await sql`
+      UPDATE vehicles SET ac_phases = ${acPhases}, updated_at = now()
+      WHERE id = ${row.id} AND ac_phases IS NULL
+      RETURNING id
+    `;
+    if (updated.length === 0) continue;
+    if (acPhases === 1) singlePhase++;
+    else threePhase++;
+    await writeAudit(
+      { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+      {
+        entityId: row.id,
+        entityIdSnapshot: row.id,
+        action: 'updated',
+        actor: actorUserId != null ? 'operator' : 'system',
+        actorUserId,
+        before: { acPhases: null },
+        after: { acPhases },
+        notes: DEMO_AC_PHASES_NOTE,
+      },
+    );
+  }
+  return { vehicles: singlePhase + threePhase, singlePhase, threePhase };
+}
+
+/**
  * Gives every demo driver's vehicle without a color and body type its demo
  * look, and links the demo sessions without a vehicle to the driver's only
  * vehicle. Returns the vehicles written and the sessions linked.

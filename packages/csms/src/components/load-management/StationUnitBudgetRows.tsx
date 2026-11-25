@@ -10,16 +10,9 @@ import { EditIconButton } from '@/components/edit-icon-button';
 import { api } from '@/lib/api';
 import { formatNumberUpTo } from '@/lib/formatting';
 import { UnitBudgetDialog } from './UnitBudgetDialog';
+import { evseLimitText, type EvseLimitView } from './evse-limit-text';
 
-/** One charging EVSE limit of the load management reply. */
-export interface EvseLimitView {
-  evseNumber: number;
-  unitId: string | null;
-  kind: 'ac' | 'dc';
-  limitA: number | null;
-  limitKw: number;
-  paused: boolean;
-}
+export type { EvseLimitView } from './evse-limit-text';
 
 export interface UnitBudgetValue {
   kind: 'ac' | 'dc';
@@ -102,12 +95,7 @@ export function StationUnitBudgetRows({
   }
 
   function limitText(limit: EvseLimitView): string {
-    const value = limit.paused
-      ? t('loadManagement.unitBudgetPaused')
-      : limit.limitA != null
-        ? `${formatNumberUpTo(limit.limitA, 1)} A`
-        : `${formatNumberUpTo(limit.limitKw, 2)} kW`;
-    return t('loadManagement.unitBudgetEvseLimit', { evse: limit.evseNumber, limit: value });
+    return evseLimitText(limit, t);
   }
 
   return (

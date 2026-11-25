@@ -25,9 +25,11 @@ import {
 import {
   LOAD_MANAGEMENT_PROFILE_ID,
   LOAD_MANAGEMENT_STACK_LEVEL,
+  clearRemovesDefaultProfiles,
+  clearRemovesLoadManagementProfile,
   loadManagementProfileId,
   loadManagementCreditProfileId,
-} from '@evtivity/services/load-management.service';
+} from '@evtivity/services/load-management-profiles';
 import { ERROR_CODES } from './error-codes.generated.js';
 
 const MAX_EXTERNAL_CONSTRAINTS_ID = 'MaxExternalConstraintsId';
@@ -145,6 +147,18 @@ function isStationMaxPurpose(purpose: string | null): boolean {
   return purpose === 'ChargingStationMaxProfile' || purpose === 'ChargePointMaxProfile';
 }
 
+/**
+ * Purposes that sit above the station limit's slot (OCPP 2.1 K08.FR.04, K21,
+ * K27): PriorityCharging overrules TxProfile and TxDefault, LocalGeneration
+ * adds its power on top of every limit. On a managed station only load
+ * management may set either.
+ */
+const ABOVE_LIMIT_PURPOSES = new Set(['PriorityCharging', 'LocalGeneration']);
+
+function isAboveLimitPurpose(purpose: string | null): boolean {
+  return purpose != null && ABOVE_LIMIT_PURPOSES.has(purpose);
+}
+
 function isStationMaxAtLoadManagementLevel(profile: ProfileIdentity): boolean {
   return (
     isStationMaxPurpose(profile.purpose) &&
@@ -160,6 +174,7 @@ function isStationMaxAtLoadManagementLevel(profile: ProfileIdentity): boolean {
 export function mayOverrideLoadManagement(profile: ProfileIdentity): boolean {
   return (
     isStationMaxAtLoadManagementLevel(profile) ||
+    isAboveLimitPurpose(profile.purpose) ||
     (profile.profileId != null && profile.profileId >= LOAD_MANAGEMENT_PROFILE_ID)
   );
 }
@@ -172,7 +187,9 @@ export function overridesLoadManagement(
   profile: ProfileIdentity,
   maxExternalId: number | null | undefined,
 ): boolean {
-  if (isStationMaxAtLoadManagementLevel(profile)) return true;
+  if (isStationMaxAtLoadManagementLevel(profile) || isAboveLimitPurpose(profile.purpose)) {
+    return true;
+  }
   if (profile.profileId == null) return false;
   // The load management profile and its credit profile (security case 334).
   const profileId = loadManagementProfileId(maxExternalId != null ? String(maxExternalId) : null);
@@ -183,7 +200,178 @@ export function overridesLoadManagement(
 }
 
 export function loadManagedMessage(profile: ProfileIdentity): string {
-  return `Charging profile ${String(profile.profileId ?? '')} would override the load management limit of the station. On a station load management manages, a ChargingStationMaxProfile needs a stack level below ${String(LOAD_MANAGEMENT_STACK_LEVEL)}, and no profile may use the load management profile id`;
+  return `Charging profile ${String(profile.profileId ?? '')} would override the load management limit of the station. On a station load management manages, a ChargingStationMaxProfile needs a stack level below ${String(LOAD_MANAGEMENT_STACK_LEVEL)}, PriorityCharging and LocalGeneration profiles are not allowed, and no profile may use the load management profile id`;
+}
+
+/** The criteria of a ClearChargingProfile the load management rule reads. */
+export type ClearIdentity = ReturnType<typeof chargingProfileClearCriteria>;
+
+/**
+ * True when a ClearChargingProfile could remove the station limit or the
+ * credit profile of a managed station whose MaxExternalConstraintsId is
+ * `maxExternalId` (K10: by id, or by criteria that station max profile at
+ * stack level 1 or 2 on EVSE 0 meets; a 1.6 clear with no field clears every
+ * profile). Removing it leaves the station without its limit until the next
+ * send, so only load management clears it.
+ */
+export function clearRemovesLoadManagement(
+  criteria: ClearIdentity,
+  maxExternalId: number | null | undefined,
+): boolean {
+  return clearRemovesLoadManagementProfile(
+    criteria,
+    loadManagementProfileId(maxExternalId != null ? String(maxExternalId) : null),
+  );
+}
+
+/**
+ * True when the ClearChargingProfile (2.1 or 1.6 form) could remove the load
+ * management limit of the station and load management manages it. Reads the
+ * database only for a clear that could.
+ */
+export async function loadManagedClearConflict(
+  stationIdentity: string,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const criteria = chargingProfileClearCriteria(payload);
+  // Decided first without the station's id offset: any id of the load
+  // management range, or criteria a station max profile meets.
+  if (
+    criteria.chargingProfileId != null &&
+    criteria.chargingProfileId < LOAD_MANAGEMENT_PROFILE_ID
+  ) {
+    return false;
+  }
+  if (criteria.chargingProfileId == null && !clearRemovesLoadManagement(criteria, null))
+    return false;
+  if (!(await isLoadManagedStationIdentity(stationIdentity))) return false;
+  if (criteria.chargingProfileId == null) return true;
+  const maxExternalId = await maxExternalConstraintsIdByIdentity(stationIdentity);
+  return clearRemovesLoadManagement(criteria, maxExternalId);
+}
+
+// ---- Load management owns the unit box defaults ----
+//
+// On a managed station with unit budgets, load management sends a
+// TxDefaultProfile at its stack level on every EVSE of a box with a budget
+// (`loadManagementDefaultProfileId`): a transaction that starts there is held
+// to the box until its TxProfile arrives. Another TxDefaultProfile at that
+// stack level or above on EVSE 0 or a box EVSE, a profile with a default id,
+// or a clear that can remove a default would lift that bound.
+
+/** The EVSE numbers of the station's unit boxes with a budget, while load management manages it. */
+async function managedUnitBoxEvses(stationIdentity: string): Promise<Set<number>> {
+  // Managed as `loadManagedStationIds` decides: on a circuit of a panel of its
+  // own site, with load management on at that site.
+  const rows = (await db.execute(sql`SELECT e.evse_id
+    FROM evses e
+    JOIN charging_stations st ON st.id = e.station_id
+    JOIN station_unit_load_budgets b ON b.unit_id = e.unit_id AND b.station_id = e.station_id
+    JOIN circuits c ON c.id = st.circuit_id
+    JOIN panels p ON p.id = c.panel_id AND p.site_id = st.site_id
+    JOIN site_load_management slm ON slm.site_id = st.site_id AND slm.is_enabled = true
+    WHERE st.station_id = ${stationIdentity}`)) as unknown as Array<{ evse_id: number | string }>;
+  return new Set(rows.map((r) => Number(r.evse_id)));
+}
+
+/** The EVSE whose unit box default a SetChargingProfile would lift or replace, else null. */
+export async function unitBoxDefaultConflict(
+  stationIdentity: string,
+  payload: Record<string, unknown>,
+): Promise<number | null> {
+  const profile = profileIdentityFromRequest(payload);
+  const rawEvse = payload['evseId'] ?? payload['connectorId'];
+  const evse = typeof rawEvse === 'number' && Number.isInteger(rawEvse) ? rawEvse : null;
+  const asDefault =
+    profile.purpose === 'TxDefaultProfile' &&
+    profile.stackLevel != null &&
+    profile.stackLevel >= LOAD_MANAGEMENT_STACK_LEVEL &&
+    evse != null;
+  const byId = profile.profileId != null && profile.profileId > LOAD_MANAGEMENT_PROFILE_ID;
+  if (!asDefault && !byId) return null;
+  const boxEvses = await managedUnitBoxEvses(stationIdentity);
+  if (boxEvses.size === 0) return null;
+  if (asDefault && (evse === 0 || boxEvses.has(evse))) return evse;
+  if (byId) {
+    const profileId = loadManagementProfileId(
+      (await maxExternalConstraintsIdByIdentity(stationIdentity))?.toString() ?? null,
+    );
+    const evseNumber = (profile.profileId ?? 0) - profileId - 1;
+    if (boxEvses.has(evseNumber)) return evseNumber;
+  }
+  return null;
+}
+
+/** True when a ClearChargingProfile (2.1 or 1.6 form) could remove a unit box default. */
+export async function unitBoxDefaultClearConflict(
+  stationIdentity: string,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const criteria = chargingProfileClearCriteria(payload);
+  if (
+    criteria.chargingProfileId != null &&
+    criteria.chargingProfileId <= LOAD_MANAGEMENT_PROFILE_ID
+  ) {
+    return false;
+  }
+  if (
+    criteria.chargingProfileId == null &&
+    clearRemovesDefaultProfiles(criteria, LOAD_MANAGEMENT_PROFILE_ID).length === 0
+  ) {
+    return false;
+  }
+  const boxEvses = await managedUnitBoxEvses(stationIdentity);
+  if (boxEvses.size === 0) return false;
+  const profileId = loadManagementProfileId(
+    (await maxExternalConstraintsIdByIdentity(stationIdentity))?.toString() ?? null,
+  );
+  const removed = clearRemovesDefaultProfiles(criteria, profileId);
+  return removed === 'all' || removed.some((n) => boxEvses.has(n));
+}
+
+export function unitBoxDefaultMessage(evseNumber: number): string {
+  return `The profile would lift or replace the load management default limit of EVSE ${String(evseNumber)}, which holds its unit box to its budget`;
+}
+
+export function unitBoxDefaultClearMessage(): string {
+  return 'The clear could remove a load management default limit that holds a unit box to its budget; only load management clears it';
+}
+
+export function loadManagedClearMessage(): string {
+  return 'The clear could remove the load management limit of the station; on a station load management manages, only load management clears it';
+}
+
+/**
+ * The transaction of an active session the station's load management limits
+ * per EVSE whose TxProfile id is `profileId`, else null. A profile with that
+ * id replaces the EVSE limit whatever its purpose (K01.FR.05).
+ */
+export async function evseManagedProfileIdConflict(
+  stationIdentity: string,
+  profileId: number | null,
+): Promise<string | null> {
+  if (profileId == null || profileId < PLAN_TX_PROFILE_ID_MIN) return null;
+  const rows = (await db.execute(sql`SELECT cs.transaction_id
+    FROM charging_sessions cs
+    JOIN charging_stations st ON st.id = cs.station_id
+    WHERE st.station_id = ${stationIdentity}
+      AND cs.status = 'active'
+      AND cs.transaction_id IS NOT NULL`)) as unknown as Array<{ transaction_id: string }>;
+  for (const row of rows) {
+    if (chargingNeedsProfileId(stationIdentity, row.transaction_id) !== profileId) continue;
+    if (await isEvseManagedTransaction(stationIdentity, row.transaction_id)) {
+      return row.transaction_id;
+    }
+  }
+  return null;
+}
+
+export function usePriorityChargingMessage(): string {
+  return 'Priority charging would lift the load management limit of a station load management manages';
+}
+
+export function evseManagedProfileIdMessage(profileId: number, transactionId: string): string {
+  return `Charging profile id ${String(profileId)} is the TxProfile id of transaction ${transactionId}, which load management limits per EVSE; a manual profile with that id would replace that limit`;
 }
 
 /**
@@ -215,27 +403,6 @@ export async function isLoadManagedStationIdentity(stationIdentity: string): Pro
     .where(eq(chargingStations.stationId, stationIdentity));
   if (row == null) return false;
   return (await loadManagedStationIds([row.id])).has(row.id);
-}
-
-/**
- * Throws 400 CHARGING_PROFILE_LOAD_MANAGED when the profile would override
- * the load management limit of the station (by database id or OCPP identity).
- * Reads the database only for a profile that could.
- */
-export async function assertNotLoadManaged(
-  station: { dbId: string } | { identity: string },
-  profile: ProfileIdentity,
-  maxExternalId: number | null | undefined,
-): Promise<void> {
-  if (!mayOverrideLoadManagement(profile)) return;
-  if (!overridesLoadManagement(profile, maxExternalId)) return;
-  const managed =
-    'dbId' in station
-      ? (await loadManagedStationIds([station.dbId])).has(station.dbId)
-      : await isLoadManagedStationIdentity(station.identity);
-  if (managed) {
-    throw new AppError(loadManagedMessage(profile), 400, ERROR_CODES.CHARGING_PROFILE_LOAD_MANAGED);
-  }
 }
 
 // ---- The depot plan owns the TxProfile of a planned session ----
@@ -290,12 +457,15 @@ export async function isPlannedTransaction(
 export function txProfileConnectorWithoutTransaction(
   payload: Record<string, unknown>,
 ): number | null {
-  const raw = payload['csChargingProfiles'];
+  // The 1.6 form, or the 2.1 form the OCPP server translates for a 1.6 station
+  // (its evseId becomes the connectorId).
+  const legacy = payload['csChargingProfiles'];
+  const raw = legacy ?? payload['chargingProfile'];
   if (raw == null || typeof raw !== 'object') return null;
   const profile = raw as Record<string, unknown>;
   if (profile['chargingProfilePurpose'] !== 'TxProfile') return null;
   if (profile['transactionId'] != null) return null;
-  const connectorId = payload['connectorId'];
+  const connectorId = legacy != null ? payload['connectorId'] : payload['evseId'];
   return typeof connectorId === 'number' && Number.isInteger(connectorId) && connectorId > 0
     ? connectorId
     : null;
@@ -555,21 +725,6 @@ export async function plannedProfileIdConflict(
 
 export function plannedProfileIdMessage(profileId: number, transactionId: string): string {
   return `Charging profile id ${String(profileId)} is the TxProfile id of transaction ${transactionId}, which follows the depot charging plan; a manual profile with that id would replace the plan profile`;
-}
-
-/** Throws 400 CHARGING_PROFILE_LOAD_MANAGED when the id is a planned session's TxProfile id. */
-export async function assertNotPlanProfileId(
-  stationIdentity: string,
-  profileId: number | null,
-): Promise<void> {
-  const transactionId = await plannedProfileIdConflict(stationIdentity, profileId);
-  if (transactionId != null && profileId != null) {
-    throw new AppError(
-      plannedProfileIdMessage(profileId, transactionId),
-      400,
-      ERROR_CODES.CHARGING_PROFILE_LOAD_MANAGED,
-    );
-  }
 }
 
 /** The active sessions with a transaction at the station that its site's depot plan charges. */

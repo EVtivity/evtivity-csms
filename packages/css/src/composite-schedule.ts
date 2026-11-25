@@ -18,6 +18,8 @@ export interface CompositePeriod {
   startPeriod: number;
   limit: number;
   numberPhases?: number;
+  /** The EVSE phase a single-phase car uses (TxProfile period with numberPhases 1). */
+  phaseToUse?: number;
 }
 
 /** A stored ChargingProfileType plus the simulator stamps `_evseId`, `_setAt`, `_invalidated`. */
@@ -47,6 +49,7 @@ interface SchedulePeriod {
   startPeriod: number;
   limit: number;
   numberPhases?: number;
+  phaseToUse?: number;
 }
 
 interface Schedule {
@@ -213,9 +216,24 @@ export function computeCompositeSchedule(input: CompositeInput): CompositePeriod
       // Phase conflicts between profiles resolve to the lowest numberPhases (OCPP 2.1 Part 2, 3.8).
       if (p.numberPhases != null && p.numberPhases < numberPhases) numberPhases = p.numberPhases;
     }
+    // Only the EVSE's own TxProfile names a phase; a station limit never does (Part 2, 3.8).
+    const phaseToUse =
+      numberPhases === 1 && txPeriod?.numberPhases === 1 ? txPeriod.phaseToUse : undefined;
     const last = periods[periods.length - 1];
-    if (last != null && last.limit === limit && last.numberPhases === numberPhases) continue;
-    periods.push({ startPeriod: Math.round((t - t0) / 1000), limit, numberPhases });
+    if (
+      last != null &&
+      last.limit === limit &&
+      last.numberPhases === numberPhases &&
+      last.phaseToUse === phaseToUse
+    ) {
+      continue;
+    }
+    periods.push({
+      startPeriod: Math.round((t - t0) / 1000),
+      limit,
+      numberPhases,
+      ...(phaseToUse != null ? { phaseToUse } : {}),
+    });
   }
   return periods;
 }
@@ -240,7 +258,9 @@ export function limitNowW(input: LimitNowInput): number | null {
 }
 
 /** The composite limit in W at `now` and the phases it allows, or null when no profile limits it. */
-export function limitNow(input: LimitNowInput): { limitW: number; numberPhases: number } | null {
+export function limitNow(
+  input: LimitNowInput,
+): { limitW: number; numberPhases: number; phaseToUse: number | null } | null {
   const [current] = computeCompositeSchedule({
     profiles: input.profiles,
     evseId: input.evseId,
@@ -258,5 +278,6 @@ export function limitNow(input: LimitNowInput): { limitW: number; numberPhases: 
   return {
     limitW: Math.max(0, current.limit),
     numberPhases: current.numberPhases ?? input.phases,
+    phaseToUse: current.phaseToUse ?? null,
   };
 }

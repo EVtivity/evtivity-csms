@@ -12,6 +12,7 @@ import {
   isReservedProfileId,
   maxExternalConstraintsIdByIdentity,
 } from '../lib/charging-profile-id.js';
+import { loadManagementProfileConflict } from '../lib/load-management-profile-conflict.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { fleetReservationListSort } from '../lib/sorts/fleet-reservation-list-sort.js';
@@ -35,7 +36,7 @@ import {
   syncFleetReservationStatus,
 } from '@evtivity/services/fleet-reservation-status';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { stationInSitesSql } from '../lib/fleet-operation-scope.js';
 
@@ -167,8 +168,9 @@ async function sendSlotChargingProfile(
   log: FastifyBaseLogger,
 ): Promise<void> {
   const profileId = chargingProfile['id'];
+  let maxExternalId: number | null = null;
   if (typeof profileId === 'number') {
-    const maxExternalId = await maxExternalConstraintsIdByIdentity(stationOcppId);
+    maxExternalId = await maxExternalConstraintsIdByIdentity(stationOcppId);
     if (maxExternalId != null && isReservedProfileId(profileId, maxExternalId)) {
       log.warn(
         { stationId: stationOcppId, profileId, maxExternalId },
@@ -177,10 +179,25 @@ async function sendSlotChargingProfile(
       return;
     }
   }
-  const profile = await sendOcppCommandAndWait(stationOcppId, 'SetChargingProfile', {
-    evseId,
-    chargingProfile,
-  });
+  const payload = { evseId, chargingProfile };
+  // Checked again at send: the station may have come under load management
+  // since the request was checked.
+  const conflict = await loadManagementProfileConflict(
+    stationOcppId,
+    'SetChargingProfile',
+    payload,
+    {
+      maxExternalId,
+    },
+  );
+  if (conflict != null) {
+    log.warn(
+      { stationId: stationOcppId, profileId },
+      'Fleet reservation charging profile would lift a load management limit, profile not sent',
+    );
+    return;
+  }
+  const profile = await sendOcppCommandAndWait(stationOcppId, 'SetChargingProfile', payload);
   if (profile.error != null) {
     log.warn(
       { err: profile.error, stationId: stationOcppId },
@@ -247,6 +264,10 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           201: itemResponse(createFleetReservationResponse),
           400: errorWith('Fleet reservation create failed', [
             ERROR_CODES.FLEET_RESERVATION_CREATE_FAILED,
+            ERROR_CODES.CHARGING_PROFILE_LOAD_MANAGED,
+          ]),
+          403: errorWith('Charging profile needs smart charging write', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
           ]),
           404: errorWith('Fleet or station not found', [
             ERROR_CODES.FLEET_NOT_FOUND,
@@ -296,6 +317,32 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
       if (slotStationOcppIds.some((id) => !stationMap.has(id))) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
+      }
+
+      // The booking's charging profile is a charging profile write: it needs
+      // the smart charging permission and the load management rule of every
+      // other profile writer, checked per slot before anything is written.
+      if (body.chargingProfile != null) {
+        if (!(await requestHasPermission(request, 'smartCharging:write'))) {
+          await reply.status(403).send({
+            error: 'A charging profile needs the smart charging write permission',
+            code: 'INSUFFICIENT_PERMISSIONS',
+          });
+          return;
+        }
+        for (const slot of body.slots) {
+          const conflict = await loadManagementProfileConflict(
+            slot.stationOcppId,
+            'SetChargingProfile',
+            { evseId: slot.evseId ?? 0, chargingProfile: body.chargingProfile },
+          );
+          if (conflict != null) {
+            await reply
+              .status(400)
+              .send({ error: conflict, code: 'CHARGING_PROFILE_LOAD_MANAGED' });
+            return;
+          }
+        }
       }
 
       // Create fleet_reservations aggregate row

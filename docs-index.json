@@ -290,6 +290,11 @@
     "description": "Run EVtivity CSMS on a local Kubernetes cluster using minikube for development and testing."
   },
   {
+    "path": "/docs/getting-started/demo-data",
+    "title": "Demo Data",
+    "description": "What the optional demo data set creates, how to turn it on, and how a rerun treats it."
+  },
+  {
     "path": "/docs/getting-started/installation",
     "title": "Installation",
     "description": "Set up EVtivity CSMS for local development with hot reload."

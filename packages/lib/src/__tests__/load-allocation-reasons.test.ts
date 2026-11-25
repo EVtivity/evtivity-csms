@@ -19,6 +19,8 @@ describe('load allocation reasons', () => {
       'station_max',
       'connector_max',
       'reserved',
+      'idle_allowance',
+      'measured_draw',
     ]);
   });
 

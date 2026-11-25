@@ -4,12 +4,12 @@
 import type { Queue } from 'bullmq';
 import { db, cronjobs } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
+import { LOAD_MANAGEMENT_CYCLE_MS } from '@evtivity/services/load-management-send';
 
 const log = createLogger('cron-scheduler');
 
 /** Job scheduler id of the load management coordinator (fans out per site). */
 export const LOAD_MANAGEMENT_COORDINATOR = 'load-management-coordinator';
-export const LOAD_MANAGEMENT_INTERVAL_MS = 10_000;
 
 /**
  * Reads the cronjobs table and registers each job as a BullMQ repeating job.
@@ -30,7 +30,7 @@ export async function scheduleCronJobs(cronQueue: Queue): Promise<void> {
 export async function scheduleLoadManagementCoordinator(loadQueue: Queue): Promise<void> {
   await loadQueue.upsertJobScheduler(
     LOAD_MANAGEMENT_COORDINATOR,
-    { every: LOAD_MANAGEMENT_INTERVAL_MS },
+    { every: LOAD_MANAGEMENT_CYCLE_MS },
     { name: LOAD_MANAGEMENT_COORDINATOR },
   );
 }

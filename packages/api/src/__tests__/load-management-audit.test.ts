@@ -146,6 +146,7 @@ const circuitRow = {
   maxContinuousKw: '7.68',
   phaseConnections: null,
   voltageV: null,
+  phaseRotation: null,
   sortOrder: 0,
   createdAt: created,
   updatedAt: created,

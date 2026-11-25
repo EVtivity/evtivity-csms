@@ -45,11 +45,15 @@ export interface WithLockResult<T> {
  * Try-once mode (`acquireTimeoutMs: 0`): returns `{ acquired: false }` without
  * running `fn` when the lock is already held — use this to dedup overlapping
  * runs (e.g. a manual trigger racing a scheduled one).
+ *
+ * `fn` gets a signal that aborts when the lease is lost: a renewal finds the
+ * lock held by another token or gone, or no renewal succeeded for a whole
+ * lease. `fn` checks it before work another holder may now be doing.
  */
 export async function withLock<T>(
   redis: Redis,
   lockKey: string,
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   options: WithLockOptions = {},
 ): Promise<WithLockResult<T>> {
   const ttlMs = options.ttlMs ?? 60_000;
@@ -69,11 +73,27 @@ export async function withLock<T>(
     await new Promise((resolve) => setTimeout(resolve, retryMs));
   }
 
+  const lease = new AbortController();
+  let renewedAt = Date.now();
   const renew = setInterval(() => {
-    void redis.eval(RENEW_IF_OWNER_LUA, 1, lockKey, token, String(ttlMs)).catch(() => {});
+    redis
+      .eval(RENEW_IF_OWNER_LUA, 1, lockKey, token, String(ttlMs))
+      .then((renewed) => {
+        if (Number(renewed) === 1) {
+          renewedAt = Date.now();
+        } else if (!lease.signal.aborted) {
+          logger.warn({ lockKey }, 'Lock lease lost, the holder stops its work');
+          lease.abort(new Error(`Lock ${lockKey} lost`));
+        }
+      })
+      .catch((err: unknown) => {
+        if (lease.signal.aborted || Date.now() - renewedAt < ttlMs) return;
+        logger.warn({ err, lockKey }, 'Lock lease not renewed for a whole lease, the holder stops');
+        lease.abort(new Error(`Lock ${lockKey} not renewed`));
+      });
   }, renewMs);
   try {
-    const result = await fn();
+    const result = await fn(lease.signal);
     return { acquired: true, result };
   } finally {
     clearInterval(renew);

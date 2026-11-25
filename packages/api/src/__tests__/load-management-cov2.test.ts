@@ -100,6 +100,8 @@ vi.mock('@evtivity/database', () => ({
   chargingStations: {},
   connectors: {},
   evses: {},
+  circuits: {},
+  panels: {},
   loadAllocationLog: {},
   markSitePlanStale: vi.fn().mockResolvedValue(true),
   client: {},
@@ -140,13 +142,16 @@ vi.mock('../lib/site-access.js', () => ({
   invalidateSiteAccessCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/services/load-management.service', () => ({
+vi.mock('@evtivity/services/load-management-site-allocation', () => ({
   computeSiteAllocation: vi.fn(async (siteId: string, strategy: string) => {
-    const svc = await import('@evtivity/services/load-management.service');
-    const status = await svc.getSitePowerStatus(siteId);
-    const hierarchy = await svc.buildSiteHierarchy(siteId, status.stations);
+    const { getSitePowerStatus } = await import('@evtivity/services/load-management-site-status');
+    const { buildSiteHierarchy } = await import('@evtivity/services/load-management-hierarchy');
+    const { computeHierarchicalAllocation } =
+      await import('@evtivity/services/load-management-allocation');
+    const status = await getSitePowerStatus(siteId);
+    const hierarchy = await buildSiteHierarchy(siteId, status.stations);
     const allocations =
-      hierarchy.length > 0 ? svc.computeHierarchicalAllocation(hierarchy, strategy as never) : [];
+      hierarchy.length > 0 ? computeHierarchicalAllocation(hierarchy, strategy as never) : [];
     return {
       status,
       hierarchy,
@@ -154,16 +159,26 @@ vi.mock('@evtivity/services/load-management.service', () => ({
       reservedKw: new Map(),
       allocations,
       evseLimits: new Map(),
+      evseDefaults: new Map(),
+      boxChecks: new Map(),
+      retries: [],
+      storedLimits: new Map(),
+      holdRaises: false,
     };
   }),
+}));
+
+vi.mock('@evtivity/services/load-management-send', () => ({
   clearLoadManagementProfiles: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock('@evtivity/services/load-limit-entries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/services/load-limit-entries')>()),
   parseAppliedAllocations: vi.fn(() => null),
+}));
+
+vi.mock('@evtivity/services/load-management-site-status', () => ({
   stationConnectedKw: vi.fn(() => 0),
-  // Without a supply credit the capacity is the rating less the margin.
-  nodeCapacityKw: vi.fn(
-    (n: { maxContinuousKw: number; safetyMarginKw: number; supplyCreditKw?: number }) =>
-      n.maxContinuousKw - n.safetyMarginKw + (n.supplyCreditKw ?? 0),
-  ),
   getSitePowerStatus: vi.fn().mockResolvedValue({
     totalDrawKw: 50,
     stations: [
@@ -193,7 +208,21 @@ vi.mock('@evtivity/services/load-management.service', () => ({
       },
     ],
   }),
+}));
+
+vi.mock('@evtivity/services/load-management-phases', () => ({
+  // Without a supply credit the capacity is the rating less the margin.
+  nodeCapacityKw: vi.fn(
+    (n: { maxContinuousKw: number; safetyMarginKw: number; supplyCreditKw?: number }) =>
+      n.maxContinuousKw - n.safetyMarginKw + (n.supplyCreditKw ?? 0),
+  ),
+}));
+
+vi.mock('@evtivity/services/load-management-hierarchy', () => ({
   buildSiteHierarchy: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('@evtivity/services/load-management-allocation', () => ({
   computeHierarchicalAllocation: vi.fn().mockReturnValue([
     {
       stationDbId: 'sit_000000000001',
@@ -207,11 +236,9 @@ vi.mock('@evtivity/services/load-management.service', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { loadManagementRoutes } from '../routes/load-management.js';
 import { getUserSiteIds } from '../lib/site-access.js';
-import {
-  buildSiteHierarchy,
-  computeHierarchicalAllocation,
-  computeSiteAllocation,
-} from '@evtivity/services/load-management.service';
+import { buildSiteHierarchy } from '@evtivity/services/load-management-hierarchy';
+import { computeHierarchicalAllocation } from '@evtivity/services/load-management-allocation';
+import { computeSiteAllocation } from '@evtivity/services/load-management-site-allocation';
 
 const SITE = 'sit_000000000001';
 const OTHER_SITE = 'sit_000000000009';
@@ -350,6 +377,32 @@ describe('Load management routes (hierarchy and site scope)', () => {
     expect(stations.find((s) => s.id === 'sit_000000000002')?.allocatedLimitKw).toBeNull();
   });
 
+  it('returns the operator phase rotation of each circuit, null when none is set', async () => {
+    const rotated = node({ type: 'circuit', id: 'cir_1', name: 'A', stations: [] });
+    const plain = node({ type: 'circuit', id: 'cir_2', name: 'B', stations: [] });
+    vi.mocked(buildSiteHierarchy).mockResolvedValue([
+      node({ children: [rotated, plain] }),
+    ] as never);
+    setupDbResults(
+      [{ strategy: 'equal_share', isEnabled: false, departureBufferMinutes: 30 }],
+      [
+        { id: 'cir_1', phaseRotation: 'TSR' },
+        { id: 'cir_2', phaseRotation: null },
+      ],
+    );
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE}/load-management`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    const circuits = res.json().hierarchy[0].circuits as { id: string; phaseRotation: unknown }[];
+    expect(circuits.map((c) => [c.id, c.phaseRotation])).toEqual([
+      ['cir_1', 'TSR'],
+      ['cir_2', null],
+    ]);
+  });
+
   it('marks a station whose limit is power kept for it, not a limit sent', async () => {
     const circuit = node({
       type: 'circuit',
@@ -374,6 +427,11 @@ describe('Load management routes (hierarchy and site scope)', () => {
       baseKw: new Map(),
       creditValidToMs: null,
       evseLimits: new Map(),
+      evseDefaults: new Map(),
+      boxChecks: new Map(),
+      retries: [],
+      storedLimits: new Map(),
+      holdRaises: false,
     }));
     setupDbResults([{ strategy: 'equal_share', isEnabled: true, departureBufferMinutes: 30 }]);
 

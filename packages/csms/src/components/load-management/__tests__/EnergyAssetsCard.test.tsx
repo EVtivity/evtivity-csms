@@ -165,6 +165,16 @@ describe('EnergyAssetsCard', () => {
     expect(spare.getByText('loadManagement.noReading')).toBeTruthy();
   });
 
+  it('warns that readings fresh 70 seconds or less give no credit (review M4)', () => {
+    renderCard({
+      assets: [BATTERY, { ...BATTERY, id: 'ena_long', readingTtlSeconds: 120 }, UNCONNECTED],
+    });
+    const note = /loadManagement\.readingTtlNoCredit:\{"seconds":70\}/;
+    expect(within(screen.getByTestId('energy-asset-ena_battery')).getByText(note)).toBeTruthy();
+    expect(within(screen.getByTestId('energy-asset-ena_long')).queryByText(note)).toBeNull();
+    expect(within(screen.getByTestId('energy-asset-ena_spare')).queryByText(note)).toBeNull();
+  });
+
   it('shows the empty state without assets', () => {
     renderCard({ assets: [] });
     expect(screen.getByText('loadManagement.noEnergyAssets')).toBeTruthy();

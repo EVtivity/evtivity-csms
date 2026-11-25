@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import type postgres from 'postgres';
 import { OCTT_TEST_DRIVER_EMAIL, type PubSubClient } from '@evtivity/lib';
-import { ChaosOrchestrator, type CommandResultSource } from '../chaos-orchestrator.js';
+import { ChaosOrchestrator, evPhasesOf, type CommandResultSource } from '../chaos-orchestrator.js';
 import {
   FLEET_REFUSAL_BACKOFF_MS,
   FLEET_SESSION_SHARE,
@@ -44,7 +44,7 @@ interface FleetTokenRow {
 
 interface Db {
   stations: StationRow[];
-  tokens: Array<{ id_token: string; token_type: string }>;
+  tokens: Array<{ id_token: string; token_type: string; ac_phases?: number | null }>;
   /**
    * Tokens of the fleets each station is assigned to (fleet_stations). `depot`
    * marks a station on a site of type Depot.
@@ -377,6 +377,69 @@ describe('ChaosOrchestrator action selection', () => {
     // With no targets left the next tick does nothing at all.
     await internals(o).dispatchRandomAction();
     expect(db.stateQueries).toBe(1);
+  });
+});
+
+describe('ChaosOrchestrator plug-in AC phases', () => {
+  // The first random pick slot whose tick publishes a plugIn, on a fresh orchestrator.
+  async function plugInTick(
+    db: Db,
+  ): Promise<{ o: ChaosOrchestrator; pubsub: ReturnType<typeof makePubsub> }> {
+    const slots = 200;
+    for (let k = 0; k < slots; k++) {
+      const pubsub = makePubsub();
+      const o = await loaded(db, pubsub);
+      randomQueue.length = 0;
+      randomQueue.push(0.9, 0, 0.9, (k + 0.5) / slots, 0.0); // no journey, station, no outage, action, first token
+      await internals(o).dispatchRandomAction();
+      if (published(pubsub).some((p) => p.action === 'plugIn')) return { o, pubsub };
+    }
+    throw new Error('no pick slot publishes plugIn');
+  }
+
+  it('plugs in the EV of the picked driver with its vehicle AC phases and starts with that driver', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    const db = makeDb({
+      tokens: [
+        { id_token: 'TOK-A', token_type: 'ISO14443', ac_phases: 1 },
+        { id_token: 'TOK-B', token_type: 'ISO14443', ac_phases: 3 },
+      ],
+    });
+    const { o, pubsub } = await plugInTick(db);
+    expect(published(pubsub)).toEqual([
+      expect.objectContaining({
+        action: 'plugIn',
+        params: { evseId: 1, ev: { evPhases: 1 } },
+      }),
+    ]);
+    pubsub.publish.mockClear();
+    db.state['CS-1'] = { status: 'available', evse_status: 'Preparing', has_tx: false };
+    internals(o).journeys.record('CS-1', 'plugIn', 0);
+    vi.setSystemTime(JOURNEY_WAIT_MS.plugged[1] + 1_000_001);
+    randomQueue.push(0.1, 0.99); // journey tick; a fresh pick would take the last token
+    await internals(o).dispatchRandomAction();
+    expect(published(pubsub)).toEqual([
+      expect.objectContaining({
+        action: 'startCharging',
+        params: { evseId: 1, idToken: 'TOK-A', tokenType: 'ISO14443' },
+      }),
+    ]);
+  });
+
+  it('sends no AC phases for a driver whose vehicle has none', async () => {
+    const db = makeDb({ tokens: [{ id_token: 'TOK-A', token_type: 'ISO14443', ac_phases: null }] });
+    const { pubsub } = await plugInTick(db);
+    expect(published(pubsub)).toEqual([
+      expect.objectContaining({ action: 'plugIn', params: { evseId: 1 } }),
+    ]);
+  });
+
+  it('takes only 1 or 3 as AC phases from the database', () => {
+    expect(evPhasesOf(1)).toBe(1);
+    expect(evPhasesOf('3')).toBe(3);
+    expect(evPhasesOf(2)).toBeNull();
+    expect(evPhasesOf(null)).toBeNull();
   });
 });
 
@@ -1000,7 +1063,7 @@ describe('ChaosOrchestrator fleet sessions', () => {
     const pubsub = makePubsub();
     const o = await fleetLoaded(plugged(), fleetDraws([FLEET_SESSION_SHARE - 0.01, 0]), pubsub);
     expect((o as unknown as { tokens: Array<{ idToken: string }> }).tokens).toEqual([
-      { idToken: 'TOK-A', tokenType: 'ISO14443' },
+      { idToken: 'TOK-A', tokenType: 'ISO14443', evPhases: null },
     ]);
 
     await dueStart(o);

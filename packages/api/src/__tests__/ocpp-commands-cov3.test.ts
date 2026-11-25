@@ -77,6 +77,8 @@ vi.mock('../lib/charging-profile-id.js', async (importOriginal) => ({
   isEvseManagedConnectorSession: vi.fn(async () => false),
   plannedClearConflict: vi.fn(async () => null),
   evseManagedClearConflict: vi.fn(async () => null),
+  unitBoxDefaultConflict: vi.fn(async () => null),
+  unitBoxDefaultClearConflict: vi.fn(async () => false),
 }));
 
 vi.mock('../lib/site-access.js', () => ({ getUserSiteIds }));

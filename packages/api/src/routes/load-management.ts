@@ -19,6 +19,8 @@ import {
   client,
   clearEvseLimitsRefused,
   toIsoOrNull,
+  circuits as circuitsTable,
+  panels as panelsTable,
 } from '@evtivity/database';
 import { effectiveBalancingMode } from '@evtivity/services/evse-limits';
 import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib';
@@ -26,19 +28,20 @@ import { zodSchema } from '../lib/zod-schema.js';
 import { config as apiConfig } from '../lib/config.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { computeSiteAllocation } from '@evtivity/services/load-management-site-allocation';
+import { nodeCapacityKw } from '@evtivity/services/load-management-phases';
+import { clearLoadManagementProfiles } from '@evtivity/services/load-management-send';
+import { clearPlanProfilesOnDisable } from '@evtivity/services/load-management-plan-bridge';
 import {
-  computeSiteAllocation,
-  nodeCapacityKw,
-  clearLoadManagementProfiles,
-  clearPlanProfilesOnDisable,
+  entriesAfterConfigSave,
   parseAppliedAllocations,
-  stationConnectedKw,
-  type HierarchyNode,
-} from '@evtivity/services/load-management.service';
+} from '@evtivity/services/load-limit-entries';
+import { stationConnectedKw } from '@evtivity/services/load-management-site-status';
+import { type HierarchyNode } from '@evtivity/services/load-management-model';
 import { getUserSiteIds, isAllSiteUser } from '../lib/site-access.js';
 import { sitePlanItem, siteChargingPlanView } from '../lib/charging-plan-view.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
-import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
+import { recomputeSiteAfterWrite, replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { changedFields } from '../lib/audit-diff.js';
@@ -165,6 +168,12 @@ const hierarchyCircuitSchema = z
       .int()
       .nullable()
       .describe('Circuit voltage in volts; null uses the panel voltage'),
+    phaseRotation: z
+      .string()
+      .nullable()
+      .describe(
+        'Wiring of the stations to the panel phases set by the operator (RST, RTS, SRT, STR, TRS, TSR); null uses the rotation the stations report',
+      ),
     stations: z.array(hierarchyStationSchema).describe('Stations attached to this circuit'),
     unmanagedLoads: z
       .array(z.record(z.string(), z.unknown()))
@@ -223,6 +232,18 @@ const evseLimitItem = z
       .string()
       .describe('What set the limit: tariff_limit, connector_max, station_share or ac_min_pause'),
     paused: z.boolean().describe('True when the AC EVSE is paused at 0 A (below 6 A)'),
+    phaseSwitchingSupported: z
+      .boolean()
+      .describe(
+        'True when the EVSE reports SmartChargingCtrlr.ACPhaseSwitchingSupported true (OCPP 2.0.1 and 2.1 only): it can move a single-phase car to the phase load management names',
+      ),
+    phaseToUse: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'The EVSE phase (1 to 3) the single-phase car is sent to charge on (phaseToUse of the TxProfile); null when none is sent',
+      ),
     sessionId: z
       .string()
       .optional()
@@ -437,9 +458,20 @@ async function connectedKwByStation(nodes: readonly HierarchyNode[]): Promise<Ma
 /**
  * Annotate hierarchy nodes with computed availableKw and utilization.
  */
+/** The operator phase rotation of each circuit of the site, by circuit id. */
+async function circuitRotations(siteId: string): Promise<Map<string, string | null>> {
+  const rows = await db
+    .select({ id: circuitsTable.id, phaseRotation: circuitsTable.phaseRotation })
+    .from(circuitsTable)
+    .innerJoin(panelsTable, eq(panelsTable.id, circuitsTable.panelId))
+    .where(eq(panelsTable.siteId, siteId));
+  return new Map(rows.map((r) => [r.id, r.phaseRotation]));
+}
+
 function annotateHierarchy(
   nodes: HierarchyNode[],
   connectedKw: ReadonlyMap<string, number>,
+  rotations: ReadonlyMap<string, string | null> = new Map(),
 ): unknown[] {
   return nodes.map((node) => {
     // currentDrawKw already holds the unmanaged loads of the node and of every
@@ -510,6 +542,7 @@ function annotateHierarchy(
           availableKw: Math.max(0, circuit.maxContinuousKw - circuit.currentDrawKw),
           phaseConnections: circuit.phaseConnections,
           voltageV: circuit.ownVoltageV ?? null,
+          phaseRotation: rotations.get(circuit.id) ?? null,
           stations: circuit.stations.map((s) => ({
             id: s.id,
             stationId: s.stationId,
@@ -522,7 +555,7 @@ function annotateHierarchy(
           unmanagedLoads: [],
         };
       }),
-      childPanels: annotateHierarchy(panelChildren, connectedKw),
+      childPanels: annotateHierarchy(panelChildren, connectedKw, rotations),
       unmanagedLoads: [],
     };
   });
@@ -607,7 +640,11 @@ export function loadManagementRoutes(app: FastifyInstance): void {
                 departureBufferMinutes: config.departureBufferMinutes,
               }
             : null,
-        hierarchy: annotateHierarchy(hierarchy, await connectedKwByStation(hierarchy)),
+        hierarchy: annotateHierarchy(
+          hierarchy,
+          await connectedKwByStation(hierarchy),
+          await circuitRotations(id),
+        ),
         stations: status.stations.map((s) => ({
           id: s.id,
           stationId: s.stationId,
@@ -633,6 +670,9 @@ export function loadManagementRoutes(app: FastifyInstance): void {
             phases: l.phases,
             reason: l.reason,
             paused: l.paused,
+            phaseSwitchingSupported:
+              (s.sessions ?? []).find((x) => x.sessionId === l.sessionId)?.phaseSwitching === true,
+            phaseToUse: l.phaseToUse ?? null,
             ...(showSessions ? { sessionId: l.sessionId } : {}),
           })),
           ...(showPricing
@@ -701,24 +741,38 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       }
 
       if (existing != null) {
-        // A config change makes the next cycle send every limit again. Turned
-        // off, the limits are removed from the site's stations: the profile
-        // stays on a station until cleared and would cap it forever.
-        const [updated] = await db
-          .update(siteLoadManagement)
-          .set({
-            strategy: body.strategy,
-            isEnabled: body.isEnabled,
-            ...(body.departureBufferMinutes !== undefined
-              ? { departureBufferMinutes: body.departureBufferMinutes }
-              : {}),
-            appliedAllocations: null,
-            appliedAt: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(siteLoadManagement.siteId, id))
-          .returning();
-        if (existing.isEnabled && !body.isEnabled) {
+        // A config change makes the next cycle send every limit again. The
+        // station records stay (what a station may hold does not change with a
+        // save), written under the site row lock so a reply or a cycle claim
+        // in between is kept. Turned off, the limits are removed from the
+        // site's stations (a profile stays on a station until cleared and would
+        // cap it forever) and every record becomes unknown.
+        const turnsOff = existing.isEnabled && !body.isEnabled;
+        const updated = await db.transaction(async (tx) => {
+          const [locked] = await tx
+            .select({ appliedAllocations: siteLoadManagement.appliedAllocations })
+            .from(siteLoadManagement)
+            .where(eq(siteLoadManagement.siteId, id))
+            .for('update');
+          const [row] = await tx
+            .update(siteLoadManagement)
+            .set({
+              strategy: body.strategy,
+              isEnabled: body.isEnabled,
+              ...(body.departureBufferMinutes !== undefined
+                ? { departureBufferMinutes: body.departureBufferMinutes }
+                : {}),
+              appliedAllocations: entriesAfterConfigSave(locked?.appliedAllocations ?? null, {
+                turnsOff,
+              }),
+              appliedAt: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(siteLoadManagement.siteId, id))
+            .returning();
+          return row;
+        });
+        if (turnsOff) {
           const assigned = await db
             .select({ stationId: chargingStations.stationId })
             .from(chargingStations)
@@ -912,6 +966,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
     '/sites/:id/stations/:stationId/load-priority',
     {
       onRequest: [authorize('loadManagement:write')],
+      onResponse: [recomputeSiteAfterWrite('load_priority_changed', 'id')],
       schema: {
         tags: ['Load Management'],
         summary: 'Update load priority for a station',

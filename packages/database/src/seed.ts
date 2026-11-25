@@ -52,7 +52,6 @@ import {
   chargingSessions,
   transactionEvents,
   reservations,
-  sitePowerLimits,
   siteLoadManagement,
   paymentRecords,
   supportCases,
@@ -127,6 +126,7 @@ import {
   STATION_MESSAGE_LANGUAGES,
   DEFAULT_STATION_MESSAGE_LANGUAGE,
   mapConnectorTypeToCss,
+  cssEvseSupply,
   DEFAULT_CURRENCY,
   DEFAULT_PRICE_DISPLAY,
   DEFAULT_TAX_BASIS,
@@ -1292,27 +1292,7 @@ async function seed(): Promise<void> {
     console.log(`  ${String(createdCssStations.length)} css_stations rows seeded for simulators.`);
   }
 
-  // ------ Site Power Limits (first 8 sites) ------
-  const powerLimitRows = createdSites.slice(0, 8).map((site, i) => {
-    // Count stations assigned to this site
-    const stationCount = stationRows.filter((s) => s.siteId === site.id).length;
-    // Average connector power across all models (~80 kW rough avg), scale by 0.7 to create contention
-    const avgConnectorKw = 80;
-    const maxPowerKw = Math.round(stationCount * avgConnectorKw * 0.7);
-    return {
-      siteId: site.id,
-      maxPowerKw: String(maxPowerKw),
-      safetyMarginKw: String(randomInt(5, 15)),
-      strategy: DEMO_LOAD_STRATEGIES[i % DEMO_LOAD_STRATEGIES.length] ?? 'equal_share',
-      isEnabled: i < 5,
-    };
-  });
-  await db.insert(sitePowerLimits).values(powerLimitRows);
-  console.log(
-    `  ${String(powerLimitRows.length)} site power limits created (${String(powerLimitRows.filter((r) => r.isEnabled).length)} enabled).`,
-  );
-
-  // ------ Site Load Management (hierarchical model, mirrors sitePowerLimits) ------
+  // ------ Site Load Management (hierarchical model) ------
   const loadMgmtRows = createdSites.slice(0, 8).map((site, i) => ({
     siteId: site.id,
     strategy: DEMO_LOAD_STRATEGIES[i % DEMO_LOAD_STRATEGIES.length] ?? 'equal_share',
@@ -1472,13 +1452,18 @@ async function seed(): Promise<void> {
       const ocppStationId = at(stationRows, spec.stationIdx).stationId;
       const cssStationId = cssStationIdByOcppId.get(ocppStationId);
       if (cssStationId == null) return [];
+      const connectorType = mapConnectorTypeToCss(spec.connectorType);
+      // Every base demo site is in the US: AC on a 2-pole 208 V circuit, DC on 480Y/277 V.
+      const supply = cssEvseSupply(connectorType, 'US');
       return [
         {
           cssStationId,
           evseId: spec.evseId,
           connectorId: spec.connectorId,
-          connectorType: mapConnectorTypeToCss(spec.connectorType),
+          connectorType,
           maxPowerW: Math.round(spec.maxPowerKw * 1000),
+          phases: supply.phases,
+          voltage: supply.voltage,
         },
       ];
     });
@@ -2856,7 +2841,7 @@ async function seed(): Promise<void> {
       actorUserId: featureActor?.id ?? null,
     });
     console.log(
-      `  Demo features created (${String(features.powerSites)} sites with sized power equipment, ${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.stationUnits)} station units, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleSessions)} sessions linked to their vehicle, ${String(features.departureSchedules)} depot departure schedules, ${String(features.securityEvents)} station security events).`,
+      `  Demo features created (${String(features.powerSites)} sites with sized power equipment, ${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.stationUnits)} station units, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleAcPhases)} demo vehicle AC phases, ${String(features.vehicleSessions)} sessions linked to their vehicle, ${String(features.departureSchedules)} depot departure schedules, ${String(features.securityEvents)} station security events).`,
     );
   }
 
@@ -3493,6 +3478,7 @@ async function seed(): Promise<void> {
     year: '2024',
     color: 'white',
     bodyType: 'sedan',
+    acPhases: 1,
   });
 
   // Portal driver RFID tokens
@@ -3948,7 +3934,6 @@ async function seed(): Promise<void> {
   console.log(`  ${String(createdSites.length)} sites`);
   console.log(`  ${String(createdVendors.length)} vendors`);
   console.log(`  ${String(createdStations.length)} charging stations`);
-  console.log(`  ${String(powerLimitRows.length)} site power limits`);
   console.log(`  ${String(createdEvses.length)} EVSEs`);
   console.log(`  ${String(connectorRows.length)} connectors`);
   console.log('  3 roles');

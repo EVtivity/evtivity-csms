@@ -22,6 +22,42 @@
     "./departure-import": {
       "import": "./src/departure-import.ts"
     },
+    "./load-limit-entries": {
+      "import": "./src/load-limit-entries.ts"
+    },
+    "./load-management-allocation": {
+      "import": "./src/load-management-allocation.ts"
+    },
+    "./load-management-energy-assets": {
+      "import": "./src/load-management-energy-assets.ts"
+    },
+    "./load-management-hierarchy": {
+      "import": "./src/load-management-hierarchy.ts"
+    },
+    "./load-management-model": {
+      "import": "./src/load-management-model.ts"
+    },
+    "./load-management-phases": {
+      "import": "./src/load-management-phases.ts"
+    },
+    "./load-management-plan-bridge": {
+      "import": "./src/load-management-plan-bridge.ts"
+    },
+    "./load-management-profiles": {
+      "import": "./src/load-management-profiles.ts"
+    },
+    "./load-management-rate-units": {
+      "import": "./src/load-management-rate-units.ts"
+    },
+    "./load-management-send": {
+      "import": "./src/load-management-send.ts"
+    },
+    "./load-management-site-allocation": {
+      "import": "./src/load-management-site-allocation.ts"
+    },
+    "./load-management-site-status": {
+      "import": "./src/load-management-site-status.ts"
+    },
     "./payment-terminal.service": {
       "import": "./src/payment-terminal.service.ts"
     },

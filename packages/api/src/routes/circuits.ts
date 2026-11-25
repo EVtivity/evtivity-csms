@@ -27,7 +27,8 @@ import { authorize } from '../middleware/rbac.js';
 import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { loadTreeContext, writeStationLoadAudit } from '../lib/load-management-audit.js';
-import { stationConnectedKw } from '@evtivity/services/load-management.service';
+import { stationConnectedKw } from '@evtivity/services/load-management-site-status';
+import { PHASE_ROTATIONS } from '@evtivity/lib/phase-rotation';
 import {
   PANEL_VOLTAGES,
   circuitConductorPhases,
@@ -68,6 +69,9 @@ const circuitVoltageSchema = z
     message: `Voltage must be one of: ${PANEL_VOLTAGES.join(', ')}`,
   });
 
+const phaseRotationDescription =
+  'How the stations of this three-phase circuit are wired to the panel phases (RST: station L1 on panel L1, L2 on L2, L3 on L3; TRS: station L1 on L3, L2 on L1, L3 on L2; and so on), over what the stations report. Only on a circuit with three conductor phases';
+
 const createCircuitBody = z.object({
   name: z.string().min(1).max(255),
   breakerRatingAmps: z.number().int().min(1).max(10000).describe('Breaker rating in amps'),
@@ -77,6 +81,10 @@ const createCircuitBody = z.object({
     .describe(
       'Circuit voltage in volts when it runs below its single-phase panel (120 for a 120 V branch of a 240 V split-phase panel). Omit to use the panel voltage. Refused on a three-phase panel and above the panel voltage',
     ),
+  phaseRotation: z
+    .enum(PHASE_ROTATIONS)
+    .optional()
+    .describe(`${phaseRotationDescription}. Omit to use the rotation the stations report`),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -94,6 +102,11 @@ const updateCircuitBody = z.object({
     .describe(
       'Circuit voltage in volts when it runs below its single-phase panel; null uses the panel voltage. Refused on a three-phase panel and above the panel voltage',
     ),
+  phaseRotation: z
+    .enum(PHASE_ROTATIONS)
+    .nullable()
+    .optional()
+    .describe(`${phaseRotationDescription}. Null uses the rotation the stations report`),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -120,6 +133,12 @@ const circuitItem = z
       .int()
       .nullable()
       .describe('Circuit voltage in volts; null uses the panel voltage'),
+    phaseRotation: z
+      .enum(PHASE_ROTATIONS)
+      .nullable()
+      .describe(
+        'Wiring of the stations to the panel phases set by the operator; null uses the rotation the stations report',
+      ),
     sortOrder: z.number().int().min(0).describe('Display ordering within the panel'),
     stationCount: z.number().int().min(0).describe('Number of stations assigned to this circuit'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
@@ -156,6 +175,12 @@ const oversubscriptionErrorFields = {
 };
 
 // --- Helpers ---
+
+const PHASE_ROTATION_ERROR = {
+  error: 'A phase rotation is allowed only on a circuit with three conductor phases',
+  code: 'VALIDATION_ERROR',
+  field: 'phaseRotation',
+} as const;
 
 const CIRCUIT_VOLTAGE_ERROR = {
   error:
@@ -217,6 +242,14 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (
+        body.phaseRotation != null &&
+        circuitConductorPhases(body.phaseConnections, panel.phases) < 3
+      ) {
+        await reply.status(400).send(PHASE_ROTATION_ERROR);
+        return;
+      }
+
       const maxContinuousKw = computeMaxContinuousKw(
         body.breakerRatingAmps,
         effectiveCircuitVoltageV(body.voltageV, panel.voltageV, panel.phases),
@@ -232,6 +265,7 @@ export function circuitRoutes(app: FastifyInstance): void {
           maxContinuousKw: String(maxContinuousKw),
           phaseConnections: body.phaseConnections ?? null,
           voltageV: body.voltageV ?? null,
+          phaseRotation: body.phaseRotation ?? null,
           sortOrder: body.sortOrder ?? 0,
         },
         loadTreeContext(request),
@@ -285,6 +319,7 @@ export function circuitRoutes(app: FastifyInstance): void {
           maxContinuousKw: circuits.maxContinuousKw,
           phaseConnections: circuits.phaseConnections,
           voltageV: circuits.voltageV,
+          phaseRotation: circuits.phaseRotation,
           sortOrder: circuits.sortOrder,
           createdAt: circuits.createdAt,
           updatedAt: circuits.updatedAt,
@@ -365,7 +400,19 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const phasesAfter = circuitConductorPhases(
+        body.phaseConnections !== undefined ? body.phaseConnections : existing.phaseConnections,
+        panel.phases,
+      );
+      if (body.phaseRotation != null && phasesAfter < 3) {
+        await reply.status(400).send(PHASE_ROTATION_ERROR);
+        return;
+      }
+
       const updateData: CircuitChanges = { updatedAt: new Date() };
+      if (body.phaseRotation !== undefined) updateData.phaseRotation = body.phaseRotation;
+      // A rotation names three phases: a circuit moved to fewer drops it.
+      else if (existing.phaseRotation != null && phasesAfter < 3) updateData.phaseRotation = null;
       if (body.name != null) updateData.name = body.name;
       if (body.breakerRatingAmps != null) updateData.breakerRatingAmps = body.breakerRatingAmps;
       if (body.phaseConnections !== undefined) updateData.phaseConnections = body.phaseConnections;

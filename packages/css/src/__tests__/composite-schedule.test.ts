@@ -263,6 +263,54 @@ describe('numberPhases of the composite schedule', () => {
         transactionId: null,
         transactionStart: null,
       }),
-    ).toEqual({ limitW: 2300, numberPhases: 1 });
+    ).toEqual({ limitW: 2300, numberPhases: 1, phaseToUse: null });
+  });
+
+  const withPhaseToUse = (fields: Record<string, unknown>, phases: number, phaseToUse: number) => {
+    const p = withPhases(fields, 10, phases);
+    return {
+      ...p,
+      chargingSchedule: [
+        {
+          ...p.chargingSchedule[0],
+          chargingSchedulePeriod: [{ startPeriod: 0, limit: 10, numberPhases: phases, phaseToUse }],
+        },
+      ],
+    };
+  };
+
+  it('names the phase of a single-phase TxProfile period (K01.FR.46)', () => {
+    const tx = withPhaseToUse({}, 1, 2);
+    expect(computeCompositeSchedule(input([tx]))).toEqual([
+      { startPeriod: 0, limit: 10, numberPhases: 1, phaseToUse: 2 },
+    ]);
+    expect(
+      limitNow({
+        profiles: [tx],
+        evseId: 1,
+        now,
+        voltage: 230,
+        phases: 3,
+        transactionId: null,
+        transactionStart: null,
+      })?.phaseToUse,
+    ).toBe(2);
+  });
+
+  it('names no phase when the period is not single-phase or another limit decides the phases', () => {
+    expect(
+      computeCompositeSchedule(input([withPhaseToUse({}, 3, 2)]))[0]?.phaseToUse,
+    ).toBeUndefined();
+    const max = withPhases(
+      { chargingProfilePurpose: 'ChargingStationMaxProfile', _evseId: 0 },
+      32,
+      1,
+    );
+    const tx = withPhaseToUse({}, 3, 2);
+    expect(computeCompositeSchedule(input([max, tx]))[0]).toEqual({
+      startPeriod: 0,
+      limit: 10,
+      numberPhases: 1,
+    });
   });
 });

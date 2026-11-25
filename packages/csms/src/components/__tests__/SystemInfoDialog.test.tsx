@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
@@ -118,6 +118,7 @@ function renderDialog(onOpenChange: (open: boolean) => void = () => undefined): 
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   getMock.mockReset();
 });
@@ -193,33 +194,29 @@ describe('SystemInfoDialog OCPP processes', () => {
   });
 });
 
-// The search input applies its value after a 300 ms debounce, and the render after it can take
-// longer than the default 1 s wait under coverage on a loaded CI runner.
-const SEARCH_WAIT = { timeout: 3000 };
+// The search input applies its value after a 300 ms debounce: the test moves the clock past it.
+function search(value: string): void {
+  fireEvent.change(screen.getByPlaceholderText('systemInfo.search'), { target: { value } });
+  act(() => {
+    vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+  });
+}
+const SEARCH_DEBOUNCE_MS = 300;
 
 describe('SystemInfoDialog search and section filter', () => {
   it('narrows the rows by label or value, case-insensitive, and says when nothing matches', async () => {
     getMock.mockResolvedValue(info({ provider: 'none', configured: false }));
     renderDialog();
     await screen.findByTestId('system-info-section-network');
-    fireEvent.change(screen.getByPlaceholderText('systemInfo.search'), {
-      target: { value: 'cors_origin' },
-    });
-    await waitFor(() => {
-      expect(screen.getAllByTestId('system-info-row')).toHaveLength(1);
-    }, SEARCH_WAIT);
+    vi.useFakeTimers();
+    search('cors_origin');
+    expect(screen.getAllByTestId('system-info-row')).toHaveLength(1);
     expect(screen.getByText('CORS_ORIGIN')).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText('systemInfo.search'), {
-      target: { value: 'ocpp-old' },
-    });
-    await waitFor(() => {
-      expect(screen.getByText('systemInfo.notReported')).toBeTruthy();
-    }, SEARCH_WAIT);
+    search('ocpp-old');
+    expect(screen.getByText('systemInfo.notReported')).toBeTruthy();
     expect(screen.queryByText('ocpp-a')).toBeNull();
-    fireEvent.change(screen.getByPlaceholderText('systemInfo.search'), {
-      target: { value: 'zzz-nothing' },
-    });
-    expect(await screen.findByTestId('system-info-no-matches', {}, SEARCH_WAIT)).toBeTruthy();
+    search('zzz-nothing');
+    expect(screen.getByTestId('system-info-no-matches')).toBeTruthy();
   });
 
   it('shows one section when one is picked', async () => {

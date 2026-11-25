@@ -75,13 +75,25 @@ const dbState = vi.hoisted(() => {
   const lastClaim: { input: { header: Record<string, unknown>; entries: unknown[] } | null } = {
     input: null,
   };
+  const fence = { holds: true };
+  // The row storeLoadManagementSendOutcome locks (null: the last claim's entries),
+  // the entries it stored, and the log entries marked not sent.
+  const outcome: {
+    locked: unknown;
+    stored: unknown[][];
+    notSent: Array<{ stationDbId: string; commandId: string; reply: string }>;
+  } = { locked: null, stored: [], notSent: [] };
 
   function reset(): void {
+    outcome.locked = null;
+    outcome.stored.length = 0;
+    outcome.notSent.length = 0;
     results.clear();
     insertCalls.length = 0;
     updateCalls.length = 0;
     updateReturning.rows = [{ id: 1 }];
     lastClaim.input = null;
+    fence.holds = true;
   }
 
   // Build a thenable chainable that resolves to the routed result for `from`'s table.
@@ -144,13 +156,45 @@ const dbState = vi.hoisted(() => {
     updateCalls,
     updateReturning,
     lastClaim,
+    fence,
+    outcome,
     reset,
     db,
     makeSelectFactory,
   };
 });
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  // The records writer: builds from the locked row (the test's, else what the
+  // claim stored) and stores like an update.
+  writeLoadManagementRecords: vi.fn(
+    (
+      _sql: unknown,
+      _siteId: string,
+      build: (locked: unknown) => unknown[],
+      options: { nullAppliedAt?: boolean; appliedAt?: Date } = {},
+    ) => {
+      if (!dbState.fence.holds) return Promise.resolve(false);
+      const locked = dbState.outcome.locked ?? dbState.outcome.stored.at(-1) ?? null;
+      const next = build(locked);
+      dbState.outcome.stored.push(next);
+      dbState.updateCalls.push({
+        table: 'siteLoadManagement',
+        values: {
+          appliedAllocations: next,
+          ...(options.nullAppliedAt === true ? { appliedAt: null } : {}),
+          ...(options.appliedAt != null ? { appliedAt: options.appliedAt } : {}),
+        },
+      });
+      return Promise.resolve(true);
+    },
+  ),
+  recordAllocationEntryReply: vi.fn(
+    (_sql: unknown, stationDbId: string, commandId: string, reply: string) => {
+      dbState.outcome.notSent.push({ stationDbId, commandId, reply });
+      return Promise.resolve(1);
+    },
+  ),
   db: dbState.db,
   siteLoadManagement: dbState.tables['siteLoadManagement'],
   panels: dbState.tables['panels'],
@@ -172,6 +216,8 @@ vi.mock('@evtivity/database', () => ({
   sessionTariffSegments: dbState.tables['sessionTariffSegments'],
   stationUnitLoadBudgets: dbState.tables['stationUnitLoadBudgets'],
   isOperatorStation: vi.fn(() => 'OPERATOR_STATION'),
+  client: {},
+  loadManagementFenceHolds: vi.fn(() => Promise.resolve(dbState.fence.holds)),
   // The claim and the log in one call: the claim runs through the db.update
   // mock and, when the send has entries, one log row holds the header and
   // its entries. The last input is kept for the header checks.
@@ -179,20 +225,25 @@ vi.mock('@evtivity/database', () => ({
     async (input: {
       siteId: string;
       applied: unknown;
-      appliedAt?: Date;
+      mergeLocked?: (locked: unknown) => unknown;
+      appliedAt?: Date | null;
       header: Record<string, unknown>;
       entries: unknown[];
     }) => {
       dbState.lastClaim.input = input;
+      // The first claim merges the locked row (the test's, else the stored one).
+      const locked = dbState.outcome.locked ?? dbState.outcome.stored.at(-1) ?? null;
+      const applied = input.mergeLocked != null ? input.mergeLocked(locked) : input.applied;
       const claimed = await dbState.db
         .update(dbState.tables['siteLoadManagement'] ?? {})
         .set({
-          appliedAllocations: input.applied,
-          ...(input.appliedAt != null ? { appliedAt: input.appliedAt } : {}),
+          appliedAllocations: applied,
+          ...(input.appliedAt !== undefined ? { appliedAt: input.appliedAt } : {}),
         })
         .where()
         .returning();
       if (claimed.length === 0) return false;
+      dbState.outcome.stored.push(applied as unknown[]);
       if (input.entries.length > 0) {
         dbState.insertCalls.push({
           table: 'loadAllocationLog',
@@ -220,11 +271,37 @@ vi.mock('drizzle-orm', () => ({
 
 // PubSub stub injected via setPubSub so applyAllocations/broadcastLoadUpdate publish
 // against a controllable spy instead of the no-op fallback.
+// Each SetChargingProfile published with a commandId is answered on the
+// results channel, as the OCPP server's command listener does. `reply`
+// picks the station's answer; null sends none.
 const pubsubState = vi.hoisted(() => {
-  const publish = vi
-    .fn<(channel: string, message: string) => Promise<void>>()
-    .mockResolvedValue(undefined);
-  return { publish };
+  const handlers = new Map<string, Set<(raw: string) => void>>();
+  const state = {
+    handlers,
+    reply: (_command: { stationId: string }): Record<string, unknown> | null => ({
+      response: { status: 'Accepted' },
+    }),
+    publish: vi.fn<(channel: string, message: string) => Promise<void>>(),
+    answer: (_channel: string, _message: string): void => undefined,
+    // True: replies cannot be received (the no-op pub/sub without Redis).
+    subscribeFails: false,
+  };
+  const answer = (channel: string, message: string): void => {
+    if (channel !== 'ocpp_commands') return;
+    const command = JSON.parse(message) as { stationId: string; commandId?: string };
+    if (command.commandId == null) return;
+    const reply = state.reply(command);
+    if (reply == null) return;
+    const raw = JSON.stringify({ commandId: command.commandId, ...reply });
+    queueMicrotask(() => {
+      for (const handler of handlers.get('ocpp_command_results') ?? []) handler(raw);
+    });
+  };
+  state.answer = answer;
+  state.publish.mockImplementation(async (channel: string, message: string) => {
+    answer(channel, message);
+  });
+  return state;
 });
 
 vi.mock('@evtivity/lib/pubsub-instance', async () => {
@@ -234,8 +311,18 @@ vi.mock('@evtivity/lib/pubsub-instance', async () => {
   return {
     ...actual,
     getPubSub: vi.fn(() => ({
-      publish: pubsubState.publish,
-      subscribe: vi.fn(),
+      publish: (channel: string, message: string) => pubsubState.publish(channel, message),
+      subscribe: vi.fn(async (channel: string, handler: (raw: string) => void) => {
+        if (pubsubState.subscribeFails) throw new Error('pub/sub has no subscriber');
+        const set = pubsubState.handlers.get(channel) ?? new Set<(raw: string) => void>();
+        set.add(handler);
+        pubsubState.handlers.set(channel, set);
+        return {
+          unsubscribe: async () => {
+            set.delete(handler);
+          },
+        };
+      }),
       ping: vi.fn(async () => true),
     })),
   };
@@ -245,59 +332,125 @@ import {
   computeEqualShareAllocation,
   computePriorityAllocation,
   computeHierarchicalAllocation,
+  summarizeSiteCapacity,
+  fixedPhaseLoad,
+  fixedLoadKw,
+  acSessionKwAt,
+  sessionCapKw,
+  stationDemandLimitKw,
+} from '../load-management-allocation.js';
+import {
   getSitePowerStatus,
-  buildSiteHierarchy,
-  dispatchAllocations,
-  clearLoadManagementProfiles,
-  runLoadManagementCycle,
   stationMaxPowerKw,
   stationConnectedKw,
-  offlineReservations,
-  summarizeSiteCapacity,
-  buildLoadManagementProfile,
+  latestEvsePhaseCurrentA,
+  alignSessionPhases,
+  reportedEvseRotations,
+} from '../load-management-site-status.js';
+import { buildSiteHierarchy } from '../load-management-hierarchy.js';
+import {
+  dispatchAllocationSend,
+  LOAD_MANAGEMENT_CUT_CONFIRM_MS,
+  clearLoadManagementProfiles,
   prepareAllocationSend,
+  limitSendCommand,
+  stationRates,
+  LOAD_MANAGEMENT_CYCLE_MS,
+  limitCommands,
+  type AllocationSendOptions,
+} from '../load-management-send.js';
+import { reservedStationLimitsKw, storedLimitsOf } from '../load-management-site-allocation.js';
+import { runLoadManagementCycle } from '../load-management.service.js';
+import {
+  buildLoadManagementProfile,
   LOAD_MANAGEMENT_PROFILE_ID,
   LOAD_MANAGEMENT_REFRESH_MS,
-  chargingRateUnitFor,
   limitInUnit,
   loadManagementProfileId,
-  supportedRateUnits,
-  unconfirmedReservations,
-  sendRateUnit,
-  parseAppliedAllocations,
   isLoadManagementProfile,
   profileRateUnit,
   profileLimitKw,
-  lastAcceptedLimitsKw,
-  orderLimitChanges,
-  stationRates,
-  stepDownPrimaryPhases,
-  nodeCapacityKw,
-  fixedPhaseLoad,
-  fixedLoadKw,
+  clearRemovesLoadManagementProfile,
+  LOAD_MANAGEMENT_CREDIT_STACK_LEVEL,
+  LOAD_MANAGEMENT_CREDIT_RESEND_MS,
+  type StationRate,
+} from '../load-management-profiles.js';
+import {
+  chargingRateUnitFor,
+  supportedRateUnits,
+  sendRateUnit,
+} from '../load-management-rate-units.js';
+import {
+  parseAppliedAllocations,
+  mightEnforceKw,
+  type AppliedAllocation,
+} from '../load-limit-entries.js';
+import { stepDownPrimaryPhases, nodeCapacityKw } from '../load-management-phases.js';
+import {
   localGenerationKw,
   clearRememberedEnergyAssets,
   forgetRememberedEnergyAssets,
   pruneRememberedEnergyAssets,
   rememberedEnergyAssetSiteIds,
   REMEMBERED_ENERGY_ASSETS_MAX_AGE_MS,
-  withoutRaises,
-  withoutAssetReadings,
-  splitCreditLimits,
-  limitCommands,
-  orderLimitCommands,
-  LOAD_MANAGEMENT_CREDIT_STACK_LEVEL,
-  LOAD_MANAGEMENT_CREDIT_RESEND_MS,
-  acSessionKwAt,
-  sessionCapKw,
-  siteEvseLimits,
-  stationDemandLimitKw,
+} from '../load-management-energy-assets.js';
+import { withoutAssetReadings, splitCreditLimits } from '../load-management-credit-split.js';
+import { siteEvseLimits } from '../load-management-phase-selection.js';
+import {
+  idleAllowances,
+  fitIdleAllowances,
+  startAllowances,
+  smallestUnitBudgetKw,
+} from '../load-management-allowances.js';
+import {
   type EvseSessionInfo,
   type HierarchyNode,
   type StationPowerInfo,
   type AllocationResult,
-} from '../load-management.service.js';
-import { buildPlanNodes, phaseNodeId } from '../charging-plan.service.js';
+} from '../load-management-model.js';
+import { buildPlanNodes, phaseNodeId } from '../charging-plan-nodes.js';
+import { computeEvseLimits, measuredDemandCapKw, stationProfileWatts } from '../evse-limits.js';
+import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
+import {
+  CREDIT_CLOCK_MARGIN_MS,
+  cutsBeforeRaises,
+  limitReservations,
+} from '../load-limit-entries.js';
+
+/** Prepares and publishes a send; true when every command went out and every awaited cut was accepted. */
+async function dispatchAllocations(
+  siteId: string,
+  allocations: AllocationResult[],
+  log: ServiceLogger,
+  now: Date = new Date(),
+  rates: ReadonlyMap<string, StationRate> = new Map(),
+  previousKw: ReadonlyMap<string, number> = new Map(),
+  options: AllocationSendOptions = {},
+): Promise<boolean> {
+  const outcome = await dispatchAllocationSend(
+    siteId,
+    prepareAllocationSend(allocations, now, rates, previousKw, options),
+    log,
+  );
+  return outcome.sent;
+}
+
+/** The allocations of a send split into cuts and raises, as the send orders them. */
+function splitCutsAndRaises(
+  allocations: readonly AllocationResult[],
+  previousKw: ReadonlyMap<string, number>,
+): { cuts: AllocationResult[]; raises: AllocationResult[] } {
+  const { cuts, raises } = cutsBeforeRaises(
+    limitCommands(allocations, previousKw),
+    (c) => c.enforcedKw,
+  );
+  return { cuts: cuts.map((c) => c.allocation), raises: raises.map((c) => c.allocation) };
+}
+
+/** A limit record of a station that accepted `kw`. */
+function acceptedLimit(kw: number): Record<string, unknown> {
+  return { state: 'accepted', commandId: `cmd-${String(kw)}`, sentKw: kw, mightKw: null };
+}
 
 function setResult(table: TableName, rows: unknown[]): void {
   dbState.results.set(table, rows);
@@ -337,8 +490,12 @@ beforeEach(() => {
   // Restore the default routing select factory in case a test replaced it.
   dbState.db.select.mockReset();
   dbState.db.select.mockImplementation(() => dbState.makeSelectFactory()());
-  pubsubState.publish.mockClear();
-  pubsubState.publish.mockResolvedValue(undefined);
+  pubsubState.publish.mockReset();
+  pubsubState.publish.mockImplementation(async (channel: string, message: string) => {
+    pubsubState.answer(channel, message);
+  });
+  pubsubState.reply = () => ({ response: { status: 'Accepted' } });
+  pubsubState.subscribeFails = false;
 });
 
 function makeSession(overrides: Partial<EvseSessionInfo> = {}): EvseSessionInfo {
@@ -422,7 +579,8 @@ describe('sessionCapKw (tariff current limits)', () => {
         }),
       ],
     });
-    expect(sessionCapKw(station)).toBeCloseTo(22.08 + 22 + 30, 9);
+    // Each box budget is a fuse rating, held to 80 percent.
+    expect(sessionCapKw(station)).toBeCloseTo(22.08 * 0.8 + 22 + 30 * 0.8, 9);
     expect(
       sessionCapKw({ ...station, unitBudgets: [], sessions: station.sessions?.slice(0, 2) ?? [] }),
     ).toBeUndefined();
@@ -436,7 +594,7 @@ describe('sessionCapKw (tariff current limits)', () => {
       unitBudgets: [{ unitId: 'unt_1', kind: 'ac', maxCurrentA: 16, phases: 1, maxPowerKw: null }],
       sessions: [makeSession({ unitId: 'unt_1' })],
     });
-    expect(sessionCapKw(station)).toBeCloseTo(3.68, 9);
+    expect(sessionCapKw(station)).toBeCloseTo(3.68 * 0.8, 9);
   });
 
   it('never raises a station above its maximum', () => {
@@ -1143,7 +1301,10 @@ describe('computeHierarchicalAllocation', () => {
     const [capped] = computeHierarchicalAllocation([small], 'equal_share');
     expect(capped?.allocatedKw).toBeCloseTo(10, 6);
     expect(capped?.limitedBy).toBe('circuit_limit');
-    // Next to another station on its circuit it keeps the even spread.
+    // Next to another station on its circuit it is not split, so its W limit
+    // counts by the W rule: in full on L1, where its cars charge (a session that
+    // starts before the next cycle is held by the station limit only; property
+    // test counterexample 5). Both stations fit the 30 kW of L1.
     const shared = panelNode({
       maxContinuousKw: 1000,
       phases: 3,
@@ -1158,10 +1319,12 @@ describe('computeHierarchicalAllocation', () => {
         }),
       ],
     });
-    expect(
-      computeHierarchicalAllocation([shared], 'equal_share').find((a) => a.stationDbId === 's1')
-        ?.allocatedKw,
-    ).toBeCloseTo(40, 6);
+    const sharedResults = computeHierarchicalAllocation([shared], 'equal_share');
+    const s1 = sharedResults.find((a) => a.stationDbId === 's1')?.allocatedKw ?? 0;
+    const s2 = sharedResults.find((a) => a.stationDbId === 's2')?.allocatedKw ?? 0;
+    expect(s1).toBeGreaterThan(0);
+    expect(s1 + s2 / 3).toBeLessThanOrEqual(30 + 1e-6);
+    expect(s1).toBeLessThan(40);
     const even = makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 40 });
     expect(computeHierarchicalAllocation([build(even)], 'equal_share')[0]?.allocatedKw).toBeCloseTo(
       40,
@@ -1712,8 +1875,16 @@ describe('getSitePowerStatus per-EVSE session facts', () => {
       ratingA: 32,
       tariffId: 'trf_a',
       tariffMaxCurrentA: 6,
-      phases: 'L1',
+      // Two AC sessions and no reported phase rotation: the measured L1 may be
+      // any phase of the circuit, so it counts on every phase.
+      phases: null,
       startedAt: new Date('2026-06-04T10:00:00Z'),
+      drawKw: null,
+      drawA: null,
+      // What the station measured, before the alignment, and its phase facts.
+      measuredPhases: 'L1',
+      rotation: null,
+      phaseSwitching: false,
     });
     // The open segment's limit wins over the session snapshot.
     expect(station?.sessions?.[1]).toMatchObject({
@@ -1946,6 +2117,42 @@ describe('buildSiteHierarchy', () => {
     expect(root?.phaseLoad?.L3).toBeCloseTo(10, 6);
   });
 
+  it('never gives a three-phase panel more per phase than a third of its continuous limit', async () => {
+    setResult('panels', [
+      {
+        id: 'low',
+        parentPanelId: null,
+        name: 'Low limit',
+        breakerRatingAmps: 400,
+        voltageV: 230,
+        phases: 3,
+        maxContinuousKw: '30',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+      },
+      {
+        id: 'full',
+        parentPanelId: null,
+        name: 'Breaker limit',
+        breakerRatingAmps: 100,
+        voltageV: 230,
+        phases: 3,
+        maxContinuousKw: '55.2',
+        safetyMarginKw: '0',
+        oversubscriptionRatio: '1.0',
+      },
+    ]);
+    setResult('circuits', []);
+    setResult('unmanagedLoads', []);
+
+    const result = await buildSiteHierarchy('site-1', []);
+    const byId = new Map(result.map((n) => [n.id, n]));
+    // 400 A x 230 V x 0.8 is 73.6 kW a phase, but the panel holds 30 kW in all.
+    expect(byId.get('low')?.perPhaseCapacityKw).toBeCloseTo(10, 6);
+    // 100 A x 230 V x 0.8 = 18.4 kW, a third of its 55.2 kW.
+    expect(byId.get('full')?.perPhaseCapacityKw).toBeCloseTo(18.4, 6);
+  });
+
   it('promotes a sub-panel to root when its parent is missing', async () => {
     setResult('panels', [
       {
@@ -2114,6 +2321,66 @@ describe('prepareAllocationSend station limit split per phase', () => {
     expect(period?.limit).toBe(23.9);
     expect(command?.kw).toBe(11);
   });
+
+  it('orders by the enforced limit: an even split moving to two phases is a raise (review 4)', () => {
+    const now = new Date('2026-06-04T10:00:00Z');
+    // The station holds 30 kW spread evenly (10 kW a phase). The same 30 kW on
+    // L1 and L2 only enforces 15 kW a phase, 45 kW in the station limit's terms.
+    const send = prepareAllocationSend(
+      [
+        {
+          stationId: 'CS-001',
+          stationDbId: 's1',
+          allocatedKw: 30,
+          currentDrawKw: 0,
+          phaseWeights: { L1: 0.5, L2: 0.5, L3: 0 },
+        },
+      ],
+      now,
+      new Map(),
+      new Map([['s1', 30]]),
+    );
+    expect(send.stationCuts).toHaveLength(0);
+    expect(send.stationRaises).toHaveLength(1);
+    const [raise] = send.stationRaises;
+    expect(raise != null ? limitSendCommand(raise).kw : null).toBeCloseTo(45, 6);
+    // The even spread back is a cut of the enforced 45 kW.
+    const back = prepareAllocationSend(
+      [{ stationId: 'CS-001', stationDbId: 's1', allocatedKw: 30, currentDrawKw: 0 }],
+      now,
+      new Map(),
+      new Map([['s1', 45]]),
+    );
+    expect(back.stationCuts).toHaveLength(1);
+    expect(back.stationRaises).toHaveLength(0);
+  });
+
+  it('records the stack level 1 limit each station is sent (third review 1)', () => {
+    const now = new Date('2026-06-04T10:00:00Z');
+    const rates = new Map([['s1', { rateUnit: 'A' as const, voltageV: 230, phases: 3 }]]);
+    const allocations = [
+      { stationId: 'CS-001', stationDbId: 's1', allocatedKw: 11, currentDrawKw: 0 },
+      { stationId: 'CS-002', stationDbId: 's2', allocatedKw: 4, currentDrawKw: 0 },
+    ];
+    const credit = new Map([['s2', { baseKw: 3, validTo: new Date('2026-06-04T10:01:00Z') }]]);
+    const send = prepareAllocationSend(allocations, now, rates, new Map(), { credit });
+    // The state model's view of each command: a station limit at its kW, the
+    // credit profile with its end, and the credit station's stack level 1 base.
+    const commands = [...send.stationCuts, ...send.stationRaises].map(limitSendCommand);
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ stationDbId: 's1', target: 'station', kw: 11 }),
+        expect.objectContaining({ stationDbId: 's2', target: 'station', kw: 3 }),
+        expect.objectContaining({
+          stationDbId: 's2',
+          target: 'credit',
+          kw: 4,
+          validTo: '2026-06-04T10:01:00.000Z',
+        }),
+      ]),
+    );
+    expect(commands).toHaveLength(3);
+  });
 });
 
 describe('buildLoadManagementProfile', () => {
@@ -2213,6 +2480,28 @@ describe('dispatchAllocations', () => {
   });
 });
 
+describe('a raise whose publish failed (review 15)', () => {
+  it('is counted at the higher of what it sent and what it held: the publish may have arrived', async () => {
+    pubsubState.publish.mockImplementation(async (channel: string) => {
+      if (channel === 'ocpp_commands') throw new Error('redis reset');
+    });
+    const send = prepareAllocationSend(
+      [{ stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 30, currentDrawKw: 0 }],
+      new Date(),
+      new Map(),
+      new Map([['sta_1', 20]]),
+    );
+    expect(send.stationRaises).toHaveLength(1);
+    const outcome = await dispatchAllocationSend('site-1', send, makeLogger(), {
+      beforeRaises: () => Promise.resolve(true),
+    });
+    expect(outcome.sent).toBe(false);
+    expect(outcome.failures).toEqual([
+      expect.objectContaining({ stationDbId: 'sta_1', target: 'station', kind: 'timeout' }),
+    ]);
+  });
+});
+
 describe('clearLoadManagementProfiles', () => {
   it('clears the load management profile and its credit profile by id, once per station', async () => {
     const log = makeLogger();
@@ -2278,7 +2567,45 @@ describe('runLoadManagementCycle', () => {
     loadPriority: 5,
     circuitId: 'c1',
   };
-  const applied40 = [{ stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 40 }];
+  // The station accepted 40 kW.
+  const applied40 = [
+    {
+      stationId: 'CS-001',
+      stationDbId: 'sta_1',
+      allocatedKw: 40,
+      limit: { state: 'accepted', commandId: 'cmd-0', sentKw: 40, mightKw: null },
+    },
+  ];
+
+  // A send of 40 kW to a station with no known limit: awaiting its reply,
+  // counted at its maximum meanwhile (reserved, an unknown station).
+  const applied40Sent = [
+    {
+      stationId: 'CS-001',
+      stationDbId: 'sta_1',
+      allocatedKw: 100,
+      reserved: true,
+      limit: {
+        state: 'awaiting',
+        commandId: expect.any(String) as unknown as string,
+        sentKw: 40,
+        mightKw: null,
+        // The station reports no unit: its limit goes out in W.
+        sentInW: true,
+      },
+      // A credit profile the station may hold is replaced at the same limit.
+      credit: {
+        limit: {
+          state: 'awaiting',
+          commandId: expect.any(String) as unknown as string,
+          sentKw: 40,
+          mightKw: null,
+          sentInW: true,
+        },
+        until: expect.any(String) as unknown as string,
+      },
+    },
+  ];
 
   interface PublishedCommand {
     stationId: string;
@@ -2316,19 +2643,54 @@ describe('runLoadManagementCycle', () => {
 
     expect(dbState.insertCalls.some((c) => c.table === 'loadAllocationLog')).toBe(true);
     // Circuit available = 40, single station capped by maxPower 100 -> allocated 40 -> 40000 W
+    // The credit replacement first (an unknown station may hold one), then the base.
     const sent = ocppPublishes();
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     expect(
       sent[0]?.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod[0]?.limit,
     ).toBe(40000);
+    expect(
+      sent[1]?.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod[0]?.limit,
+    ).toBe(40000);
     // Recorded before sending, shared by every worker.
     const claim = dbState.updateCalls.find((c) => c.table === 'siteLoadManagement');
-    expect(claim?.values['appliedAllocations']).toEqual(applied40);
+    expect(claim?.values['appliedAllocations']).toEqual(applied40Sent);
     expect(claim?.values['appliedAt']).toBeInstanceOf(Date);
+    // An unknown station: counted at its maximum and sent a fitted retry.
     expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({ siteId: 'site-1', strategy: 'equal_share', stationCount: 1 }),
+      expect.objectContaining({
+        siteId: 'site-1',
+        strategy: 'equal_share',
+        reservedCount: 1,
+        retryCount: 1,
+      }),
       'Load management cycle applied',
     );
+  });
+
+  it('sends a station that takes no stack level 2 no credit replacement and stores no unknown credit (review M2)', async () => {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-1',
+        strategy: 'equal_share',
+        appliedAllocations: null,
+        appliedAt: null,
+      },
+    ]);
+    oneCircuitSite([station1]);
+    setResult('stationConfigurations', [
+      { stationId: 'sta_1', variable: 'ChargeProfileMaxStackLevel', value: '1' },
+    ]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    const levels = ocppPublishes().map(
+      (c) => (c.payload.chargingProfile as unknown as { stackLevel: number }).stackLevel,
+    );
+    expect(levels).toEqual([1]);
+    const stored = dbState.outcome.stored.at(-1) as Array<Record<string, unknown>> | undefined;
+    expect(stored?.find((e) => e['stationDbId'] === 'sta_1')).not.toHaveProperty('credit');
   });
 
   it('logs every limit sent with its command id, in the claim, before publishing', async () => {
@@ -2358,8 +2720,8 @@ describe('runLoadManagementCycle', () => {
 
     await runLoadManagementCycle(makeLogger(), 'site-1');
 
-    expect(order).toEqual(['log', 'publish']);
-    const [sent] = ocppPublishes() as Array<PublishedCommand & { commandId?: string }>;
+    expect(order).toEqual(['log', 'publish', 'publish']);
+    const [credit, sent] = ocppPublishes() as Array<PublishedCommand & { commandId?: string }>;
     const logged = dbState.insertCalls[0]?.values as Record<string, unknown>;
     expect(logged['kind']).toBe('change');
     expect(logged['strategy']).toBe('equal_share');
@@ -2375,7 +2737,28 @@ describe('runLoadManagementCycle', () => {
         limitA: null,
         phases: null,
         rateUnit: 'W',
-        reason: 'circuit_limit',
+        reason: 'reserved',
+        sessionId: null,
+        tariffId: null,
+        tariffMaxCurrentA: null,
+        profileId: LOAD_MANAGEMENT_PROFILE_ID + 1,
+        stackLevel: 2,
+        purpose: 'ChargingStationMaxProfile',
+        commandId: credit?.commandId,
+        refresh: false,
+      },
+      {
+        stationId: 'sta_1',
+        stationOcppId: 'CS-001',
+        unitId: null,
+        evseNumber: null,
+        scope: 'station',
+        mode: 'station',
+        limitKw: 40,
+        limitA: null,
+        phases: null,
+        rateUnit: 'W',
+        reason: 'reserved',
         sessionId: null,
         tariffId: null,
         tariffMaxCurrentA: null,
@@ -2389,7 +2772,7 @@ describe('runLoadManagementCycle', () => {
     expect(sent?.commandId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('sends nothing and counts a failed site when the log write fails', async () => {
+  it('sends the limits and counts the log failure when the log write fails', async () => {
     setResult('siteLoadManagement', [
       {
         isEnabled: true,
@@ -2401,10 +2784,82 @@ describe('runLoadManagementCycle', () => {
     ]);
     oneCircuitSite([station1]);
     const database = await import('@evtivity/database');
-    vi.mocked(database.claimAndLogAllocations).mockRejectedValueOnce(new Error('insert failed'));
+    vi.mocked(database.claimAndLogAllocations).mockImplementationOnce(async (input) => {
+      input.onLogFailure?.(new Error('insert failed'));
+      return true;
+    });
     const log = makeLogger();
 
-    await expect(runLoadManagementCycle(log, 'site-1')).resolves.toEqual({ failedSites: 1 });
+    await expect(runLoadManagementCycle(log, 'site-1')).resolves.toEqual({
+      failedSites: 0,
+      logFailures: 1,
+    });
+
+    expect(ocppPublishes().length).toBeGreaterThan(0);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 'site-1' }),
+      'Load allocation log write failed, the limits go out unlogged',
+    );
+  });
+
+  it('stores the reply state of the row it locks over the state it read', async () => {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-1',
+        strategy: 'equal_share',
+        appliedAllocations: [{ stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 5 }],
+        appliedAt: null,
+      },
+    ]);
+    oneCircuitSite([station1]);
+    const database = await import('@evtivity/database');
+    let stored: unknown = null;
+    vi.mocked(database.claimAndLogAllocations).mockImplementationOnce(async (input) => {
+      // A rejection stored after the cycle read the row.
+      stored = input.mergeLocked?.([
+        {
+          stationId: 'CS-001',
+          stationDbId: 'sta_1',
+          allocatedKw: 5,
+          limit: { state: 'refused', commandId: 'cmd-1', sentKw: 5, mightKw: null },
+          rejectedUnits: ['W'],
+        },
+      ]);
+      return true;
+    });
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    // The refusal stays, and the send moves the locked record, not the one read.
+    expect(stored).toEqual([
+      expect.objectContaining({
+        stationDbId: 'sta_1',
+        rejectedUnits: ['W'],
+        limit: expect.objectContaining({ state: 'awaiting', mightKw: null }) as unknown,
+      }),
+    ]);
+  });
+
+  it('sends nothing and counts a failed site when the claim fails', async () => {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-1',
+        strategy: 'equal_share',
+        appliedAllocations: null,
+        appliedAt: null,
+      },
+    ]);
+    oneCircuitSite([station1]);
+    const database = await import('@evtivity/database');
+    vi.mocked(database.claimAndLogAllocations).mockRejectedValueOnce(new Error('claim failed'));
+    const log = makeLogger();
+
+    await expect(runLoadManagementCycle(log, 'site-1')).resolves.toEqual({
+      failedSites: 1,
+      logFailures: 0,
+    });
 
     expect(ocppPublishes()).toHaveLength(0);
     expect(log.error).toHaveBeenCalledWith(
@@ -2419,7 +2874,14 @@ describe('runLoadManagementCycle', () => {
         isEnabled: true,
         siteId: 'site-evse',
         strategy: 'equal_share',
-        appliedAllocations: null,
+        appliedAllocations: [
+          {
+            stationId: 'CS-001',
+            stationDbId: 'sta_1',
+            allocatedKw: 100,
+            limit: acceptedLimit(100),
+          },
+        ],
         appliedAt: null,
       },
     ]);
@@ -2537,6 +2999,74 @@ describe('runLoadManagementCycle', () => {
     expect(pubsubState.publish).not.toHaveBeenCalled();
   });
 
+  it('sends an unconfirmed station its retry limit every cycle until it answers (seed 20261125, I5)', async () => {
+    // The same unchanged state a minute later: a lost limit is sent again at once.
+    const lost = applied40.map((a) => ({
+      ...a,
+      reserved: true,
+      limit: { state: 'lost', commandId: 'c-old', sentKw: 40, mightKw: 40 },
+    }));
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-lost',
+        strategy: 'equal_share',
+        appliedAllocations: lost,
+        appliedAt: new Date(Date.now() - 30_000),
+      },
+    ]);
+    oneCircuitSite([station1]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-lost');
+
+    expect(ocppPublishes()).toHaveLength(1);
+  });
+
+  it.each(['awaiting', 'lost'] as const)(
+    'sends a %s limit with a known bound again once the confirmation wait has passed (I5)',
+    async (state) => {
+      const unconfirmed = applied40.map((a) => ({
+        ...a,
+        limit: { state, commandId: 'c-old', sentKw: 40, mightKw: 40 },
+      }));
+      setResult('siteLoadManagement', [
+        {
+          isEnabled: true,
+          siteId: 'site-unconfirmed',
+          strategy: 'equal_share',
+          appliedAllocations: unconfirmed,
+          appliedAt: new Date(Date.now() - 10_000),
+        },
+      ]);
+      oneCircuitSite([station1]);
+
+      await runLoadManagementCycle(makeLogger(), 'site-unconfirmed');
+
+      expect(ocppPublishes()).toHaveLength(1);
+    },
+  );
+
+  it('does not send an awaiting limit again while its confirmation wait runs (I5)', async () => {
+    const awaiting = applied40.map((a) => ({
+      ...a,
+      limit: { state: 'awaiting', commandId: 'c-old', sentKw: 40, mightKw: 40 },
+    }));
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-in-flight',
+        strategy: 'equal_share',
+        appliedAllocations: awaiting,
+        appliedAt: new Date(Date.now() - 1_000),
+      },
+    ]);
+    oneCircuitSite([station1]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-in-flight');
+
+    expect(ocppPublishes()).toHaveLength(0);
+  });
+
   it('sends unchanged allocations again after the refresh interval, logged as a refresh', async () => {
     setResult('siteLoadManagement', [
       {
@@ -2573,6 +3103,238 @@ describe('runLoadManagementCycle', () => {
     await runLoadManagementCycle(makeLogger(), 'site-retry');
 
     expect(ocppPublishes()).toHaveLength(1);
+  });
+
+  it('sends no held raise while the cut it waits on is unanswered, across cycles (review item 1)', async () => {
+    const twoStations = (applied: unknown): void => {
+      setResult('siteLoadManagement', [
+        {
+          isEnabled: true,
+          siteId: 'site-held',
+          strategy: 'equal_share',
+          appliedAllocations: applied,
+          appliedAt: null,
+        },
+      ]);
+      oneCircuitSite([station1, { ...station1, id: 'sta_2', stationId: 'CS-002' }]);
+      setResult('connectors', [
+        { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '100' },
+        { stationId: 'sta_2', evseDbId: 'evse_2', maxPowerKw: '100' },
+      ]);
+      setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
+    };
+    const held = (id: string, ocppId: string, kw: number) => ({
+      stationId: ocppId,
+      stationDbId: id,
+      allocatedKw: kw,
+      limit: acceptedLimit(kw),
+    });
+    const limitsTo = (stationId: string): number[] =>
+      ocppPublishes()
+        .filter((c) => c.stationId === stationId)
+        .map(
+          (c) =>
+            c.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod[0]?.limit ?? 0,
+        );
+    // CS-001 holds 30 kW and CS-002 10 kW; the 40 kW circuit now gives each 20 kW.
+    twoStations([held('sta_1', 'CS-001', 30), held('sta_2', 'CS-002', 10)]);
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-001' ? null : { response: { status: 'Accepted' } };
+    vi.useFakeTimers();
+    try {
+      const first = runLoadManagementCycle(makeLogger(), 'site-held');
+      await vi.advanceTimersByTimeAsync(LOAD_MANAGEMENT_CUT_CONFIRM_MS + 1);
+      await first;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(limitsTo('CS-001')).toEqual([20000]);
+    expect(limitsTo('CS-002')).toEqual([]);
+    const stored = dbState.outcome.stored.at(-1) as Array<Record<string, unknown>>;
+    // The unanswered cut is lost at the 30 kW the station may still hold; the
+    // held raise left the other record as it was.
+    expect(stored.find((e) => e['stationDbId'] === 'sta_1')).toMatchObject({
+      limit: { state: 'lost', mightKw: 30 },
+    });
+    expect(stored.find((e) => e['stationDbId'] === 'sta_2')).toMatchObject({
+      limit: acceptedLimit(10),
+    });
+    expect(dbState.outcome.notSent.map((n) => n.stationDbId)).toEqual(['sta_2']);
+
+    // The next cycle, CS-001 still silent: it counts at the 30 kW it may hold,
+    // so CS-002 is given no more than its 10 kW.
+    pubsubState.publish.mockClear();
+    twoStations(stored);
+    vi.useFakeTimers();
+    try {
+      const second = runLoadManagementCycle(makeLogger(), 'site-held');
+      await vi.advanceTimersByTimeAsync(LOAD_MANAGEMENT_CUT_CONFIRM_MS + 1);
+      await second;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(limitsTo('CS-002').every((w) => w <= 10000)).toBe(true);
+  });
+
+  it('completes a send with raises only at its raise claim, so a held raise goes out next cycle', async () => {
+    const twoStations = (): void => {
+      setResult('siteLoadManagement', [
+        {
+          isEnabled: true,
+          siteId: 'site-applied',
+          strategy: 'equal_share',
+          appliedAllocations: [
+            {
+              stationId: 'CS-001',
+              stationDbId: 'sta_1',
+              allocatedKw: 30,
+              limit: acceptedLimit(30),
+            },
+            {
+              stationId: 'CS-002',
+              stationDbId: 'sta_2',
+              allocatedKw: 10,
+              limit: acceptedLimit(10),
+            },
+          ],
+          appliedAt: null,
+        },
+      ]);
+      oneCircuitSite([station1, { ...station1, id: 'sta_2', stationId: 'CS-002' }]);
+      setResult('connectors', [
+        { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '100' },
+        { stationId: 'sta_2', evseDbId: 'evse_2', maxPowerKw: '100' },
+      ]);
+      setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
+    };
+    const appliedAtWrites = (): unknown[] =>
+      dbState.updateCalls
+        .filter((c) => c.table === 'siteLoadManagement' && 'appliedAt' in c.values)
+        .map((c) => c.values['appliedAt']);
+    const run = async (): Promise<void> => {
+      vi.useFakeTimers();
+      try {
+        const cycle = runLoadManagementCycle(makeLogger(), 'site-applied');
+        await vi.advanceTimersByTimeAsync(LOAD_MANAGEMENT_CUT_CONFIRM_MS + 1);
+        await cycle;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    // The cut of CS-001 is accepted, so the raise of CS-002 goes out and completes the send.
+    twoStations();
+    pubsubState.reply = () => ({ response: { status: 'Accepted' } });
+    await run();
+    expect(ocppPublishes().map((c) => c.stationId)).toEqual(['CS-001', 'CS-002']);
+    expect(appliedAtWrites()[0]).toBeNull();
+    expect(appliedAtWrites().at(-1)).toBeInstanceOf(Date);
+
+    // The cut is not answered: the raise is held and the send stays incomplete.
+    dbState.updateCalls.length = 0;
+    pubsubState.publish.mockClear();
+    twoStations();
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-001' ? null : { response: { status: 'Accepted' } };
+    await run();
+    expect(ocppPublishes().map((c) => c.stationId)).toEqual(['CS-001']);
+    expect(appliedAtWrites().every((v) => v === null)).toBe(true);
+  });
+
+  it('raises from what a reserved station accepted, not from its reservation (review item 2)', async () => {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-reserved',
+        strategy: 'equal_share',
+        // CS-001 was sent 11 of its 22 kW reservation and accepted; CS-002 holds 30 kW.
+        appliedAllocations: [
+          {
+            stationId: 'CS-001',
+            stationDbId: 'sta_1',
+            allocatedKw: 22,
+            reserved: true,
+            limit: acceptedLimit(11),
+          },
+          {
+            stationId: 'CS-002',
+            stationDbId: 'sta_2',
+            allocatedKw: 30,
+            limit: acceptedLimit(30),
+          },
+        ],
+        appliedAt: null,
+      },
+    ]);
+    oneCircuitSite([station1, { ...station1, id: 'sta_2', stationId: 'CS-002' }]);
+    setResult('connectors', [
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '100' },
+      { stationId: 'sta_2', evseDbId: 'evse_2', maxPowerKw: '100' },
+    ]);
+    setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-002' ? null : { response: { status: 'Accepted' } };
+    vi.useFakeTimers();
+    try {
+      const cycle = runLoadManagementCycle(makeLogger(), 'site-reserved');
+      await vi.advanceTimersByTimeAsync(LOAD_MANAGEMENT_CUT_CONFIRM_MS + 1);
+      await cycle;
+    } finally {
+      vi.useRealTimers();
+    }
+    // 20 kW raises CS-001 from the 11 it holds: it waits for CS-002's cut, which is unanswered.
+    expect(ocppPublishes().map((c) => c.stationId)).toEqual(['CS-002']);
+  });
+
+  it('keeps a held raise of a station without an entry at its stored profile (review 4, items 3 and 4)', async () => {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-profile',
+        strategy: 'equal_share',
+        appliedAllocations: null,
+        appliedAt: null,
+      },
+    ]);
+    oneCircuitSite([station1, { ...station1, id: 'sta_2', stationId: 'CS-002' }]);
+    setResult('connectors', [
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '100' },
+      { stationId: 'sta_2', evseDbId: 'evse_2', maxPowerKw: '100' },
+    ]);
+    setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
+    // After a save cleared the entries, the stations hold 11 and 30 kW profiles.
+    const profile = (stationId: string, watts: number) => ({
+      stationId,
+      profileData: {
+        id: LOAD_MANAGEMENT_PROFILE_ID,
+        stackLevel: 1,
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        chargingSchedule: [{ chargingRateUnit: 'W', chargingSchedulePeriod: [{ limit: watts }] }],
+      },
+    });
+    setResult('chargingProfiles', [profile('sta_1', 11000), profile('sta_2', 30000)]);
+    // The 40 kW circuit gives each 20 kW: CS-001 is raised, CS-002 cut and silent.
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-002' ? null : { response: { status: 'Accepted' } };
+    vi.useFakeTimers();
+    try {
+      const cycle = runLoadManagementCycle(makeLogger(), 'site-profile');
+      await vi.advanceTimersByTimeAsync(LOAD_MANAGEMENT_CUT_CONFIRM_MS + 1);
+      await cycle;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(ocppPublishes().map((c) => c.stationId)).toEqual(['CS-002']);
+    const stored = dbState.outcome.stored.at(-1) as AppliedAllocation[];
+    const a = stored.find((e) => e.stationDbId === 'sta_1');
+    const b = stored.find((e) => e.stationDbId === 'sta_2');
+    expect(mightEnforceKw(a, { nowMs: Date.now() })).toBe(11);
+    expect(b).toMatchObject({ limit: { state: 'lost', mightKw: 30 } });
+    // The lost cut reserves the 30 kW profile, not the 100 kW station maximum.
+    const stations = [
+      makeStation({ id: 'sta_2', stationId: 'CS-002', maxPowerKw: 100, isOnline: true }),
+    ];
+    expect(limitReservations(stations, stored, { nowMs: Date.now() }).get('sta_2')).toBe(30);
   });
 
   it('sends nothing when load management was turned off during the cycle', async () => {
@@ -2613,7 +3375,39 @@ describe('runLoadManagementCycle', () => {
 
     const last = dbState.updateCalls[dbState.updateCalls.length - 1];
     expect(last?.values['appliedAt']).toBeNull();
-    expect(last?.values['appliedAllocations']).toEqual(applied40);
+    // The cut never reached the station: it is a lost send, at its maximum
+    // (no limit was known before).
+    expect(last?.values['appliedAllocations']).toEqual([
+      // Not published: lost at what it held before (nothing known: unlimited).
+      {
+        ...applied40Sent[0],
+        limit: { ...applied40Sent[0]?.limit, state: 'lost' },
+        credit: {
+          ...applied40Sent[0]?.credit,
+          limit: { ...applied40Sent[0]?.credit.limit, state: 'lost' },
+        },
+      },
+    ]);
+  });
+
+  it('sends nothing after the claim once the site lock moved to another worker', async () => {
+    setResult('siteLoadManagement', [
+      {
+        isEnabled: true,
+        siteId: 'site-1',
+        strategy: 'equal_share',
+        appliedAllocations: null,
+        appliedAt: null,
+      },
+    ]);
+    oneCircuitSite([station1]);
+    dbState.fence.holds = false;
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    // The claim ran, but a newer lock holder owns the site: no limit goes out.
+    expect(dbState.lastClaim.input).not.toBeNull();
+    expect(ocppPublishes()).toHaveLength(0);
   });
 
   it('clears the limit of a station that left its circuit', async () => {
@@ -2656,8 +3450,8 @@ describe('runLoadManagementCycle', () => {
         siteId: 'site-offline',
         strategy: 'equal_share',
         appliedAllocations: [
-          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20 },
-          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20 },
+          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20, limit: acceptedLimit(20) },
+          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20, limit: acceptedLimit(20) },
         ],
         appliedAt: new Date(),
       },
@@ -2670,7 +3464,7 @@ describe('runLoadManagementCycle', () => {
 
     await runLoadManagementCycle(makeLogger(), 'site-offline');
 
-    // CS-002 is offline and still charging at 20 kW: CS-001 gets 40 - 20 = 20, not 40.
+    // CS-002 is offline and holds its accepted 20 kW: CS-001 gets 40 - 20 = 20, not 40.
     const sent = ocppPublishes();
     expect(sent).toHaveLength(1);
     expect(sent[0]?.stationId).toBe('CS-001');
@@ -2721,8 +3515,12 @@ describe('runLoadManagementCycle', () => {
 
     await runLoadManagementCycle(makeLogger(), 'site-maxext');
 
-    const sent = ocppPublishes()[0] as unknown as { payload: { chargingProfile: { id: number } } };
-    expect(sent.payload.chargingProfile.id).toBe(2147400001);
+    const ids = ocppPublishes().map(
+      (c) =>
+        (c as unknown as { payload: { chargingProfile: { id: number } } }).payload.chargingProfile
+          .id,
+    );
+    expect(ids).toEqual([2147400002, 2147400001]);
   });
 
   it('never queues a limit for an offline station (noQueue)', async () => {
@@ -2769,6 +3567,7 @@ describe('runLoadManagementCycle', () => {
     const actions = ocppPublishes().map((c) => `${c.action}:${c.stationId}`);
     expect(actions).toEqual([
       'SetChargingProfile:CS-001',
+      'SetChargingProfile:CS-001',
       'ClearChargingProfile:CS-001',
       'ClearChargingProfile:CS-001',
     ]);
@@ -2781,12 +3580,12 @@ describe('runLoadManagementCycle', () => {
         siteId: 'site-pending',
         strategy: 'equal_share',
         appliedAllocations: [
-          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20 },
+          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20, limit: acceptedLimit(20) },
           {
             stationId: 'CS-002',
             stationDbId: 'sta_2',
             allocatedKw: 20,
-            limitPending: true,
+            limit: { state: 'refused', commandId: 'cmd-r', sentKw: 20, mightKw: null },
             rejectedUnits: ['W'],
           },
         ],
@@ -2825,19 +3624,33 @@ describe('runLoadManagementCycle', () => {
     const retry = byStation.get('CS-002')?.chargingSchedule[0];
     expect(retry?.chargingRateUnit).toBe('A');
     expect(retry?.chargingSchedulePeriod[0]?.limit).toBe(45.8);
-    // The reply state is carried in the recorded allocations.
+    // The raise of CS-001 is recorded by the second claim; the claim of the
+    // cuts records the retry of the refused station.
     const claim = dbState.updateCalls.find((c) => c.table === 'siteLoadManagement');
     expect(claim?.values['appliedAllocations']).toEqual([
-      { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 29 },
+      {
+        stationId: 'CS-001',
+        stationDbId: 'sta_1',
+        allocatedKw: 29,
+        limit: acceptedLimit(20),
+      },
       {
         stationId: 'CS-002',
         stationDbId: 'sta_2',
         allocatedKw: 11,
         reserved: true,
-        limitPending: true,
         rejectedUnits: ['W'],
+        limit: {
+          state: 'awaiting',
+          commandId: expect.any(String) as unknown,
+          // The kW allocated (the 45.8 A sent is 10.992 kW, below it).
+          sentKw: 11,
+          mightKw: null,
+        },
       },
     ]);
+    const raised = dbState.outcome.stored.at(-1) as Array<Record<string, unknown>>;
+    expect(raised[0]).toMatchObject({ limit: { state: 'awaiting', sentKw: 29, mightKw: 20 } });
   });
 
   it('reserves the last accepted limit of an offline station when it is higher', async () => {
@@ -2846,9 +3659,9 @@ describe('runLoadManagementCycle', () => {
         isEnabled: true,
         siteId: 'site-accepted',
         strategy: 'equal_share',
+        // CS-002 has no entry (load management just took it on).
         appliedAllocations: [
-          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 30 },
-          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 10 },
+          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 30, limit: acceptedLimit(30) },
         ],
         appliedAt: null,
       },
@@ -2858,7 +3671,7 @@ describe('runLoadManagementCycle', () => {
       { id: 'sta_2', stationId: 'CS-002', isOnline: false, loadPriority: 5, circuitId: 'c1' },
     ]);
     setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
-    // The cut to 10 kW never reached CS-002: it still holds the 15 kW it accepted.
+    // CS-002 holds the 15 kW profile it accepted earlier: reserved at that.
     setResult('chargingProfiles', [
       {
         stationId: 'sta_2',
@@ -2924,7 +3737,10 @@ describe('runLoadManagementCycle', () => {
     });
     const log = makeLogger();
 
-    await expect(runLoadManagementCycle(log, 'site-broken')).resolves.toEqual({ failedSites: 1 });
+    await expect(runLoadManagementCycle(log, 'site-broken')).resolves.toEqual({
+      failedSites: 1,
+      logFailures: 0,
+    });
 
     expect(log.error).toHaveBeenCalledWith(
       expect.objectContaining({ siteId: 'site-broken' }),
@@ -3005,7 +3821,8 @@ describe('stationConnectedKw', () => {
   });
 
   it('holds each unit to its budget (issue 72: eight 32 A three-phase boxes at 230 V)', () => {
-    expect(stationConnectedKw(em4Rows, em4Budgets, 230, 3)).toBeCloseTo(176.64, 6);
+    // Eight 32 A fuses at 80 percent continuous: 8 x 25.6 A x 3 x 230 V.
+    expect(stationConnectedKw(em4Rows, em4Budgets, 230, 3)).toBeCloseTo(141.312, 6);
   });
 
   it('keeps a unit below its budget at its EVSE ratings', () => {
@@ -3029,7 +3846,7 @@ describe('stationConnectedKw', () => {
     const budgets = [
       { unitId: 'u1', kind: 'ac' as const, maxCurrentA: 16, phases: 1, maxPowerKw: null },
     ];
-    expect(stationConnectedKw(rows, budgets, 230, 3)).toBeCloseTo(3.68 + 11 + 22, 6);
+    expect(stationConnectedKw(rows, budgets, 230, 3)).toBeCloseTo(3.68 * 0.8 + 11 + 22, 6);
   });
 
   it('takes a DC budget in kW and the highest connector of each EVSE', () => {
@@ -3041,7 +3858,7 @@ describe('stationConnectedKw', () => {
     const budgets = [
       { unitId: 'u1', kind: 'dc' as const, maxCurrentA: null, phases: null, maxPowerKw: 200 },
     ];
-    expect(stationConnectedKw(rows, budgets, 230, 3)).toBe(200);
+    expect(stationConnectedKw(rows, budgets, 230, 3)).toBe(160);
   });
 
   it('uses the line to line voltage for a single-phase unit on a two-conductor circuit', () => {
@@ -3050,7 +3867,7 @@ describe('stationConnectedKw', () => {
       { unitId: 'u1', kind: 'ac' as const, maxCurrentA: 32, phases: 1, maxPowerKw: null },
     ];
     expect(stationConnectedKw(rows, budgets, 230, 2)).toBeCloseTo(
-      (32 * 230 * Math.sqrt(3)) / 1000,
+      (32 * 0.8 * 230 * Math.sqrt(3)) / 1000,
       6,
     );
   });
@@ -3172,12 +3989,16 @@ describe('minimum charge rates', () => {
 });
 
 describe('charging rate unit', () => {
-  it('uses W unless the station supports only A', () => {
-    expect(chargingRateUnitFor([])).toBe('W');
-    expect(chargingRateUnitFor(['A,W'])).toBe('W');
-    expect(chargingRateUnitFor(['Current,Power'])).toBe('W');
+  it('uses A whenever the station supports A, else W (unit rule 2026-11-24, second round)', () => {
+    // A bounds every phase current, W only the total: A is preferred on every circuit.
+    expect(chargingRateUnitFor(['A,W'])).toBe('A');
+    expect(chargingRateUnitFor(['Current,Power'])).toBe('A');
     expect(chargingRateUnitFor(['A'])).toBe('A');
     expect(chargingRateUnitFor(['Current'])).toBe('A');
+    // W only, or nothing reported: W.
+    expect(chargingRateUnitFor(['W'])).toBe('W');
+    expect(chargingRateUnitFor(['Power'])).toBe('W');
+    expect(chargingRateUnitFor([])).toBe('W');
   });
 
   it('converts a W limit to the phase current of the circuit, rounded down', () => {
@@ -3187,68 +4008,14 @@ describe('charging rate unit', () => {
   });
 });
 
-describe('offlineReservations', () => {
-  it('keeps the last limit, else the max power, of offline stations with a session', () => {
-    const reserved = offlineReservations(
-      [
-        makeStation({ id: 's1', stationId: 'CS-001', isOnline: false, maxPowerKw: 22 }),
-        makeStation({ id: 's2', stationId: 'CS-002', isOnline: false, maxPowerKw: 11 }),
-        makeStation({ id: 's3', stationId: 'CS-003', isOnline: false, hasActiveSession: false }),
-        makeStation({ id: 's4', stationId: 'CS-004', isOnline: true }),
-      ],
-      [{ stationId: 'CS-001', stationDbId: 's1', allocatedKw: 7 }],
-    );
-
-    expect([...reserved]).toEqual([
-      ['s1', 7],
-      ['s2', 11],
-    ]);
-  });
-
-  it('keeps the higher of the last sent and the last accepted limit', () => {
-    const reserved = offlineReservations(
-      [
-        makeStation({ id: 's1', stationId: 'CS-001', isOnline: false, maxPowerKw: 22 }),
-        makeStation({ id: 's2', stationId: 'CS-002', isOnline: false, maxPowerKw: 22 }),
-        makeStation({ id: 's3', stationId: 'CS-003', isOnline: false, maxPowerKw: 22 }),
-      ],
-      [
-        { stationId: 'CS-001', stationDbId: 's1', allocatedKw: 7 },
-        { stationId: 'CS-002', stationDbId: 's2', allocatedKw: 12 },
-      ],
-      new Map([
-        ['s1', 11],
-        ['s2', 9],
-        ['s3', 4],
-      ]),
-    );
-
-    // s1: the cut to 7 never reached it, it holds 11. s2: sent 12. s3: only accepted 4.
-    expect([...reserved]).toEqual([
-      ['s1', 11],
-      ['s2', 12],
-      ['s3', 4],
-    ]);
-  });
-});
-
 describe('charging rate unit on multi-phase circuits', () => {
-  it('uses A on a circuit of two or three conductor phases when the station supports A', () => {
-    expect(chargingRateUnitFor(['A,W'], 3)).toBe('A');
-    expect(chargingRateUnitFor(['Current,Power'], 2)).toBe('A');
-    expect(chargingRateUnitFor(['A,W'], 1)).toBe('W');
-    // W only, or nothing reported: W.
-    expect(chargingRateUnitFor(['W'], 3)).toBe('W');
-    expect(chargingRateUnitFor([], 3)).toBe('W');
-  });
-
   it('lists the units a station reports', () => {
     expect(supportedRateUnits(['Current,Power'])).toEqual(['A', 'W']);
     expect(supportedRateUnits(['W'])).toEqual(['W']);
     expect(supportedRateUnits([])).toEqual([]);
   });
 
-  it('sets A on stations of a three-phase circuit that support A', async () => {
+  it('sets A on every station that supports A, on any circuit', async () => {
     setResult('panels', [
       {
         id: 'p1',
@@ -3303,35 +4070,13 @@ describe('charging rate unit on multi-phase circuits', () => {
     await buildSiteHierarchy('site-1', [both, single, wOnly]);
 
     expect(both.rateUnit).toBe('A');
-    expect(single.rateUnit).toBe('W');
+    // A single-phase circuit too: A bounds the phase current (unit rule 2026-11-24, second round).
+    expect(single.rateUnit).toBe('A');
     expect(wOnly.rateUnit).toBe('W');
   });
 });
 
 describe('unconfirmed load management limits', () => {
-  it('reserves the maximum power or the measured draw of a station with a pending limit', () => {
-    const reserved = unconfirmedReservations(
-      [
-        makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 22, currentDrawKw: 5 }),
-        makeStation({ id: 's2', stationId: 'CS-002', maxPowerKw: 0, currentDrawKw: 9 }),
-        makeStation({ id: 's3', stationId: 'CS-003', maxPowerKw: 11, hasActiveSession: false }),
-        makeStation({ id: 's4', stationId: 'CS-004', maxPowerKw: 50 }),
-      ],
-      [
-        { stationId: 'CS-001', stationDbId: 's1', allocatedKw: 7, limitPending: true },
-        { stationId: 'CS-002', stationDbId: 's2', allocatedKw: 7, limitPending: true },
-        { stationId: 'CS-003', stationDbId: 's3', allocatedKw: 7, limitPending: true },
-        { stationId: 'CS-004', stationDbId: 's4', allocatedKw: 7, rejectedUnits: ['W'] },
-      ],
-    );
-
-    expect([...reserved]).toEqual([
-      ['s1', 22],
-      ['s2', 9],
-      ['s3', 11],
-    ]);
-  });
-
   it('picks a unit the station has not rejected, else its preferred one', () => {
     const station = { rateUnit: 'W' as const, supportedRateUnits: [] };
     expect(sendRateUnit(station, [])).toBe('W');
@@ -3340,30 +4085,6 @@ describe('unconfirmed load management limits', () => {
     // A station that reports W only is never sent A.
     expect(sendRateUnit({ rateUnit: 'W', supportedRateUnits: ['W'] }, ['W'])).toBe('W');
     expect(sendRateUnit({ rateUnit: 'A', supportedRateUnits: ['A', 'W'] }, ['A'])).toBe('W');
-  });
-
-  it('reads the reply state of applied allocations', () => {
-    expect(
-      parseAppliedAllocations([
-        {
-          stationId: 'CS-001',
-          stationDbId: 's1',
-          allocatedKw: 7,
-          reserved: true,
-          limitPending: true,
-          rejectedUnits: ['W', 'kW'],
-        },
-      ]),
-    ).toEqual([
-      {
-        stationId: 'CS-001',
-        stationDbId: 's1',
-        allocatedKw: 7,
-        reserved: true,
-        limitPending: true,
-        rejectedUnits: ['W'],
-      },
-    ]);
   });
 
   it('recognizes the load management profile and reads its limit', () => {
@@ -3421,12 +4142,57 @@ describe('unconfirmed load management limits', () => {
       },
     ]);
 
-    const accepted = await lastAcceptedLimitsKw(
+    const accepted = await storedLimitsOf(
       [makeStation({ id: 's1', stationId: 'CS-001', isOnline: false })],
       new Map(),
     );
 
-    expect([...accepted]).toEqual([['s1', 9]]);
+    expect([...accepted]).toEqual([
+      ['s1', { limit: { state: 'profiled', mightKw: 9, mightInW: true } }],
+    ]);
+  });
+
+  it('keeps a stored credit profile that may still hold as the credit record (review 7, I4)', async () => {
+    const now = Date.parse('2026-11-24T12:00:00Z');
+    const credit = (validTo: string) => ({
+      stationId: 's1',
+      profileData: {
+        id: LOAD_MANAGEMENT_PROFILE_ID + 1,
+        stackLevel: 2,
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        validTo,
+        chargingSchedule: [{ chargingRateUnit: 'W', chargingSchedulePeriod: [{ limit: 15000 }] }],
+      },
+    });
+    const base = {
+      stationId: 's1',
+      profileData: {
+        id: LOAD_MANAGEMENT_PROFILE_ID,
+        stackLevel: 1,
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        chargingSchedule: [{ chargingRateUnit: 'W', chargingSchedulePeriod: [{ limit: 9000 }] }],
+      },
+    };
+    const stations = [makeStation({ id: 's1', stationId: 'CS-001', isOnline: false })];
+    // Ended 30 s ago: a station clock 60 s behind may still apply it.
+    setResult('chargingProfiles', [base, credit(new Date(now - 30_000).toISOString())]);
+    expect([...(await storedLimitsOf(stations, new Map(), now))]).toEqual([
+      [
+        's1',
+        {
+          limit: { state: 'profiled', mightKw: 9, mightInW: true },
+          credit: {
+            limit: { state: 'profiled', mightKw: 15, mightInW: true },
+            until: new Date(now - 30_000).toISOString(),
+          },
+        },
+      ],
+    ]);
+    // Ended past the clock margin: only the base limit holds.
+    setResult('chargingProfiles', [base, credit(new Date(now - 120_000).toISOString())]);
+    expect([...(await storedLimitsOf(stations, new Map(), now))]).toEqual([
+      ['s1', { limit: { state: 'profiled', mightKw: 9, mightInW: true } }],
+    ]);
   });
 });
 
@@ -3628,7 +4394,7 @@ describe('circuit voltage, sub-panel phases and send order', () => {
       ['sta_4', 8],
     ]);
 
-    const { cuts, raises } = orderLimitChanges(allocations, previousKw);
+    const { cuts, raises } = splitCutsAndRaises(allocations, previousKw);
     // sta_3 holds no known limit (unlimited) and sta_4 keeps its own: both
     // go with the cuts.
     expect(cuts.map((a) => a.stationDbId)).toEqual(['sta_2', 'sta_3', 'sta_4']);
@@ -3798,7 +4564,15 @@ describe('parseAppliedAllocations with per-EVSE limits', () => {
       parseAppliedAllocations([
         { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 10, evses },
       ]),
-    ).toEqual([{ stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 10, evses }]);
+    ).toEqual([
+      {
+        stationId: 'CS-001',
+        stationDbId: 'sta_1',
+        allocatedKw: 10,
+        limit: { state: 'unknown', mightKw: null },
+        evses,
+      },
+    ]);
   });
 });
 
@@ -4620,8 +5394,8 @@ describe('energy assets that cannot be read', () => {
         siteId: 'site-1',
         strategy: 'equal_share',
         appliedAllocations: [
-          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 45 },
-          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20 },
+          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 45, limit: acceptedLimit(45) },
+          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20, limit: acceptedLimit(20) },
         ],
         appliedAt: new Date(),
       },
@@ -4750,14 +5524,9 @@ describe('energy assets that cannot be read', () => {
       expect.objectContaining({ siteId: 'site-1' }),
       'Energy assets not read and not known, no limit is raised this cycle',
     );
-    // Grid-only 30 + 30 kW, each capped at the limit held: CS-001 is cut from
-    // 45 to 30, CS-002 keeps 20 (no raise without a known battery load).
-    expect(new Map(sentLimits())).toEqual(
-      new Map([
-        ['CS-001', 30000],
-        ['CS-002', 20000],
-      ]),
-    );
+    // Grid-only 30 + 30 kW: CS-001 is cut from 45 to 30, and the raise of
+    // CS-002 from 20 is held (no raise without a known battery load).
+    expect(new Map(sentLimits())).toEqual(new Map([['CS-001', 30000]]));
     const row = dbState.insertCalls.find((c) => c.table === 'loadAllocationLog')?.values as
       | Record<string, unknown>
       | undefined;
@@ -4817,23 +5586,6 @@ describe('energy assets that cannot be read', () => {
       | Record<string, unknown>
       | undefined;
     expect(Number(row?.['supplyCreditKw'])).toBe(0);
-  });
-});
-
-describe('withoutRaises', () => {
-  it('caps a raise at the held limit and keeps cuts and stations without a limit', () => {
-    const result = withoutRaises(
-      [
-        { stationId: 'A', stationDbId: 'a', allocatedKw: 30, currentDrawKw: 0 },
-        { stationId: 'B', stationDbId: 'b', allocatedKw: 10, currentDrawKw: 0 },
-        { stationId: 'C', stationDbId: 'c', allocatedKw: 50, currentDrawKw: 0 },
-      ],
-      [
-        { stationId: 'A', stationDbId: 'a', allocatedKw: 20 },
-        { stationId: 'B', stationDbId: 'b', allocatedKw: 40 },
-      ],
-    );
-    expect(result.map((r) => r.allocatedKw)).toEqual([20, 10, 50]);
   });
 });
 
@@ -5015,7 +5767,8 @@ describe('credit profiles that end with their readings (security case 334)', () 
   // A battery at the transformer that may charge from the grid (20 kW
   // rating) reads 20 kW of discharge: with the reading each station gets 40
   // kW; once it is stale the battery is a 20 kW load and each gets 20 kW.
-  const TTL_S = 60;
+  // Longer than the clock margin plus a cycle, so the readings carry credit.
+  const TTL_S = 300;
 
   function site(applied: unknown[] | null, appliedAt: Date | null = new Date()): void {
     setResult('siteLoadManagement', [
@@ -5164,8 +5917,9 @@ describe('credit profiles that end with their readings (security case 334)', () 
       stationId: `CS-00${n}`,
       stationDbId: `sta_${n}`,
       allocatedKw,
-      baseKw: 20,
-      creditUntil,
+      allocatedBaseKw: 20,
+      limit: acceptedLimit(20),
+      credit: { limit: acceptedLimit(allocatedKw), until: creditUntil },
     }));
   }
 
@@ -5199,17 +5953,20 @@ describe('credit profiles that end with their readings (security case 334)', () 
     expect(loadManagementProfileId('2147483647') + 1).toBeLessThanOrEqual(2_147_483_647);
   });
 
-  it('sends the limit without readings at stack level 1 and the credited limit until the reading ends', async () => {
+  it('sends the limit without readings at stack level 1 and the credited limit until one clock margin before the reading ends', async () => {
     const measuredAt = new Date(Date.now() - 5_000);
     site([
-      { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 30 },
-      { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 30 },
+      { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 30, limit: acceptedLimit(30) },
+      { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 30, limit: acceptedLimit(30) },
     ]);
     reading(measuredAt);
 
     await runLoadManagementCycle(makeLogger(), 'site-1');
 
-    const validTo = new Date(measuredAt.getTime() + TTL_S * 1000).toISOString();
+    // The credit profile ends one clock margin before the reading (review M1).
+    const validTo = new Date(
+      measuredAt.getTime() + TTL_S * 1000 - CREDIT_CLOCK_MARGIN_MS,
+    ).toISOString();
     const profiles = sentProfiles();
     expect(profiles).toEqual(
       expect.arrayContaining([
@@ -5244,15 +6001,28 @@ describe('credit profiles that end with their readings (security case 334)', () 
         expect.objectContaining({
           stationDbId: 'sta_1',
           allocatedKw: 40,
-          baseKw: 20,
-          creditUntil: validTo,
+          allocatedBaseKw: 20,
+          credit: {
+            limit: expect.objectContaining({
+              state: 'awaiting',
+              sentKw: 40,
+              mightKw: 0,
+            }) as unknown,
+            until: validTo,
+          },
         }),
       ]),
     );
   });
 
   it('gives a station that takes no stack level 2 the limit without readings only', async () => {
-    site(null, null);
+    site(
+      [
+        { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20, limit: acceptedLimit(20) },
+        { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20, limit: acceptedLimit(20) },
+      ],
+      null,
+    );
     reading(new Date());
     setResult('stationConfigurations', [
       { stationId: 'sta_2', variable: 'ChargeProfileMaxStackLevel', value: '1' },
@@ -5275,7 +6045,10 @@ describe('credit profiles that end with their readings (security case 334)', () 
 
     await runLoadManagementCycle(makeLogger(), 'site-1');
 
-    const validTo = new Date(measuredAt.getTime() + TTL_S * 1000).toISOString();
+    // The credit profile ends one clock margin before the reading (review M1).
+    const validTo = new Date(
+      measuredAt.getTime() + TTL_S * 1000 - CREDIT_CLOCK_MARGIN_MS,
+    ).toISOString();
     expect(sentProfiles()).toEqual([
       {
         stationId: 'CS-001',
@@ -5298,20 +6071,37 @@ describe('credit profiles that end with their readings (security case 334)', () 
       expect.objectContaining({ stationOcppId: 'CS-001', stackLevel: 2, refresh: true }),
       expect.objectContaining({ stationOcppId: 'CS-002', stackLevel: 2, refresh: true }),
     ]);
-    expect(storedApplied().every((e) => e['creditUntil'] === validTo)).toBe(true);
+    const until = (e: Record<string, unknown>): unknown =>
+      (e['credit'] as { until?: string } | undefined)?.until;
+    expect(storedApplied().every((e) => until(e) === validTo)).toBe(true);
+  });
+
+  it('sends no credit profile once the site lock moved to another worker', async () => {
+    const heldUntil = new Date(Date.now() + LOAD_MANAGEMENT_CREDIT_RESEND_MS - 5_000).toISOString();
+    site(held(40, heldUntil));
+    reading(new Date());
+    dbState.fence.holds = false;
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    expect(dbState.lastClaim.input).not.toBeNull();
+    expect(sentProfiles()).toEqual([]);
   });
 
   it('resends only the station whose end is close and keeps the end of the other', async () => {
     const closeEnd = new Date(Date.now() + LOAD_MANAGEMENT_CREDIT_RESEND_MS - 5_000).toISOString();
     const farEnd = new Date(Date.now() + 10 * LOAD_MANAGEMENT_CREDIT_RESEND_MS).toISOString();
     const [first, second] = held(40, closeEnd);
-    site([first, { ...second, creditUntil: farEnd }]);
+    site([first, { ...second, credit: { ...(second?.['credit'] as object), until: farEnd } }]);
     const measuredAt = new Date();
     reading(measuredAt);
 
     await runLoadManagementCycle(makeLogger(), 'site-1');
 
-    const validTo = new Date(measuredAt.getTime() + TTL_S * 1000).toISOString();
+    // The credit profile ends one clock margin before the reading (review M1).
+    const validTo = new Date(
+      measuredAt.getTime() + TTL_S * 1000 - CREDIT_CLOCK_MARGIN_MS,
+    ).toISOString();
     expect(sentProfiles()).toEqual([
       {
         stationId: 'CS-001',
@@ -5321,7 +6111,12 @@ describe('credit profiles that end with their readings (security case 334)', () 
         limit: 40_000,
       },
     ]);
-    const stored = new Map(storedApplied().map((e) => [e['stationDbId'], e['creditUntil']]));
+    const stored = new Map(
+      storedApplied().map((e) => [
+        e['stationDbId'],
+        (e['credit'] as { until?: string } | undefined)?.until,
+      ]),
+    );
     expect(stored.get('sta_1')).toBe(validTo);
     expect(stored.get('sta_2')).toBe(farEnd);
   });
@@ -5344,14 +6139,59 @@ describe('credit profiles that end with their readings (security case 334)', () 
     ).toBe(true);
   });
 
-  it('sends nothing while the reading has not moved on, so the credit ends at the station', async () => {
+  it('fits the start allowances of idle stations without the credit, since they go out with no end (A5, I1)', async () => {
+    // Each idle station holds 30 kW and its minimum is 30 kW: with the credit
+    // both fit the 60 kW transformer, without it the battery is a 20 kW load
+    // and only one fits.
+    site(
+      ['1', '2'].map((n) => ({
+        stationId: `CS-00${n}`,
+        stationDbId: `sta_${n}`,
+        allocatedKw: 30,
+        limit: acceptedLimit(30),
+      })),
+      null,
+    );
+    setResult('chargingStations', [
+      {
+        id: 'sta_1',
+        stationId: 'CS-001',
+        isOnline: true,
+        loadPriority: 5,
+        circuitId: 'c1',
+        loadMinPowerKw: '30',
+      },
+      {
+        id: 'sta_2',
+        stationId: 'CS-002',
+        isOnline: true,
+        loadPriority: 5,
+        circuitId: 'c2',
+        loadMinPowerKw: '30',
+      },
+    ]);
+    setResult('chargingSessions', []);
+    reading(new Date());
+
+    await runLoadManagementCycle(makeLogger(), 'site-1');
+
+    const base = sentProfiles().filter((p) => p.stackLevel === 1);
+    expect(base.map((p) => p.limit).sort((a, b) => a - b)).toEqual([0, 30_000]);
+    expect(sentProfiles().some((p) => p.stackLevel === 2 && p.limit > 0)).toBe(false);
+  });
+
+  it('replaces the credit at the limit without readings when the reading ends within the clock margin (owner decision)', async () => {
+    // A station whose clock runs behind would keep the credit past the reading,
+    // so the CSMS ends it while the reading still holds.
     const measuredAt = new Date(Date.now() - (TTL_S - 10) * 1000);
     site(held(40, new Date(measuredAt.getTime() + TTL_S * 1000).toISOString()));
     reading(measuredAt);
 
     await runLoadManagementCycle(makeLogger(), 'site-1');
 
-    expect(sentProfiles()).toEqual([]);
+    const credit = sentProfiles().find((p) => p.stackLevel === 2 && p.stationId === 'CS-001');
+    expect(credit?.limit).toBe(20_000);
+    expect(Date.parse(credit?.validTo ?? '')).toBeGreaterThan(Date.now() + 50_000);
   });
 
   it('replaces a credit profile that still holds with the lower limit once the reading is gone', async () => {
@@ -5362,15 +6202,12 @@ describe('credit profiles that end with their readings (security case 334)', () 
     await runLoadManagementCycle(makeLogger(), 'site-1');
 
     const profiles = sentProfiles();
+    // The replacement outlasts the clock margin, so it, not the old profile, holds.
+    const credit = profiles.find((p) => p.stackLevel === 2 && p.stationId === 'CS-001');
+    expect(credit?.limit).toBe(20_000);
+    expect(Date.parse(credit?.validTo ?? '')).toBeGreaterThan(Date.parse(heldUntil));
     expect(profiles).toEqual(
       expect.arrayContaining([
-        {
-          stationId: 'CS-001',
-          id: LOAD_MANAGEMENT_PROFILE_ID + 1,
-          stackLevel: 2,
-          validTo: heldUntil,
-          limit: 20_000,
-        },
         { stationId: 'CS-001', id: LOAD_MANAGEMENT_PROFILE_ID, stackLevel: 1, limit: 20_000 },
       ]),
     );
@@ -5432,13 +6269,40 @@ describe('credit profiles that end with their readings (security case 334)', () 
     expect(root.supplyCreditKw).toBe(20);
 
     const allocations = computeHierarchicalAllocation([root], 'equal_share');
-    const split = splitCreditLimits([root], 'equal_share', new Map(), allocations, [
+    const stations = [
       makeStation({ id: 'sta_a', stationId: 'CS-a' }),
       makeStation({ id: 'sta_b', stationId: 'CS-b', maxStackLevel: 1 }),
-    ]);
+    ];
+    const longBeforeEnd = freshUntil.getTime() - 10 * 60_000;
+    const split = splitCreditLimits(
+      [root],
+      'equal_share',
+      new Map(),
+      allocations,
+      stations,
+      longBeforeEnd,
+    );
     expect(split.baseKw).toEqual(new Map([['sta_a', 20]]));
     expect(split.allocations.find((a) => a.stationDbId === 'sta_b')?.allocatedKw).toBe(20);
-    expect(split.validToMs).toBe(freshUntil.getTime());
+    // The profile ends one clock margin before the reading (review M1): a station
+    // whose clock lags by the margin drops it by the time the reading ends.
+    expect(split.validToMs).toBe(freshUntil.getTime() - CREDIT_CLOCK_MARGIN_MS);
+    // A credit that would last one cycle or less is not sent: every station gets
+    // its limit without it.
+    const near = freshUntil.getTime() - (CREDIT_CLOCK_MARGIN_MS + LOAD_MANAGEMENT_CYCLE_MS);
+    const justBefore = splitCreditLimits(
+      [root],
+      'equal_share',
+      new Map(),
+      allocations,
+      stations,
+      near - 1,
+    );
+    expect(justBefore.validToMs).toBe(freshUntil.getTime() - CREDIT_CLOCK_MARGIN_MS);
+    const late = splitCreditLimits([root], 'equal_share', new Map(), allocations, stations, near);
+    expect(late.validToMs).toBeNull();
+    expect(late.baseKw.size).toBe(0);
+    expect(late.allocations.find((a) => a.stationDbId === 'sta_a')?.allocatedKw).toBe(20);
   });
 
   it('orders every profile against the limit it replaces', () => {
@@ -5453,7 +6317,7 @@ describe('credit profiles that end with their readings (security case 334)', () 
       new Map([['sta_1', 30]]),
       new Map([['sta_1', { baseKw: 20, previousBaseKw: 25, validTo: new Date() }]]),
     );
-    const { cuts, raises } = orderLimitCommands(commands);
+    const { cuts, raises } = cutsBeforeRaises(commands, (c) => c.enforcedKw);
     expect(cuts.map((c) => c.kw)).toEqual([20]);
     expect(raises.map((c) => [c.kw, c.validTo != null])).toEqual([[40, true]]);
     expect(
@@ -5499,5 +6363,824 @@ describe('remembered energy assets of sites the cycle no longer reads', () => {
     expect(rememberedEnergyAssetSiteIds()).toEqual(['site-b']);
     pruneRememberedEnergyAssets(Date.now() + REMEMBERED_ENERGY_ASSETS_MAX_AGE_MS + 1_000);
     expect(rememberedEnergyAssetSiteIds()).toEqual([]);
+  });
+});
+
+describe('load management review (v0.1.53)', () => {
+  function circuit(overrides: Partial<HierarchyNode>): HierarchyNode {
+    return {
+      type: 'circuit',
+      id: 'c1',
+      name: 'Circuit 1',
+      maxContinuousKw: 100,
+      safetyMarginKw: 0,
+      unmanagedLoadKw: 0,
+      currentDrawKw: 0,
+      stations: [],
+      children: [],
+      phases: 3,
+      breakerRatingAmps: 100,
+      voltageV: 230,
+      oversubscriptionRatio: 1.0,
+      phaseConnections: null,
+      phaseLoad: null,
+      perPhaseCapacityKw: null,
+      ...overrides,
+    };
+  }
+  const acSession = (n: number, phases: string | null): EvseSessionInfo =>
+    makeSession({
+      sessionId: `ses_${String(n)}`,
+      transactionId: `tx-${String(n)}`,
+      evseDbId: `evs_${String(n)}`,
+      evseNumber: n,
+      kind: 'ac',
+      ratingKw: 7.4,
+      ratingA: 32,
+      phases,
+    });
+
+  it('counts a station split per phase at its busiest share on every phase (H0)', () => {
+    // A split station with cars on L1 and L2 is sent one limit for every phase
+    // (three times its busiest share), so a third car that plugs in on L3
+    // before the next cycle can draw that share of L3 too. The other station
+    // is on an L3 circuit; together they must fit L3.
+    const split = makeStation({
+      id: 's1',
+      stationId: 'CS-001',
+      maxPowerKw: 100,
+      balancingMode: 'evse',
+      circuitPhases: 3,
+      circuitVoltageV: 230,
+      sessions: [acSession(1, 'L1'), acSession(2, 'L2')],
+    });
+    const other = makeStation({ id: 's2', stationId: 'CS-002', maxPowerKw: 30 });
+    const panel = circuit({
+      type: 'panel',
+      id: 'p1',
+      maxContinuousKw: 1000,
+      perPhaseCapacityKw: 30,
+      phaseLoad: { L1: 0, L2: 0, L3: 0 },
+      children: [
+        circuit({ id: 'c3', phaseConnections: 'L1L2L3', stations: [split] }),
+        circuit({ id: 'cL3', phases: 1, phaseConnections: 'L3', stations: [other] }),
+      ],
+    });
+    const result = computeHierarchicalAllocation([panel], 'equal_share');
+    const a1 = result.find((a) => a.stationDbId === 's1')?.allocatedKw ?? 0;
+    const a2 = result.find((a) => a.stationDbId === 's2')?.allocatedKw ?? 0;
+    const perPhaseKw = stationProfileWatts(a1, { L1: 0.5, L2: 0.5, L3: 0 }) / 1000 / 3;
+    expect(perPhaseKw + a2).toBeLessThanOrEqual(30 + 1e-6);
+    expect(a1).toBeGreaterThan(0);
+    expect(a2).toBeGreaterThan(0);
+  });
+
+  it('gives idle stations their start allowance and keeps an offline one at its held limit (H0)', () => {
+    const idle = makeStation({
+      id: 's1',
+      stationId: 'CS-001',
+      hasActiveSession: false,
+      maxPowerKw: 22,
+      circuitPhases: 3,
+      circuitVoltageV: 230,
+    });
+    const idleMin = { ...idle, id: 's2', stationId: 'CS-002', minPowerKw: 2 };
+    const offline = { ...idle, id: 's3', stationId: 'CS-003', isOnline: false };
+    const offlineNew = { ...idle, id: 's4', stationId: 'CS-004', isOnline: false };
+    const charging = { ...idle, id: 's5', stationId: 'CS-005', hasActiveSession: true };
+    const reserved = { ...idle, id: 's6', stationId: 'CS-006' };
+    const rates = new Map(
+      ['s1', 's2', 's3', 's4', 's5', 's6'].map((id) => [
+        id,
+        { rateUnit: 'A' as const, voltageV: 230, phases: 3, profileId: 1 },
+      ]),
+    );
+    const online = idleAllowances(
+      [idle, idleMin, offline, offlineNew, charging, reserved],
+      new Map([['s6', 9]]),
+      rates,
+    );
+    expect(online.map((a) => [a.stationDbId, a.allocatedKw, a.limitedBy])).toEqual([
+      ['s1', (6 * 230 * 3) / 1000, 'idle_allowance'],
+      ['s2', 2, 'idle_allowance'],
+    ]);
+    // Offline stations are reserved at what they may draw: the limit they
+    // accepted, else (nothing known) their maximum.
+    const held = limitReservations(
+      [offline, offlineNew],
+      [
+        { stationId: 'CS-003', stationDbId: 's3', allocatedKw: 11, limit: acceptedLimit(11) },
+      ] as never,
+      { nowMs: Date.now() },
+    );
+    expect([...held]).toEqual([
+      ['s3', 11],
+      ['s4', 22],
+    ]);
+  });
+
+  it('counts an idle station allowance as fixed load of its circuit (H0)', () => {
+    const idle = makeStation({ id: 's1', stationId: 'CS-001', hasActiveSession: false });
+    const busy = makeStation({ id: 's2', stationId: 'CS-002', maxPowerKw: 100 });
+    const node = circuit({ maxContinuousKw: 30, phases: 1, stations: [idle, busy] });
+    const panel = circuit({
+      type: 'panel',
+      id: 'p1',
+      phases: 1,
+      maxContinuousKw: 1000,
+      children: [node],
+    });
+    const [only] = computeHierarchicalAllocation([panel], 'equal_share', new Map([['s1', 4.14]]));
+    expect(only?.stationDbId).toBe('s2');
+    expect(only?.allocatedKw).toBeCloseTo(30 - 4.14, 6);
+  });
+
+  it('maps session phases through the EVSE rotation, unknown ones on every phase (H3)', () => {
+    const sessions = [acSession(1, 'L1'), acSession(2, 'L1')];
+    // EVSE 2 has its L1 on the circuit L3.
+    const rotated = alignSessionPhases(sessions, (s) => (s.evseNumber === 2 ? 'TRS' : 'RST'));
+    expect(rotated.map((s) => s.phases)).toEqual(['L1', 'L3']);
+    const unknown = alignSessionPhases(sessions, (s) => (s.evseNumber === 2 ? null : 'RST'));
+    expect(unknown.map((s) => s.phases)).toEqual(['L1', null]);
+    // One session shares no phase with another: its phases stay.
+    expect(alignSessionPhases([acSession(1, 'L2')], () => null).map((s) => s.phases)).toEqual([
+      'L2',
+    ]);
+    expect(
+      reportedEvseRotations({
+        component: 'OCPP',
+        evseId: null,
+        variable: 'ConnectorPhaseRotation',
+        value: '0.RST, 1.RTS, 2.Unknown',
+      }),
+    ).toEqual([[1, 'RTS']]);
+    expect(
+      reportedEvseRotations({
+        component: 'EVSE',
+        evseId: 2,
+        variable: 'PhaseRotation',
+        value: 'srt',
+      }),
+    ).toEqual([[2, 'SRT']]);
+    expect(
+      reportedEvseRotations({
+        component: 'ChargingStation',
+        evseId: null,
+        variable: 'PhaseRotation',
+        value: 'RST',
+      }),
+    ).toEqual([]);
+  });
+
+  it('caps a settled session demand at its measured draw and gives the rest away (M3)', () => {
+    const now = Date.parse('2026-06-04T11:00:00Z');
+    const startedAt = new Date(now - 5 * 60_000);
+    const slow = { ...acSession(1, 'L1L2L3'), startedAt, drawKw: 4, heldLimitKw: 11 };
+    const fast = { ...acSession(2, 'L1L2L3'), startedAt, drawKw: 10.9, heldLimitKw: 11 };
+    expect(measuredDemandCapKw(slow, now)).toBeCloseTo(5, 6);
+    expect(measuredDemandCapKw(fast, now)).toBeNull();
+    expect(measuredDemandCapKw({ ...slow, startedAt: new Date(now - 30_000) }, now)).toBeNull();
+    // Held at its cap and still below it: the cap stays; at the cap it goes.
+    expect(measuredDemandCapKw({ ...slow, heldLimitKw: 5 }, now)).toBeCloseTo(5, 6);
+    expect(measuredDemandCapKw({ ...slow, heldLimitKw: 5, drawKw: 4.9 }, now)).toBeNull();
+    const station = makeStation({
+      id: 's1',
+      stationId: 'CS-001',
+      balancingMode: 'evse',
+      circuitPhases: 3,
+      circuitVoltageV: 230,
+      sessions: [slow, { ...fast, ratingA: 63, ratingKw: 43 }],
+    });
+    const limits = computeEvseLimits(
+      station,
+      22,
+      { rateUnit: 'A', voltageV: 230, phases: 3, profileId: 1 },
+      'equal_share',
+      null,
+      now,
+    );
+    const slowLimit = limits.find((l) => l.sessionId === 'ses_1');
+    const fastLimit = limits.find((l) => l.sessionId === 'ses_2');
+    expect(slowLimit?.reason).toBe('measured_draw');
+    expect(slowLimit?.limitKw ?? 99).toBeLessThanOrEqual(5.01);
+    expect((fastLimit?.limitKw ?? 0) + (slowLimit?.limitKw ?? 0)).toBeGreaterThan(20);
+  });
+});
+
+describe('second load management review (v0.1.53)', () => {
+  const rateOf = { rateUnit: 'A' as const, voltageV: 230, phases: 3, profileId: 1 };
+  // 32 A three-phase 230 V at 80 percent: 17.664 kW. A start allowance is
+  // 6 A on three phases, 4.14 kW.
+  const CIRCUIT_KW = (32 * 230 * 3 * 0.8) / 1000;
+  const ALLOWANCE_KW = (6 * 230 * 3) / 1000;
+  function site(stations: StationPowerInfo[]): HierarchyNode[] {
+    const base = {
+      safetyMarginKw: 0,
+      unmanagedLoadKw: 0,
+      currentDrawKw: 0,
+      phases: 3,
+      voltageV: 230,
+      oversubscriptionRatio: 1,
+      phaseLoad: null,
+    };
+    const circuit: HierarchyNode = {
+      ...base,
+      type: 'circuit',
+      id: 'c1',
+      name: 'Feeder',
+      maxContinuousKw: CIRCUIT_KW,
+      breakerRatingAmps: 32,
+      phaseConnections: null,
+      perPhaseCapacityKw: null,
+      stations,
+      children: [],
+    };
+    return [
+      {
+        ...base,
+        type: 'panel',
+        id: 'p1',
+        name: 'Main',
+        maxContinuousKw: 500,
+        breakerRatingAmps: 800,
+        phaseConnections: null,
+        perPhaseCapacityKw: null,
+        stations: [],
+        children: [circuit],
+      },
+    ];
+  }
+  const idleStation = (n: number): StationPowerInfo =>
+    makeStation({
+      id: `idle${String(n)}`,
+      stationId: `CS-IDLE-${String(n)}`,
+      hasActiveSession: false,
+      maxPowerKw: 22,
+      loadPriority: n,
+      rateUnit: 'A',
+      circuitPhases: 3,
+      circuitVoltageV: 230,
+    });
+
+  it('fits the start allowances after the active session on its circuit (review H1)', () => {
+    const idle = Array.from({ length: 8 }, (_, i) => idleStation(i + 1));
+    const active = makeStation({
+      id: 'busy',
+      stationId: 'CS-BUSY',
+      maxPowerKw: 22,
+      loadPriority: 1,
+      rateUnit: 'A',
+      circuitPhases: 3,
+      circuitVoltageV: 230,
+    });
+    const managed = [...idle, active];
+    const hierarchy = site(managed);
+    const rates = new Map(managed.map((s) => [s.id, rateOf]));
+    const reserved = new Map<string, number>();
+    const allowances = startAllowances(hierarchy, 'equal_share', managed, reserved, rates);
+    const fixed = new Map(reserved);
+    for (const a of allowances) fixed.set(a.stationDbId, a.allocatedKw);
+    const sessions = computeHierarchicalAllocation(hierarchy, 'equal_share', fixed);
+    const busy = sessions.find((a) => a.stationDbId === 'busy')?.allocatedKw ?? 0;
+    const total = [...allowances, ...sessions].reduce((sum, a) => sum + a.allocatedKw, 0);
+    expect(total).toBeLessThanOrEqual(CIRCUIT_KW + 1e-6);
+    // The active session keeps at least what an allowance holds.
+    expect(busy).toBeGreaterThanOrEqual(ALLOWANCE_KW - 1e-6);
+    // Whole allowances only, the highest priority idle stations first.
+    const given = allowances.filter((a) => a.allocatedKw > 0);
+    expect(given.map((a) => a.stationDbId).sort()).toEqual(['idle6', 'idle7', 'idle8']);
+    for (const a of given) expect(a.allocatedKw).toBeCloseTo(ALLOWANCE_KW, 6);
+    expect(allowances.every((a) => a.limitedBy === 'idle_allowance')).toBe(true);
+  });
+
+  it('gives every idle station its allowance when the circuit holds them', () => {
+    const idle = [idleStation(1), idleStation(2)];
+    const fitted = fitIdleAllowances(
+      site(idle),
+      'equal_share',
+      idle,
+      new Map(),
+      idleAllowances(idle, new Map(), new Map(idle.map((s) => [s.id, rateOf]))),
+      new Map(idle.map((s) => [s.id, rateOf])),
+    );
+    expect(fitted.map((a) => a.allocatedKw)).toEqual([ALLOWANCE_KW, ALLOWANCE_KW]);
+  });
+
+  it('fits each idle allowance inside the smallest unit box of its station (third review 3)', () => {
+    // A 7.4 kW minimum on a station whose smallest box is a 10 A single-phase fuse.
+    const boxes = [
+      { unitId: 'u1', kind: 'ac' as const, maxCurrentA: 32, phases: 3, maxPowerKw: null },
+      { unitId: 'u2', kind: 'ac' as const, maxCurrentA: 10, phases: 1, maxPowerKw: null },
+    ];
+    const withBoxes = (n: number, rateUnit: 'A' | 'W'): StationPowerInfo => ({
+      ...idleStation(n),
+      minPowerKw: 7.4,
+      rateUnit,
+      usesUnits: true,
+      unitBudgets: boxes,
+    });
+    const amps = withBoxes(1, 'A');
+    const watts = withBoxes(2, 'W');
+    const idle = [amps, watts];
+    const rates = new Map<string, StationRate>([
+      [amps.id, rateOf],
+      [watts.id, { ...rateOf, rateUnit: 'W' }],
+    ]);
+    const fitted = fitIdleAllowances(
+      site(idle),
+      'equal_share',
+      idle,
+      new Map(),
+      idleAllowances(idle, new Map(), rates),
+      rates,
+    );
+    // A limit: 8 A on every phase holds the single-phase box to 8 A, so in the
+    // station's terms (three phases) it is 8 x 230 V x 3 = 5.52 kW (review M3).
+    expect(fitted[0]?.allocatedKw).toBeCloseTo((10 * 0.8 * 230 * 3) / 1000, 6);
+    // W limit: the worst case puts all of it on the box's one phase, 1.84 kW too.
+    expect(fitted[1]?.allocatedKw).toBeCloseTo((10 * 0.8 * 230) / 1000, 6);
+    // A three-phase box under an A limit counts its three phases.
+    expect(smallestUnitBudgetKw({ ...amps, unitBudgets: [boxes[0]!] }, rateOf)).toBeCloseTo(
+      (32 * 0.8 * 230 * 3) / 1000,
+      6,
+    );
+    // Under a W limit the same box holds only one phase's worth.
+    expect(
+      smallestUnitBudgetKw({ ...watts, unitBudgets: [boxes[0]!] }, { ...rateOf, rateUnit: 'W' }),
+    ).toBeCloseTo((32 * 0.8 * 230) / 1000, 6);
+    // A DC box counts its kW at 80 percent; no box, no cap.
+    expect(
+      smallestUnitBudgetKw(
+        {
+          ...amps,
+          unitBudgets: [
+            { unitId: 'd', kind: 'dc', maxCurrentA: null, phases: null, maxPowerKw: 5 },
+          ],
+        },
+        rateOf,
+      ),
+    ).toBeCloseTo(4, 6);
+    expect(smallestUnitBudgetKw(idleStation(3), rateOf)).toBeNull();
+  });
+
+  it('reads the highest latest phase current of each EVSE for the measured-draw cap (review H3)', () => {
+    const rows = [
+      // Newest first.
+      { evseDbId: 'evs_1', value: '15.5', phase: 'L1' },
+      { evseDbId: 'evs_1', value: '7', phase: 'L2' },
+      { evseDbId: 'evs_1', value: '31', phase: 'L1' },
+      { evseDbId: 'evs_2', value: 'x', phase: 'L1' },
+      { evseDbId: null, value: '40', phase: 'L1' },
+    ];
+    expect([...latestEvsePhaseCurrentA(rows)]).toEqual([['evs_1', 15.5]]);
+  });
+
+  it('reads the line phases first, else the phase-less reading, never the neutral (third review 8)', () => {
+    const rows = [
+      // Newest first. evs_1 reports per phase: the neutral and a phase-less total do not count.
+      { evseDbId: 'evs_1', value: '40', phase: 'N' },
+      { evseDbId: 'evs_1', value: '45', phase: null },
+      { evseDbId: 'evs_1', value: '12', phase: 'L1-N' },
+      { evseDbId: 'evs_1', value: '16', phase: 'L2' },
+      // evs_2 reports no phase: its newest phase-less reading.
+      { evseDbId: 'evs_2', value: '20', phase: null },
+      { evseDbId: 'evs_2', value: '30', phase: null },
+      // evs_3 reports only the neutral and a line to line value: nothing counts.
+      { evseDbId: 'evs_3', value: '25', phase: 'N' },
+      { evseDbId: 'evs_3', value: '25', phase: 'L1-L2' },
+    ];
+    expect(new Map(latestEvsePhaseCurrentA(rows))).toEqual(
+      new Map([
+        ['evs_1', 16],
+        ['evs_2', 20],
+      ]),
+    );
+  });
+});
+
+describe('raises wait for the stations to confirm the cuts', () => {
+  const allocations: AllocationResult[] = [
+    { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20, currentDrawKw: 0 },
+    { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 5, currentDrawKw: 0 },
+  ];
+  const previousKw = new Map([
+    ['sta_1', 10],
+    ['sta_2', 20],
+  ]);
+  const sentTo = (): string[] =>
+    pubsubState.publish.mock.calls
+      .filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => (JSON.parse(c[1]) as { stationId: string }).stationId);
+
+  it('publishes a raise only after the station accepted the cut', async () => {
+    const cut: { answer: (() => void) | null } = { answer: null };
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-002' ? null : { response: { status: 'Accepted' } };
+    pubsubState.publish.mockImplementation(async (channel: string, message: string) => {
+      pubsubState.answer(channel, message);
+      const command = JSON.parse(message) as { stationId: string; commandId?: string };
+      if (channel === 'ocpp_commands' && command.stationId === 'CS-002') {
+        cut.answer = () => {
+          const raw = JSON.stringify({
+            commandId: command.commandId,
+            response: { status: 'Accepted' },
+          });
+          for (const handler of pubsubState.handlers.get('ocpp_command_results') ?? []) {
+            handler(raw);
+          }
+        };
+      }
+    });
+
+    const send = dispatchAllocations(
+      'site-1',
+      allocations,
+      makeLogger(),
+      new Date(),
+      new Map(),
+      previousKw,
+    );
+    await vi.waitFor(() => expect(cut.answer).not.toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sentTo()).toEqual(['CS-002']);
+    cut.answer?.();
+    await expect(send).resolves.toBe(true);
+    expect(sentTo()).toEqual(['CS-002', 'CS-001']);
+  });
+
+  it('holds the raises back when the station refuses the cut', async () => {
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-002'
+        ? { response: { status: 'Rejected' } }
+        : { response: { status: 'Accepted' } };
+    const log = makeLogger();
+
+    await expect(
+      dispatchAllocations('site-1', allocations, log, new Date(), new Map(), previousKw),
+    ).resolves.toBe(false);
+    expect(sentTo()).toEqual(['CS-002']);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ raiseCount: 1 }),
+      'Load management limit raises held back after a failed cut',
+    );
+  });
+
+  it('holds the raises back when the cut is not answered in time', async () => {
+    vi.useFakeTimers();
+    try {
+      pubsubState.reply = (command) =>
+        command.stationId === 'CS-002' ? null : { response: { status: 'Accepted' } };
+      const log = makeLogger();
+      const send = dispatchAllocations(
+        'site-1',
+        allocations,
+        log,
+        new Date(),
+        new Map(),
+        previousKw,
+      );
+      await vi.advanceTimersByTimeAsync(LOAD_MANAGEMENT_CUT_CONFIRM_MS + 1);
+      await expect(send).resolves.toBe(false);
+      expect(sentTo()).toEqual(['CS-002']);
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ stationId: 'CS-002' }),
+        'Load management limit cut not answered in time, raises held back',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends a first limit with the cuts: a station with no known limit is unlimited (review item 6)', async () => {
+    const first: AllocationResult = {
+      stationId: 'CS-003',
+      stationDbId: 'sta_3',
+      allocatedKw: 4.14,
+      currentDrawKw: 0,
+      limitedBy: 'idle_allowance',
+    };
+    const { cuts, raises } = splitCutsAndRaises(
+      [allocations[1] as AllocationResult, first],
+      previousKw,
+    );
+    expect(cuts.map((a) => a.stationDbId)).toEqual(['sta_2', 'sta_3']);
+    expect(raises).toEqual([]);
+    // Every cut goes out at once (nothing waits on them when no raise follows).
+    pubsubState.reply = () => null;
+    await expect(
+      dispatchAllocations(
+        'site-1',
+        [allocations[1] as AllocationResult, first],
+        makeLogger(),
+        new Date(),
+        new Map(),
+        previousKw,
+      ),
+    ).resolves.toBe(true);
+    expect(sentTo().sort()).toEqual(['CS-002', 'CS-003']);
+  });
+
+  it('keeps the first limit of a station with a session with the cuts', () => {
+    const { cuts } = splitCutsAndRaises(
+      [{ stationId: 'CS-004', stationDbId: 'sta_4', allocatedKw: 11, currentDrawKw: 0 }],
+      new Map(),
+    );
+    expect(cuts.map((a) => a.stationDbId)).toEqual(['sta_4']);
+  });
+
+  it('waits for no answer to a limit that lowers nothing', async () => {
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-002' ? null : { response: { status: 'Accepted' } };
+    await expect(
+      dispatchAllocations(
+        'site-1',
+        [
+          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20, currentDrawKw: 0 },
+          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20, currentDrawKw: 0 },
+        ],
+        makeLogger(),
+        new Date(),
+        new Map(),
+        previousKw,
+      ),
+    ).resolves.toBe(true);
+    expect(sentTo()).toEqual(['CS-002', 'CS-001']);
+  });
+
+  it('waits for no answer when no raise follows the cuts', async () => {
+    pubsubState.reply = () => null;
+    await expect(
+      dispatchAllocations(
+        'site-1',
+        [{ stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 5, currentDrawKw: 0 }],
+        makeLogger(),
+        new Date(),
+        new Map(),
+        previousKw,
+      ),
+    ).resolves.toBe(true);
+    expect(sentTo()).toEqual(['CS-002']);
+  });
+});
+
+describe('reservedStationLimitsKw', () => {
+  function node(overrides: Partial<HierarchyNode>): HierarchyNode {
+    return {
+      type: 'circuit',
+      id: 'c1',
+      name: 'Circuit 1',
+      maxContinuousKw: 17.664,
+      safetyMarginKw: 0,
+      unmanagedLoadKw: 0,
+      currentDrawKw: 0,
+      stations: [],
+      children: [],
+      phases: 1,
+      breakerRatingAmps: 32,
+      voltageV: 230,
+      oversubscriptionRatio: 1.0,
+      phaseConnections: null,
+      phaseLoad: null,
+      perPhaseCapacityKw: null,
+      ...overrides,
+    };
+  }
+  const idle = (id: string): StationPowerInfo =>
+    makeStation({ id, stationId: id.toUpperCase(), maxPowerKw: 22, hasActiveSession: false });
+
+  it('cuts a reservation above its circuit to what the circuit holds', () => {
+    const tree = [
+      node({
+        type: 'panel',
+        id: 'p1',
+        maxContinuousKw: 100,
+        children: [node({ stations: [idle('s1')] })],
+      }),
+    ];
+    const kw = reservedStationLimitsKw(tree, 'equal_share', new Map([['s1', 22]]), [], ['s1']).get(
+      's1',
+    );
+    expect(kw).toBeCloseTo(17.664, 3);
+  });
+
+  it('leaves room for what the other stations get this cycle', () => {
+    const tree = [
+      node({
+        type: 'panel',
+        id: 'p1',
+        maxContinuousKw: 100,
+        children: [node({ stations: [idle('s1'), idle('s2')] })],
+      }),
+    ];
+    const kw = reservedStationLimitsKw(
+      tree,
+      'equal_share',
+      new Map([['s1', 22]]),
+      [{ stationId: 'S2', stationDbId: 's2', allocatedKw: 4.14, currentDrawKw: 0 }],
+      ['s1'],
+    ).get('s1');
+    expect(kw).toBeCloseTo(17.664 - 4.14, 3);
+  });
+
+  it('holds a panel limit above the circuit', () => {
+    const tree = [
+      node({
+        type: 'panel',
+        id: 'p1',
+        maxContinuousKw: 10,
+        children: [node({ stations: [idle('s1')] })],
+      }),
+    ];
+    const kw = reservedStationLimitsKw(tree, 'equal_share', new Map([['s1', 22]]), [], ['s1']).get(
+      's1',
+    );
+    expect(kw).toBeCloseTo(10, 3);
+  });
+
+  it('sends the reservation itself when it fits', () => {
+    const tree = [
+      node({
+        type: 'panel',
+        id: 'p1',
+        maxContinuousKw: 100,
+        children: [node({ stations: [idle('s1')] })],
+      }),
+    ];
+    expect(
+      reservedStationLimitsKw(tree, 'equal_share', new Map([['s1', 7.4]]), [], ['s1']).get('s1'),
+    ).toBe(7.4);
+  });
+
+  it('fits each reserved station against the others at their reservations (property test counterexample 1)', () => {
+    // Two stations of a 22 kW circuit, both reserved at 22 kW (rebooted, or one
+    // refused and one unanswered). Fitted together they were sent 11 kW each;
+    // a station that keeps its old 22 kW limit (it did not apply its retry)
+    // next to one that applies its raise put 33 kW on the circuit. Each retry
+    // now rests on the other station's reservation, never its unconfirmed cut.
+    const charging = (id: string): StationPowerInfo =>
+      makeStation({ id, stationId: id.toUpperCase(), maxPowerKw: 22, hasActiveSession: true });
+    const tree = [
+      node({
+        type: 'panel',
+        id: 'p1',
+        maxContinuousKw: 100,
+        children: [node({ maxContinuousKw: 22, stations: [charging('s1'), charging('s2')] })],
+      }),
+    ];
+    const both = reservedStationLimitsKw(
+      tree,
+      'equal_share',
+      new Map([
+        ['s1', 22],
+        ['s2', 22],
+      ]),
+      [],
+      ['s1', 's2'],
+    );
+    expect(both.get('s1')).toBe(0);
+    expect(both.get('s2')).toBe(0);
+    // A reservation below the circuit leaves the rest to the other.
+    const room = reservedStationLimitsKw(
+      tree,
+      'equal_share',
+      new Map([
+        ['s1', 6],
+        ['s2', 22],
+      ]),
+      [],
+      ['s1', 's2'],
+    );
+    expect(room.get('s2')).toBeCloseTo(16, 6);
+    expect(room.get('s1')).toBe(0);
+    // Whatever each one keeps or applies, the two never pass the circuit.
+    for (const [a, b] of [
+      [6, room.get('s2') ?? 0],
+      [room.get('s1') ?? 0, 22],
+    ]) {
+      expect((a ?? 0) + (b ?? 0)).toBeLessThanOrEqual(22 + 1e-6);
+    }
+  });
+
+  it('sends nothing for a station that is not on the tree', () => {
+    expect(
+      reservedStationLimitsKw([], 'equal_share', new Map([['s1', 22]]), [], ['s1']).get('s1'),
+    ).toBe(0);
+  });
+});
+
+describe('send ordering on the enforced limit (review items 1, 2, 4, 7, 8)', () => {
+  const sentTo = (): string[] =>
+    pubsubState.publish.mock.calls
+      .filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => (JSON.parse(c[1]) as { stationId: string }).stationId);
+  const cutAndRaise: AllocationResult[] = [
+    { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20, currentDrawKw: 0 },
+    { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 5, currentDrawKw: 0 },
+  ];
+  const previous = new Map([
+    ['sta_1', 10],
+    ['sta_2', 20],
+  ]);
+
+  it('holds the raise when the site lock is lost while the cut is pending (item 4)', async () => {
+    const cut: { answer: (() => void) | null } = { answer: null };
+    pubsubState.reply = () => null;
+    pubsubState.publish.mockImplementation(async (channel: string, message: string) => {
+      const command = JSON.parse(message) as { stationId: string; commandId?: string };
+      if (channel === 'ocpp_commands' && command.stationId === 'CS-002') {
+        cut.answer = () => {
+          const raw = JSON.stringify({
+            commandId: command.commandId,
+            response: { status: 'Accepted' },
+          });
+          for (const handler of pubsubState.handlers.get('ocpp_command_results') ?? [])
+            handler(raw);
+        };
+      }
+    });
+    const log = makeLogger();
+    const send = dispatchAllocationSend(
+      'site-1',
+      prepareAllocationSend(cutAndRaise, new Date(), new Map(), previous),
+      log,
+    );
+    await vi.waitFor(() => expect(cut.answer).not.toBeNull());
+    // Another worker took the site (cycle_fence bumped) while the cut was pending.
+    dbState.fence.holds = false;
+    cut.answer?.();
+    const outcome = await send;
+    expect(sentTo()).toEqual(['CS-002']);
+    expect(outcome.sent).toBe(false);
+    expect(outcome.heldCommandIds.map((h) => h.stationDbId)).toEqual(['sta_1']);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 'site-1' }),
+      'Load management raises held back, the site lock was lost',
+    );
+  });
+
+  it('awaits no cut of a station counted at its reservation (item 7)', async () => {
+    // The station refuses every limit and never answers: the raise still goes out.
+    pubsubState.reply = (command) =>
+      command.stationId === 'CS-002' ? null : { response: { status: 'Accepted' } };
+    const outcome = await dispatchAllocationSend(
+      'site-1',
+      prepareAllocationSend(cutAndRaise, new Date(), new Map(), previous, {
+        reserved: new Set(['sta_2']),
+      }),
+      makeLogger(),
+    );
+    expect(outcome).toMatchObject({ sent: true, failures: [], heldCommandIds: [] });
+    expect(sentTo()).toEqual(['CS-002', 'CS-001']);
+  });
+
+  it('sends the cut unconfirmed when replies cannot be received, and holds the raise (item 8)', async () => {
+    pubsubState.subscribeFails = true;
+    const log = makeLogger();
+    const outcome = await dispatchAllocationSend(
+      'site-1',
+      prepareAllocationSend(cutAndRaise, new Date(), new Map(), previous),
+      log,
+    );
+    expect(sentTo()).toEqual(['CS-002']);
+    expect(outcome.sent).toBe(false);
+    expect(outcome.failures).toEqual([
+      expect.objectContaining({ stationDbId: 'sta_2', target: 'station', kind: 'timeout' }),
+    ]);
+    expect(outcome.heldCommandIds.map((h) => h.stationDbId)).toEqual(['sta_1']);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationId: 'CS-002' }),
+      'Load management limit cut replies cannot be received, the cut is sent unconfirmed',
+    );
+  });
+});
+
+describe('clears that can remove the load management limit (review 8)', () => {
+  const none: {
+    chargingProfilePurpose: string | null;
+    stackLevel: number | null;
+    evseId: number | null;
+  } = { chargingProfilePurpose: null, stackLevel: null, evseId: null };
+
+  it('matches the station limit and credit ids only, never an EVSE limit TxProfile id', () => {
+    const profileId = LOAD_MANAGEMENT_PROFILE_ID + 50;
+    const byId = (id: number) =>
+      clearRemovesLoadManagementProfile({ ...none, chargingProfileId: id }, profileId);
+    expect(byId(profileId)).toBe(true);
+    expect(byId(profileId + 1)).toBe(true);
+    expect(byId(LOAD_MANAGEMENT_PROFILE_ID)).toBe(false);
+    expect(byId(chargingNeedsProfileId('CS-001', 'tx-1'))).toBe(false);
+  });
+
+  it('matches criteria a station max profile at stack level 1 or 2 on EVSE 0 meets', () => {
+    const rule = (c: Partial<typeof none>) =>
+      clearRemovesLoadManagementProfile(
+        { ...none, chargingProfileId: null, ...c },
+        LOAD_MANAGEMENT_PROFILE_ID,
+      );
+    expect(rule({})).toBe(true);
+    expect(rule({ chargingProfilePurpose: 'ChargePointMaxProfile', stackLevel: 2 })).toBe(true);
+    expect(rule({ chargingProfilePurpose: 'TxProfile' })).toBe(false);
+    expect(rule({ stackLevel: 0 })).toBe(false);
+    expect(rule({ evseId: 1 })).toBe(false);
   });
 });

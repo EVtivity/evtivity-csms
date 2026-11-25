@@ -133,6 +133,22 @@ export interface VehicleFields {
   preconditioningPowerKw?: number | null | undefined;
   /** Length of a preconditioning window that names no start, in minutes (5 to 240). */
   preconditioningMinutes?: number | undefined;
+  /** AC phases the onboard charger uses (1 or 3); null means not known. */
+  acPhases?: VehicleAcPhases | null | undefined;
+}
+
+export const VEHICLE_AC_PHASES = [1, 3] as const;
+export type VehicleAcPhases = (typeof VEHICLE_AC_PHASES)[number];
+
+/** The AC phases value: undefined leaves it, null clears it, 1 or 3 is stored. */
+export function acPhasesValue(
+  value: number | null | undefined,
+): VehicleAcPhases | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (value !== 1 && value !== 3) {
+    throw new ValidationError('acPhases is 1 or 3', { field: 'acPhases' });
+  }
+  return value;
 }
 
 export const VEHICLE_BATTERY_CAPACITY_KWH = { min: 1, max: 2000 } as const;
@@ -181,6 +197,7 @@ function normalizeFields(fields: VehicleFields): VehicleFields {
     'preconditioningPowerKw',
   );
   preconditioningMinutesValue(fields.preconditioningMinutes);
+  acPhasesValue(fields.acPhases);
   if (fields.vin != null) {
     const trimmed = fields.vin.trim();
     if (trimmed === '') {
@@ -391,6 +408,7 @@ export async function createVehicle(
         ...(values.preconditioningMinutes !== undefined
           ? { preconditioningMinutes: values.preconditioningMinutes }
           : {}),
+        acPhases: acPhasesValue(values.acPhases) ?? null,
       })
       .returning();
   } catch (err) {
@@ -462,6 +480,8 @@ export async function updateVehicle(
       if (values.preconditioningMinutes !== undefined) {
         set.preconditioningMinutes = values.preconditioningMinutes;
       }
+      const acPhases = acPhasesValue(values.acPhases);
+      if (acPhases !== undefined) set.acPhases = acPhases;
       const vin = set.vin !== undefined ? set.vin : before.vin;
       const evccid = set.evccid !== undefined ? set.evccid : before.evccid;
       const enabled = set.autochargeEnabled ?? before.autochargeEnabled;

@@ -3,11 +3,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { FakeDb } from './helpers/fake-db.js';
-import type {
-  EvseSessionInfo,
-  HierarchyNode,
-  StationPowerInfo,
-} from '../load-management.service.js';
+import type { EvseSessionInfo, HierarchyNode, StationPowerInfo } from '../load-management-model.js';
 
 vi.mock('@evtivity/database', async () => {
   const { createFakeDb, fakeDatabaseModule } = await import('./helpers/fake-db.js');
@@ -15,7 +11,13 @@ vi.mock('@evtivity/database', async () => {
   return fakeDatabaseModule(fake, { isOperatorStation: () => 'OPERATOR_STATION' });
 });
 
-const svc = await import('../load-management.service.js');
+const {
+  computeEqualShareAllocation,
+  computePriorityAllocation,
+  demandLimitReason,
+  computeHierarchicalAllocation,
+  reduceAllocations,
+} = await import('../load-management-allocation.js');
 
 function station(overrides: Partial<StationPowerInfo> & { id: string }): StationPowerInfo {
   return {
@@ -102,7 +104,7 @@ function reasons(results: { stationDbId: string; limitedBy?: string }[]): Record
 
 describe('what set each station limit', () => {
   it('a circuit share is circuit_limit, a station that got its maximum station_max', () => {
-    const result = svc.computeEqualShareAllocation(
+    const result = computeEqualShareAllocation(
       [station({ id: 'a', maxPowerKw: 10 }), station({ id: 'b', maxPowerKw: 100 })],
       40,
     );
@@ -115,7 +117,7 @@ describe('what set each station limit', () => {
       maxPowerKw: 22,
       sessions: [session({ tariffMaxCurrentA: 10 })],
     });
-    const result = svc.computePriorityAllocation([capped, station({ id: 'b' })], 100);
+    const result = computePriorityAllocation([capped, station({ id: 'b' })], 100);
     expect(reasons(result)).toEqual({ a: 'tariff_limit', b: 'station_max' });
   });
 
@@ -129,14 +131,14 @@ describe('what set each station limit', () => {
       ],
       unitBudgets: [{ unitId: 'unt_1', kind: 'ac', maxCurrentA: 16, phases: 3, maxPowerKw: null }],
     });
-    expect(svc.demandLimitReason(budgeted)).toBe('unit_budget');
-    expect(reasons(svc.computeEqualShareAllocation([budgeted], 100))).toEqual({
+    expect(demandLimitReason(budgeted)).toBe('unit_budget');
+    expect(reasons(computeEqualShareAllocation([budgeted], 100))).toEqual({
       a: 'unit_budget',
     });
   });
 
   it('a station stopped because the minimums do not fit is min_power_stop', () => {
-    const result = svc.computeEqualShareAllocation(
+    const result = computeEqualShareAllocation(
       [
         station({ id: 'a', minPowerKw: 8, loadPriority: 9 }),
         station({ id: 'b', minPowerKw: 8, loadPriority: 1 }),
@@ -147,13 +149,17 @@ describe('what set each station limit', () => {
   });
 
   it('a cut by a panel is panel_limit and by a transformer transformer_limit', () => {
-    const stations = [station({ id: 'a', maxPowerKw: 30 }), station({ id: 'b', maxPowerKw: 30 })];
-    const panel = svc.computeHierarchicalAllocation(
+    // Limits in A hold each phase, so the three-phase circuit counts a third per phase.
+    const stations = [
+      station({ id: 'a', maxPowerKw: 30, rateUnit: 'A' }),
+      station({ id: 'b', maxPowerKw: 30, rateUnit: 'A' }),
+    ];
+    const panel = computeHierarchicalAllocation(
       [parent('panel', 40, [circuit(stations, 100)])],
       'equal_share',
     );
     expect(reasons(panel)).toEqual({ a: 'panel_limit', b: 'panel_limit' });
-    const transformer = svc.computeHierarchicalAllocation(
+    const transformer = computeHierarchicalAllocation(
       [parent('transformer', 40, [parent('panel', 200, [circuit(stations, 100)])])],
       'equal_share',
     );
@@ -162,7 +168,7 @@ describe('what set each station limit', () => {
 
   it('a panel that does not cut keeps the circuit reason', () => {
     const stations = [station({ id: 'a', maxPowerKw: 30 })];
-    const result = svc.computeHierarchicalAllocation(
+    const result = computeHierarchicalAllocation(
       [parent('panel', 200, [circuit(stations, 100)])],
       'equal_share',
     );
@@ -171,7 +177,7 @@ describe('what set each station limit', () => {
 
   it('a planned station is depot_plan', () => {
     const stations = [station({ id: 'a' }), station({ id: 'b', maxPowerKw: 5 })];
-    const result = svc.computeHierarchicalAllocation(
+    const result = computeHierarchicalAllocation(
       [parent('panel', 200, [circuit(stations, 100)])],
       'departure_aware',
       new Map(),
@@ -193,7 +199,7 @@ describe('what set each station limit', () => {
         alloc: { stationId: 'B', stationDbId: 'b', allocatedKw: 20, currentDrawKw: 0 },
       },
     ];
-    svc.reduceAllocations(entries, 15, 'panel_limit');
+    reduceAllocations(entries, 15, 'panel_limit');
     expect(reasons(entries.map((e) => e.alloc))).toEqual({
       a: 'panel_limit',
       b: 'min_power_stop',

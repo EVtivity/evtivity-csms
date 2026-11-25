@@ -128,6 +128,35 @@ ALTER TABLE "charging_stations" ADD CONSTRAINT "charging_stations_load_balancing
 -- Set when the station refused a per-EVSE limit: load management falls back to
 -- one station limit until it is cleared.
 ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "evse_limits_refused_at" timestamptz;
+--> statement-breakpoint
+-- Per-EVSE limits refused in a row for live transactions; three put the station
+-- on one station limit (evse_limits_refused_at).
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "evse_limit_refusals" smallint NOT NULL DEFAULT 0;
+--> statement-breakpoint
+-- When the last per-EVSE limit refusal was counted: a count older than 24 hours
+-- starts again at the next refusal.
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "evse_limit_refusal_at" timestamptz;
+--> statement-breakpoint
+-- How the stations of a circuit are wired to the panel phases, set by the
+-- operator over what the stations report (PhaseRotation, ConnectorPhaseRotation).
+-- Null: the reported rotation, else not known.
+ALTER TABLE "circuits" ADD COLUMN IF NOT EXISTS "phase_rotation" varchar(3);
+--> statement-breakpoint
+ALTER TABLE "circuits" DROP CONSTRAINT IF EXISTS "circuits_phase_rotation_check";
+--> statement-breakpoint
+ALTER TABLE "circuits" ADD CONSTRAINT "circuits_phase_rotation_check"
+  CHECK ("phase_rotation" IS NULL OR "phase_rotation" IN ('RST', 'RTS', 'SRT', 'STR', 'TRS', 'TSR'));
+--> statement-breakpoint
+-- When an event last asked for the site's allocation to be computed again; a
+-- cycle that started before it runs once more.
+ALTER TABLE "site_load_management" ADD COLUMN IF NOT EXISTS "recompute_requested_at" timestamptz;
+--> statement-breakpoint
+-- Raised by each holder of the site lock; a claim of an older holder writes and sends nothing.
+ALTER TABLE "site_load_management" ADD COLUMN IF NOT EXISTS "cycle_fence" bigint DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+-- New batteries and solar arrays keep a reading fresh for 120 s: a credit needs
+-- more than the 60 s clock margin plus one 10 s cycle. Existing assets keep theirs.
+ALTER TABLE "site_energy_assets" ALTER COLUMN "reading_ttl_seconds" SET DEFAULT 120;
 -- end of load management block A
 --> statement-breakpoint
 -- v0.1.53 load management, block B: Station Unit budgets.
@@ -229,7 +258,7 @@ ALTER TABLE "load_allocation_entries" DROP CONSTRAINT IF EXISTS "load_allocation
 ALTER TABLE "load_allocation_entries" ADD CONSTRAINT "load_allocation_entries_reason_check"
   CHECK ("reason" IN ('tariff_limit', 'unit_budget', 'station_share', 'circuit_limit',
     'panel_limit', 'transformer_limit', 'ac_min_pause', 'min_power_stop', 'depot_plan',
-    'station_max', 'connector_max', 'reserved'));
+    'station_max', 'connector_max', 'reserved', 'idle_allowance', 'measured_draw'));
 --> statement-breakpoint
 ALTER TABLE "load_allocation_entries" DROP CONSTRAINT IF EXISTS "load_allocation_entries_reply_check";
 --> statement-breakpoint
@@ -247,3 +276,90 @@ CREATE INDEX IF NOT EXISTS "idx_load_alloc_entries_command" ON "load_allocation_
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_load_alloc_entries_log" ON "load_allocation_entries" ("log_id");
 -- end of load management block C
+--> statement-breakpoint
+-- v0.1.53 vehicle AC phases: the AC phases the vehicle's onboard charger uses
+-- (1 or 3). Null on every existing row: not known.
+ALTER TABLE "vehicles" ADD COLUMN IF NOT EXISTS "ac_phases" smallint;
+--> statement-breakpoint
+ALTER TABLE "vehicles" DROP CONSTRAINT IF EXISTS "vehicles_ac_phases_check";
+--> statement-breakpoint
+ALTER TABLE "vehicles" ADD CONSTRAINT "vehicles_ac_phases_check"
+  CHECK ("ac_phases" IS NULL OR "ac_phases" IN (1, 3));
+-- end of vehicle AC phases block
+--> statement-breakpoint
+-- v0.1.53 load management, block D: the limit state records. Every stored
+-- station entry without a `limit` record (written by an earlier build) gets
+-- the safest state its old fields allow: refused while its limit was pending,
+-- unknown while unconfirmed at no known kW, else lost at the highest kW it
+-- stored (it may hold any of them); EVSE entries are lost at their limit; a
+-- credit profile is kept with its end. The old fields go, and the site sends
+-- on its next cycle. Entries that hold a record are left alone, so a rerun
+-- changes nothing.
+CREATE OR REPLACE FUNCTION pg_temp.evtivity_0492_limit_entry(e jsonb) RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  kw numeric;
+  rec jsonb;
+  out jsonb;
+  evses jsonb;
+BEGIN
+  IF jsonb_typeof(e) IS DISTINCT FROM 'object' OR e ? 'limit' THEN
+    RETURN e;
+  END IF;
+  kw := GREATEST(
+    CASE WHEN jsonb_typeof(e -> 'allocatedKw') = 'number' THEN (e ->> 'allocatedKw')::numeric END,
+    CASE WHEN jsonb_typeof(e -> 'sentKw') = 'number' THEN (e ->> 'sentKw')::numeric END,
+    CASE WHEN jsonb_typeof(e -> 'confirmedKw') = 'number' THEN (e ->> 'confirmedKw')::numeric END,
+    CASE WHEN jsonb_typeof(e -> 'previousKw') = 'number' THEN (e ->> 'previousKw')::numeric END,
+    CASE WHEN jsonb_typeof(e -> 'unconfirmedKw') = 'number' THEN (e ->> 'unconfirmedKw')::numeric END
+  );
+  IF e -> 'limitPending' = 'true'::jsonb THEN
+    rec := jsonb_build_object('state', 'refused', 'mightKw', NULL);
+  ELSIF e -> 'unconfirmed' = 'true'::jsonb
+    AND jsonb_typeof(e -> 'unconfirmedKw') IS DISTINCT FROM 'number' THEN
+    rec := jsonb_build_object('state', 'unknown', 'mightKw', NULL);
+  ELSIF kw IS NULL THEN
+    rec := jsonb_build_object('state', 'unknown', 'mightKw', NULL);
+  ELSE
+    rec := jsonb_build_object('state', 'lost', 'mightKw', kw);
+  END IF;
+  out := (e - 'sentKw' - 'sentLimit' - 'sentUnit' - 'sentCommandId' - 'awaitingReply'
+    - 'confirmedKw' - 'previousKw' - 'unconfirmed' - 'unconfirmedKw' - 'limitPending'
+    - 'baseKw' - 'creditUntil') || jsonb_build_object('limit', rec);
+  IF jsonb_typeof(e -> 'baseKw') = 'number' THEN
+    out := out || jsonb_build_object('allocatedBaseKw', e -> 'baseKw');
+  END IF;
+  IF jsonb_typeof(e -> 'creditUntil') = 'string' AND jsonb_typeof(e -> 'allocatedKw') = 'number' THEN
+    out := out || jsonb_build_object(
+      'credit', jsonb_build_object(
+        'limit', jsonb_build_object('state', 'lost', 'mightKw', e -> 'allocatedKw'),
+        'until', e -> 'creditUntil'));
+  END IF;
+  IF jsonb_typeof(e -> 'evses') = 'array' THEN
+    SELECT COALESCE(jsonb_agg(
+      CASE WHEN jsonb_typeof(v.x) = 'object' AND NOT (v.x ? 'limit')
+        AND jsonb_typeof(v.x -> 'limitKw') = 'number'
+        THEN v.x || jsonb_build_object('limit',
+          jsonb_build_object('state', 'lost', 'mightKw', v.x -> 'limitKw'))
+        ELSE v.x END
+      ORDER BY v.ord), '[]'::jsonb)
+    INTO evses
+    FROM jsonb_array_elements(e -> 'evses') WITH ORDINALITY AS v(x, ord);
+    out := out || jsonb_build_object('evses', evses);
+  END IF;
+  RETURN out;
+END;
+$$;
+--> statement-breakpoint
+UPDATE site_load_management slm
+SET applied_allocations = (
+      SELECT jsonb_agg(pg_temp.evtivity_0492_limit_entry(t.e) ORDER BY t.ord)
+      FROM jsonb_array_elements(slm.applied_allocations) WITH ORDINALITY AS t(e, ord)
+    ),
+    applied_at = NULL
+WHERE jsonb_typeof(slm.applied_allocations) = 'array'
+  AND EXISTS (
+    SELECT 1 FROM jsonb_array_elements(slm.applied_allocations) AS x(e)
+    WHERE jsonb_typeof(x.e) = 'object' AND NOT (x.e ? 'limit')
+  );
+-- end of load management block D

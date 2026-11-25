@@ -92,6 +92,7 @@ const CIRCUIT = {
   maxContinuousKw: '7.68',
   phaseConnections: null,
   voltageV: null as number | null,
+  phaseRotation: null as string | null,
   sortOrder: 0,
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),
@@ -178,6 +179,40 @@ describe('panels', () => {
     const subPanels = state.ops.filter((o) => o.op === 'update' && o.table === panels);
     expect(subPanels).toHaveLength(2);
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the phase rotation of a circuit the panel leaves on fewer than three phases', async () => {
+    const circuitSet = (): Record<string, unknown> => {
+      const update = state.ops.find((o) => o.op === 'update' && o.table === circuits);
+      return update?.calls.find(([m]) => m === 'set')?.[1][0] as Record<string, unknown>;
+    };
+    const rotated = { ...CIRCUIT, phaseRotation: 'TRS' };
+    results([{ ...PANEL, voltageV: 230, phases: 1 }], [rotated], []);
+    await updatePanel(
+      {
+        siteId: SITE,
+        panelId: PANEL.id,
+        existing: { ...PANEL, voltageV: 230, phases: 3 },
+        set: { phases: 1 },
+        recomputeCircuits: true,
+      },
+      CTX,
+    );
+    expect(circuitSet()).toMatchObject({ phaseRotation: null });
+
+    state.ops = [];
+    results([{ ...PANEL, voltageV: 230, phases: 3 }], [rotated], []);
+    await updatePanel(
+      {
+        siteId: SITE,
+        panelId: PANEL.id,
+        existing: { ...PANEL, voltageV: 240, phases: 3 },
+        set: { voltageV: 230 },
+        recomputeCircuits: true,
+      },
+      CTX,
+    );
+    expect(circuitSet()).not.toHaveProperty('phaseRotation');
   });
 
   it('reads the row, applies onlyIf and audits nothing when no row changed', async () => {

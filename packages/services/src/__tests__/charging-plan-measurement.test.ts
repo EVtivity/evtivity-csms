@@ -20,12 +20,12 @@ import {
 } from '../charging-plan-measurement.js';
 import {
   measurePlannedSessions,
-  plannedSessionDrawKw,
   profileSettled,
   withNotFollowingDraws,
-  type StoredPlanEntry,
 } from '../charging-plan.service.js';
-import type { StationPowerInfo } from '../load-management.service.js';
+import { plannedSessionDrawKw } from '../charging-plan-input.js';
+import { type StoredPlanEntry } from '../charging-plan-stored.js';
+import type { StationPowerInfo } from '../load-management-model.js';
 import type { PlanSessionRow } from '@evtivity/database';
 
 const SLOT = 15 * 60_000;

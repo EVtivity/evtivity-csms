@@ -8,19 +8,35 @@ import { chargingNeedsProfileId } from '@evtivity/lib/charging-profile-ids';
 const fleetMock = vi.hoisted(() => ({
   isFleetChargingEnabled: vi.fn(() => Promise.resolve(false)),
   markSitePlanStale: vi.fn(() => Promise.resolve(true)),
+  markLoadManagementStale: vi.fn(() => Promise.resolve(true)),
+  requestLoadManagementRecompute: vi.fn(() => Promise.resolve()),
+  applyStationLimitEvent: vi.fn((): Promise<boolean> => Promise.resolve(true)),
 }));
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
   getDefaultMaxPowerW: vi.fn(() => Promise.resolve(11000)),
   isFleetChargingEnabled: fleetMock.isFleetChargingEnabled,
   markSitePlanStale: fleetMock.markSitePlanStale,
+  markLoadManagementStale: fleetMock.markLoadManagementStale,
+  requestLoadManagementRecompute: fleetMock.requestLoadManagementRecompute,
+  applyStationLimitEvent: fleetMock.applyStationLimitEvent,
   operatorStationSql: (await importOriginal<typeof import('@evtivity/database')>())
     .operatorStationSql,
 }));
 
-const capMock = vi.hoisted(() => ({
-  sessionProfileCapKw: vi.fn((): Promise<number | null> => Promise.resolve(null)),
-}));
+const capMock = vi.hoisted(() => {
+  const capKwMock = vi.fn((): Promise<number | null> => Promise.resolve(null));
+  return {
+    capKwMock,
+    sessionProfileCap: vi.fn(async (stationUuid: string, transactionId: string) => ({
+      capKw: await (capKwMock as (...args: unknown[]) => Promise<number | null>)(
+        stationUuid,
+        transactionId,
+      ),
+      perEvse: false,
+    })),
+  };
+});
 vi.mock('@evtivity/services/session-profile-cap', () => capMock);
 
 import {
@@ -119,17 +135,26 @@ describe('requestedEnergyWh', () => {
 });
 
 describe('scheduleLimitW', () => {
-  it('takes the lowest of EV, connector and site', () => {
+  it('takes the lowest of EV, connector and session cap', () => {
     expect(
       scheduleLimitW({
         evMaxW: 22000,
         connectorMaxW: 11000,
-        siteAvailableW: 7000,
+        sessionCapW: 7000,
         energyWh: null,
         departureTime: null,
         now: NOW,
       }),
     ).toBe(7000);
+    expect(
+      scheduleLimitW({
+        evMaxW: 22000,
+        connectorMaxW: 11000,
+        energyWh: null,
+        departureTime: null,
+        now: NOW,
+      }),
+    ).toBe(11000);
   });
 
   it('lowers the limit to the rate that delivers the energy by departure', () => {
@@ -137,7 +162,6 @@ describe('scheduleLimitW', () => {
       scheduleLimitW({
         evMaxW: 22000,
         connectorMaxW: null,
-        siteAvailableW: null,
         energyWh: 10000,
         departureTime: '2026-10-13T14:00:00.000Z',
         now: NOW,
@@ -210,8 +234,34 @@ describe('computeAndSendChargingProfile', () => {
     expect(sqlValues[storeIndex]?.[0]).toEqual({ payload: command.payload, renegotiations: 0 });
   });
 
+  it('sends no profile when its EVSE limit record cannot be written (review 10)', async () => {
+    fleetMock.applyStationLimitEvent.mockRejectedValueOnce(new Error('database down'));
+    const sql = createSqlMock([{ max_power_kw: 22 }], []);
+    await computeAndSendChargingProfile(
+      sql as never,
+      pubsub,
+      {
+        stationUuid: 'sta_1',
+        stationOcppId: 'CS-1',
+        evseId: 1,
+        transactionId: 'tx-1',
+        chargingNeeds: {
+          requestedEnergyTransfer: 'AC_three_phase',
+          acChargingParameters: { evMinCurrent: 6, evMaxCurrent: 32, evMaxVoltage: 230 },
+        },
+        maxScheduleTuples: 3,
+      },
+      NOW,
+    );
+    // Unrecorded, the TxProfile could hold more than load management counts.
+    const published = (pubsub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => c[0] === 'ocpp_commands',
+    );
+    expect(published).toHaveLength(0);
+  });
+
   it('never allows more than the EVSE limit or the tariff limit of the session', async () => {
-    capMock.sessionProfileCapKw.mockResolvedValueOnce(4.1404);
+    capMock.capKwMock.mockResolvedValueOnce(4.1404);
     const sql = createSqlMock([{ max_power_kw: 22 }], []);
     await computeAndSendChargingProfile(
       sql as never,
@@ -225,7 +275,7 @@ describe('computeAndSendChargingProfile', () => {
       },
       NOW,
     );
-    expect(capMock.sessionProfileCapKw).toHaveBeenCalledWith('sta_1', 'tx-1');
+    expect(capMock.capKwMock).toHaveBeenCalledWith('sta_1', 'tx-1');
     const payload = sentCommand(pubsub).payload as {
       chargingProfile: { chargingSchedule: Array<{ chargingSchedulePeriod: unknown[] }> };
     };
@@ -234,8 +284,86 @@ describe('computeAndSendChargingProfile', () => {
     ]);
   });
 
+  it('sends the lower limit at once when a cut landed between the cap read and the send', async () => {
+    capMock.capKwMock.mockResolvedValueOnce(11).mockResolvedValueOnce(4.1404);
+    const sql = createSqlMock([{ max_power_kw: 22 }], []);
+    await computeAndSendChargingProfile(
+      sql as never,
+      pubsub,
+      {
+        stationUuid: 'sta_1',
+        stationOcppId: 'CS-1',
+        evseId: 1,
+        transactionId: 'tx-1',
+        chargingNeeds: { requestedEnergyTransfer: 'AC_three_phase' },
+      },
+      NOW,
+    );
+    const limits = vi
+      .mocked(pubsub.publish)
+      .mock.calls.filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => {
+        const cmd = JSON.parse(c[1]) as {
+          payload: {
+            chargingProfile: { chargingSchedule: Array<{ chargingSchedulePeriod: unknown[] }> };
+          };
+        };
+        return cmd.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod;
+      });
+    expect(limits).toEqual([[{ startPeriod: 0, limit: 11000 }], [{ startPeriod: 0, limit: 4140 }]]);
+    const stores = sqlCalls.filter((q) => q.includes('SET csms_charging_profile'));
+    expect(stores).toHaveLength(2);
+  });
+
+  it('keeps the sent profile and asks load management to resend when the second cap read fails (third review 5)', async () => {
+    capMock.capKwMock
+      .mockResolvedValueOnce(4.1404)
+      .mockRejectedValueOnce(new Error('database down'));
+    const sql = createSqlMock([{ max_power_kw: 22 }], []);
+    await computeAndSendChargingProfile(
+      sql as never,
+      pubsub,
+      {
+        stationUuid: 'sta_1',
+        stationOcppId: 'CS-1',
+        evseId: 1,
+        transactionId: 'tx-1',
+        chargingNeeds: { requestedEnergyTransfer: 'AC_three_phase' },
+      },
+      NOW,
+    );
+    const sends = vi.mocked(pubsub.publish).mock.calls.filter((c) => c[0] === 'ocpp_commands');
+    expect(sends).toHaveLength(1);
+    // The profile may have replaced an EVSE limit the failed read would have shown.
+    expect(fleetMock.markLoadManagementStale).toHaveBeenCalledWith(sql, 'CS-1');
+    expect(fleetMock.requestLoadManagementRecompute).toHaveBeenCalledWith(
+      sql,
+      { stationOcppId: 'CS-1' },
+      'iso15118_profile',
+    );
+  });
+
+  it('sends the profile once when the cap did not fall after the send', async () => {
+    capMock.capKwMock.mockResolvedValueOnce(4.1404).mockResolvedValueOnce(4.1404);
+    const sql = createSqlMock([{ max_power_kw: 22 }], []);
+    await computeAndSendChargingProfile(
+      sql as never,
+      pubsub,
+      {
+        stationUuid: 'sta_1',
+        stationOcppId: 'CS-1',
+        evseId: 1,
+        transactionId: 'tx-1',
+        chargingNeeds: { requestedEnergyTransfer: 'AC_three_phase' },
+      },
+      NOW,
+    );
+    const sends = vi.mocked(pubsub.publish).mock.calls.filter((c) => c[0] === 'ocpp_commands');
+    expect(sends).toHaveLength(1);
+  });
+
   it('sends 0 W while load management pauses the EVSE', async () => {
-    capMock.sessionProfileCapKw.mockResolvedValueOnce(0);
+    capMock.capKwMock.mockResolvedValueOnce(0);
     const sql = createSqlMock([{ max_power_kw: 22 }], []);
     await computeAndSendChargingProfile(
       sql as never,
@@ -255,40 +383,6 @@ describe('computeAndSendChargingProfile', () => {
     expect(payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod).toEqual([
       { startPeriod: 0, limit: 0 },
     ]);
-  });
-
-  it('subtracts the latest draw of other sessions at the same site only', async () => {
-    const sql = createSqlMock(
-      [{ max_power_kw: 50 }],
-      [{ max_power_kw: 20, site_id: 'sit_1' }],
-      [{ current_draw: 15000 }],
-    );
-    await computeAndSendChargingProfile(
-      sql as never,
-      pubsub,
-      {
-        stationUuid: 'sta_1',
-        stationOcppId: 'CS-1',
-        evseId: 1,
-        transactionId: 'tx-1',
-        chargingNeeds: {
-          requestedEnergyTransfer: 'DC',
-          dcChargingParameters: { evMaxCurrent: 200, evMaxVoltage: 400 },
-        },
-      },
-      NOW,
-    );
-    const profile = (sentCommand(pubsub).payload as Record<string, unknown>).chargingProfile as {
-      chargingSchedule: Array<{ chargingSchedulePeriod: unknown[] }>;
-    };
-    expect(profile.chargingSchedule[0]?.chargingSchedulePeriod).toEqual([
-      { startPeriod: 0, limit: 5000 },
-    ]);
-    const drawQuery = sqlCalls[2] ?? '';
-    expect(drawQuery).toContain('st.site_id = ?');
-    expect(drawQuery).toContain('DISTINCT ON (mv.session_id)');
-    // Sessions at conformance test stations do not count against the site limit.
-    expect(sqlValues[2]).toContainEqual({ unsafe: 'st.is_conformance = false' });
   });
 
   it('sends dynamic control needs one TxProfile schedule within maxScheduleTuples (K19.FR.07)', async () => {

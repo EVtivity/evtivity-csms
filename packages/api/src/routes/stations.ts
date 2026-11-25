@@ -78,16 +78,11 @@ import {
   reportedFieldChange,
   type ReportedStationField,
 } from '../lib/station-reported-fields.js';
+import { assertProfileIdAllowed, maxExternalConstraintsIds } from '../lib/charging-profile-id.js';
 import {
-  assertNotLoadManaged,
-  assertNotPlanProfileId,
-  assertProfileIdAllowed,
-  maxExternalConstraintsIds,
-  plannedClearConflict,
-  plannedClearMessage,
-  evseManagedClearConflict,
-  evseManagedClearMessage,
-} from '../lib/charging-profile-id.js';
+  loadManagementProfileConflict,
+  templateProfilePayload,
+} from '../lib/load-management-profile-conflict.js';
 import { clearProfileSlotBeforePush } from '../lib/charging-profile-push.js';
 import { requestSessionEnd } from '../lib/session-end.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
@@ -6303,20 +6298,13 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // A clear that could remove the plan TxProfile of a planned session.
       for (const payload of payloads) {
-        const plannedClear = await plannedClearConflict(station.stationId, payload);
-        if (plannedClear != null) {
-          await reply.status(400).send({
-            error: plannedClearMessage(plannedClear),
-            code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          });
-          return;
-        }
-        const evseClear = await evseManagedClearConflict(station.stationId, payload);
-        if (evseClear != null) {
-          await reply.status(400).send({
-            error: evseManagedClearMessage(evseClear),
-            code: 'CHARGING_PROFILE_LOAD_MANAGED',
-          });
+        const conflict = await loadManagementProfileConflict(
+          station.stationId,
+          'ClearChargingProfile',
+          payload,
+        );
+        if (conflict != null) {
+          await reply.status(400).send({ error: conflict, code: 'CHARGING_PROFILE_LOAD_MANAGED' });
           return;
         }
       }
@@ -6494,18 +6482,17 @@ export function stationRoutes(app: FastifyInstance): void {
       if (isOcpp21(station.ocppProtocol)) {
         assertProfileIdAllowed(template.profileId, maxExternalId);
       }
-      // A profile that would lift the load management limit of the station.
-      await assertNotLoadManaged(
-        { dbId: id },
-        {
-          profileId: template.profileId,
-          purpose: template.profilePurpose,
-          stackLevel: template.stackLevel,
-        },
-        maxExternalId,
+      // A profile that would lift or replace a load management limit of the station.
+      const conflict = await loadManagementProfileConflict(
+        station.stationId,
+        'SetChargingProfile',
+        templateProfilePayload(template),
+        { maxExternalId: maxExternalId ?? null },
       );
-      // A profile with a planned session's TxProfile id would replace the plan.
-      await assertNotPlanProfileId(station.stationId, template.profileId);
+      if (conflict != null) {
+        await reply.status(400).send({ error: conflict, code: 'CHARGING_PROFILE_LOAD_MANAGED' });
+        return;
+      }
 
       // Best-effort clear existing profile with same purpose/stackLevel/evseId.
       // OCPP 2.1 wants the criteria nested under `chargingProfileCriteria`.

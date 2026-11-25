@@ -73,6 +73,28 @@ export const STATION_MESSAGE_JOB_OPTIONS = {
   backoff: { type: 'exponential', delay: 5000 },
 };
 
+/**
+ * Load management cycles: the worker's periodic tick per site, and the
+ * recomputes an event asks for (`requestLoadManagementRecompute`, API and
+ * OCPP), debounced and collapsed per site by their job ids.
+ */
+export const LOAD_MANAGEMENT_QUEUE = 'load-management';
+export const LOAD_MANAGEMENT_RECOMPUTE_JOB_NAME = 'load-management-recompute';
+/** How long a recompute waits for more events of the same site (300 to 1000 ms). */
+export const LOAD_MANAGEMENT_RECOMPUTE_DEBOUNCE_MS = 500;
+export const LOAD_MANAGEMENT_RECOMPUTE_JOB_OPTIONS = {
+  removeOnComplete: true,
+  removeOnFail: true,
+  attempts: 1,
+};
+/** The event job id of a site; a recompute asked while it runs follows as the other id. */
+export function loadManagementEventJobId(siteId: string): string {
+  return `load-management-event-${siteId}`;
+}
+export function loadManagementFollowUpJobId(siteId: string): string {
+  return `load-management-followup-${siteId}`;
+}
+
 /** Station-watch alert dispatches (API, OCPP and worker paths that free a station). */
 export const STATION_WATCH_QUEUE = 'station-watch';
 

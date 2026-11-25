@@ -25,32 +25,27 @@ vi.mock('@evtivity/database', () => ({
 
 import {
   PLAN_SITE_NODE,
-  bindDepartures,
-  buildPlanInput,
   buildPlanNodes,
   circuitNodeId,
-  departureAwareAllocation,
-  departureAwarePlan,
   panelNodeId,
   phaseNodeId,
   transformerNodeId,
   transformerPhaseNodeId,
-  planNeedsRun,
   holdNodeId,
+} from '../charging-plan-nodes.js';
+import { bindDepartures } from '../charging-plan-binding.js';
+import { buildPlanInput, readinessWrites } from '../charging-plan-input.js';
+import { departureAwareAllocation, departureAwarePlan } from '../charging-plan.service.js';
+import {
+  planNeedsRun,
   plannedStationCut,
   plannedStations,
-  readinessWrites,
   snapToMinimum,
   storedSlotIndex,
   type StoredPlanEntry,
-} from '../charging-plan.service.js';
-import {
-  circuitPhaseShare,
-  legWeight,
-  subPanelPhaseShare,
-  type HierarchyNode,
-  type StationPowerInfo,
-} from '../load-management.service.js';
+} from '../charging-plan-stored.js';
+import { circuitPhaseShare, legWeight, subPanelPhaseShare } from '../load-management-phases.js';
+import { type HierarchyNode, type StationPowerInfo } from '../load-management-model.js';
 import type { PlanDepartureRow, PlanSessionRow, StoredSitePlan } from '@evtivity/database';
 import type { PlanNodeUse } from '@evtivity/lib/charging-plan';
 
@@ -497,7 +492,14 @@ describe('buildPlanInput', () => {
       hierarchy,
       stations: [s, idle],
       reservedKw: new Map(),
-      previous: [{ stationId: 'STA_B', stationDbId: 'sta_b', allocatedKw: 10 }],
+      previous: [
+        {
+          stationId: 'STA_B',
+          stationDbId: 'sta_b',
+          allocatedKw: 10,
+          limit: { state: 'accepted', commandId: 'c10', sentKw: 10, mightKw: null },
+        },
+      ],
       departures,
       sessions,
       binding: bindDepartures(departures, sessions, NOW),
@@ -967,7 +969,14 @@ describe('readinessWrites', () => {
       hierarchy: [panel('pnl_root', [circuit('cir_a', [pending])])],
       stations: [pending],
       reservedKw: new Map([['sta_a', 22]]),
-      previous: [{ stationId: 'STA_A', stationDbId: 'sta_a', allocatedKw: 22, limitPending: true }],
+      previous: [
+        {
+          stationId: 'STA_A',
+          stationDbId: 'sta_a',
+          allocatedKw: 22,
+          limit: { state: 'refused', commandId: 'c22', sentKw: 22, mightKw: null },
+        },
+      ],
       departures,
       sessions,
       binding: bindDepartures(departures, sessions, NOW),
@@ -1063,6 +1072,52 @@ describe('departureAwareAllocation', () => {
     expect(byId.get('sta_a')).toBe(12);
     expect(byId.get('sta_b')).toBe(28);
     expect(dbMock.markSitePlanStale).not.toHaveBeenCalled();
+  });
+
+  it('plans again once a planned station confirms its limit, not while a reservation lasts', async () => {
+    dbMock.getSitePlan.mockResolvedValue(null);
+    dbMock.listPlanDepartures.mockResolvedValue([
+      departure({ id: 'vdp_2', vehicleId: 'veh_2', targetEnergyKwh: 30, maxChargePowerKw: 50 }),
+    ]);
+    dbMock.listPlanSessions.mockResolvedValue([
+      session({ id: 'ses_2', stationDbId: 'sta_b', evseDbId: 'evs_b1', vehicleId: 'veh_2' }),
+    ]);
+    const hierarchy = [
+      panel('pnl_root', [circuit('cir_a', [other], { maxContinuousKw: 100 })], {
+        maxContinuousKw: 40,
+      }),
+    ];
+    const reserved = new Map([['sta_b', 20]]);
+    const entry = (state: string) =>
+      [{ stationId: 'STA_B', stationDbId: 'sta_b', allocatedKw: 20, limit: { state } }] as never;
+    // Its limit is unknown (no entry) or awaiting a reply: the plan is provisional.
+    for (const previous of [null, entry('awaiting')]) {
+      dbMock.markSitePlanStale.mockClear();
+      await departureAwareAllocation({
+        ...ctx,
+        stations: [other],
+        reservedKw: reserved,
+        hierarchy,
+        previous,
+      });
+      expect(dbMock.markSitePlanStale).toHaveBeenCalledWith(
+        'sit_1',
+        'limits_unconfirmed',
+        expect.anything(),
+      );
+    }
+    // A refused or lost limit lasts: no replan every cycle.
+    for (const previous of [entry('refused'), entry('lost')]) {
+      dbMock.markSitePlanStale.mockClear();
+      await departureAwareAllocation({
+        ...ctx,
+        stations: [other],
+        reservedKw: reserved,
+        hierarchy,
+        previous,
+      });
+      expect(dbMock.markSitePlanStale).not.toHaveBeenCalled();
+    }
   });
 
   it('never replans every cycle for a planned session on a reserved station', async () => {

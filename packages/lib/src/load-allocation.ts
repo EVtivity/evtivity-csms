@@ -18,8 +18,13 @@ export type LoadAllocationStrategy = (typeof LOAD_ALLOCATION_STRATEGIES)[number]
 // capacity is voltage x amps per conductor phase. 208 and 480 are line to line
 // voltages, so a three-phase panel refuses them: the capacity would be
 // overstated by a factor of 1.73.
+/** A per-EVSE limit refused this many times in a row puts the station on one station limit. */
+export const EVSE_LIMIT_REFUSALS_BEFORE_FALLBACK = 3;
+/** How long a station stays on one station limit after it refused per-EVSE limits. */
+export const EVSE_LIMITS_REFUSAL_RETRY_MS = 60 * 60_000;
+
 export const PANEL_VOLTAGES = [120, 208, 220, 230, 240, 277, 480] as const;
-export const LINE_TO_LINE_ONLY_VOLTAGES: readonly number[] = [208, 480];
+const LINE_TO_LINE_ONLY_VOLTAGES: readonly number[] = [208, 480];
 
 export function isPanelVoltageAllowed(voltageV: number, phases: number): boolean {
   if (!(PANEL_VOLTAGES as readonly number[]).includes(voltageV)) return false;
@@ -28,6 +33,13 @@ export function isPanelVoltageAllowed(voltageV: number, phases: number): boolean
 
 // NEC continuous load rule: a breaker carries at most 80% of its rating.
 export const CONTINUOUS_LOAD_FACTOR = 0.8;
+
+/**
+ * The lowest AC unit budget (fuse rating, A per phase): 80 percent of it must
+ * reach the 6 A an AC session needs (IEC 61851-1 and SAE J1772 lowest duty
+ * cycle current), or every session of the unit would be paused.
+ */
+export const UNIT_BUDGET_MIN_AC_A = 7.5;
 
 /**
  * Number of phase conductors a circuit uses: every panel phase when it names
@@ -100,8 +112,6 @@ export function effectiveCircuitVoltageV(
  * sub-panel's load then counts in full on every phase of the parent.
  */
 export const SUB_PANEL_PHASE_CONNECTIONS = ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3'] as const;
-
-export type SubPanelPhaseConnection = (typeof SUB_PANEL_PHASE_CONNECTIONS)[number];
 
 /** A panel may name its feeding phases only as a single-phase sub-panel of a three-phase panel. */
 export function isSubPanelPhaseConnectionAllowed(

@@ -97,6 +97,7 @@ vi.mock('postgres', () => {
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 const mockMarkSitePlanStale = vi.fn().mockResolvedValue(true);
+const mockRequestRecompute = vi.fn().mockResolvedValue([]);
 
 // The payment service (@evtivity/payments): the gate's hold and the
 // settlement on Ended. The mode classification stays real.
@@ -219,6 +220,8 @@ vi.mock('@evtivity/database', async () => ({
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The depot plan stale mark (tested in transaction-rerun.test.ts).
   markSitePlanStale: (...args: unknown[]) => mockMarkSitePlanStale(...args) as unknown,
+  // The load management recompute request (tested in the database package).
+  requestLoadManagementRecompute: (...args: unknown[]) => mockRequestRecompute(...args) as unknown,
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   // AC and DC tariffs: the session kind stamp (tested in the database package).
@@ -489,8 +492,11 @@ describe('Event projections - coverage expansion', () => {
         makeDomainEvent('station.Connected', 'CS-FK', { ocppProtocol: 'ocpp2.1' }),
       );
 
-      // Should stop after connection_logs insert returned 0
-      expect(sqlCalls.length).toBe(3);
+      // Should stop after connection_logs insert returned 0 (the load
+      // management resend and recompute are their own subscription).
+      expect(
+        sqlCalls.filter((c) => !c.strings.join('').includes('site_load_management')).length,
+      ).toBe(3);
     });
   });
 
@@ -809,9 +815,13 @@ describe('Event projections - coverage expansion', () => {
         makeDomainEvent('ocpp.BootNotification', 'UNKNOWN', {}),
       );
 
-      // The station lookup, then only the load management resend mark (its
-      // own subscription, keyed by the OCPP identity, matches no row).
-      expect(sqlCalls.length).toBe(2);
+      // Only station lookups, plus the load management resend mark and
+      // recompute (their own subscriptions, keyed by the OCPP identity).
+      expect(
+        sqlCalls
+          .filter((c) => !c.strings.join('').includes('site_load_management'))
+          .every((c) => c.strings.join('').includes('SELECT')),
+      ).toBe(true);
       expect(sqlCalls[1]?.strings.join('')).toContain('UPDATE site_load_management');
     });
   });
@@ -2802,6 +2812,20 @@ describe('Event projections - coverage expansion', () => {
       expect(stopCommands()).toHaveLength(0);
       expect(faultUpdate()).toBeUndefined();
       expect(paymentNotifications()).toHaveLength(0);
+    });
+
+    it('asks for the load management recompute before the payment gate holds', async () => {
+      await setup();
+      setupSqlResults(...driverStartedResults());
+
+      await emitDriverStarted('tx-recompute');
+
+      const started = mockRequestRecompute.mock.calls.findIndex((c) => c[2] === 'session_started');
+      expect(started).toBeGreaterThanOrEqual(0);
+      expect(mockRequestRecompute.mock.calls[started]?.[1]).toEqual({ stationOcppId: 'CS-001' });
+      expect(mockRequestRecompute.mock.invocationCallOrder[started]).toBeLessThan(
+        mockAuthorizeSessionHold.mock.invocationCallOrder[0] ?? 0,
+      );
     });
 
     it('leaves the session running when the hold already exists', async () => {

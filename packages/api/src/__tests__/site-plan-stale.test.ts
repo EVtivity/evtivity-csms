@@ -5,12 +5,17 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
-const { markSitePlanStale } = vi.hoisted(() => ({
+const { markSitePlanStale, requestLoadManagementRecompute } = vi.hoisted(() => ({
   markSitePlanStale: vi.fn().mockResolvedValue(true),
+  requestLoadManagementRecompute: vi.fn().mockResolvedValue(['sit_a']),
 }));
-vi.mock('@evtivity/database', () => ({ markSitePlanStale }));
+vi.mock('@evtivity/database', () => ({
+  markSitePlanStale,
+  requestLoadManagementRecompute,
+  client: {},
+}));
 
-import { replanSiteAfterWrite } from '../lib/site-plan-stale.js';
+import { recomputeSiteAfterWrite, replanSiteAfterWrite } from '../lib/site-plan-stale.js';
 
 describe('replanSiteAfterWrite', () => {
   let app: FastifyInstance;
@@ -32,6 +37,11 @@ describe('replanSiteAfterWrite', () => {
       { onResponse: [replanSiteAfterWrite('config_changed', 'id')] },
       async () => ({ ok: true }),
     );
+    app.patch(
+      '/sites/:id/priority',
+      { onResponse: [recomputeSiteAfterWrite('load_priority_changed', 'id')] },
+      async () => ({ ok: true }),
+    );
     await app.ready();
   });
 
@@ -39,13 +49,18 @@ describe('replanSiteAfterWrite', () => {
     await app.close();
   });
 
-  it('marks the plan of a departure-aware site after a successful write', async () => {
+  it('marks the plan and asks for a recompute after a successful write', async () => {
     const res = await app.inject({ method: 'POST', url: '/sites/sit_a/things' });
     expect(res.statusCode).toBe(201);
     await vi.waitFor(() => {
       expect(markSitePlanStale).toHaveBeenCalledWith('sit_a', 'thing_changed', expect.anything(), {
         departureAwareOnly: true,
       });
+      expect(requestLoadManagementRecompute).toHaveBeenCalledWith(
+        {},
+        { siteId: 'sit_a' },
+        'thing_changed',
+      );
     });
   });
 
@@ -55,13 +70,40 @@ describe('replanSiteAfterWrite', () => {
       expect(markSitePlanStale).toHaveBeenCalledWith('sit_b', 'config_changed', expect.anything(), {
         departureAwareOnly: true,
       });
+      expect(requestLoadManagementRecompute).toHaveBeenCalledWith(
+        {},
+        { siteId: 'sit_b' },
+        'config_changed',
+      );
     });
   });
 
-  it('marks nothing after a refused write', async () => {
+  it('marks nothing and asks for nothing after a refused write', async () => {
     const res = await app.inject({ method: 'DELETE', url: '/sites/sit_a/things/thg_1' });
     expect(res.statusCode).toBe(404);
     await new Promise((resolve) => setImmediate(resolve));
     expect(markSitePlanStale).not.toHaveBeenCalled();
+    expect(requestLoadManagementRecompute).not.toHaveBeenCalled();
+  });
+
+  it('only asks for a recompute where no plan input changed', async () => {
+    await app.inject({ method: 'PATCH', url: '/sites/sit_c/priority' });
+    await vi.waitFor(() => {
+      expect(requestLoadManagementRecompute).toHaveBeenCalledWith(
+        {},
+        { siteId: 'sit_c' },
+        'load_priority_changed',
+      );
+    });
+    expect(markSitePlanStale).not.toHaveBeenCalled();
+  });
+
+  it('keeps answering when the recompute request fails', async () => {
+    requestLoadManagementRecompute.mockRejectedValueOnce(new Error('redis down'));
+    const res = await app.inject({ method: 'PATCH', url: '/sites/sit_d/priority' });
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => {
+      expect(requestLoadManagementRecompute).toHaveBeenCalledTimes(1);
+    });
   });
 });

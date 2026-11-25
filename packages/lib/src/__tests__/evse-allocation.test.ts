@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it } from 'vitest';
-import { allocateEvseLimits, AC_MIN_CURRENT_A } from '../evse-allocation.js';
+import { acMinimumKw, allocateEvseLimits, AC_MIN_CURRENT_A } from '../evse-allocation.js';
 
 function box(id: string, a: number): { id: string; capacity: number }[] {
   return ['L1', 'L2', 'L3'].map((p) => ({ id: `${id}:${p}`, capacity: a }));
@@ -153,5 +153,67 @@ describe('allocateEvseLimits', () => {
         expect(lvl ?? 0).toBeLessThanOrEqual(d.maxLevel + 1e-9);
       }
     }
+  });
+});
+
+describe('acMinimumKw', () => {
+  it('gives 6 A on one, two (line to line) and three conductor phases', () => {
+    expect(acMinimumKw(230, 1)).toBeCloseTo(1.38, 9);
+    expect(acMinimumKw(208, 2)).toBeCloseTo((6 * 208 * Math.sqrt(3)) / 1000, 9);
+    expect(acMinimumKw(230, 3)).toBeCloseTo(4.14, 9);
+  });
+
+  it('gives every AC session its 6 A before a DC session takes the rest (review C3)', () => {
+    // A 5.888 kW W limit shared by a DC session (kW) and a one-phase AC session (A):
+    // filled at one level, the DC session would leave the AC one 4.79 A and pause it.
+    const kwPerA = 0.23;
+    const r = allocateEvseLimits({
+      constraints: [{ id: 'station:kw', capacity: 5.888 }],
+      demands: [
+        {
+          key: 'dc',
+          kind: 'dc',
+          maxLevel: 20,
+          weights: { 'station:kw': 1 },
+          priority: 5,
+          order: 1,
+        },
+        {
+          key: 'ac',
+          kind: 'ac',
+          maxLevel: 16,
+          weights: { 'station:kw': kwPerA },
+          priority: 5,
+          order: 2,
+        },
+      ],
+    });
+    expect(r.get('ac')?.paused).toBe(false);
+    expect(r.get('ac')?.level ?? 0).toBeGreaterThanOrEqual(AC_MIN_CURRENT_A - 1e-9);
+    expect((r.get('dc')?.level ?? 0) + (r.get('ac')?.level ?? 0) * kwPerA).toBeCloseTo(5.888, 6);
+    // Floors that do not fit pause the later AC session, never a DC one.
+    const tight = allocateEvseLimits({
+      constraints: [{ id: 'station:kw', capacity: 2 }],
+      demands: [
+        {
+          key: 'a1',
+          kind: 'ac',
+          maxLevel: 16,
+          weights: { 'station:kw': kwPerA },
+          priority: 5,
+          order: 1,
+        },
+        {
+          key: 'a2',
+          kind: 'ac',
+          maxLevel: 16,
+          weights: { 'station:kw': kwPerA },
+          priority: 5,
+          order: 2,
+        },
+      ],
+    });
+    expect(tight.get('a2')?.paused).toBe(true);
+    expect(tight.get('a1')?.level ?? 0).toBeGreaterThanOrEqual(AC_MIN_CURRENT_A - 1e-9);
   });
 });
